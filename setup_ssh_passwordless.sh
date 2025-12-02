@@ -131,12 +131,21 @@ USE_SSHPASS=false
 # SSH 키가 이미 모든 노드에 배포되어 있는지 확인
 echo "🔍 기존 SSH 키 배포 상태 확인 중..."
 NEEDS_PASSWORD=false
+NODES_WITHOUT_KEY=0
 
-# 첫 번째 노드로 테스트
-FIRST_NODE=$(echo "$NODES" | head -1 | cut -d'#' -f1)
-if ! ssh -o BatchMode=yes -o ConnectTimeout=3 "$FIRST_NODE" "echo OK" > /dev/null 2>&1; then
-    NEEDS_PASSWORD=true
-    echo "   → 비밀번호 기반 설정이 필요합니다."
+# 모든 노드 체크 (최대 5개만 빠르게 테스트)
+while IFS='#' read -r test_user_ip test_hostname; do
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=2 "$test_user_ip" "echo OK" > /dev/null 2>&1; then
+        ((NODES_WITHOUT_KEY++))
+        if [ $NODES_WITHOUT_KEY -ge 1 ]; then
+            NEEDS_PASSWORD=true
+            break
+        fi
+    fi
+done < <(echo "$NODES" | head -5)
+
+if [ "$NEEDS_PASSWORD" = true ]; then
+    echo "   → SSH 키가 없는 노드 발견. 비밀번호 설정이 필요합니다."
 else
     echo "   → SSH 키가 이미 배포되어 있습니다."
 fi
@@ -265,13 +274,29 @@ while IFS='#' read -r user_ip hostname <&3; do
     # SSH 키 복사 (필요한 경우만)
     if [ "$ALREADY_SETUP" = false ]; then
         echo "   [1/4] SSH 공개키 복사 중..."
-        if [ "$USE_SSHPASS" = true ]; then
-            sshpass -p "$PASSWORD" ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" > /dev/null 2>&1
-        else
-            ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null
+
+        # USE_SSHPASS가 false인데 SSH 키가 없는 경우 -> 비밀번호 필요
+        if [ "$USE_SSHPASS" = false ]; then
+            # 이 시점에서 비밀번호가 필요함 - 사용자에게 요청
+            if [ -z "$PASSWORD" ]; then
+                echo ""
+                echo "   ⚠️  이 노드에 SSH 키가 없습니다. 비밀번호가 필요합니다."
+                read -s -p "   SSH 비밀번호: " PASSWORD
+                echo ""
+                if [ -n "$PASSWORD" ] && command -v sshpass &> /dev/null; then
+                    USE_SSHPASS=true
+                fi
+            fi
         fi
 
-        if [ $? -eq 0 ]; then
+        COPY_OK=false
+        if [ "$USE_SSHPASS" = true ]; then
+            sshpass -p "$PASSWORD" ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" > /dev/null 2>&1 && COPY_OK=true
+        else
+            ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null && COPY_OK=true
+        fi
+
+        if [ "$COPY_OK" = true ]; then
             echo "   ✅ 공개키 복사 완료"
         else
             echo "   ❌ 공개키 복사 실패"
@@ -328,9 +353,15 @@ EOF
     # sshpass가 있으면 사용, 없으면 일반 ssh 사용
     SUDOERS_OK=false
     if [ "$USE_SSHPASS" = true ]; then
+        # sshpass로 SSH 접속 후 sudo -S로 비밀번호 파이프
         if sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-            "echo '$PASSWORD' | sudo -S bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null; then
+            "echo '${PASSWORD}' | sudo -S bash -c '${SUDOERS_INSTALL_CMD}'" 2>&1 | grep -qv "password"; then
             SUDOERS_OK=true
+        fi
+        # 실패 시 다른 방법 시도
+        if [ "$SUDOERS_OK" = false ]; then
+            sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+                "sudo -S bash -c '${SUDOERS_INSTALL_CMD}'" <<< "$PASSWORD" 2>/dev/null && SUDOERS_OK=true
         fi
     else
         # 이미 sudoers가 설정되어 있을 수 있으므로 BatchMode로 먼저 시도
@@ -362,16 +393,22 @@ EOF
     HOSTS_OK=false
     HOSTS_INSTALL_CMD='cp /tmp/hosts.tmp /etc/hosts && rm -f /tmp/hosts.tmp'
 
-    if [ "$USE_SSHPASS" = true ]; then
-        if sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-            "echo '$PASSWORD' | sudo -S bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null; then
-            HOSTS_OK=true
-        fi
-    else
-        # sudoers가 설정되어 있으면 BatchMode로 성공
+    # sudoers가 성공적으로 설정되었으면 BatchMode로 시도 (비밀번호 불필요)
+    if [ "$SUDOERS_OK" = true ]; then
         if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
             "sudo bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null; then
             HOSTS_OK=true
+        fi
+    fi
+
+    # 아직 안 됐으면 sshpass 사용
+    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '${PASSWORD}' | sudo -S bash -c '${HOSTS_INSTALL_CMD}'" 2>/dev/null && HOSTS_OK=true
+        # 실패 시 heredoc 방식 시도
+        if [ "$HOSTS_OK" = false ]; then
+            sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+                "sudo -S bash -c '${HOSTS_INSTALL_CMD}'" <<< "$PASSWORD" 2>/dev/null && HOSTS_OK=true
         fi
     fi
 
