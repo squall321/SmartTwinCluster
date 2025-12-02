@@ -660,12 +660,23 @@ if [[ ! $REPLY =~ ^[Nn]$ ]]; then
 
             # 스크립트와 설정 파일 복사
             if scp -o BatchMode=yes -o ConnectTimeout=5 setup_time_sync.sh "$CONFIG_FILE" "$user_ip:/tmp/" 2>/dev/null; then
-                # 원격 실행
-                if ssh -o BatchMode=yes -o ConnectTimeout=10 "$user_ip" \
-                    "cd /tmp && sudo bash setup_time_sync.sh $CONFIG_FILE" > /dev/null 2>&1; then
+                # 원격 실행 (sudo -S로 비밀번호 입력 지원)
+                if [ -n "$PASSWORD" ]; then
+                    # 저장된 비밀번호 사용
+                    result=$(ssh -o BatchMode=yes -o ConnectTimeout=30 "$user_ip" \
+                        "cd /tmp && echo '$PASSWORD' | sudo -S bash setup_time_sync.sh $CONFIG_FILE 2>&1" 2>&1)
+                else
+                    # 비밀번호 없이 시도
+                    result=$(ssh -o BatchMode=yes -o ConnectTimeout=30 "$user_ip" \
+                        "cd /tmp && sudo bash setup_time_sync.sh $CONFIG_FILE 2>&1" 2>&1)
+                fi
+
+                if echo "$result" | grep -q "설정 완료\|✅"; then
                     echo "✅ 완료"
                 else
-                    echo "⚠️  설정 실패 (수동 확인 필요)"
+                    echo "⚠️  설정 실패"
+                    # 오류 내용 표시 (처음 2줄만)
+                    echo "$result" | grep -i "error\|실패\|failed\|permission\|denied" | head -2 | sed 's/^/      /'
                 fi
             else
                 echo "⚠️  파일 복사 실패"
