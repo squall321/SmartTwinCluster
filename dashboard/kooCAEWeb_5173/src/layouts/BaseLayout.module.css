@@ -1,0 +1,104 @@
+/* ========== 메뉴 기본 스타일 ========== */
+.menu {
+  font-weight: 500;
+}
+
+/* 상단 메뉴 항목 */
+.menu :global(.ant-menu-item),
+.menu :global(.ant-menu-submenu) {
+  font-family: 'Poppins', 'Orbitron', 'Rajdhani', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+  border-bottom: 2px solid transparent;
+}
+
+/* 항목 hover 시 효과 */
+.menu :global(.ant-menu-item:hover),
+.menu :global(.ant-menu-submenu:hover) {
+  background-color: rgba(24, 144, 255, 0.2) !important;
+  color: #1890ff !important;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  transform: scale(1.03);
+}
+
+/* 항목 선택 시 */
+.menu :global(.ant-menu-item-selected) {
+  color: #00ffff !important;
+  font-weight: 600;
+  border-bottom: 2px solid #00ffff;
+}
+
+/* hover 밑줄 효과 */
+.menu :global(.ant-menu-item:hover) {
+  color: #40c4ff !important;
+  border-bottom: 2px solid #40c4ff;
+}
+
+/* ========== 서브 메뉴 팝업 스타일 ========== */
+:global(.ant-menu-submenu-popup) {
+  min-width: 350px !important;
+  max-width: 500px !important;
+  padding: 8px;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  white-space: normal !important;
+  word-break: keep-all !important;
+  z-index: 1000;
+}
+
+/* 서브 메뉴 내부 항목 */
+:global(.ant-menu-submenu-popup .ant-menu-item) {
+  white-space: normal !important;
+  word-break: keep-all !important;
+  padding-right: 20px;
+}
+
+/* 서브 메뉴 아이템 hover */
+:global(.ant-menu-submenu-popup .ant-menu-item:hover) {
+  background-color: #e6f7ff !important;
+  color: #1890ff !important;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: all 0.25s ease-in-out;
+}
+
+/* 서브 메뉴 열릴 때 애니메이션 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ========== 커스텀 메뉴 확장 스타일 (선택적 사용) ========== */
+.customMenu .ant-menu-item:hover,
+.customMenu .ant-menu-submenu:hover {
+  background-color: #1890ff !important;
+  color: white !important;
+  border-radius: 6px;
+  transform: scale(1.05);
+  transition: all 0.3s ease;
+}
+
+.customMenu .ant-menu-submenu-title {
+  font-weight: 500;
+}
+
+.customMenu .ant-menu-submenu-popup {
+  border-radius: 8px;
+  min-width: 350px !important;
+  max-width: 500px !important;
+  overflow: hidden;
+}
+
+.customMenu .ant-menu-submenu-popup .ant-menu-item:hover {
+  background-color: #e6f7ff !important;
+  color: #1890ff !important;
+}

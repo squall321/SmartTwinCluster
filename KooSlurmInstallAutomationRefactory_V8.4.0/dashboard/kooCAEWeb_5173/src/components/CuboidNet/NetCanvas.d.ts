@@ -1,0 +1,20 @@
+import React from "react";
+import { Face, Mode, NetLayout } from "./types";
+type Props = {
+    layout: NetLayout;
+    ppmm: number;
+    mode: Mode;
+    brushMM: number;
+    zoom: "fit" | number;
+    maskCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+    patternCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+    imageDataRef: React.MutableRefObject<ImageData | null>;
+    maskVersion: number;
+    highlightFace: Face | null;
+    onFaceClick: (face: Face) => void;
+    footerText?: string;
+    style?: React.CSSProperties;
+    onMaskEdited?: () => void;
+};
+export default function NetCanvas({ layout, ppmm, mode, brushMM, zoom, maskCanvasRef, patternCanvasRef, imageDataRef, maskVersion, highlightFace, onFaceClick, footerText, style, onMaskEdited }: Props): import("react/jsx-runtime").JSX.Element;
+export {};

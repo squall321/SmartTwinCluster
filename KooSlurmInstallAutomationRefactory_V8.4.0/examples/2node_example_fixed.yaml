@@ -1,0 +1,333 @@
+# 2노드 Slurm 클러스터 예시 설정 (수정 및 보완 버전)
+# 헤드노드 1개 + 계산노드 1개 구성
+# Stage 1 기본 설치용 실제 설정 예시
+
+# 설정 파일 버전
+config_version: "1.0"
+
+stage: 1  # 설치 단계 (1: 기본, 2: 고급, 3: 최적화)
+
+cluster_info:
+  cluster_name: "mini-cluster"
+  domain: "hpc.local"
+  admin_email: "admin@hpc.local"
+  timezone: "Asia/Seoul"
+
+# 설치 방법 설정 (중요!)
+installation:
+  install_method: "package"  # package (권장, 빠름) 또는 source (느림)
+  offline_mode: false
+  package_cache_path: "/var/cache/slurm_packages"
+  compile_options: "--with-pmix --with-hwloc"
+
+nodes:
+  controller:
+    hostname: "head01"
+    ip_address: "192.168.1.10"
+    ssh_user: "root"
+    ssh_port: 22
+    ssh_key_path: "~/.ssh/id_rsa"
+    os_type: "centos8"
+    node_type: "controller"  # 명시적 타입 지정
+    hardware:
+      cpus: 8
+      memory_mb: 16384
+      disk_gb: 500
+  
+  compute_nodes:
+    - hostname: "compute01"
+      ip_address: "192.168.1.20"
+      ssh_user: "root"
+      ssh_port: 22
+      ssh_key_path: "~/.ssh/id_rsa"
+      os_type: "centos8"
+      node_type: "compute"  # 명시적 타입 지정
+      hardware:
+        cpus: 16
+        sockets: 1
+        cores_per_socket: 8
+        threads_per_core: 2
+        memory_mb: 32768
+        tmp_disk_mb: 102400
+        gpu:
+          type: "nvidia"  # Tesla V100 가정
+          count: 1
+
+network:
+  management_network: "192.168.1.0/24"
+  compute_network: "192.168.1.0/24"
+  firewall:
+    enabled: true
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: 22
+
+# 시간 동기화 설정 (중요!)
+time_synchronization:
+  enabled: true
+  ntp_servers:
+    - "time.google.com"
+    - "time.cloudflare.com"
+    - "pool.ntp.org"
+  timezone: "Asia/Seoul"
+
+slurm_config:
+  version: "22.05.8"
+  install_path: "/usr/local/slurm"
+  config_path: "/usr/local/slurm/etc"
+  log_path: "/var/log/slurm"
+  spool_path: "/var/spool/slurm"
+  state_save_location: "/var/spool/slurm/state"
+  
+  # Slurm 스케줄러 설정
+  scheduler:
+    type: "sched/backfill"
+    max_job_count: 10000
+    max_array_size: 1000
+  
+  # 계정 설정
+  accounting:
+    storage_type: "accounting_storage/none"  # Stage 1에서는 DB 없이
+    storage_host: ""
+  
+  partitions:
+    - name: "gpu"
+      nodes: "compute01"
+      default: true
+      max_time: "7-00:00:00"  # 7일
+      max_nodes: 1
+      state: "UP"
+      priority_tier: 1
+    - name: "debug"
+      nodes: "compute01"
+      default: false
+      max_time: "00:30:00"  # 30분
+      max_nodes: 1
+      state: "UP"
+      priority_tier: 2
+
+users:
+  slurm_user: "slurm"
+  slurm_uid: 1001
+  slurm_gid: 1001
+  munge_user: "munge"
+  munge_uid: 1002
+  munge_gid: 1002
+  
+  cluster_users:
+    - username: "user01"
+      uid: 2001
+      gid: 2001
+      groups: 
+        - "users"
+        - "hpc"
+    - username: "user02"
+      uid: 2002
+      gid: 2001
+      groups: 
+        - "users"
+        - "hpc"
+    - username: "admin"
+      uid: 2003
+      gid: 2001
+      groups: 
+        - "users"
+        - "hpc"
+        - "wheel"
+
+shared_storage:
+  nfs_server: "192.168.1.10"  # 헤드노드가 NFS 서버
+  mount_points:
+    - source: "/export/home"
+      target: "/home"
+      options: "rw,sync,hard,intr"
+    - source: "/export/share"
+      target: "/share"
+      options: "rw,sync,hard,intr"
+    - source: "/export/apps"
+      target: "/apps"
+      options: "ro,sync,hard,intr"
+
+# Stage 2 고급 기능 (기본값, 비활성화 상태)
+database:
+  enabled: false
+  type: "mysql"  # mysql 또는 mariadb
+  host: "localhost"
+  port: 3306
+  database_name: "slurm_acct_db"
+  username: "slurm"
+  password: "changeme"
+  backup_schedule: "0 2 * * *"
+
+monitoring:
+  ganglia:
+    enabled: false
+    gmetad_host: "head01"
+    gmond_port: 8649
+  
+  prometheus:
+    enabled: false
+    port: 9090
+    node_exporter: false
+    slurm_exporter: false
+  
+  grafana:
+    enabled: false
+    port: 3000
+    admin_password: "admin"
+
+high_availability:
+  controller_ha:
+    enabled: false
+    primary_controller: "head01"
+    backup_controller: ""
+    virtual_ip: ""
+    failover_timeout: 30
+
+security:
+  munge:
+    key_rotation_days: 30
+    key_backup_location: "/etc/munge/munge.key.backup"
+  
+  ssl:
+    enabled: false
+    cert_path: ""
+    key_path: ""
+    ca_path: ""
+  
+  selinux:
+    enabled: true
+    mode: "permissive"
+
+environment_modules:
+  enabled: false
+  type: "lmod"  # lmod 또는 modules
+  modulefiles_path: "/usr/share/Modules/modulefiles"
+  default_modules: []
+
+# Stage 3 운영 최적화 (기본값, 비활성화 상태)
+performance_tuning:
+  enabled: false
+  
+  kernel_parameters:
+    vm.swappiness: 1
+    vm.dirty_ratio: 15
+    vm.dirty_background_ratio: 5
+    net.core.rmem_max: 134217728
+    net.core.wmem_max: 134217728
+  
+  ulimits:
+    nofile: 65536
+    nproc: 65536
+    memlock: unlimited
+    stack: unlimited
+  
+  cpu_governor: "performance"
+  numa_balancing: false
+
+power_management:
+  enabled: false
+  idle_timeout: 300
+  suspend_program: ""
+  resume_program: ""
+  
+  ipmi:
+    enabled: false
+    username: ""
+    password: ""
+    interface: "lanplus"
+
+container_support:
+  # Apptainer (권장 - Singularity의 후속 프로젝트)
+  apptainer:
+    enabled: false  # Stage 1에서는 기본적으로 비활성화
+    version: "1.2.5"
+    install_path: "/usr/local"
+    image_path: "/share/apptainer"
+    cache_path: "/tmp/apptainer"
+    bind_paths:
+      - "/home"
+      - "/share"
+  
+  # Singularity (레거시 지원)
+  singularity:
+    enabled: false
+    version: "3.10.0"
+    install_path: "/usr/local/singularity"
+    image_path: "/share/singularity"
+    cache_path: "/tmp/singularity"
+    bind_paths:
+      - "/home"
+      - "/share"
+  
+  # Docker (선택적)
+  docker:
+    enabled: false
+    rootless: true
+    data_root: "/var/lib/docker"
+
+parallel_filesystems:
+  lustre:
+    enabled: false
+  beegfs:
+    enabled: false
+  gpfs:
+    enabled: false
+
+gpu_computing:
+  nvidia:
+    enabled: true  # GPU 노드가 있으므로 활성화
+    driver_version: "470.82.01"
+    cuda_version: "11.4"
+    mig_enabled: false
+    persistence_mode: true
+  
+  amd:
+    enabled: false
+
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: "0 3 * * 0"  # 매주 일요일 3시
+    retention_days: 30
+    backup_path: "/backup/slurm"
+    remote_backup: false
+    
+  snapshot:
+    enabled: true
+    snapshot_path: "/var/lib/slurm/snapshots"
+
+# 추가 설정 예시
+comments:
+  setup_notes: |
+    이 설정은 2노드 소규모 클러스터를 위한 기본 구성입니다.
+    
+    하드웨어 구성:
+    - head01: 8 CPU, 16GB RAM (컨트롤러 + NFS 서버)
+    - compute01: 16 CPU, 32GB RAM, NVIDIA GPU 1개
+    
+    설치 전 확인사항:
+    1. 모든 노드 간 SSH 키 기반 인증 설정 완료
+    2. 방화벽 포트 개방 (6817, 6818, 6819, 22)
+    3. 시간 동기화 (NTP) 설정
+    4. SELinux permissive 모드 설정
+    
+    설치 후 확인사항:
+    1. NFS 마운트 확인: df -h
+    2. GPU 드라이버 설치: nvidia-smi
+    3. Slurm 서비스 상태: sinfo, squeue
+    4. Munge 인증: munge -n | unmunge
+    
+    테스트 작업:
+    sbatch --gres=gpu:1 --wrap="nvidia-smi"
+    
+  changes_from_original:
+    - "installation 섹션 추가 (패키지 vs 소스 설치 방법)"
+    - "time_synchronization 섹션 추가 (NTP 설정)"
+    - "node_type 필드 추가 (명시적 노드 타입)"
+    - "munge_user/munge_uid/munge_gid 추가"
+    - "slurm_config.spool_path, state_save_location 추가"
+    - "slurm_config.scheduler, accounting 섹션 추가"
+    - "backup_and_recovery.snapshot 섹션 추가"

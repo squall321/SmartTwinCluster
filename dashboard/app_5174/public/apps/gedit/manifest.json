@@ -1,0 +1,27 @@
+{
+  "name": "GEdit Remote App",
+  "short_name": "GEdit",
+  "description": "Remote GEdit Text Editor Application",
+  "start_url": "/app/apps/gedit/index.html",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#646cff",
+  "orientation": "any",
+  "scope": "/app/apps/gedit/",
+  "icons": [
+    {
+      "src": "/app/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "display_override": ["window-controls-overlay", "standalone"]
+}

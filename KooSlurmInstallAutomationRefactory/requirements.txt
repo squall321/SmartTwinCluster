@@ -1,0 +1,20 @@
+# 기본 Python 패키지들
+requests>=2.31.0
+numpy>=1.24.0
+pandas>=2.0.0
+pytest>=7.4.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Slurm 설정 관련 패키지
+PyYAML>=6.0
+Jinja2>=3.1.0
+paramiko>=3.0.0
+
+# 성능 모니터링
+psutil>=5.9.0
+
+# UI 및 터미널 출력
+rich>=13.7.0
+tqdm>=4.66.0
+colorama>=0.4.6

@@ -1,0 +1,63 @@
+{
+  "dashboard": {
+    "title": "Dashboard Performance Monitoring",
+    "tags": ["dashboard", "performance", "storage"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "API Request Rate",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(api_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}} ({{status}})"
+          }
+        ]
+      },
+      {
+        "title": "API Response Time (p95)",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(api_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ]
+      },
+      {
+        "title": "Cache Hit Rate",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(cache_hits_total[5m]) / (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m]))",
+            "legendFormat": "{{cache_type}}"
+          }
+        ]
+      },
+      {
+        "title": "WebSocket Connections",
+        "type": "stat",
+        "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "websocket_connections_active"
+          }
+        ]
+      },
+      {
+        "title": "Storage Usage",
+        "type": "gauge",
+        "gridPos": { "x": 0, "y": 32, "w": 8, "h": 8 },
+        "targets": [
+          {
+            "expr": "storage_usage_percent",
+            "legendFormat": "{{storage_type}} {{path}}"
+          }
+        ]
+      }
+    ]
+  }
+}

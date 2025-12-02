@@ -1,0 +1,109 @@
+import { API_CONFIG } from '../config/api.config';
+
+/**
+ * Storage API Client
+ * 백엔드 Storage API 호출 유틸리티
+ */
+
+const API_BASE_URL = `${API_CONFIG.API_BASE_URL}/api`;
+
+interface ApiResponse<T> {
+  success: boolean;
+  mode?: 'mock' | 'production';
+  data?: T;
+  error?: string;
+  message?: string;
+}
+
+// Generic API call wrapper
+async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error(`API Error [${endpoint}]:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// GET request
+export async function apiGet<T>(endpoint: string): Promise<ApiResponse<T>> {
+  return apiCall<T>(endpoint, { method: 'GET' });
+}
+
+// POST request
+export async function apiPost<T>(endpoint: string, body?: any): Promise<ApiResponse<T>> {
+  return apiCall<T>(endpoint, {
+    method: 'POST',
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+// Storage API Functions
+
+export const storageApi = {
+  /**
+   * 공유 스토리지 통계 조회
+   */
+  getSharedStorageStats: () => apiGet('/storage/data/stats'),
+
+  /**
+   * 데이터셋 목록 조회
+   */
+  getDatasets: (params?: { search?: string; status?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return apiGet(`/storage/data/datasets${query ? `?${query}` : ''}`);
+  },
+
+  /**
+   * 파일 목록 조회
+   */
+  listFiles: (path: string, storageType: 'data' | 'scratch' = 'data') => {
+    return apiGet(`/storage/files?path=${encodeURIComponent(path)}&type=${storageType}`);
+  },
+
+  /**
+   * Scratch 노드 정보 조회
+   */
+  getScratchNodes: () => apiGet('/storage/scratch/nodes'),
+
+  /**
+   * /scratch → /data 이동
+   */
+  moveScratchToData: (data: { directoryIds: string[]; destination: string }) => {
+    return apiPost('/storage/scratch/move', data);
+  },
+
+  /**
+   * /scratch 디렉토리 삭제
+   */
+  deleteScratchDirectories: (directoryIds: string[]) => {
+    return apiPost('/storage/scratch/delete', { directoryIds });
+  },
+
+  /**
+   * 파일 검색
+   */
+  searchFiles: (params: { q: string; path?: string; type?: 'data' | 'scratch'; limit?: number }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return apiGet(`/storage/search?${query}`);
+  },
+};
+
+export default storageApi;

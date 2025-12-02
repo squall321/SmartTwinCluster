@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Twin App - Application Launcher</title>
+    <link rel="icon" type="image/svg+xml" href="/app/icon.svg">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 1200px;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            margin-bottom: 3rem;
+            opacity: 0.9;
+        }
+
+        .apps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .app-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .app-card:hover {
+            transform: translateY(-10px);
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .app-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .app-name {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .app-description {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            line-height: 1.4;
+        }
+
+        .badge {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
+
+        footer {
+            position: fixed;
+            bottom: 20px;
+            font-size: 0.9rem;
+            opacity: 0.7;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+            .apps-grid {
+                grid-template-columns: 1fr;
+                max-width: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Smart Twin App</h1>
+        <p class="subtitle">원격 데스크탑 애플리케이션 런처</p>
+
+        <div class="apps-grid">
+            <!-- GEdit App Card -->
+            <a href="/app/apps/gedit/" class="app-card">
+                <div class="app-icon">📝</div>
+                <div class="app-name">GEdit</div>
+                <div class="app-description">
+                    텍스트 에디터<br>
+                    원격 VNC 환경에서 실행
+                </div>
+                <div class="badge">PWA 지원</div>
+            </a>
+
+            <!-- Placeholder for future apps -->
+            <div class="app-card" style="opacity: 0.5; cursor: not-allowed;">
+                <div class="app-icon">🔨</div>
+                <div class="app-name">준비 중</div>
+                <div class="app-description">
+                    추가 애플리케이션<br>
+                    곧 출시 예정
+                </div>
+                <div class="badge">Coming Soon</div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        © 2025 Smart Twin Cluster | HPC Application Service
+    </footer>
+
+    <script>
+        // PWA installation support
+        let deferredPrompt;
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            console.log('PWA install prompt available');
+        });
+
+        // Prevent placeholder clicks
+        document.querySelectorAll('.app-card[style*="not-allowed"]').forEach(card => {
+            card.addEventListener('click', (e) => {
+                e.preventDefault();
+                alert('이 애플리케이션은 곧 출시됩니다!');
+            });
+        });
+    </script>
+</body>
+</html>

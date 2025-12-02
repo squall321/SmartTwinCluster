@@ -1,0 +1,316 @@
+# 4노드 Slurm 클러스터 예시 설정
+# 헤드노드 1개 + 계산노드 3개 구성 (GPU/CPU 혼합)
+# Stage 2 고급 기능 포함
+
+# 설정 파일 버전
+config_version: "1.0"
+
+stage: 2
+
+cluster_info:
+  cluster_name: "research-cluster"
+  domain: "research.university.edu"
+  admin_email: "hpc-admin@university.edu"
+  timezone: "America/New_York"
+
+# 설치 방법 설정
+installation:
+  install_method: "package"
+  offline_mode: false
+  package_cache_path: "/var/cache/slurm_packages"
+  compile_options: "--with-pmix --with-hwloc"
+
+nodes:
+  controller:
+    hostname: "master"
+    ip_address: "10.0.1.10"
+    ssh_user: "root"
+    ssh_port: 22
+    ssh_key_path: "/root/.ssh/cluster_rsa"
+    os_type: "ubuntu20"
+    node_type: "controller"
+    hardware:
+      cpus: 16
+      memory_mb: 65536  # 64GB
+      disk_gb: 1000
+  
+  compute_nodes:
+    - hostname: "gpu01"
+      ip_address: "10.0.1.21"
+      ssh_user: "root"
+      ssh_port: 22
+      ssh_key_path: "/root/.ssh/cluster_rsa"
+      os_type: "ubuntu20"
+      node_type: "compute"
+      hardware:
+        cpus: 32
+        sockets: 2
+        cores_per_socket: 8
+        threads_per_core: 2
+        memory_mb: 131072  # 128GB
+        tmp_disk_mb: 512000  # 500GB NVMe
+        gpu:
+          type: "nvidia"
+          count: 4  # 4x Tesla V100
+    
+    - hostname: "gpu02"
+      ip_address: "10.0.1.22"
+      ssh_user: "root"
+      ssh_port: 22
+      ssh_key_path: "/root/.ssh/cluster_rsa"
+      os_type: "ubuntu20"
+      node_type: "compute"
+      hardware:
+        cpus: 32
+        sockets: 2
+        cores_per_socket: 8
+        threads_per_core: 2
+        memory_mb: 131072
+        tmp_disk_mb: 512000
+        gpu:
+          type: "nvidia"
+          count: 4
+    
+    - hostname: "cpu01"
+      ip_address: "10.0.1.31"
+      ssh_user: "root"
+      ssh_port: 22
+      ssh_key_path: "/root/.ssh/cluster_rsa"
+      os_type: "ubuntu20"
+      node_type: "compute"
+      hardware:
+        cpus: 64
+        sockets: 2
+        cores_per_socket: 16
+        threads_per_core: 2
+        memory_mb: 262144  # 256GB
+        tmp_disk_mb: 1024000  # 1TB
+        gpu:
+          type: "none"
+          count: 0
+
+network:
+  management_network: "10.0.1.0/24"
+  compute_network: "10.0.2.0/24"  # InfiniBand 네트워크
+  firewall:
+    enabled: true
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: 22
+      ganglia: 8649
+      prometheus: 9090
+
+slurm_config:
+  version: "23.02.6"
+  install_path: "/opt/slurm"
+  config_path: "/opt/slurm/etc"
+  log_path: "/var/log/slurm"
+  spool_path: "/var/spool/slurm"
+  state_save_location: "/var/spool/slurm/state"
+  
+  scheduler:
+    type: "sched/backfill"
+    max_job_count: 50000
+    max_array_size: 5000
+  
+  accounting:
+    storage_type: "accounting_storage/slurmdbd"
+    storage_host: "master"
+  
+  partitions:
+    - name: "gpu"
+      nodes: "gpu[01-02]"
+      default: true
+      max_time: "3-00:00:00"  # 3일
+      max_nodes: 2
+      qos: "gpu"
+    - name: "cpu"
+      nodes: "cpu01"
+      default: false
+      max_time: "7-00:00:00"  # 7일
+      max_nodes: 1
+      qos: "cpu"
+    - name: "debug"
+      nodes: "gpu01,cpu01"
+      default: false
+      max_time: "01:00:00"  # 1시간
+      max_nodes: 1
+      qos: "debug"
+
+users:
+  slurm_user: "slurm"
+  slurm_uid: 64030
+  slurm_gid: 64030
+  munge_user: "munge"
+  munge_uid: 64031
+  munge_gid: 64031
+  
+  cluster_users:
+    - username: "prof_kim"
+      uid: 10001
+      gid: 10000
+      groups: ["faculty", "hpc"]
+    - username: "grad_student1"
+      uid: 20001
+      gid: 20000
+      groups: ["students", "hpc"]
+    - username: "postdoc_lee"
+      uid: 15001
+      gid: 15000
+      groups: ["postdocs", "hpc"]
+
+shared_storage:
+  nfs_server: "10.0.1.10"
+  mount_points:
+    - source: "/export/home"
+      target: "/home"
+      options: "rw,sync,hard,intr,vers=4"
+    - source: "/export/shared"
+      target: "/shared"
+      options: "rw,sync,hard,intr,vers=4"
+    - source: "/export/scratch"
+      target: "/scratch"
+      options: "rw,async,hard,intr,vers=4"
+
+# Stage 2 고급 기능 활성화
+database:
+  enabled: true
+  host: "10.0.1.10"
+  port: 3306
+  database_name: "slurm_acct_db"
+  username: "slurm"
+  password: "SecureSlurm2023!"
+  backup_schedule: "0 2 * * *"
+
+monitoring:
+  ganglia:
+    enabled: true
+    gmetad_host: "master"
+    gmond_port: 8649
+  
+  prometheus:
+    enabled: true
+    port: 9090
+    node_exporter: true
+    slurm_exporter: true
+  
+  grafana:
+    enabled: true
+    port: 3000
+    admin_password: "GrafanaAdmin2023!"
+
+high_availability:
+  controller_ha:
+    enabled: false  # 단일 컨트롤러
+    primary_controller: "master"
+    backup_controller: ""
+    virtual_ip: ""
+
+security:
+  munge:
+    key_rotation_days: 90
+    key_backup_location: "/etc/munge/backup"
+  
+  ssl:
+    enabled: true
+    cert_path: "/etc/slurm/ssl/slurm.crt"
+    key_path: "/etc/slurm/ssl/slurm.key"
+    ca_path: "/etc/slurm/ssl/ca.crt"
+  
+  selinux:
+    enabled: false
+    mode: "disabled"
+
+environment_modules:
+  enabled: true
+  type: "lmod"
+  modulefiles_path: "/opt/modulefiles"
+  default_modules:
+    - "StdEnv/2020"
+    - "gcc/9.3.0"
+
+time_synchronization:
+  enabled: true
+  ntp_servers:
+    - "pool.ntp.org"
+    - "time.google.com"
+  timezone: "America/New_York"
+
+logging:
+  centralized_logging:
+    enabled: true
+    syslog_server: "10.0.1.10"
+    log_level: "info"
+  
+  log_rotation:
+    enabled: true
+    retention_days: 30
+    max_size: "100M"
+
+mail_alerts:
+  enabled: true
+  smtp_server: "smtp.university.edu"
+  smtp_port: 587
+  from_address: "slurm-alerts@university.edu"
+  admin_emails:
+    - "hpc-admin@university.edu"
+    - "system-admin@university.edu"
+
+# Stage 3 일부 기능 포함
+performance_tuning:
+  kernel_parameters:
+    vm.swappiness: 1
+    vm.dirty_ratio: 10
+    vm.dirty_background_ratio: 3
+    net.core.rmem_max: 268435456
+    net.core.wmem_max: 268435456
+  
+  ulimits:
+    nofile: 131072
+    nproc: 131072
+    memlock: unlimited
+    stack: unlimited
+
+gpu_computing:
+  nvidia:
+    enabled: true
+    driver_version: "525.85.12"
+    cuda_version: "12.0"
+    mig_enabled: false
+    persistence_mode: true
+
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: "0 2 * * 0"  # 매주 일요일
+    retention_days: 60
+    backup_path: "/backup/slurm"
+    remote_backup: true
+  
+  database_backup:
+    enabled: true
+    schedule: "0 3 * * *"  # 매일
+    retention_days: 14
+    backup_path: "/backup/slurm-db"
+
+comments:
+  setup_notes: |
+    중규모 연구용 클러스터 구성
+    
+    노드 구성:
+    - master: 16 CPU, 64GB RAM (컨트롤러 + DB + NFS)
+    - gpu01/02: 각각 32 CPU, 128GB RAM, 4x GPU
+    - cpu01: 64 CPU, 256GB RAM (고메모리 작업용)
+    
+    특징:
+    - GPU와 CPU 전용 파티션 분리
+    - 작업 우선순위 및 QoS 적용
+    - 모니터링 및 알림 시스템 구축
+    - SSL 통신 보안 적용
+    
+    권장 후속 작업:
+    1. 사용자별 리소스 제한 정책 수립
+    2. 작업 스케줄링 정책 최적화
+    3. 성능 모니터링 대시보드 구성

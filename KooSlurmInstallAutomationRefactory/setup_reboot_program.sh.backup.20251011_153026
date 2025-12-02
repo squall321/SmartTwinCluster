@@ -1,0 +1,92 @@
+#!/bin/bash
+
+echo "================================================================================"
+echo "🔄 Step: RebootProgram 설정"
+echo "================================================================================"
+echo ""
+
+CURRENT_USER=$(whoami)
+SCONTROL_PATH="/usr/local/slurm/bin/scontrol"
+REBOOT_SCRIPT="/usr/local/slurm/sbin/slurm_reboot_node.sh"
+
+echo "📝 RebootProgram 스크립트 생성 중..."
+
+# RebootProgram 스크립트 생성
+sudo tee $REBOOT_SCRIPT > /dev/null <<'REBOOT_SCRIPT'
+#!/bin/bash
+NODE_NAME=$1
+LOG_FILE="/var/log/slurm/node_reboot.log"
+mkdir -p $(dirname $LOG_FILE)
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+}
+
+log_msg "=========================================="
+log_msg "Reboot: $NODE_NAME"
+log_msg "Executed as: $(whoami)"
+
+# koopark 사용자로 SSH 실행
+if su - koopark -c "ssh -o StrictHostKeyChecking=no -o BatchMode=yes koopark@${NODE_NAME} 'sudo /sbin/reboot'" >> $LOG_FILE 2>&1; then
+    log_msg "✅ Reboot command sent successfully"
+    exit 0
+else
+    log_msg "❌ SSH command failed"
+    exit 1
+fi
+REBOOT_SCRIPT
+
+sudo chmod +x $REBOOT_SCRIPT
+sudo chown root:root $REBOOT_SCRIPT
+echo "✅ RebootProgram 스크립트 생성: $REBOOT_SCRIPT"
+echo ""
+
+# slurm.conf에 RebootProgram 추가
+echo "📝 slurm.conf 업데이트 중..."
+if ! grep -q "^RebootProgram=" /usr/local/slurm/etc/slurm.conf; then
+    echo "RebootProgram=$REBOOT_SCRIPT" | sudo tee -a /usr/local/slurm/etc/slurm.conf > /dev/null
+    echo "✅ slurm.conf에 RebootProgram 추가"
+else
+    echo "⚠️  RebootProgram이 이미 설정되어 있습니다"
+fi
+echo ""
+
+# sudoers 설정 (scontrol reboot 권한)
+echo "🔒 sudoers 설정 중..."
+sudo tee /etc/sudoers.d/slurm-dashboard-scontrol > /dev/null <<SUDOERS
+# Slurm Dashboard - scontrol reboot permission
+${CURRENT_USER} ALL=(ALL) NOPASSWD: ${SCONTROL_PATH} reboot *
+${CURRENT_USER} ALL=(ALL) NOPASSWD: ${SCONTROL_PATH}
+SUDOERS
+
+sudo chmod 0440 /etc/sudoers.d/slurm-dashboard-scontrol
+echo "✅ sudoers 설정 완료"
+echo ""
+
+# SSH 키 설정 안내
+echo "================================================================================"
+echo "🔑 SSH 키 설정 (노드 재부팅에 필요)"
+echo "================================================================================"
+echo ""
+echo "각 노드에서 비밀번호 없이 재부팅하려면 SSH 키가 필요합니다:"
+echo ""
+echo "1. SSH 키 생성 (없으면):"
+echo "   ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa"
+echo ""
+echo "2. 모든 노드에 SSH 키 복사:"
+echo "   ssh-copy-id ${CURRENT_USER}@node001"
+echo "   ssh-copy-id ${CURRENT_USER}@node002"
+echo ""
+echo "3. 각 노드에서 sudo 권한 설정 (비밀번호 없이 재부팅):"
+echo "   ssh ${CURRENT_USER}@node001"
+echo "   echo '${CURRENT_USER} ALL=(ALL) NOPASSWD: /sbin/reboot' | sudo tee /etc/sudoers.d/${CURRENT_USER}-reboot"
+echo "   sudo chmod 0440 /etc/sudoers.d/${CURRENT_USER}-reboot"
+echo "   exit"
+echo ""
+echo "   (node002도 동일하게 반복)"
+echo ""
+echo "4. 테스트:"
+echo "   ssh ${CURRENT_USER}@node001 'sudo /sbin/reboot'"
+echo ""
+echo "자동화 스크립트가 필요하면 dashboard/backend_5010/setup_ssh_for_user.sh 참고"
+echo ""

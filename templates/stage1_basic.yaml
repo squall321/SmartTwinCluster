@@ -1,0 +1,87 @@
+# Slurm 클러스터 1단계 - 기본 설치 템플릿
+# 최소한의 Slurm 설치에 필요한 설정 항목들
+
+# 설정 파일 버전 (필수)
+config_version: "1.0"
+
+cluster_info:
+  cluster_name: "{{ CLUSTER_NAME }}"
+  domain: "{{ DOMAIN }}"
+  admin_email: "{{ ADMIN_EMAIL }}"
+  timezone: "{{ TIMEZONE }}"
+
+nodes:
+  controller:
+    hostname: "{{ CONTROLLER_HOSTNAME }}"
+    ip_address: "{{ CONTROLLER_IP }}"
+    ssh_user: "{{ SSH_USER }}"
+    ssh_port: 22
+    ssh_key_path: "{{ SSH_KEY_PATH }}"
+    os_type: "{{ OS_TYPE }}"  # centos7, centos8, ubuntu18, ubuntu20, rhel8
+    hardware:
+      cpus: "{{ CONTROLLER_CPUS }}"
+      memory_mb: "{{ CONTROLLER_MEMORY }}"
+      disk_gb: "{{ CONTROLLER_DISK }}"
+  
+  compute_nodes:
+    - hostname: "{{ COMPUTE_NODE_HOSTNAME }}"
+      ip_address: "{{ COMPUTE_NODE_IP }}"
+      ssh_user: "{{ SSH_USER }}"
+      ssh_port: 22
+      ssh_key_path: "{{ SSH_KEY_PATH }}"
+      os_type: "{{ OS_TYPE }}"
+      hardware:
+        cpus: "{{ COMPUTE_CPUS }}"
+        sockets: "{{ COMPUTE_SOCKETS }}"
+        cores_per_socket: "{{ CORES_PER_SOCKET }}"
+        threads_per_core: "{{ THREADS_PER_CORE }}"
+        memory_mb: "{{ COMPUTE_MEMORY }}"
+        tmp_disk_mb: "{{ COMPUTE_TMP_DISK }}"
+        gpu:
+          type: "{{ GPU_TYPE }}"  # none, nvidia, amd
+          count: "{{ GPU_COUNT }}"
+
+network:
+  management_network: "{{ MGMT_NETWORK }}"
+  compute_network: "{{ COMPUTE_NETWORK }}"
+  firewall:
+    enabled: true
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: 22
+
+slurm_config:
+  version: "{{ SLURM_VERSION }}"
+  install_path: "/usr/local/slurm"
+  config_path: "/usr/local/slurm/etc"
+  log_path: "/var/log/slurm"
+  reboot_program: "/sbin/reboot"  # 노드 재부팅 프로그램
+  partitions:
+    - name: "{{ PARTITION_NAME }}"
+      nodes: "{{ PARTITION_NODES }}"
+      default: true
+      max_time: "{{ MAX_TIME }}"
+      max_nodes: "{{ MAX_NODES }}"
+
+users:
+  slurm_user: "slurm"
+  slurm_uid: 1001
+  slurm_gid: 1001
+  cluster_users:
+    - username: "{{ USER_NAME }}"
+      uid: "{{ USER_UID }}"
+      gid: "{{ USER_GID }}"
+      groups: 
+        - "{{ USER_GROUPS }}"
+
+shared_storage:
+  nfs_server: "{{ NFS_SERVER }}"
+  mount_points:
+    - source: "{{ NFS_HOME_PATH }}"
+      target: "/home"
+      options: "rw,sync,hard,intr"
+    - source: "{{ NFS_SHARE_PATH }}"
+      target: "/share"
+      options: "rw,sync,hard,intr"

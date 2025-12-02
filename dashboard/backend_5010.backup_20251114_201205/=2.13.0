@@ -1,0 +1,6 @@
+Defaulting to user installation because normal site-packages is not writeable
+Requirement already satisfied: asyncssh in /home/koopark/.local/lib/python3.12/site-packages (2.21.1)
+Requirement already satisfied: cryptography>=39.0 in /home/koopark/.local/lib/python3.12/site-packages (from asyncssh) (46.0.2)
+Requirement already satisfied: typing_extensions>=4.0.0 in /home/koopark/.local/lib/python3.12/site-packages (from asyncssh) (4.15.0)
+Requirement already satisfied: cffi>=2.0.0 in /home/koopark/.local/lib/python3.12/site-packages (from cryptography>=39.0->asyncssh) (2.0.0)
+Requirement already satisfied: pycparser in /home/koopark/.local/lib/python3.12/site-packages (from cffi>=2.0.0->cryptography>=39.0->asyncssh) (2.23)

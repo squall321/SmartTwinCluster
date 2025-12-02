@@ -1,0 +1,108 @@
+name: "LS-DYNA Basic"
+description: "기본 LS-DYNA 시뮬레이션 템플릿"
+category: "lsdyna"
+parameters:
+  job_name:
+    type: "string"
+    required: true
+    default: "lsdyna_job"
+    description: "작업 이름"
+  cores:
+    type: "int"
+    required: true
+    default: 16
+    options: [16, 32, 64, 128]
+    description: "사용할 CPU 코어 수"
+  time_limit:
+    type: "string"
+    required: true
+    default: "02:00:00"
+    description: "최대 실행 시간 (HH:MM:SS)"
+  partition:
+    type: "string"
+    required: false
+    default: "debug"
+    description: "SLURM 파티션"
+  version:
+    type: "string"
+    required: true
+    default: "R12"
+    options: ["R11", "R12", "R13"]
+    description: "LS-DYNA 버전"
+  mode:
+    type: "string"
+    required: true
+    default: "smp"
+    options: ["smp", "mpp"]
+    description: "실행 모드 (SMP/MPP)"
+  precision:
+    type: "string"
+    required: true
+    default: "double"
+    options: ["single", "double"]
+    description: "정밀도"
+  memory:
+    type: "string"
+    required: false
+    default: "4GB"
+    description: "메모리 요청량"
+input_files:
+  main_input:
+    extension: ".k"
+    required: true
+    description: "메인 K 파일"
+  include_files:
+    extension: ".k"
+    required: false
+    multiple: true
+    description: "추가 Include 파일들"
+template: |
+  #!/bin/bash
+  #SBATCH -J {{job_name}}
+  #SBATCH -n {{cores}}
+  #SBATCH --time={{time_limit}}
+  #SBATCH -o {{output_dir}}/{{job_name}}.out
+  #SBATCH -e {{output_dir}}/{{job_name}}.err
+  {% if partition %}#SBATCH -p {{partition}}{% endif %}
+  {% if memory %}#SBATCH --mem={{memory}}{% endif %}
+
+  # Job Information
+  echo "=================================="
+  echo "Job Name: {{job_name}}"
+  echo "Cores: {{cores}}"
+  echo "Started: $(date)"
+  echo "Node: $SLURM_JOB_NODELIST"
+  echo "=================================="
+
+  # Environment Setup
+  {% if version %}
+  module load lsdyna/{{version}}
+  {% endif %}
+
+  # Copy input files to local scratch if available
+  if [ -d "/tmp/$SLURM_JOB_ID" ]; then
+      WORK_DIR="/tmp/$SLURM_JOB_ID"
+      mkdir -p $WORK_DIR
+      cp {{input_files.main_input}} $WORK_DIR/
+      {% for include_file in input_files.include_files %}
+      cp {{include_file}} $WORK_DIR/
+      {% endfor %}
+      cd $WORK_DIR
+      INPUT_FILE="$(basename {{input_files.main_input}})"
+  else
+      WORK_DIR="{{work_dir}}"
+      INPUT_FILE="{{input_files.main_input}}"
+  fi
+
+  # Run LS-DYNA
+  echo "Starting LS-DYNA simulation..."
+  lsdyna_{{version|lower}}_{{mode}}_{{precision}} i=$INPUT_FILE ncpu={{cores}}
+
+  # Copy results back if using scratch
+  if [ "$WORK_DIR" != "{{work_dir}}" ]; then
+      cp * {{work_dir}}/
+      cd {{work_dir}}
+      rm -rf /tmp/$SLURM_JOB_ID
+  fi
+
+  echo "Job completed: $(date)"

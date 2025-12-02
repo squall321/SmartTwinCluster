@@ -1,0 +1,698 @@
+# ============================================================================
+# HPC Cluster Web Services 마스터 구성 파일
+# ============================================================================
+# 이 파일은 모든 웹 서비스의 중앙 구성을 관리합니다.
+# 환경(development/production)에 따라 자동으로 .env 파일을 생성합니다.
+#
+# 사용법:
+#   python3 generate_env_files.py development
+#   python3 generate_env_files.py production
+# ============================================================================
+
+# ============================================================================
+# 환경 설정
+# ============================================================================
+environments:
+  development:
+    description: "로컬 개발 환경 (SSO 비활성화)"
+    domain: "localhost"
+    protocol: "http"
+    sso_enabled: false
+    debug: true
+    log_level: "DEBUG"
+
+  production:
+    description: "프로덕션 환경 (SSO 활성화)"
+    domain: "hpc.example.com"  # 실제 도메인으로 변경
+    protocol: "https"
+    sso_enabled: true
+    debug: false
+    log_level: "INFO"
+
+# ============================================================================
+# 공통 설정
+# ============================================================================
+common:
+  # JWT 설정
+  jwt:
+    secret_key: "CHANGE_THIS_IN_PRODUCTION_TO_RANDOM_STRING"  # 프로덕션에서 반드시 변경
+    algorithm: "HS256"
+    expiration_hours: 8
+
+  # Redis 설정
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    password: ""  # 프로덕션에서 설정 권장
+
+  # 로그 설정
+  logging:
+    dir: "/var/log/hpc_web_services"
+    max_size_mb: 100
+    retention_days: 30
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # 백업 설정
+  backup:
+    enabled: true
+    dir: "/home/koopark/claude/KooSlurmInstallAutomationRefactory/backups"
+    retention_count: 5
+
+  # Slurm 설정
+  slurm:
+    control_node: "gpu-master"
+    partition_cpu: "compute"
+    partition_gpu: "gpu"
+    partition_vnc: "gpu"
+
+# ============================================================================
+# 서비스 정의
+# ============================================================================
+services:
+  # --------------------------------------------------------------------------
+  # Auth Portal - 인증 서비스 (SSO/SAML)
+  # --------------------------------------------------------------------------
+  auth_portal_backend:
+    name: "Auth Portal Backend"
+    description: "SAML SSO 인증 및 JWT 토큰 발급"
+    directory: "dashboard/auth_portal_4430"
+    port: 4430
+    protocol: "http"
+    type: "flask"
+
+    environment:
+      development:
+        HOST: "0.0.0.0"
+        PORT: 4430
+        FLASK_ENV: "development"
+        FLASK_DEBUG: "True"
+
+        # JWT
+        JWT_SECRET_KEY: "dev-jwt-secret-please-change"
+        JWT_ALGORITHM: "HS256"
+        JWT_EXPIRATION_HOURS: 8
+
+        # Redis
+        REDIS_HOST: "localhost"
+        REDIS_PORT: 6379
+        REDIS_DB: 0
+        REDIS_PASSWORD: ""
+
+        # SAML (SSO 비활성화 시에도 정의 필요)
+        SAML_IDP_METADATA_URL: "http://localhost:7000/metadata"
+        SAML_SP_ENTITY_ID: "auth-portal"
+        SAML_ACS_URL: "http://localhost:4430/auth/saml/acs"
+        SAML_SLS_URL: "http://localhost:4430/auth/saml/sls"
+
+        # Service URLs (개발 환경 - localhost)
+        DASHBOARD_URL: "http://localhost:3010"
+        CAE_URL: "http://localhost:5173"
+        VNC_URL: "http://localhost:8002"
+
+      production:
+        HOST: "0.0.0.0"
+        PORT: 4430
+        FLASK_ENV: "production"
+        FLASK_DEBUG: "False"
+
+        # JWT
+        JWT_SECRET_KEY: "${JWT_SECRET_KEY}"  # 환경 변수에서 읽기
+        JWT_ALGORITHM: "HS256"
+        JWT_EXPIRATION_HOURS: 8
+
+        # Redis
+        REDIS_HOST: "localhost"
+        REDIS_PORT: 6379
+        REDIS_DB: 0
+        REDIS_PASSWORD: "${REDIS_PASSWORD}"
+
+        # SAML (실제 IdP 설정)
+        SAML_IDP_METADATA_URL: "${SAML_IDP_METADATA_URL}"
+        SAML_SP_ENTITY_ID: "hpc-cluster-auth"
+        SAML_ACS_URL: "https://hpc.example.com/auth/saml/acs"
+        SAML_SLS_URL: "https://hpc.example.com/auth/saml/sls"
+
+        # Service URLs (프로덕션 - reverse proxy)
+        DASHBOARD_URL: "https://hpc.example.com/dashboard"
+        CAE_URL: "https://hpc.example.com/cae"
+        VNC_URL: "https://hpc.example.com/vnc"
+
+    dependencies:
+      python_packages:
+        - flask
+        - flask-cors
+        - python3-saml
+        - PyJWT
+        - redis
+        - python-dotenv
+      system_packages:
+        - python3
+        - python3-pip
+        - python3-venv
+        - redis-server
+
+    health_check:
+      endpoint: "/health"
+      expected_status: 200
+      timeout_seconds: 5
+
+  # --------------------------------------------------------------------------
+  auth_portal_frontend:
+    name: "Auth Portal Frontend"
+    description: "SSO 로그인 UI 및 서비스 메뉴"
+    directory: "dashboard/auth_portal_4431"
+    port: 4431
+    protocol: "http"
+    type: "vite"
+
+    environment:
+      development:
+        VITE_API_URL: "http://localhost:4430"
+        VITE_ENVIRONMENT: "development"
+        VITE_SSO_ENABLED: "false"
+
+      production:
+        VITE_API_URL: "https://hpc.example.com/auth"
+        VITE_ENVIRONMENT: "production"
+        VITE_SSO_ENABLED: "true"
+
+    dependencies:
+      node_packages:
+        - vite
+        - react
+        - react-router-dom
+        - typescript
+      system_packages:
+        - nodejs
+        - npm
+
+    build:
+      command: "npm run build"
+      output_dir: "dist"
+
+    health_check:
+      method: "http_get"
+      path: "/"
+      expected_status: 200
+
+  # --------------------------------------------------------------------------
+  # Dashboard - HPC 클러스터 대시보드
+  # --------------------------------------------------------------------------
+  dashboard_backend:
+    name: "Dashboard Backend"
+    description: "HPC 클러스터 모니터링 및 작업 관리 API"
+    directory: "dashboard/backend_5010"
+    port: 5010
+    protocol: "http"
+    type: "flask"
+
+    environment:
+      development:
+        FLASK_ENV: "development"
+        FLASK_DEBUG: "True"
+        HOST: "0.0.0.0"
+        PORT: 5010
+
+        # JWT (Auth Portal과 동일한 키 사용)
+        JWT_SECRET_KEY: "dev-jwt-secret-please-change"
+        JWT_ALGORITHM: "HS256"
+
+        # Slurm
+        SLURM_CONTROL_NODE: "gpu-master"
+        SLURM_PARTITION_CPU: "compute"
+        SLURM_PARTITION_GPU: "gpu"
+
+        # Monitoring
+        PROMETHEUS_URL: "http://localhost:9090"
+        NODE_EXPORTER_URL: "http://localhost:9100"
+
+        # WebSocket
+        WEBSOCKET_URL: "ws://localhost:5011/ws"
+
+        # VNC API
+        VNC_API_URL: "http://localhost:5010/api/vnc"
+
+      production:
+        FLASK_ENV: "production"
+        FLASK_DEBUG: "False"
+        HOST: "0.0.0.0"
+        PORT: 5010
+
+        JWT_SECRET_KEY: "${JWT_SECRET_KEY}"
+        JWT_ALGORITHM: "HS256"
+
+        SLURM_CONTROL_NODE: "gpu-master"
+        SLURM_PARTITION_CPU: "compute"
+        SLURM_PARTITION_GPU: "gpu"
+
+        PROMETHEUS_URL: "http://localhost:9090"
+        NODE_EXPORTER_URL: "http://localhost:9100"
+
+        WEBSOCKET_URL: "wss://hpc.example.com/ws"
+        VNC_API_URL: "https://hpc.example.com/api/vnc"
+
+    dependencies:
+      python_packages:
+        - flask
+        - flask-cors
+        - PyJWT
+        - requests
+        - python-dotenv
+      system_packages:
+        - python3
+        - slurm-client
+
+    health_check:
+      endpoint: "/health"
+      expected_status: 200
+
+  # --------------------------------------------------------------------------
+  dashboard_websocket:
+    name: "Dashboard WebSocket"
+    description: "실시간 클러스터 상태 업데이트"
+    directory: "dashboard/websocket_5011"
+    port: 5011
+    protocol: "ws"
+    type: "python"
+
+    environment:
+      development:
+        HOST: "0.0.0.0"
+        PORT: 5011
+        LOG_LEVEL: "DEBUG"
+
+      production:
+        HOST: "0.0.0.0"
+        PORT: 5011
+        LOG_LEVEL: "INFO"
+
+    dependencies:
+      python_packages:
+        - websockets
+        - asyncio
+      system_packages:
+        - python3
+
+  # --------------------------------------------------------------------------
+  dashboard_frontend:
+    name: "Dashboard Frontend"
+    description: "HPC 클러스터 대시보드 UI"
+    directory: "dashboard/frontend_3010"
+    port: 3010
+    protocol: "http"
+    type: "vite"
+
+    environment:
+      development:
+        VITE_API_URL: "http://localhost:5010"
+        VITE_WS_URL: "ws://localhost:5011/ws"
+        VITE_AUTH_URL: "http://localhost:4430"
+        VITE_ENVIRONMENT: "development"
+
+      production:
+        VITE_API_URL: "https://hpc.example.com/api"
+        VITE_WS_URL: "wss://hpc.example.com/ws"
+        VITE_AUTH_URL: "https://hpc.example.com/auth"
+        VITE_ENVIRONMENT: "production"
+
+    dependencies:
+      node_packages:
+        - vite
+        - react
+        - recharts
+        - react-router-dom
+      system_packages:
+        - nodejs
+        - npm
+
+    build:
+      command: "npm run build"
+      output_dir: "dist"
+
+  # --------------------------------------------------------------------------
+  # CAE - Computer-Aided Engineering 시뮬레이션
+  # --------------------------------------------------------------------------
+  cae_backend:
+    name: "CAE Backend"
+    description: "CAE 시뮬레이션 작업 관리"
+    directory: "dashboard/kooCAEWebServer_5000"
+    port: 5000
+    protocol: "http"
+    type: "flask"
+
+    environment:
+      development:
+        FLASK_ENV: "development"
+        FLASK_DEBUG: "True"
+        HOST: "0.0.0.0"
+        PORT: 5000
+
+        # JWT
+        JWT_SECRET_KEY: "dev-jwt-secret-please-change"
+        JWT_ALGORITHM: "HS256"
+
+        # Slurm
+        SLURM_CONTROL_NODE: "gpu-master"
+        SLURM_PARTITION: "compute"
+
+        # CAE 특화 설정
+        CAE_WORK_DIR: "/scratch/cae_simulations"
+        CAE_AUTOMATION_URL: "http://localhost:5001"
+
+      production:
+        FLASK_ENV: "production"
+        FLASK_DEBUG: "False"
+        HOST: "0.0.0.0"
+        PORT: 5000
+
+        JWT_SECRET_KEY: "${JWT_SECRET_KEY}"
+        JWT_ALGORITHM: "HS256"
+
+        SLURM_CONTROL_NODE: "gpu-master"
+        SLURM_PARTITION: "compute"
+
+        CAE_WORK_DIR: "/scratch/cae_simulations"
+        CAE_AUTOMATION_URL: "http://localhost:5001"
+
+    dependencies:
+      python_packages:
+        - flask
+        - flask-cors
+        - PyJWT
+      system_packages:
+        - python3
+        - slurm-client
+
+  # --------------------------------------------------------------------------
+  cae_automation:
+    name: "CAE Automation Server"
+    description: "CAE 자동화 워크플로우 엔진"
+    directory: "dashboard/kooCAEWebAutomationServer_5001"
+    port: 5001
+    protocol: "http"
+    type: "flask"
+
+    environment:
+      development:
+        FLASK_ENV: "development"
+        FLASK_DEBUG: "True"
+        HOST: "0.0.0.0"
+        PORT: 5001
+
+        CAE_BACKEND_URL: "http://localhost:5000"
+
+      production:
+        FLASK_ENV: "production"
+        FLASK_DEBUG: "False"
+        HOST: "0.0.0.0"
+        PORT: 5001
+
+        CAE_BACKEND_URL: "http://localhost:5000"
+
+    dependencies:
+      python_packages:
+        - flask
+        - flask-cors
+      system_packages:
+        - python3
+
+  # --------------------------------------------------------------------------
+  cae_frontend:
+    name: "CAE Frontend"
+    description: "CAE 시뮬레이션 UI"
+    directory: "dashboard/kooCAEWeb_5173"
+    port: 5173
+    protocol: "http"
+    type: "vite"
+
+    environment:
+      development:
+        VITE_API_URL: "http://localhost:5000"
+        VITE_AUTOMATION_URL: "http://localhost:5001"
+        VITE_AUTH_URL: "http://localhost:4430"
+        VITE_ENVIRONMENT: "development"
+
+      production:
+        VITE_API_URL: "https://hpc.example.com/cae/api"
+        VITE_AUTOMATION_URL: "https://hpc.example.com/cae/automation"
+        VITE_AUTH_URL: "https://hpc.example.com/auth"
+        VITE_ENVIRONMENT: "production"
+
+    dependencies:
+      node_packages:
+        - vite
+        - react
+        - typescript
+      system_packages:
+        - nodejs
+        - npm
+
+  # --------------------------------------------------------------------------
+  # VNC - 원격 데스크톱 서비스
+  # --------------------------------------------------------------------------
+  vnc_service:
+    name: "VNC Service Frontend"
+    description: "GPU 가속 원격 데스크톱 세션 관리"
+    directory: "dashboard/vnc_service_8002"
+    port: 8002
+    protocol: "http"
+    type: "vite"
+
+    environment:
+      development:
+        VITE_API_URL: "http://localhost:5010/api/vnc"
+        VITE_AUTH_URL: "http://localhost:4430"
+        VITE_VNC_PROXY_URL: "http://localhost:6080"
+        VITE_ENVIRONMENT: "development"
+
+      production:
+        VITE_API_URL: "https://hpc.example.com/api/vnc"
+        VITE_AUTH_URL: "https://hpc.example.com/auth"
+        VITE_VNC_PROXY_URL: "https://hpc.example.com/vnc-proxy"
+        VITE_ENVIRONMENT: "production"
+
+    dependencies:
+      node_packages:
+        - vite
+        - react
+        - typescript
+      system_packages:
+        - nodejs
+        - npm
+
+    notes: |
+      VNC 백엔드는 dashboard_backend (5010)에 통합되어 있음.
+      이 서비스는 VNC 세션 관리 UI만 제공.
+
+  # --------------------------------------------------------------------------
+  # Monitoring - 시스템 모니터링
+  # --------------------------------------------------------------------------
+  prometheus:
+    name: "Prometheus"
+    description: "메트릭 수집 및 저장"
+    directory: "dashboard/prometheus_9090"
+    port: 9090
+    protocol: "http"
+    type: "binary"
+
+    environment:
+      development:
+        PROMETHEUS_RETENTION: "15d"
+        PROMETHEUS_STORAGE_PATH: "/tmp/prometheus"
+
+      production:
+        PROMETHEUS_RETENTION: "30d"
+        PROMETHEUS_STORAGE_PATH: "/var/lib/prometheus"
+
+    config_file: "prometheus.yml"
+
+    dependencies:
+      system_packages:
+        - prometheus
+
+  # --------------------------------------------------------------------------
+  node_exporter:
+    name: "Node Exporter"
+    description: "시스템 메트릭 수집"
+    directory: "dashboard/node_exporter_9100"
+    port: 9100
+    protocol: "http"
+    type: "binary"
+
+    environment:
+      development:
+        NODE_EXPORTER_COLLECTORS: "cpu,diskstats,filesystem,loadavg,meminfo,netdev"
+
+      production:
+        NODE_EXPORTER_COLLECTORS: "cpu,diskstats,filesystem,loadavg,meminfo,netdev,stat,time,vmstat"
+
+    dependencies:
+      system_packages:
+        - prometheus-node-exporter
+
+# ============================================================================
+# Nginx Reverse Proxy 설정
+# ============================================================================
+nginx:
+  development:
+    enabled: false  # 개발 환경에서는 Nginx 사용 안 함
+
+  production:
+    enabled: true
+    domain: "hpc.example.com"
+    ssl:
+      enabled: true
+      cert_path: "/etc/ssl/certs/hpc.example.com.crt"
+      key_path: "/etc/ssl/private/hpc.example.com.key"
+      # Let's Encrypt 사용 시:
+      # cert_path: "/etc/letsencrypt/live/hpc.example.com/fullchain.pem"
+      # key_path: "/etc/letsencrypt/live/hpc.example.com/privkey.pem"
+
+    routes:
+      - path: "/auth"
+        backend: "http://localhost:4430"
+        description: "Auth Portal Backend"
+
+      - path: "/"
+        backend: "http://localhost:4431"
+        description: "Auth Portal Frontend (메인 페이지)"
+
+      - path: "/dashboard"
+        backend: "http://localhost:3010"
+        description: "Dashboard Frontend"
+
+      - path: "/api"
+        backend: "http://localhost:5010"
+        description: "Dashboard Backend API"
+
+      - path: "/ws"
+        backend: "http://localhost:5011"
+        websocket: true
+        description: "Dashboard WebSocket"
+
+      - path: "/cae"
+        backend: "http://localhost:5173"
+        description: "CAE Frontend"
+
+      - path: "/cae/api"
+        backend: "http://localhost:5000"
+        description: "CAE Backend API"
+
+      - path: "/cae/automation"
+        backend: "http://localhost:5001"
+        description: "CAE Automation API"
+
+      - path: "/vnc"
+        backend: "http://localhost:8002"
+        description: "VNC Service Frontend"
+
+      - path: "/vnc-proxy"
+        backend: "http://localhost:6080"
+        websocket: true
+        description: "noVNC WebSocket Proxy"
+
+      - path: "/prometheus"
+        backend: "http://localhost:9090"
+        auth_required: true
+        description: "Prometheus (관리자 전용)"
+
+    security:
+      max_body_size: "100M"
+      client_timeout: 300
+      websocket_timeout: 3600
+      rate_limit: "100r/s"
+
+    logging:
+      access_log: "/var/log/nginx/hpc_access.log"
+      error_log: "/var/log/nginx/hpc_error.log"
+
+# ============================================================================
+# 보안 설정
+# ============================================================================
+security:
+  # JWT 토큰
+  jwt_rotation_days: 90  # JWT 시크릿 키 주기적 갱신
+
+  # CORS
+  cors:
+    allowed_origins:
+      development:
+        - "http://localhost:3010"
+        - "http://localhost:4431"
+        - "http://localhost:5173"
+        - "http://localhost:8002"
+      production:
+        - "https://hpc.example.com"
+
+  # Rate Limiting
+  rate_limit:
+    auth_endpoint: "10/minute"
+    api_endpoint: "100/minute"
+
+  # 세션
+  session:
+    timeout_minutes: 480  # 8시간
+    refresh_threshold_minutes: 60  # 1시간 남았을 때 자동 갱신
+
+# ============================================================================
+# 배포 설정
+# ============================================================================
+deployment:
+  # 서비스 시작 순서 (의존성 순서)
+  startup_order:
+    - redis-server
+    - prometheus
+    - node_exporter
+    - auth_portal_backend
+    - dashboard_backend
+    - dashboard_websocket
+    - cae_backend
+    - cae_automation
+    - auth_portal_frontend
+    - dashboard_frontend
+    - cae_frontend
+    - vnc_service
+    - nginx  # 마지막에 시작
+
+  # 헬스 체크 설정
+  health_check:
+    interval_seconds: 10
+    timeout_seconds: 5
+    retries: 3
+
+  # 롤백 설정
+  rollback:
+    enabled: true
+    keep_versions: 3
+
+# ============================================================================
+# 개발자 노트
+# ============================================================================
+#
+# 1. 환경 변수 우선순위:
+#    - 시스템 환경 변수 (최우선)
+#    - .env 파일
+#    - 이 파일의 기본값
+#
+# 2. JWT_SECRET_KEY 관리:
+#    - 개발: 하드코딩된 값 사용
+#    - 프로덕션: 반드시 환경 변수로 설정
+#    - 생성 예시: openssl rand -base64 32
+#
+# 3. SAML IdP 설정 (프로덕션):
+#    - SAML_IDP_METADATA_URL을 실제 IdP 주소로 변경
+#    - SAML_SP_ENTITY_ID를 IdP에 등록
+#    - SAML_ACS_URL, SAML_SLS_URL을 IdP에 화이트리스트 등록
+#
+# 4. 도메인 설정:
+#    - hpc.example.com을 실제 도메인으로 변경
+#    - DNS A 레코드 설정 필요
+#    - SSL 인증서 발급 (Let's Encrypt 또는 자체 서명)
+#
+# 5. Nginx 설정:
+#    - 프로덕션에서는 Nginx를 reverse proxy로 사용
+#    - 모든 서비스는 localhost에서만 listen
+#    - 외부 접근은 Nginx를 통해서만 가능
+#
+# ============================================================================

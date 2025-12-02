@@ -1,0 +1,16 @@
+{
+  "python.venvPath": "venv/bin",
+  "python.executableSuffix": "",
+  "python.defaultInterpreterPath": "${workspaceFolder}/venv/bin/python",
+  "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+  "C_Cpp.default.intelliSenseMode": "gcc-x64",
+  "cmake.preferredGenerators": [
+    "Ninja",
+    "Unix Makefiles"
+  ],
+  "cmake.configureSettings": {
+    "CMAKE_CXX_COMPILER": "/usr/bin/g++",
+    "CMAKE_C_COMPILER": "/usr/bin/gcc"
+  },
+  "terminal.integrated.defaultProfile.linux": "bash"
+}

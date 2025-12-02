@@ -1,0 +1,383 @@
+# Web Services Configuration Template
+# This file defines all web services to be deployed on controllers with web: true
+
+# Global web service settings
+global:
+  # Base directory for web services
+  base_dir: /opt/web_services
+
+  # Log directory
+  log_dir: /var/log/web_services
+
+  # Node environment
+  node_env: production
+
+  # Redis connection
+  redis_host: "${REDIS_SENTINEL_SERVICE}"  # Will be substituted from YAML
+  redis_port: 26379
+  redis_password: "${REDIS_PASSWORD}"
+
+  # MariaDB connection
+  db_host: "${DB_VIP}"
+  db_port: 3306
+  db_user: "${DB_USER}"
+  db_password: "${DB_PASSWORD}"
+
+  # Session settings
+  session_secret: "${SESSION_SECRET}"
+
+  # JWT settings
+  jwt_secret: "${JWT_SECRET}"
+  jwt_expiry: "24h"
+
+  # SSL/TLS settings
+  ssl_enabled: true
+  ssl_cert_path: /etc/letsencrypt/live/${DOMAIN}/fullchain.pem
+  ssl_key_path: /etc/letsencrypt/live/${DOMAIN}/privkey.pem
+
+# Service definitions
+services:
+  # 1. Main Dashboard (React + Vite)
+  dashboard:
+    enabled: true
+    type: frontend
+    framework: react-vite
+    port: 5173
+    build_command: npm run build
+    start_command: npx vite preview --host 0.0.0.0 --port 5173
+    env:
+      VITE_API_URL: https://${DOMAIN}/api
+      VITE_WS_URL: wss://${DOMAIN}/ws
+    health_check:
+      path: /
+      interval: 10
+    nginx_config:
+      location: /
+      proxy_pass: http://localhost:5173
+
+  # 2. Authentication Service (Node.js + Express)
+  auth_service:
+    enabled: true
+    type: backend
+    framework: express
+    port: 5000
+    start_command: node src/auth_server.js
+    env:
+      PORT: 5000
+      NODE_ENV: ${NODE_ENV}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: auth_db
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY: ${JWT_EXPIRY}
+      SESSION_SECRET: ${SESSION_SECRET}
+    health_check:
+      path: /health
+      interval: 10
+    nginx_config:
+      location: /api/auth
+      proxy_pass: http://localhost:5000
+
+  # 3. Job Management API (Node.js + Express)
+  job_api:
+    enabled: true
+    type: backend
+    framework: express
+    port: 5001
+    start_command: node src/job_server.js
+    env:
+      PORT: 5001
+      NODE_ENV: ${NODE_ENV}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: slurm_accounting
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SLURM_CONF: /mnt/gluster/slurm_state/slurm.conf
+    health_check:
+      path: /health
+      interval: 10
+    nginx_config:
+      location: /api/jobs
+      proxy_pass: http://localhost:5001
+
+  # 4. WebSocket Server (Socket.IO)
+  websocket_service:
+    enabled: true
+    type: backend
+    framework: socketio
+    port: 5010
+    start_command: node src/ws_server.js
+    env:
+      PORT: 5010
+      NODE_ENV: ${NODE_ENV}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: https://${DOMAIN}
+    health_check:
+      path: /health
+      interval: 10
+    nginx_config:
+      location: /ws
+      proxy_pass: http://localhost:5010
+      websocket: true
+
+  # 5. File Transfer Service (Node.js + Express)
+  file_service:
+    enabled: true
+    type: backend
+    framework: express
+    port: 5002
+    start_command: node src/file_server.js
+    env:
+      PORT: 5002
+      NODE_ENV: ${NODE_ENV}
+      UPLOAD_DIR: /mnt/gluster/uploads
+      MAX_FILE_SIZE: 10GB
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: files_db
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    health_check:
+      path: /health
+      interval: 10
+    nginx_config:
+      location: /api/files
+      proxy_pass: http://localhost:5002
+      client_max_body_size: 10G
+
+  # 6. Monitoring Dashboard (Grafana-like)
+  monitoring_dashboard:
+    enabled: true
+    type: frontend
+    framework: react-vite
+    port: 5174
+    build_command: npm run build
+    start_command: npx vite preview --host 0.0.0.0 --port 5174
+    env:
+      VITE_API_URL: https://${DOMAIN}/api/monitoring
+      VITE_PROMETHEUS_URL: http://localhost:9090
+    health_check:
+      path: /
+      interval: 10
+    nginx_config:
+      location: /monitoring
+      proxy_pass: http://localhost:5174
+
+  # 7. Metrics API (Prometheus-compatible)
+  metrics_api:
+    enabled: true
+    type: backend
+    framework: express
+    port: 5003
+    start_command: node src/metrics_server.js
+    env:
+      PORT: 5003
+      NODE_ENV: ${NODE_ENV}
+      PROMETHEUS_URL: http://localhost:9090
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SLURM_ACCOUNTING_DB_HOST: ${DB_HOST}
+      SLURM_ACCOUNTING_DB_USER: ${DB_USER}
+      SLURM_ACCOUNTING_DB_PASSWORD: ${DB_PASSWORD}
+    health_check:
+      path: /health
+      interval: 10
+    nginx_config:
+      location: /api/monitoring
+      proxy_pass: http://localhost:5003
+
+  # 8. Admin Portal (React + Vite)
+  admin_portal:
+    enabled: true
+    type: frontend
+    framework: react-vite
+    port: 5175
+    build_command: npm run build
+    start_command: npx vite preview --host 0.0.0.0 --port 5175
+    env:
+      VITE_API_URL: https://${DOMAIN}/api/admin
+      VITE_AUTH_URL: https://${DOMAIN}/api/auth
+    health_check:
+      path: /
+      interval: 10
+    nginx_config:
+      location: /admin
+      proxy_pass: http://localhost:5175
+      auth_required: true
+
+# Nginx reverse proxy configuration
+nginx:
+  enabled: true
+  listen_port: 443
+  listen_http_port: 80
+  server_name: "${DOMAIN}"
+
+  # SSL configuration
+  ssl_protocols: TLSv1.2 TLSv1.3
+  ssl_ciphers: HIGH:!aNULL:!MD5
+  ssl_prefer_server_ciphers: on
+
+  # Rate limiting
+  limit_req_zone: $binary_remote_addr zone=general:10m rate=10r/s
+  limit_req_burst: 20
+
+  # Headers
+  add_headers:
+    - "X-Frame-Options SAMEORIGIN"
+    - "X-Content-Type-Options nosniff"
+    - "X-XSS-Protection 1; mode=block"
+    - "Strict-Transport-Security max-age=31536000; includeSubDomains"
+
+  # Logging
+  access_log: /var/log/nginx/web_services_access.log
+  error_log: /var/log/nginx/web_services_error.log
+
+# Process management (PM2 or systemd)
+process_manager:
+  type: systemd  # or pm2
+  restart_policy: always
+  restart_delay: 5
+  max_restarts: 10
+
+  # Systemd-specific
+  systemd:
+    user: webservice
+    group: webservice
+    working_directory: /opt/web_services
+
+  # PM2-specific
+  pm2:
+    instances: 1  # or 'max' for cluster mode
+    exec_mode: fork  # or 'cluster'
+    watch: false
+    max_memory_restart: 1G
+
+# Health check configuration
+health_checks:
+  enabled: true
+  interval: 10  # seconds
+  timeout: 5
+  retries: 3
+
+  # Endpoints to check
+  endpoints:
+    - service: dashboard
+      url: http://localhost:5173/
+      expected_status: 200
+
+    - service: auth_service
+      url: http://localhost:5000/health
+      expected_status: 200
+      expected_body: '{"status":"healthy"}'
+
+    - service: job_api
+      url: http://localhost:5001/health
+      expected_status: 200
+      expected_body: '{"status":"healthy"}'
+
+    - service: websocket_service
+      url: http://localhost:5010/health
+      expected_status: 200
+
+    - service: file_service
+      url: http://localhost:5002/health
+      expected_status: 200
+
+    - service: monitoring_dashboard
+      url: http://localhost:5174/
+      expected_status: 200
+
+    - service: metrics_api
+      url: http://localhost:5003/health
+      expected_status: 200
+
+    - service: admin_portal
+      url: http://localhost:5175/
+      expected_status: 200
+
+    - service: nginx
+      url: https://localhost/health
+      expected_status: 200
+
+# Backup configuration
+backup:
+  enabled: true
+  retention_days: 30
+
+  # What to backup
+  include:
+    - /opt/web_services/config
+    - /opt/web_services/uploads
+    - /etc/nginx/sites-available
+    - /etc/letsencrypt
+
+  # Backup schedule (cron format)
+  schedule: "0 2 * * *"  # Daily at 2 AM
+
+# Monitoring and alerting
+monitoring:
+  enabled: true
+
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+    port: 9100
+    metrics_path: /metrics
+
+  # Alerting
+  alerts:
+    enabled: true
+
+    # Alert rules
+    rules:
+      - name: service_down
+        condition: health_check_failed
+        threshold: 3
+        action: restart_service
+
+      - name: high_memory
+        condition: memory_usage > 90%
+        action: notify_admin
+
+      - name: high_cpu
+        condition: cpu_usage > 90%
+        duration: 5m
+        action: notify_admin
+
+      - name: disk_full
+        condition: disk_usage > 90%
+        action: notify_admin
+
+# Auto-scaling configuration
+autoscaling:
+  enabled: false  # Not implemented yet
+  min_instances: 2
+  max_instances: 10
+
+  # Scale up triggers
+  scale_up:
+    cpu_threshold: 80
+    memory_threshold: 80
+    duration: 5m
+
+  # Scale down triggers
+  scale_down:
+    cpu_threshold: 30
+    memory_threshold: 30
+    duration: 15m

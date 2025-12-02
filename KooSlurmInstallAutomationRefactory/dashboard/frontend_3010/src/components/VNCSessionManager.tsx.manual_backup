@@ -1,0 +1,361 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Monitor, Plus, Trash2, ExternalLink, Clock,
+  Circle, AlertCircle, Server, Maximize2, RefreshCw
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+import { apiGet, apiPost, apiDelete } from '../utils/api';
+import { API_CONFIG } from './config/api.config';
+
+interface VNCSession {
+  session_id: string;
+  job_id: number;
+  username: string;
+  email: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  vnc_port: number;
+  novnc_port: number;
+  novnc_url: string | null;
+  node: string | null;
+  geometry: string;
+  duration_hours: number;
+  gpu_count: number;
+  created_at: string;
+}
+
+interface CreateSessionRequest {
+  geometry: string;
+  duration_hours: number;
+}
+
+export const VNCSessionManager: React.FC = () => {
+  const [sessions, setSessions] = useState<VNCSession[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Create session form state
+  const [geometry, setGeometry] = useState('1920x1080');
+  const [durationHours, setDurationHours] = useState(2);
+
+  // JWT token from localStorage
+  const getToken = () => localStorage.getItem('jwt_token');
+
+  // Fetch VNC sessions
+  const fetchSessions = async () => {
+    setLoading(true);
+    try {
+      const token = getToken();
+      if (!token) {
+        toast.error('Please log in to view VNC sessions');
+        return;
+      }
+
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/vnc/sessions', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSessions(data.sessions || []);
+      } else if (response.status === 401) {
+        toast.error('Session expired. Please log in again');
+      } else {
+        const error = await response.json();
+        toast.error(error.message || 'Failed to fetch sessions');
+      }
+    } catch (error) {
+      console.error('Error fetching VNC sessions:', error);
+      toast.error('Network error. Please check your connection');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create VNC session
+  const createSession = async () => {
+    setIsCreating(true);
+    try {
+      const token = getToken();
+      if (!token) {
+        toast.error('Please log in to create VNC sessions');
+        return;
+      }
+
+      const requestData: CreateSessionRequest = {
+        geometry,
+        duration_hours: durationHours,
+      };
+
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/vnc/sessions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      if (response.ok) {
+        const session = await response.json();
+        toast.success(`VNC session created! Job ID: ${session.job_id}`);
+        setShowCreateModal(false);
+        fetchSessions();
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to create session');
+      }
+    } catch (error) {
+      console.error('Error creating VNC session:', error);
+      toast.error('Network error. Please check your connection');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  // Delete VNC session
+  const deleteSession = async (sessionId: string) => {
+    if (!window.confirm('Are you sure you want to terminate this VNC session?')) {
+      return;
+    }
+
+    try {
+      const token = getToken();
+      if (!token) {
+        toast.error('Please log in to delete sessions');
+        return;
+      }
+
+      const response = await fetch(`http://localhost:5010/api/vnc/sessions/${sessionId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        toast.success('VNC session terminated');
+        fetchSessions();
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to delete session');
+      }
+    } catch (error) {
+      console.error('Error deleting VNC session:', error);
+      toast.error('Network error. Please check your connection');
+    }
+  };
+
+  // Open noVNC viewer
+  const openVNCViewer = (session: VNCSession) => {
+    if (session.status !== 'running' || !session.novnc_url) {
+      toast.error('VNC session is not running or URL is not available');
+      return;
+    }
+
+    window.open(session.novnc_url, '_blank', 'width=1920,height=1080');
+  };
+
+  // Status badge component
+  const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
+    const statusConfig = {
+      pending: { color: 'bg-yellow-500', text: 'Pending', icon: Clock },
+      running: { color: 'bg-green-500', text: 'Running', icon: Circle },
+      completed: { color: 'bg-gray-500', text: 'Completed', icon: Circle },
+      failed: { color: 'bg-red-500', text: 'Failed', icon: AlertCircle },
+    };
+
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
+    const Icon = config.icon;
+
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-white ${config.color}`}>
+        <Icon className="w-3 h-3" />
+        {config.text}
+      </span>
+    );
+  };
+
+  // Auto-refresh sessions
+  useEffect(() => {
+    fetchSessions();
+    const interval = setInterval(fetchSessions, 15000); // Refresh every 15 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Monitor className="w-8 h-8 text-blue-600" />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">VNC Sessions</h1>
+            <p className="text-sm text-gray-600">GPU-accelerated remote desktop</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={fetchSessions}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            <Plus className="w-4 h-4" />
+            New Session
+          </button>
+        </div>
+      </div>
+
+      {/* Sessions List */}
+      <div className="bg-white rounded-lg shadow">
+        {loading && sessions.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            Loading sessions...
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            <Monitor className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+            <p className="text-lg font-medium">No VNC sessions</p>
+            <p className="text-sm">Create a new session to get started</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-200">
+            {sessions.map((session) => (
+              <div key={session.session_id} className="p-4 hover:bg-gray-50 transition">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <StatusBadge status={session.status} />
+                      <span className="text-sm text-gray-500">Job #{session.job_id}</span>
+                      {session.node && (
+                        <span className="inline-flex items-center gap-1 text-sm text-gray-600">
+                          <Server className="w-3 h-3" />
+                          {session.node}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">Resolution:</span>{' '}
+                        <span className="font-medium">{session.geometry}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Duration:</span>{' '}
+                        <span className="font-medium">{session.duration_hours}h</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">VNC Port:</span>{' '}
+                        <span className="font-medium">{session.vnc_port}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">noVNC Port:</span>{' '}
+                        <span className="font-medium">{session.novnc_port}</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                      Created: {new Date(session.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    {session.status === 'running' && session.novnc_url && (
+                      <button
+                        onClick={() => openVNCViewer(session)}
+                        className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        Open
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteSession(session.session_id)}
+                      className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create Session Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4">Create VNC Session</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Resolution
+                </label>
+                <select
+                  value={geometry}
+                  onChange={(e) => setGeometry(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="1920x1080">1920x1080 (Full HD)</option>
+                  <option value="1280x720">1280x720 (HD)</option>
+                  <option value="2560x1440">2560x1440 (QHD)</option>
+                  <option value="3840x2160">3840x2160 (4K)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Duration (hours)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="48"
+                  value={durationHours}
+                  onChange={(e) => setDurationHours(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800">
+                  A new Slurm job will be submitted with GPU access for your VNC desktop session.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                disabled={isCreating}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createSession}
+                disabled={isCreating}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+              >
+                {isCreating ? 'Creating...' : 'Create Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default VNCSessionManager;

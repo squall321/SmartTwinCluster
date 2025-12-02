@@ -1,0 +1,270 @@
+# Phase 1 개선사항이 적용된 2노드 Slurm 클러스터 예시 설정
+# 헤드노드 1개 + 계산노드 1개 구성
+# 새로운 기능: 패키지 기반 설치, 오프라인 지원, Munge 검증 강화
+
+# 설정 파일 버전
+config_version: "1.1"
+
+stage: 1  # 설치 단계 (1: 기본, 2: 고급, 3: 최적화)
+
+cluster_info:
+  cluster_name: "mini-cluster"
+  domain: "hpc.local"
+  admin_email: "admin@hpc.local"
+  timezone: "Asia/Seoul"
+
+# ============= Phase 1 신규 옵션 =============
+installation:
+  # 설치 방식 선택
+  install_method: "package"  # package: RPM/DEB 우선, source: 소스 컴파일
+  
+  # 오프라인 설치 지원
+  offline_mode: false  # true로 설정 시 인터넷 연결 없이 설치
+  offline_package_dir: "./offline_packages"  # 오프라인 패키지 디렉토리
+  
+  # 타임아웃 설정 (초 단위)
+  timeouts:
+    compile: 3600        # 컴파일 타임아웃 (1시간)
+    package_install: 600  # 패키지 설치 타임아웃 (10분)
+    service_start: 120    # 서비스 시작 타임아웃 (2분)
+    ssh_connect: 60       # SSH 연결 타임아웃 (1분)
+  
+  # Munge 검증 옵션
+  munge_validation:
+    enabled: true                    # Munge 검증 활성화
+    verify_key_consistency: true     # 키 일관성 검증
+    test_cross_authentication: true  # 노드 간 상호 인증 테스트
+
+# ============= 기존 설정 =============
+
+nodes:
+  controller:
+    hostname: "head01"
+    ip_address: "192.168.1.10"
+    ssh_user: "root"
+    ssh_port: 22
+    ssh_key_path: "~/.ssh/id_rsa"
+    os_type: "centos8"
+    hardware:
+      cpus: 8
+      memory_mb: 16384
+      disk_gb: 500
+  
+  compute_nodes:
+    - hostname: "compute01"
+      ip_address: "192.168.1.20"
+      ssh_user: "root"
+      ssh_port: 22
+      ssh_key_path: "~/.ssh/id_rsa"
+      os_type: "centos8"
+      hardware:
+        cpus: 16
+        sockets: 1
+        cores_per_socket: 8
+        threads_per_core: 2
+        memory_mb: 32768
+        tmp_disk_mb: 102400
+        gpu:
+          type: "nvidia"
+          count: 1
+
+network:
+  management_network: "192.168.1.0/24"
+  compute_network: "192.168.1.0/24"
+  firewall:
+    enabled: true
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: 22
+
+slurm_config:
+  version: "22.05.8"
+  install_path: "/usr/local/slurm"
+  config_path: "/usr/local/slurm/etc"
+  log_path: "/var/log/slurm"
+  spool_path: "/var/spool/slurm"
+  
+  # 빌드 옵션 (소스 컴파일 시 사용)
+  build_options: "--with-mysql_config=/usr/bin/mysql_config"
+  
+  partitions:
+    - name: "gpu"
+      nodes: "compute01"
+      default: true
+      max_time: "7-00:00:00"
+      max_nodes: 1
+    - name: "debug"
+      nodes: "compute01"
+      default: false
+      max_time: "00:30:00"
+      max_nodes: 1
+
+users:
+  slurm_user: "slurm"
+  slurm_uid: 1001
+  slurm_gid: 1001
+  cluster_users:
+    - username: "user01"
+      uid: 2001
+      gid: 2001
+      groups: 
+        - "users"
+        - "hpc"
+    - username: "user02"
+      uid: 2002
+      gid: 2001
+      groups: 
+        - "users"
+        - "hpc"
+
+shared_storage:
+  nfs_server: "192.168.1.10"
+  mount_points:
+    - source: "/export/home"
+      target: "/home"
+      options: "rw,sync,hard,intr"
+    - source: "/export/share"
+      target: "/share"
+      options: "rw,sync,hard,intr"
+
+# Stage 2 고급 기능 (기본값, 비활성화 상태)
+database:
+  enabled: false
+  host: "localhost"
+  port: 3306
+  database_name: "slurm_acct_db"
+  username: "slurm"
+  password: "changeme"
+
+monitoring:
+  prometheus:
+    enabled: false
+    port: 9090
+  grafana:
+    enabled: false
+    port: 3000
+
+security:
+  munge:
+    key_rotation_days: 30
+  selinux:
+    enabled: true
+    mode: "permissive"
+
+# Stage 3 운영 최적화
+performance_tuning:
+  kernel_parameters:
+    vm.swappiness: 1
+    vm.dirty_ratio: 15
+  ulimits:
+    nofile: 65536
+    nproc: 65536
+
+container_support:
+  apptainer:
+    enabled: false
+    version: "1.2.5"
+
+gpu_computing:
+  nvidia:
+    enabled: true
+    driver_version: "470.82.01"
+    cuda_version: "11.4"
+
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: "0 3 * * 0"
+    retention_days: 30
+    backup_path: "/backup/slurm"
+
+# ============= Phase 1 개선사항 설명 =============
+comments:
+  phase1_improvements: |
+    Phase 1 Critical 개선사항:
+    
+    1. 패키지 기반 설치 (install_method: package)
+       - RPM/DEB 패키지로 빠른 설치
+       - 실패 시 자동으로 소스 컴파일로 전환
+       - 의존성 자동 해결
+    
+    2. 오프라인 설치 지원 (offline_mode: true)
+       - 폐쇄망 환경에서 사용 가능
+       - 사전에 패키지 다운로드:
+         python src/offline_installer.py config.yaml prepare
+       - 패키지 검증:
+         python src/offline_installer.py config.yaml verify
+    
+    3. Munge 키 배포 검증 강화
+       - 자동 키 배포 및 권한 설정
+       - MD5 체크섬으로 키 일관성 검증
+       - 노드 간 상호 인증 테스트
+       - 검증 실패 시 설치 중단
+    
+    4. 타임아웃 설정 유연화
+       - 시스템 성능에 맞게 조정 가능
+       - 컴파일: 1시간 (기존 30분)
+       - 느린 시스템은 더 늘릴 수 있음
+  
+  usage_examples: |
+    === 기본 사용법 ===
+    
+    # 1. 온라인 설치 (패키지 우선)
+    ./install_slurm.py -c examples/2node_example_improved.yaml
+    
+    # 2. 소스 컴파일로 설치
+    # config.yaml에서 install_method: "source"로 변경
+    ./install_slurm.py -c config.yaml
+    
+    # 3. 오프라인 설치 준비 (인터넷 연결된 곳에서)
+    python src/offline_installer.py config.yaml prepare
+    # -> ./offline_packages/ 디렉토리에 모든 패키지 다운로드
+    
+    # 4. 오프라인 패키지 검증
+    python src/offline_installer.py config.yaml verify
+    
+    # 5. 오프라인 패키지를 폐쇄망으로 이동 후 설치
+    # config.yaml에서 offline_mode: true로 변경
+    ./install_slurm.py -c config.yaml
+    
+    # 6. Munge만 별도로 설정/검증
+    python src/munge_validator.py config.yaml
+    
+    === 고급 사용법 ===
+    
+    # 설치 전 검증만 실행
+    ./install_slurm.py -c config.yaml --validate-only
+    
+    # Munge 검증 건너뛰기 (권장하지 않음)
+    # config.yaml에서 munge_validation.enabled: false
+    
+    # 타임아웃 늘리기 (느린 시스템)
+    # config.yaml의 timeouts 섹션에서:
+    #   compile: 7200  # 2시간
+    #   package_install: 1200  # 20분
+  
+  setup_notes: |
+    이 설정은 Phase 1 개선사항이 적용된 2노드 클러스터 구성입니다.
+    
+    하드웨어 구성:
+    - head01: 8 CPU, 16GB RAM (컨트롤러 + NFS 서버)
+    - compute01: 16 CPU, 32GB RAM, NVIDIA GPU 1개
+    
+    설치 전 준비사항:
+    1. 모든 노드에서 SSH 키 기반 인증 설정
+    2. 방화벽 포트 개방 (6817, 6818, 6819)
+    3. 시간 동기화 (NTP) 설정
+    4. (선택) 오프라인 설치 시 패키지 다운로드
+    
+    설치 후 확인사항:
+    1. Munge 인증: munge -n | unmunge
+    2. Slurm 서비스: systemctl status slurmctld slurmd
+    3. 노드 상태: sinfo
+    4. 테스트 작업: sbatch --wrap="hostname"
+    
+    문제 해결:
+    - Munge 인증 실패: python src/munge_validator.py config.yaml
+    - 패키지 설치 실패: install_method를 "source"로 변경
+    - 타임아웃 오류: timeouts 값을 늘림

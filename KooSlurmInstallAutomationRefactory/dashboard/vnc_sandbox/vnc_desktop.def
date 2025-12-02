@@ -1,0 +1,117 @@
+Bootstrap: docker
+From: nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+%post
+    # 환경 변수 설정
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Asia/Seoul
+
+    # 시스템 업데이트
+    apt-get update && apt-get upgrade -y
+
+    # 타임존 설정
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+    # 기본 유틸리티
+    apt-get install -y \
+        wget curl git vim nano \
+        ca-certificates gnupg lsb-release \
+        software-properties-common \
+        locales tzdata
+
+    # 로케일 설정
+    locale-gen en_US.UTF-8
+    update-locale LANG=en_US.UTF-8
+
+    # 경량 데스크톱 환경 (XFCE4)
+    apt-get install -y \
+        xfce4 xfce4-goodies \
+        xfce4-terminal thunar \
+        dbus-x11 x11-utils x11-xserver-utils
+
+    # VNC Server (TigerVNC)
+    apt-get install -y \
+        tigervnc-standalone-server \
+        tigervnc-common \
+        tigervnc-tools
+
+    # noVNC와 websockify
+    apt-get install -y \
+        python3 python3-pip python3-numpy \
+        novnc websockify
+
+    # GPU 테스트 및 시각화 도구
+    apt-get install -y \
+        mesa-utils \
+        glmark2 \
+        vulkan-tools
+
+    # 웹 브라우저
+    apt-get install -y firefox
+
+    # 파일 관리 도구
+    apt-get install -y \
+        file-roller \
+        gedit
+
+    # 네트워크 도구
+    apt-get install -y \
+        net-tools \
+        iputils-ping \
+        openssh-client
+
+    # 정리
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # VNC 디렉토리 생성
+    mkdir -p /root/.vnc
+    mkdir -p /tmp/.X11-unix
+    chmod 1777 /tmp/.X11-unix || true
+
+    # VNC 시작 스크립트 생성
+    cat > /root/.vnc/xstartup << 'EOF'
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4
+EOF
+    chmod +x /root/.vnc/xstartup
+
+    # VNC 설정 파일
+    cat > /root/.vnc/config << 'EOF'
+geometry=1920x1080
+depth=24
+dpi=96
+EOF
+
+%environment
+    export LANG=en_US.UTF-8
+    export LC_ALL=en_US.UTF-8
+    export PATH=/usr/local/nvidia/bin:/usr/local/cuda/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:$LD_LIBRARY_PATH
+    export DISPLAY=:1
+    export XDG_RUNTIME_DIR=/tmp/runtime-root
+
+%runscript
+    echo "VNC Desktop Environment"
+    echo "Usage:"
+    echo "  Start VNC: vncserver :1 -geometry 1920x1080 -depth 24"
+    echo "  Start noVNC: websockify --web=/usr/share/novnc 6080 localhost:5901"
+    echo "  Stop VNC: vncserver -kill :1"
+
+%labels
+    Author koopark
+    Version 1.0
+    Description VNC Desktop with GPU support for HPC visualization
+
+%help
+    This container provides a VNC desktop environment with GPU acceleration.
+
+    To start VNC server:
+        apptainer exec --nv vnc_desktop.sif vncserver :1 -geometry 1920x1080
+
+    To connect via noVNC:
+        apptainer exec --nv vnc_desktop.sif websockify --web=/usr/share/novnc 6080 localhost:5901
+
+    Then open browser: http://localhost:6080/vnc.html

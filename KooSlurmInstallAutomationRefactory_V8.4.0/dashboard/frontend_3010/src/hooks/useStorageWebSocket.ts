@@ -1,0 +1,329 @@
+/**
+ * WebSocket Client for Real-time Storage Updates (FIXED VERSION)
+ * 실시간 스토리지 업데이트를 위한 WebSocket 클라이언트 - 버그 수정됨
+ */
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { API_CONFIG } from '../config/api.config';
+
+// 타입 정의 개선
+export interface StorageData {
+  data_storage?: {
+    totalCapacity: string;
+    totalCapacityBytes: number;
+    usedSpace: string;
+    usedSpaceBytes: number;
+    availableSpace: string;
+    availableSpaceBytes: number;
+    usagePercent: number;
+    datasetCount: number;
+    fileCount: number;
+    lastUpdated: string;
+  };
+  scratch_storage?: {
+    totalNodes: number;
+    activeNodes: number;
+    averageUsage: number;
+    nodeDetails: Array<{
+      nodeId: string;
+      nodeName: string;
+      totalSpace: string;
+      usedSpace: string;
+      usagePercent: number;
+      status: string;
+      directories: any[];
+      lastChecked: string;
+    }>;
+    lastUpdated: string;
+  };
+  status: 'success' | 'error';
+  error?: string;
+}
+
+export interface StorageUpdate {
+  type: 'initial_data' | 'update' | 'periodic_update' | 'pong' | 'cache_cleared' | 'error';
+  data?: StorageData;
+  timestamp: string;
+  message?: string;
+  prefix?: string;
+}
+
+export interface WebSocketOptions {
+  url?: string;
+  autoConnect?: boolean;
+  reconnectInterval?: number;
+  maxReconnectAttempts?: number;
+  enableLogging?: boolean;
+}
+
+export function useStorageWebSocket(options: WebSocketOptions = {}) {
+  const {
+    url = `${API_CONFIG.WS_URL}`,
+    autoConnect = true,
+    reconnectInterval = 5000,
+    maxReconnectAttempts = 10,
+    enableLogging = true
+  } = options;
+
+  const [connected, setConnected] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<StorageUpdate | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // FIXED: useRef로 재연결 카운터 관리 (dependency 문제 해결)
+  const reconnectAttemptsRef = useRef(0);
+  
+  // FIXED: 마지막 연결 시도 시간 추적 (빠른 재연결 방지)
+  const lastConnectAttemptRef = useRef<number>(0);
+
+  const log = useCallback((message: string, ...args: any[]) => {
+    if (enableLogging) {
+      console.log(`[WebSocket] ${message}`, ...args);
+    }
+  }, [enableLogging]);
+
+  const connect = useCallback(() => {
+    // FIXED: 이미 연결되어 있거나 연결 중이면 무시
+    if (wsRef.current?.readyState === WebSocket.OPEN || 
+        wsRef.current?.readyState === WebSocket.CONNECTING) {
+      log('Already connected or connecting');
+      return;
+    }
+
+    // FIXED: 너무 빠른 재연결 방지 (최소 1초 간격)
+    const now = Date.now();
+    const timeSinceLastAttempt = now - lastConnectAttemptRef.current;
+    if (timeSinceLastAttempt < 1000) {
+      log('Throttling connection attempt');
+      return;
+    }
+    lastConnectAttemptRef.current = now;
+
+    log('Connecting to', url);
+    const ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      log('Connected successfully');
+      setConnected(true);
+      setError(null);
+      
+      // FIXED: 재연결 카운터 리셋
+      reconnectAttemptsRef.current = 0;
+      setReconnectAttempt(0);
+
+      // Start ping-pong to keep connection alive
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+      }
+      
+      pingIntervalRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          } catch (err) {
+            log('Error sending ping:', err);
+          }
+        }
+      }, 30000); // Every 30 seconds
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const update: StorageUpdate = JSON.parse(event.data);
+        log('Received update:', update.type);
+        setLastUpdate(update);
+      } catch (err) {
+        log('Error parsing message:', err);
+        setError('Failed to parse server message');
+      }
+    };
+
+    ws.onerror = (event) => {
+      log('WebSocket error:', event);
+      setError('WebSocket connection error');
+    };
+
+    ws.onclose = (event) => {
+      log('Connection closed:', event.code, event.reason);
+      setConnected(false);
+
+      // Clear ping interval
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+
+      // FIXED: useRef로 재연결 카운터 관리
+      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+        const currentAttempt = reconnectAttemptsRef.current + 1;
+        log(`Reconnecting in ${reconnectInterval}ms (attempt ${currentAttempt}/${maxReconnectAttempts})`);
+        
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectAttemptsRef.current = currentAttempt;
+          setReconnectAttempt(currentAttempt);
+          connect(); // 재귀 호출하지만 dependency 문제 없음
+        }, reconnectInterval);
+      } else {
+        log('Max reconnect attempts reached');
+        setError(`Failed to reconnect after ${maxReconnectAttempts} attempts`);
+      }
+    };
+
+    wsRef.current = ws;
+  }, [url, maxReconnectAttempts, reconnectInterval, log]); // FIXED: reconnectAttempt 제거
+
+  const disconnect = useCallback(() => {
+    log('Disconnecting...');
+    
+    // Clear all timers
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+
+    // Close WebSocket
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (err) {
+        log('Error closing WebSocket:', err);
+      }
+      wsRef.current = null;
+    }
+
+    // Reset state
+    setConnected(false);
+    reconnectAttemptsRef.current = 0;
+    setReconnectAttempt(0);
+  }, [log]);
+
+  const requestUpdate = useCallback((storageType: 'all' | 'data' | 'scratch' = 'all') => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        log('Requesting update for:', storageType);
+        wsRef.current.send(JSON.stringify({
+          type: 'request_update',
+          storage_type: storageType
+        }));
+      } catch (err) {
+        log('Error requesting update:', err);
+        setError('Failed to request update');
+      }
+    } else {
+      log('Cannot request update: not connected');
+      setError('Not connected to server');
+    }
+  }, [log]);
+
+  const clearCache = useCallback((prefix?: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        log('Requesting cache clear:', prefix || 'all');
+        wsRef.current.send(JSON.stringify({
+          type: 'clear_cache',
+          prefix
+        }));
+      } catch (err) {
+        log('Error clearing cache:', err);
+        setError('Failed to clear cache');
+      }
+    } else {
+      log('Cannot clear cache: not connected');
+      setError('Not connected to server');
+    }
+  }, [log]);
+
+  // Auto-connect on mount
+  useEffect(() => {
+    if (autoConnect) {
+      connect();
+    }
+
+    // Cleanup on unmount
+    return () => {
+      disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // FIXED: 빈 배열 - 마운트 시에만 실행
+
+  return {
+    connected,
+    lastUpdate,
+    error,
+    reconnectAttempt,
+    connect,
+    disconnect,
+    requestUpdate,
+    clearCache
+  };
+}
+
+/**
+ * Storage API with caching support
+ */
+export const storageApiWithCache = {
+  getSharedStorageStats: async (useCache: boolean = true) => {
+    try {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/storage/data/stats?cache=${useCache}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching shared storage stats:', error);
+      throw error;
+    }
+  },
+
+  getScratchNodes: async (useCache: boolean = true) => {
+    try {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/storage/scratch/nodes?cache=${useCache}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching scratch nodes:', error);
+      throw error;
+    }
+  },
+
+  clearCache: async (prefix?: string) => {
+    try {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/storage/cache/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefix })
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      throw error;
+    }
+  },
+
+  getCacheStatus: async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/storage/cache/status`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching cache status:', error);
+      throw error;
+    }
+  }
+};

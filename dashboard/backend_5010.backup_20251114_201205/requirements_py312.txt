@@ -1,0 +1,28 @@
+# ============================================
+# Dashboard Backend 환경 (Python 3.12 최적화)
+# 작성일: 2025-10-07
+# Python: 3.12.x
+# ============================================
+
+# Flask 웹 프레임워크
+Flask==3.1.0
+flask-cors==5.0.0
+Werkzeug==3.1.0
+
+# 웹 요청
+requests>=2.32.0
+
+# 비동기 처리 (Python 3.12 호환)
+asyncssh>=2.15.0
+aiohttp>=3.10.0
+aiohttp-cors>=0.7.0
+
+# 암호화 (Python 3.12 호환)
+cryptography>=42.0.0
+
+# 모니터링
+prometheus_client>=0.20.0
+psutil>=6.0.0
+
+# 유틸리티
+python-dotenv>=1.0.0

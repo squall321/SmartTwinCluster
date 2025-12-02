@@ -1,0 +1,74 @@
+// clusterStore.ts의 applyConfiguration 함수 수정 가이드
+
+// 문제: /api/slurm/apply-config가 Production 모드에서 실패
+// 해결: Slurm API 호출을 제거하고 cluster/config만 호출
+
+// 수정 전:
+// 1. /api/slurm/apply-config 호출 (Slurm 설정)
+// 2. /api/cluster/config 호출 (DB 저장)
+
+// 수정 후:
+// 1. /api/cluster/config 호출만 (DB 저장)
+// → Job Templates는 DB에서 읽으므로 이것만으로도 동기화 됨
+
+/*
+수정할 파일: frontend_3010/src/store/clusterStore.ts
+수정할 함수: applyConfiguration
+
+변경 내용:
+1. Slurm API 호출 부분 주석 처리 또는 삭제
+2. cluster/config API만 호출
+3. 성공 시 hasUnsavedChanges = false 설정
+*/
+
+// 수정된 applyConfiguration 함수 (간소화 버전):
+/*
+applyConfiguration: async () => {
+  set({ isApplying: true });
+  
+  try {
+    const state = get();
+    const { groups, clusterName, controllerIp, totalNodes, totalCores } = state;
+    
+    // 클러스터 구성 저장 (DB에 저장)
+    const config: ClusterConfig = {
+      groups: groups.map(g => ({
+        id: g.id,
+        name: g.name,
+        description: g.description,
+        color: g.color,
+        partitionName: g.partitionName,
+        qosName: g.qosName,
+        allowedCoreSizes: g.allowedCoreSizes,
+        nodeCount: g.nodeCount,
+        totalCores: g.totalCores,
+        nodes: []  // 노드 정보는 저장하지 않음
+      })),
+      clusterName,
+      controllerIp,
+      totalNodes,
+      totalCores
+    };
+    
+    const result = await apiPost<{
+      success: boolean;
+      mode: string;
+      message: string;
+    }>('/api/cluster/config', config);
+    
+    if (!result.success) {
+      throw new Error(result.message || 'Failed to save cluster configuration');
+    }
+    
+    set({
+      hasUnsavedChanges: false,
+      isApplying: false,
+    });
+    
+    return result;
+  } catch (error) {
+    set({ isApplying: false });
+    throw error;
+  }
+},
+*/

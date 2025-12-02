@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VNC Display</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #screen {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #status {
+            color: white;
+            font-family: sans-serif;
+            font-size: 14px;
+            text-align: center;
+        }
+        canvas {
+            border: none;
+            max-width: 100%;
+            max-height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="screen">
+        <div id="status">Initializing...</div>
+    </div>
+
+    <!-- Load noVNC from jsDelivr CDN (provides proper ES modules) -->
+    <script type="module">
+        // Use jsDelivr CDN which provides proper ES modules
+        const RFB = window.RFB || (await import('https://cdn.jsdelivr.net/npm/@novnc/novnc@1.5.0/core/rfb.js')).default;
+
+        let rfb;
+        const screen = document.getElementById('screen');
+        const status = document.getElementById('status');
+
+        function updateStatus(message) {
+            status.textContent = message;
+            console.log('[noVNC]', message);
+        }
+
+        function connect(url) {
+            updateStatus('Connecting to ' + url + '...');
+
+            try {
+                rfb = new RFB(screen, url, {
+                    credentials: { password: '' },
+                });
+
+                rfb.addEventListener('connect', () => {
+                    updateStatus('Connected');
+                    status.style.display = 'none';
+                    window.parent.postMessage({ type: 'novnc-connected' }, '*');
+                });
+
+                rfb.addEventListener('disconnect', (e) => {
+                    updateStatus('Disconnected');
+                    status.style.display = 'block';
+                    window.parent.postMessage({ type: 'novnc-disconnected', detail: e.detail }, '*');
+                });
+
+                rfb.addEventListener('credentialsrequired', () => {
+                    updateStatus('Credentials required');
+                    window.parent.postMessage({ type: 'novnc-credentials-required' }, '*');
+                });
+
+                rfb.addEventListener('desktopname', (e) => {
+                    updateStatus('Connected to: ' + e.detail.name);
+                    window.parent.postMessage({ type: 'novnc-desktop-name', name: e.detail.name }, '*');
+                });
+
+                rfb.scaleViewport = true;
+                rfb.resizeSession = true;
+
+            } catch (error) {
+                updateStatus('Error: ' + error.message);
+                window.parent.postMessage({ type: 'novnc-error', error: error.message }, '*');
+            }
+        }
+
+        // Listen for connection URL from parent
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'novnc-connect') {
+                connect(event.data.url);
+            } else if (event.data.type === 'novnc-disconnect') {
+                if (rfb) {
+                    rfb.disconnect();
+                    rfb = null;
+                }
+            }
+        });
+
+        // Auto-connect if URL is in query parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const vncUrl = urlParams.get('url');
+        if (vncUrl) {
+            connect(decodeURIComponent(vncUrl));
+        } else {
+            // Signal ready to parent
+            updateStatus('Ready');
+            window.parent.postMessage({ type: 'novnc-ready' }, '*');
+        }
+    </script>
+</body>
+</html>

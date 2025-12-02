@@ -1,0 +1,46 @@
+#!/bin/bash
+################################################################################
+# RebootProgram 설정 - YAML 기반
+# my_cluster.yaml에서 설정을 읽어와서 동적으로 구성합니다
+################################################################################
+
+set -e
+
+echo "================================================================================"
+echo "🔄 Step: RebootProgram 설정 (YAML 기반)"
+echo "================================================================================"
+echo ""
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YAML_FILE="${SCRIPT_DIR}/my_cluster.yaml"
+
+# YAML 파일 확인
+if [ ! -f "$YAML_FILE" ]; then
+    echo "❌ $YAML_FILE 파일을 찾을 수 없습니다!"
+    exit 1
+fi
+
+echo "📖 YAML 설정 읽는 중..."
+
+# Python으로 YAML 파싱
+read -r ADMIN_USER SLURM_USER INSTALL_PATH REBOOT_CMD << EOF
+$(python3 - <<PYTHON
+import yaml
+import sys
+
+try:
+    with open('${YAML_FILE}', 'r') as f:
+        config = yaml.safe_load(f)
+    
+    admin_user = config.get('users', {}).get('admin_user', 'koopark')
+    slurm_user = config.get('users', {}).get('slurm_user', 'slurm')
+    install_path = config.get('slurm_config', {}).get('install_path', '/usr/local/slurm')
+    reboot_cmd = config.get('slurm_config', {}).get('reboot_program', '/sbin/reboot')
+    
+    print(f"{admin_user} {slurm_user} {install_path} {reboot_cmd}")
+except Exception as e:
+    print(f"koopark slurm /usr/local/slurm /sbin/reboot", file=sys.stderr)
+    print(f"Warning: {e}", file=sys.stderr)
+    sys.exit(0)
+PYTHON
+)

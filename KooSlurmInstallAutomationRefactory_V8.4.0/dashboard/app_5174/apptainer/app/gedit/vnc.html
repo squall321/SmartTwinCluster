@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>noVNC</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+        }
+        #screen {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="screen"></div>
+
+    <!-- Load noVNC from unpkg CDN -->
+    <script type="module">
+        // Import noVNC RFB from CDN
+        const module = await import('https://unpkg.com/@novnc/novnc@1.4.0/lib/rfb.js');
+        const RFB = module.default;
+
+        // Get parameters from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoconnect = urlParams.get('autoconnect') === 'true';
+        const resize = urlParams.get('resize') || 'off';
+
+        // Build WebSocket URL
+        const host = window.location.hostname;
+        const port = window.location.port;
+        const path = 'websockify';
+        const url = 'ws://' + host + ':' + port + '/' + path;
+
+        console.log('[noVNC] Connecting to:', url);
+        console.log('[noVNC] Resize:', resize);
+
+        const screen = document.getElementById('screen');
+
+        try {
+            const rfb = new RFB(screen, url, {
+                credentials: { password: '' },
+            });
+
+            rfb.addEventListener('connect', () => {
+                console.log('[noVNC] Connected');
+            });
+
+            rfb.addEventListener('disconnect', (e) => {
+                console.log('[noVNC] Disconnected:', e.detail);
+            });
+
+            rfb.addEventListener('credentialsrequired', () => {
+                console.log('[noVNC] Credentials required');
+            });
+
+            rfb.addEventListener('securityfailure', (e) => {
+                console.error('[noVNC] Security failure:', e.detail);
+            });
+
+            // Apply resize setting
+            if (resize === 'scale') {
+                rfb.scaleViewport = true;
+                rfb.resizeSession = true;
+            } else if (resize === 'remote') {
+                rfb.scaleViewport = false;
+                rfb.resizeSession = true;
+            }
+
+            rfb.showDotCursor = true;
+            rfb.clipViewport = false;
+            rfb.dragViewport = false;
+
+        } catch (error) {
+            console.error('[noVNC] Connection error:', error);
+            screen.innerHTML = '<div style="color:white;padding:20px;">Connection Error: ' + error.message + '</div>';
+        }
+    </script>
+</body>
+</html>

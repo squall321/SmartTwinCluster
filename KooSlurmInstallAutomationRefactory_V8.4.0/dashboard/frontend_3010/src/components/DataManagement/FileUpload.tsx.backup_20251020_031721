@@ -1,0 +1,354 @@
+import React, { useState, useCallback } from 'react';
+import { Upload, X, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+
+interface FileUploadProps {
+  destination?: string;
+  targetNodes?: string[];
+  onUploadComplete?: (result: any) => void;
+  storageType?: 'data' | 'scratch';
+}
+
+interface UploadProgress {
+  filename: string;
+  uploadId: string;
+  totalSize: number;
+  bytesUploaded: number;
+  progress: number;
+  status: 'uploading' | 'completed' | 'failed' | 'cancelled';
+  error?: string;
+}
+
+const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
+const API_BASE_URL = 'http://localhost:5010';
+
+const FileUpload: React.FC<FileUploadProps> = ({
+  destination = '/Data/uploads/',
+  targetNodes = [],
+  onUploadComplete,
+  storageType = 'data'
+}) => {
+  const [uploads, setUploads] = useState<Map<string, UploadProgress>>(new Map());
+  const [isDragging, setIsDragging] = useState(false);
+
+  const updateUpload = (uploadId: string, updates: Partial<UploadProgress>) => {
+    setUploads(prev => {
+      const newMap = new Map(prev);
+      const existing = newMap.get(uploadId);
+      if (existing) {
+        newMap.set(uploadId, { ...existing, ...updates });
+      }
+      return newMap;
+    });
+  };
+
+  const uploadChunk = async (
+    uploadId: string,
+    chunk: Blob,
+    chunkIndex: number
+  ): Promise<boolean> => {
+    const formData = new FormData();
+    formData.append('upload_id', uploadId);
+    formData.append('chunk_index', chunkIndex.toString());
+    formData.append('chunk', chunk);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/upload/chunk`, {
+        method: 'POST',
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        updateUpload(uploadId, {
+          bytesUploaded: result.bytes_received,
+          progress: result.progress
+        });
+        return result.completed;
+      } else {
+        throw new Error(result.error || 'Chunk upload failed');
+      }
+    } catch (error) {
+      console.error(`Chunk ${chunkIndex} upload failed:`, error);
+      throw error;
+    }
+  };
+
+  const uploadFile = async (file: File) => {
+    try {
+      // 1. 업로드 초기화
+      const initResponse = await fetch(`${API_BASE_URL}/api/upload/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          total_size: file.size,
+          destination: destination,
+          target_nodes: targetNodes
+        })
+      });
+
+      const initResult = await initResponse.json();
+
+      if (!initResult.success) {
+        throw new Error(initResult.error || 'Failed to initialize upload');
+      }
+
+      const uploadId = initResult.upload_id;
+
+      // 업로드 상태 추가
+      setUploads(prev => {
+        const newMap = new Map(prev);
+        newMap.set(uploadId, {
+          filename: file.name,
+          uploadId: uploadId,
+          totalSize: file.size,
+          bytesUploaded: 0,
+          progress: 0,
+          status: 'uploading'
+        });
+        return newMap;
+      });
+
+      // 2. 청크 단위 업로드
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      let currentChunk = 0;
+
+      while (currentChunk < totalChunks) {
+        const start = currentChunk * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        const completed = await uploadChunk(uploadId, chunk, currentChunk);
+
+        if (completed) {
+          break;
+        }
+
+        currentChunk++;
+      }
+
+      // 3. 업로드 완료
+      const finalizeResponse = await fetch(`${API_BASE_URL}/api/upload/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          upload_id: uploadId,
+          destination: `${destination}${file.name}`,
+          target_nodes: targetNodes
+        })
+      });
+
+      const finalizeResult = await finalizeResponse.json();
+
+      if (finalizeResult.success) {
+        updateUpload(uploadId, {
+          status: 'completed',
+          progress: 100
+        });
+
+        if (onUploadComplete) {
+          onUploadComplete(finalizeResult);
+        }
+      } else {
+        throw new Error(finalizeResult.error || 'Failed to finalize upload');
+      }
+
+    } catch (error) {
+      console.error('Upload failed:', error);
+      updateUpload(file.name, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Upload failed'
+      });
+    }
+  };
+
+  const handleFiles = useCallback((files: FileList | null) => {
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      uploadFile(file);
+    });
+  }, [destination, targetNodes]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    handleFiles(e.dataTransfer.files);
+  }, [handleFiles]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFiles(e.target.files);
+  }, [handleFiles]);
+
+  const cancelUpload = async (uploadId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/upload/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_id: uploadId })
+      });
+
+      updateUpload(uploadId, { status: 'cancelled' });
+    } catch (error) {
+      console.error('Failed to cancel upload:', error);
+    }
+  };
+
+  const removeUpload = (uploadId: string) => {
+    setUploads(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(uploadId);
+      return newMap;
+    });
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Drop Zone */}
+      <div
+        className={`
+          border-2 border-dashed rounded-lg p-8 text-center
+          transition-colors cursor-pointer
+          ${isDragging 
+            ? 'border-blue-500 bg-blue-50' 
+            : 'border-gray-300 hover:border-gray-400'
+          }
+        `}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onClick={() => document.getElementById('file-input')?.click()}
+      >
+        <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+        <p className="text-lg font-medium text-gray-700 mb-2">
+          {isDragging ? 'Drop files here' : 'Click to upload or drag and drop'}
+        </p>
+        <p className="text-sm text-gray-500">
+          Maximum file size: 10GB per file
+        </p>
+        <input
+          id="file-input"
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFileInput}
+        />
+      </div>
+
+      {/* Upload Progress List */}
+      {uploads.size > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-gray-700">
+            Uploads ({uploads.size})
+          </h3>
+
+          {Array.from(uploads.values()).map(upload => (
+            <div
+              key={upload.uploadId}
+              className="bg-white rounded-lg border border-gray-200 p-4"
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {upload.filename}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {formatBytes(upload.bytesUploaded)} / {formatBytes(upload.totalSize)}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 ml-4">
+                  {upload.status === 'uploading' && (
+                    <>
+                      <Loader className="w-4 h-4 text-blue-500 animate-spin" />
+                      <button
+                        onClick={() => cancelUpload(upload.uploadId)}
+                        className="text-gray-400 hover:text-red-500"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  {upload.status === 'completed' && (
+                    <>
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                      <button
+                        onClick={() => removeUpload(upload.uploadId)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  {upload.status === 'failed' && (
+                    <>
+                      <AlertCircle className="w-4 h-4 text-red-500" />
+                      <button
+                        onClick={() => removeUpload(upload.uploadId)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              {upload.status === 'uploading' && (
+                <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
+                  <div
+                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${upload.progress}%` }}
+                  />
+                </div>
+              )}
+
+              {/* Status Message */}
+              {upload.status === 'uploading' && (
+                <p className="text-xs text-gray-600">
+                  Uploading... {upload.progress.toFixed(1)}%
+                </p>
+              )}
+              {upload.status === 'completed' && (
+                <p className="text-xs text-green-600">
+                  Upload completed successfully
+                </p>
+              )}
+              {upload.status === 'failed' && (
+                <p className="text-xs text-red-600">
+                  {upload.error || 'Upload failed'}
+                </p>
+              )}
+              {upload.status === 'cancelled' && (
+                <p className="text-xs text-gray-600">
+                  Upload cancelled
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default FileUpload;

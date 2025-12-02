@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAE Automation - Coming Soon</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 60px 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            color: #667eea;
+            font-size: 24px;
+            margin-bottom: 30px;
+        }
+
+        p {
+            color: #666;
+            font-size: 18px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .features {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 30px;
+            margin: 30px 0;
+            text-align: left;
+        }
+
+        .features h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .features ul {
+            list-style: none;
+        }
+
+        .features li {
+            color: #666;
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+
+        .features li:before {
+            content: "✓";
+            color: #667eea;
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+        }
+
+        .back-button {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 15px 40px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .back-button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .status {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+
+        .status-text {
+            color: #92400e;
+            font-size: 14px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">🔬</div>
+        <h1>CAE Automation</h1>
+        <h2>Coming Soon</h2>
+
+        <p>CAE (Computer-Aided Engineering) 시뮬레이션 자동화 서비스를 준비 중입니다.</p>
+
+        <div class="status">
+            <div class="status-text">🚧 현재 개발 중입니다</div>
+        </div>
+
+        <div class="features">
+            <h3>계획된 기능</h3>
+            <ul>
+                <li>ANSYS, ABAQUS, LS-DYNA 통합</li>
+                <li>배치 시뮬레이션 자동 제출</li>
+                <li>결과 자동 수집 및 후처리</li>
+                <li>파라메트릭 스터디 자동화</li>
+                <li>시뮬레이션 작업 템플릿</li>
+                <li>실시간 진행 상황 모니터링</li>
+            </ul>
+        </div>
+
+        <p style="font-size: 14px; color: #999;">
+            이 서비스는 곧 제공될 예정입니다.<br>
+            현재는 HPC Dashboard를 이용해 주세요.
+        </p>
+
+        <a href="http://localhost:4431" class="back-button">← Auth Portal로 돌아가기</a>
+    </div>
+</body>
+</html>

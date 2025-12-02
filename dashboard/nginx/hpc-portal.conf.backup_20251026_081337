@@ -1,0 +1,202 @@
+# HPC Portal - Production Configuration with Static Files
+# All frontend services served as static files from dist/ directories
+
+upstream auth_frontend {
+    server 127.0.0.1:4431;
+}
+
+upstream auth_backend {
+    server 127.0.0.1:4430;
+}
+
+upstream dashboard_backend {
+    server 127.0.0.1:5010;
+}
+
+upstream dashboard_websocket {
+    server 127.0.0.1:5011;
+}
+
+upstream cae_backend {
+    server 127.0.0.1:5000;
+}
+
+upstream prometheus {
+    server 127.0.0.1:9090;
+}
+
+upstream node_exporter {
+    server 127.0.0.1:9100;
+}
+
+server {
+    listen 80;
+    server_name 110.15.177.120 localhost;
+
+    # Increase buffer sizes for large headers (JWT tokens)
+    client_header_buffer_size 16k;
+    large_client_header_buffers 4 16k;
+
+    # Root - Auth Portal Frontend (still uses dev server)
+    location / {
+        proxy_pass http://auth_frontend/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Auth Backend API
+    location /auth {
+        proxy_pass http://auth_backend/auth;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Dashboard Frontend - Redirect without trailing slash to with trailing slash
+    location = /dashboard {
+        return 301 /dashboard/;
+    }
+
+    # Dashboard Frontend - Serve static files from dist
+    location /dashboard/ {
+        alias /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/frontend_3010/dist/;
+        try_files $uri $uri/ /dashboard/index.html;
+
+        # Disable caching for HTML files
+        location ~* \.html$ {
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            add_header Cache-Control "public, max-age=31536000, immutable";
+        }
+    }
+
+    # Dashboard Backend API
+    location /api/ {
+        proxy_pass http://dashboard_backend/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization $http_authorization;
+        proxy_pass_request_headers on;
+
+        # CORS headers
+        add_header 'Access-Control-Allow-Origin' '*' always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+
+        # Handle preflight requests
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept' always;
+            add_header 'Access-Control-Max-Age' 1728000;
+            add_header 'Content-Type' 'text/plain charset=UTF-8';
+            add_header 'Content-Length' 0;
+            return 204;
+        }
+
+        # Increase timeout
+        proxy_connect_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # Dashboard WebSocket
+    location /ws {
+        proxy_pass http://dashboard_websocket/ws;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+
+    # VNC Service Frontend - Redirect without trailing slash to with trailing slash
+    location = /vnc {
+        return 301 /vnc/;
+    }
+
+    # VNC Service Frontend - Serve static files from dist
+    location /vnc/ {
+        alias /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/vnc_service_8002/dist/;
+        try_files $uri $uri/ /vnc/index.html;
+
+        # Disable caching for HTML files
+        location ~* \.html$ {
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            add_header Cache-Control "public, max-age=31536000, immutable";
+        }
+    }
+
+    # CAE Frontend - Redirect without trailing slash to with trailing slash
+    location = /cae {
+        return 301 /cae/;
+    }
+
+    # CAE Frontend - Serve static files from dist
+    location /cae/ {
+        alias /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/kooCAEWeb_5173/dist/;
+        try_files $uri $uri/ /cae/index.html;
+
+        # Disable caching for HTML files
+        location ~* \.html$ {
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            add_header Cache-Control "public, max-age=31536000, immutable";
+        }
+    }
+
+    # CAE Backend API (5000 and 5001)
+    location /cae/api {
+        proxy_pass http://cae_backend/api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Prometheus
+    location /prometheus {
+        proxy_pass http://prometheus/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Node Exporter Metrics
+    location /metrics {
+        proxy_pass http://node_exporter/metrics;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

@@ -1,0 +1,234 @@
+import React, { useState } from 'react';
+import { Search, Filter, Loader, File, Folder, Download, X } from 'lucide-react';
+import { API_CONFIG } from '../config/api.config';
+
+interface SearchResult {
+  path: string;
+  name: string;
+  size: number;
+  modified: string;
+  type: 'file' | 'directory';
+}
+
+const FileSearchPanel: React.FC = () => {
+  const [query, setQuery] = useState('');
+  const [searchPath, setSearchPath] = useState('/Data');
+  const [extension, setExtension] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [searchType, setSearchType] = useState<'filename' | 'content'>('filename');
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+
+    setSearching(true);
+    setResults([]);
+
+    try {
+      const endpoint = searchType === 'filename' 
+        ? '/api/search/files'
+        : '/api/search/content';
+
+      const response = await fetch(`http://localhost:5010${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: query.trim(),
+          path: searchPath,
+          extension: extension || undefined,
+          case_sensitive: false,
+          max_results: 100
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setResults(data.results || []);
+      } else {
+        alert(`Search failed: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Search failed:', error);
+      alert('Search failed');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  };
+
+  return (
+    <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+      {/* Search Header */}
+      <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border-b border-gray-700 p-4">
+        <h3 className="text-lg font-bold text-gray-50 mb-4 flex items-center gap-2">
+          <Search className="w-5 h-5 text-blue-400" />
+          File Search
+        </h3>
+
+        {/* Search Type */}
+        <div className="flex gap-2 mb-3">
+          <button
+            onClick={() => setSearchType('filename')}
+            className={`px-3 py-1.5 text-sm rounded transition ${
+              searchType === 'filename'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            File Name
+          </button>
+          <button
+            onClick={() => setSearchType('content')}
+            className={`px-3 py-1.5 text-sm rounded transition ${
+              searchType === 'content'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            File Content
+          </button>
+        </div>
+
+        {/* Search Input */}
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder={searchType === 'filename' ? 'Search by filename...' : 'Search file contents...'}
+            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-50 placeholder-gray-400 focus:outline-none focus:border-blue-400"
+          />
+          <button
+            onClick={handleSearch}
+            disabled={searching || !query.trim()}
+            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded transition font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {searching ? (
+              <>
+                <Loader className="w-4 h-4 animate-spin" />
+                Searching...
+              </>
+            ) : (
+              <>
+                <Search className="w-4 h-4" />
+                Search
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition"
+            title="Advanced filters"
+          >
+            <Filter className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Advanced Filters */}
+        {showFilters && (
+          <div className="bg-gray-700/50 rounded p-3 space-y-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Search Path</label>
+                <select
+                  value={searchPath}
+                  onChange={(e) => setSearchPath(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-gray-600 border border-gray-500 rounded text-sm text-gray-50"
+                >
+                  <option value="/Data">/Data (Shared)</option>
+                  <option value="/scratch">/scratch</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">File Extension</label>
+                <input
+                  type="text"
+                  value={extension}
+                  onChange={(e) => setExtension(e.target.value)}
+                  placeholder=".py, .txt, etc"
+                  className="w-full px-2 py-1.5 bg-gray-600 border border-gray-500 rounded text-sm text-gray-50 placeholder-gray-400"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Results */}
+      <div className="max-h-96 overflow-y-auto">
+        {results.length === 0 && !searching ? (
+          <div className="text-center py-12 px-4">
+            <Search className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400">
+              {query ? 'No results found' : 'Enter a search query to begin'}
+            </p>
+          </div>
+        ) : searching ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader className="w-8 h-8 text-blue-400 animate-spin" />
+            <span className="ml-3 text-gray-300">Searching...</span>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-700">
+            {results.map((result, idx) => (
+              <div
+                key={idx}
+                className="p-3 hover:bg-gray-700/30 transition flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {result.type === 'directory' ? (
+                    <Folder className="w-5 h-5 text-blue-400 flex-shrink-0" />
+                  ) : (
+                    <File className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  )}
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-50 truncate">
+                      {result.name}
+                    </div>
+                    <div className="text-xs text-gray-400 truncate">
+                      {result.path}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {formatSize(result.size)} • {new Date(result.modified).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+
+                {result.type === 'file' && (
+                  <button
+                    className="ml-2 p-1.5 text-gray-500 hover:text-blue-400 transition opacity-0 group-hover:opacity-100"
+                    title="Download"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      {results.length > 0 && (
+        <div className="border-t border-gray-700 px-4 py-2 bg-gray-800/50">
+          <div className="text-xs text-gray-400">
+            Found {results.length} result{results.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default FileSearchPanel;

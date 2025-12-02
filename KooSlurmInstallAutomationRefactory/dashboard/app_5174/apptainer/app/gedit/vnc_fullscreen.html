@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GEdit</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        body {
+            background-color: #2e2e2e;
+            font-family: Arial, sans-serif;
+        }
+
+        #screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #status {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            display: none;
+        }
+
+        #fullscreen-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 1000;
+            font-size: 14px;
+        }
+
+        #fullscreen-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Connecting...</div>
+    <div id="screen"></div>
+    <button id="fullscreen-btn" onclick="toggleFullscreen()">Full Screen (F11)</button>
+
+    <script type="module">
+        import RFB from '/core/rfb.js';
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoconnect = urlParams.get('autoconnect') === 'true';
+        const resize = urlParams.get('resize') || 'scale';
+
+        const status = document.getElementById('status');
+        const screen = document.getElementById('screen');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+
+        function showStatus(message, duration = 3000) {
+            status.textContent = message;
+            status.style.display = 'block';
+            if (duration > 0) {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, duration);
+            }
+        }
+
+        // 전체화면 토글
+        window.toggleFullscreen = function() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error('Fullscreen error:', err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        };
+
+        // F11 키로 전체화면 토글
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F11') {
+                e.preventDefault();
+                toggleFullscreen();
+            }
+        });
+
+        // 전체화면 상태 변경 감지
+        document.addEventListener('fullscreenchange', () => {
+            if (document.fullscreenElement) {
+                fullscreenBtn.textContent = 'Exit Full Screen (F11)';
+            } else {
+                fullscreenBtn.textContent = 'Full Screen (F11)';
+            }
+        });
+
+        // WebSocket URL 구성
+        const host = window.location.hostname;
+        const port = window.location.port;
+        const url = `ws://${host}:${port}/websockify`;
+
+        console.log('[noVNC] Connecting to:', url);
+        console.log('[noVNC] Resize mode:', resize);
+
+        showStatus('Connecting to VNC server...', 0);
+
+        try {
+            const rfb = new RFB(screen, url, {
+                credentials: { password: '' },
+            });
+
+            // 리사이즈 설정
+            rfb.scaleViewport = (resize === 'scale');
+            rfb.resizeSession = (resize === 'scale' || resize === 'remote');
+            rfb.showDotCursor = true;
+            rfb.clipViewport = false;
+            rfb.dragViewport = false;
+
+            // 이벤트 핸들러
+            rfb.addEventListener('connect', () => {
+                console.log('[noVNC] Connected');
+                showStatus('Connected!', 2000);
+
+                // 연결 후 자동으로 전체화면 모드 진입
+                if (autoconnect) {
+                    setTimeout(() => {
+                        toggleFullscreen();
+                    }, 1000);
+                }
+            });
+
+            rfb.addEventListener('disconnect', (e) => {
+                console.log('[noVNC] Disconnected:', e.detail);
+                showStatus('Disconnected: ' + (e.detail.clean ? 'Normal' : e.detail.reason), 0);
+            });
+
+            rfb.addEventListener('credentialsrequired', () => {
+                console.log('[noVNC] Credentials required');
+                showStatus('Credentials required', 0);
+            });
+
+            rfb.addEventListener('securityfailure', (e) => {
+                console.error('[noVNC] Security failure:', e.detail);
+                showStatus('Security failure: ' + e.detail.reason, 0);
+            });
+
+            rfb.addEventListener('desktopname', (e) => {
+                console.log('[noVNC] Desktop name:', e.detail.name);
+                document.title = e.detail.name;
+            });
+
+        } catch (error) {
+            console.error('[noVNC] Connection error:', error);
+            showStatus('Connection Error: ' + error.message, 0);
+        }
+    </script>
+</body>
+</html>

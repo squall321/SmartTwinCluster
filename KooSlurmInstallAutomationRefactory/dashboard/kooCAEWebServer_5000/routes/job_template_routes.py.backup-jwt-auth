@@ -1,0 +1,306 @@
+# routes/job_template_routes.py
+
+from flask import Blueprint, request, jsonify, send_file
+from werkzeug.utils import secure_filename
+from services.job_template_manager import JobTemplateManager
+import utils.slurm_utils as slurm_utils
+import os
+import json
+from datetime import datetime
+import tempfile
+import zipfile
+
+job_template_bp = Blueprint('job_template', __name__)
+UPLOAD_ROOT = "uploads"
+
+# Job Template Manager 인스턴스
+template_manager = JobTemplateManager()
+
+@job_template_bp.route("/api/job-templates", methods=["GET"])
+def list_templates():
+    """템플릿 목록 조회"""
+    try:
+        category = request.args.get("category")
+        templates = template_manager.list_templates(category)
+        
+        return jsonify({
+            "templates": templates,
+            "categories": list(set(t["category"] for t in templates)),
+            "success": True
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+
+@job_template_bp.route("/api/job-templates/<template_name>", methods=["GET"])
+def get_template(template_name):
+    """특정 템플릿 조회"""
+    try:
+        template_data = template_manager.get_template(template_name)
+        if not template_data:
+            return jsonify({"error": "Template not found", "success": False}), 404
+        
+        return jsonify({
+            "template": template_data,
+            "success": True
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+
+@job_template_bp.route("/api/job-templates/<template_name>/schema", methods=["GET"])
+def get_template_schema(template_name):
+    """템플릿 스키마 조회 (프론트엔드 폼 생성용)"""
+    try:
+        schema = template_manager.get_template_schema(template_name)
+        return jsonify({
+            "schema": schema,
+            "success": True
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+
+@job_template_bp.route("/api/job-templates/<template_name>/submit", methods=["POST"])
+def submit_template_job(template_name):
+    """템플릿 기반 작업 제출 (핵심 기능)"""
+    try:
+        # 파일 업로드 처리
+        files = request.files
+        if not files:
+            return jsonify({"error": "No files provided", "success": False}), 400
+        
+        # JSON 파라미터 파싱
+        parameters_json = request.form.get("parameters")
+        if not parameters_json:
+            return jsonify({"error": "Parameters required", "success": False}), 400
+        
+        try:
+            parameters = json.loads(parameters_json)
+        except json.JSONDecodeError:
+            return jsonify({"error": "Invalid JSON in parameters", "success": False}), 400
+        
+        # 사용자 및 디렉토리 설정
+        user_id = request.form.get("user", "default_user")
+        base_upload_path = os.path.join(UPLOAD_ROOT, secure_filename(user_id))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        job_upload_path = os.path.join(base_upload_path, f"{template_name}_{timestamp}")
+        
+        os.makedirs(job_upload_path, exist_ok=True)
+        
+        # 업로드된 파일 저장 및 매핑
+        input_files = {}
+        for file_key, file in files.items():
+            if file.filename:
+                secure_name = secure_filename(file.filename)
+                file_path = os.path.join(job_upload_path, secure_name)
+                file.save(file_path)
+                input_files[file_key] = file_path
+        
+        # 출력 디렉토리 설정
+        output_dir = job_upload_path
+        
+        # 템플릿 렌더링
+        try:
+            script_content = template_manager.render_template(
+                template_name=template_name,
+                parameters=parameters,
+                input_files=input_files,
+                work_dir=job_upload_path,
+                output_dir=output_dir
+            )
+        except Exception as e:
+            return jsonify({
+                "error": f"Template rendering failed: {str(e)}",
+                "success": False
+            }), 400
+        
+        # SLURM 스크립트 파일 저장
+        job_name = parameters.get("job_name", f"{template_name}_{timestamp}")
+        script_filename = f"{job_name}.sbatch"
+        script_path = os.path.join(job_upload_path, script_filename)
+        
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+        
+        # SLURM 작업 제출
+        if slurm_utils.MOCK_MODE:
+            # MOCK 모드
+            import random
+            job_id = str(random.randint(10000, 99999))
+            node = random.choice(slurm_utils.MOCK_NODES)
+            cores = parameters.get("cores", 16)
+            
+            mock_job = {
+                "id": job_id,
+                "name": job_name,
+                "user": user_id,
+                "state": "RUNNING",
+                "cpus": cores,
+                "submit_time": slurm_utils.now(),
+                "start_time": slurm_utils.now(),
+                "duration": slurm_utils.DURATION_MAP.get(cores, 30),
+                "node": node,
+                "template": template_name
+            }
+            slurm_utils.MOCK_RUNNING.append(mock_job)
+            
+            result = f"[MOCK] Submitted batch job {job_id}"
+        else:
+            # 실제 SLURM 제출
+            result = slurm_utils.submit_job(script_content)
+            job_id = None
+            
+            # Job ID 추출
+            if "Submitted batch job" in result:
+                try:
+                    job_id = result.split()[-1]
+                except:
+                    pass
+        
+        # 제출 결과 저장 (메타데이터)
+        job_metadata = {
+            "job_id": job_id,
+            "job_name": job_name,
+            "template_name": template_name,
+            "user_id": user_id,
+            "submit_time": timestamp,
+            "parameters": parameters,
+            "input_files": {k: os.path.basename(v) for k, v in input_files.items()},
+            "script_path": script_filename,
+            "work_dir": job_upload_path,
+            "slurm_result": result
+        }
+        
+        metadata_path = os.path.join(job_upload_path, f"{job_name}_metadata.json")
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(job_metadata, f, indent=2, ensure_ascii=False)
+        
+        return jsonify({
+            "job_id": job_id,
+            "job_name": job_name,
+            "template_name": template_name,
+            "script_path": script_path,
+            "work_dir": job_upload_path,
+            "slurm_result": result,
+            "metadata": job_metadata,
+            "success": True
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Job submission failed: {str(e)}",
+            "success": False
+        }), 500
+
+
+@job_template_bp.route("/api/job-templates/<template_name>/preview", methods=["POST"])
+def preview_template(template_name):
+    """템플릿 미리보기 (스크립트 생성하지만 제출하지 않음)"""
+    try:
+        if not request.json:
+            return jsonify({"error": "JSON data required", "success": False}), 400
+        
+        parameters = request.json.get("parameters", {})
+        input_files = request.json.get("input_files", {})
+        
+        # 가상의 경로 생성 (미리보기용)
+        work_dir = "/path/to/work/directory"
+        output_dir = "/path/to/output/directory"
+        
+        script_content = template_manager.render_template(
+            template_name=template_name,
+            parameters=parameters,
+            input_files=input_files,
+            work_dir=work_dir,
+            output_dir=output_dir
+        )
+        
+        return jsonify({
+            "script_content": script_content,
+            "success": True
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+
+@job_template_bp.route("/api/jobs/history", methods=["GET"])
+def get_job_history():
+    """사용자별 작업 제출 히스토리"""
+    try:
+        user_id = request.args.get("user", "default_user")
+        limit = int(request.args.get("limit", 50))
+        template_filter = request.args.get("template")
+        
+        user_dir = os.path.join(UPLOAD_ROOT, secure_filename(user_id))
+        if not os.path.exists(user_dir):
+            return jsonify({"jobs": [], "success": True})
+        
+        jobs = []
+        
+        # 사용자 디렉토리 내 모든 작업 디렉토리 스캔
+        for item in os.listdir(user_dir):
+            item_path = os.path.join(user_dir, item)
+            if os.path.isdir(item_path):
+                # 메타데이터 파일 찾기
+                for file in os.listdir(item_path):
+                    if file.endswith('_metadata.json'):
+                        try:
+                            metadata_path = os.path.join(item_path, file)
+                            with open(metadata_path, 'r', encoding='utf-8') as f:
+                                metadata = json.load(f)
+                            
+                            # 템플릿 필터링
+                            if template_filter and metadata.get("template_name") != template_filter:
+                                continue
+                            
+                            # 작업 상태 확인 (SLURM에서)
+                            job_id = metadata.get("job_id")
+                            status = "UNKNOWN"
+                            if job_id:
+                                if slurm_utils.MOCK_MODE:
+                                    # MOCK에서 상태 확인
+                                    for job in slurm_utils.MOCK_RUNNING + slurm_utils.MOCK_COMPLETED:
+                                        if job["id"] == job_id:
+                                            status = job["state"]
+                                            break
+                                else:
+                                    # 실제 SLURM에서 상태 확인
+                                    try:
+                                        squeue_output = slurm_utils.run_command(f"squeue -h -j {job_id} -o '%T'")
+                                        if squeue_output and squeue_output != "[MOCK]":
+                                            status = squeue_output.strip()
+                                        else:
+                                            status = "COMPLETED"  # 큐에 없으면 완료로 간주
+                                    except:
+                                        status = "COMPLETED"
+                            
+                            job_info = {
+                                **metadata,
+                                "current_status": status,
+                                "work_dir": item_path
+                            }
+                            jobs.append(job_info)
+                            
+                        except Exception as e:
+                            print(f"Warning: Failed to load metadata {file}: {e}")
+                            continue
+                        break  # 첫 번째 메타데이터 파일만 처리
+        
+        # 제출 시간 기준 내림차순 정렬
+        jobs.sort(key=lambda x: x.get("submit_time", ""), reverse=True)
+        
+        # 제한 적용
+        if limit > 0:
+            jobs = jobs[:limit]
+        
+        return jsonify({
+            "jobs": jobs,
+            "total": len(jobs),
+            "user_id": user_id,
+            "success": True
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500

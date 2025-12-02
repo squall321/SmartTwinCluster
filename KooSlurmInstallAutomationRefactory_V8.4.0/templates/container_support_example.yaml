@@ -1,0 +1,32 @@
+# Apptainer 및 컨테이너 지원 설정 예시
+# container_support 섹션에 추가할 내용
+
+container_support:
+  # Apptainer (권장 - Singularity의 후속 프로젝트)
+  apptainer:
+    enabled: true
+    version: "1.2.5"
+    install_path: "/usr/local"
+    image_path: "/share/apptainer"
+    cache_path: "/tmp/apptainer"
+    bind_paths:
+      - "/home"
+      - "/share"
+      - "/scratch"
+  
+  # Singularity (레거시 지원)
+  singularity:
+    enabled: false
+    version: "3.10.0"
+    install_path: "/usr/local/singularity"
+    image_path: "/share/singularity"
+    cache_path: "/tmp/singularity"
+    bind_paths:
+      - "/home"
+      - "/share"
+  
+  # Docker (선택적)
+  docker:
+    enabled: false
+    rootless: true
+    data_root: "/var/lib/docker"

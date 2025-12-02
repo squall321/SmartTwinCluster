@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+*.out
+
+# Large directories (EXCLUDE FROM GIT)
+offline_packages/
+apptainer/
+apptainers/
+
+# Large binaries
+**/prometheus
+**/promtool
+
+# Large data files
+*.k
+*.exe
+*.zip
+*.tgz
+*.tar.gz
+*.tar.bz2
+*.deb
+*.rpm
+*.sif
+
+# Sensitive
+*.key
+*.pem
+*.crt
+id_rsa*
+*.db
+*.sqlite
+
+# Backup
+backup_*/
+backups/

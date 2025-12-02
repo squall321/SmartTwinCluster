@@ -1,0 +1,4611 @@
+# GPU 원격 데스크톱 시각화 서버 개발 계획 (Apptainer 샌드박스 기반)
+
+**작성일**: 2025-10-16  
+**프로젝트**: Slurm Cluster Dashboard - Remote Desktop Visualization with Apptainer  
+**목적**: Slurm + Apptainer 샌드박스를 이용하여 GPU 서버에 웹으로 접속하여 Ubuntu 데스크톱을 띄우는 기능 구현
+
+---
+
+## 📋 목차
+
+1. [현황 분석](#1-현황-분석)
+2. [기술 스택 선택](#2-기술-스택-선택)
+3. [Apptainer 샌드박스 아키텍처](#3-apptainer-샌드박스-아키텍처)
+4. [시스템 설계](#4-시스템-설계)
+5. [개발 계획](#5-개발-계획)
+6. [Apptainer 이미지 구성](#6-apptainer-이미지-구성)
+7. [Slurm 통합](#7-slurm-통합)
+8. [API 설계](#8-api-설계)
+9. [프론트엔드 통합](#9-프론트엔드-통합)
+10. [보안 및 성능](#10-보안-및-성능)
+11. [테스트 계획](#11-테스트-계획)
+12. [구현 로드맵](#12-구현-로드맵)
+
+---
+
+## 0. 통합 아키텍처 및 ADFS SSO 인증 시스템 (최우선 구현) ⭐⭐⭐
+
+### 0.0 전체 시스템 아키텍처
+
+#### 새로운 서버 구조 개요
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       전체 시스템 아키텍처                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+                          ┌──────────────────┐
+                          │   User Browser   │
+                          └────────┬─────────┘
+                                   │ HTTPS
+                                   ↓
+                    ┌──────────────────────────┐
+                    │  Main Auth Portal (443)  │ ← 🔥 새 프로젝트
+                    │  auth_portal_443/        │
+                    │  - SSO 로그인            │
+                    │  - 서비스 선택 메뉴       │
+                    │  - 토큰 발급             │
+                    └──────────┬───────────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                │                             │
+                ↓                             ↓
+    ┌───────────────────────┐    ┌───────────────────────┐
+    │ 관리 대시보드 (3010)   │    │ 자동화 시스템 (5173)   │
+    │ frontend_3010/        │    │ frontend_5173/        │
+    │ - 클러스터 관리        │    │ - 자동화된 Job Submit │
+    │ - 수동 Job Submit     │    │ - Workflow 관리       │
+    │ - VNC Visualization   │    │ - Batch Processing    │
+    └───────────┬───────────┘    └───────────┬───────────┘
+                │                            │
+                ↓                            ↓
+    ┌───────────────────────┐    ┌───────────────────────┐
+    │ Backend API (5010)    │    │ Backend API (5000)    │
+    │ - Slurm 명령          │    │ - 자동화 워크플로우     │
+    │ - VNC 세션 관리        │    │ - 5010 프록시         │
+    │ - 모니터링            │    └───────────┬───────────┘
+    └───────────┬───────────┘                │
+                │                            ↓
+                │                ┌───────────────────────┐
+                │                │ Backend Proxy (5001)  │
+                │                │ - 5000 프록시         │
+                │                └───────────────────────┘
+                │
+                ↓
+    ┌───────────────────────┐
+    │ WebSocket (5011)      │
+    │ - 실시간 모니터링      │
+    │ - VNC 프록시          │
+    └───────────────────────┘
+                │
+                ↓
+    ┌───────────────────────┐
+    │   Slurm Cluster       │
+    │   + Apptainer         │
+    └───────────────────────┘
+```
+
+#### 서버 구성 상세
+
+| 포트 | 서비스명 | 역할 | 프로젝트 경로 | 비고 |
+|------|---------|------|--------------|------|
+| **443** | **메인 인증 포털** | SSO 로그인, 서비스 선택 메뉴 | `auth_portal_443/` | **🔥 신규 프로젝트** |
+| **3010** | 관리 대시보드 (Frontend) | 클러스터 관리, 수동 Job, VNC | `frontend_3010/` | 기존 |
+| **5010** | 관리 Backend | Slurm API, VNC 세션, 모니터링 | `backend_5010/` | 기존 |
+| **5011** | WebSocket | 실시간 모니터링, VNC 프록시 | `websocket_5011/` | 기존 |
+| **5173** | 자동화 Frontend | 자동화 워크플로우, Batch Job | `frontend_5173/` | **🔥 신규** |
+| **5000** | 자동화 Backend | 워크플로우 엔진, 5010 프록시 | `backend_5000/` | **🔥 신규** |
+| **5001** | 자동화 Proxy | 5000 프록시 | `backend_5001/` | **🔥 신규** |
+
+---
+
+### 0.1 인증 요구사항 (업데이트)
+
+#### 핵심 요구사항
+1. **중앙 인증 포털 (443)**: 모든 서비스의 진입점
+2. **ADFS SSO 연동**: Active Directory Federation Services를 통한 Single Sign-On
+3. **개발 환경**: saml-idp를 이용한 로컬 테스트 환경 구축
+4. **프로덕션 환경**: 실제 ADFS 서버와 연동
+5. **JWT 토큰 기반 인증**: 중앙에서 발급, 각 서비스에서 검증
+6. **권한 관리**: ADFS 그룹 기반 서비스별 접근 제어
+   - `HPC-Admins`: 모든 서비스 접근
+   - `HPC-Users`: 관리 대시보드 (3010) 접근
+   - `Automation-Users`: 자동화 시스템 (5173) 접근
+   - `GPU-Users`: VNC Visualization 접근
+
+#### 기술 스택
+- **메인 포털**: React (Vite) + Flask (Auth 서버)
+- **인증**: SAML 2.0 (python3-saml) + JWT (PyJWT)
+- **개발용 IdP**: saml-idp (Node.js)
+- **프로덕션 IdP**: ADFS (Active Directory Federation Services)
+- **세션 저장소**: Redis (SSO 세션 + JWT 토큰)
+- **API Gateway**: Nginx (리버스 프록시)
+
+### 0.2 통합 인증 플로우 (업데이트)
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│              중앙 인증 포털 기반 SSO 인증 플로우                            │
+└──────────────────────────────────────────────────────────────────────────┘
+
+1. User (Browser)
+   ↓ [HTTPS] https://your-domain.com (포트 443)
+
+2. Main Auth Portal (443)
+   ↓ 세션 확인 → 없음
+   ↓ [Redirect] /sso/login (SAML AuthnRequest 생성)
+
+3. ADFS / saml-idp
+   ↓ 사용자 인증 (AD 계정 또는 테스트 계정)
+   ↓ [POST] /sso/acs (SAML Response + Assertion)
+
+4. Auth Portal Backend (포트 4430, Flask)
+   ↓ SAML Response 검증
+   ↓ Assertion에서 사용자 정보 추출
+   │   - nameID: 사용자 ID (예: user01)
+   │   - email: user01@hpc.local
+   │   - displayName: Test User 1
+   │   - groups: ['HPC-Users', 'GPU-Users', 'Automation-Users']
+   ↓ Redis에 SSO 세션 생성 (TTL: 8시간)
+   ↓ JWT 토큰 발급 (HS256)
+   │   {
+   │     "user_id": "user01",
+   │     "email": "user01@hpc.local",
+   │     "groups": ["HPC-Users", "GPU-Users"],
+   │     "exp": <8시간 후>,
+   │     "iat": <현재 시각>
+   │   }
+   ↓ [Redirect] / (서비스 선택 메뉴)
+
+5. Main Portal (443) - 서비스 선택 화면
+   ┌────────────────────────────────────┐
+   │  Welcome, Test User 1!             │
+   │                                    │
+   │  사용 가능한 서비스:                │
+   │  ┌──────────────────────────────┐ │
+   │  │ 🖥️  관리 대시보드             │ │ ← HPC-Users 그룹 필요
+   │  │     클러스터 관리, Job 제출    │ │
+   │  └──────────────────────────────┘ │
+   │  ┌──────────────────────────────┐ │
+   │  │ 🤖  자동화 시스템             │ │ ← Automation-Users 그룹 필요
+   │  │     워크플로우, Batch Job     │ │
+   │  └──────────────────────────────┘ │
+   └────────────────────────────────────┘
+
+6-A. 사용자가 "관리 대시보드" 선택
+   ↓ JWT 토큰과 함께 리다이렉트
+   ↓ http://localhost:3010?token=<JWT>
+   ↓ frontend_3010이 토큰 검증 (Auth Portal 4430의 /verify 엔드포인트)
+   ↓ localStorage에 토큰 저장
+   ↓ 이후 모든 API 요청에 Authorization: Bearer <JWT> 헤더 포함
+   ↓ backend_5010이 토큰 검증 (공유 비밀키 또는 공개키)
+   ✓ 관리 대시보드 접근 성공
+
+6-B. 사용자가 "자동화 시스템" 선택
+   ↓ JWT 토큰과 함께 리다이렉트
+   ↓ http://localhost:5173?token=<JWT>
+   ↓ frontend_5173이 토큰 검증
+   ↓ localStorage에 토큰 저장
+   ↓ 이후 모든 API 요청에 Authorization: Bearer <JWT> 헤더 포함
+   ↓ backend_5000이 토큰 검증
+   ✓ 자동화 시스템 접근 성공
+
+7. 토큰 갱신
+   ↓ JWT 만료 1시간 전 자동 갱신 요청
+   ↓ Auth Portal /refresh 엔드포인트
+   ↓ 새 JWT 발급 (기존 세션 유효한 경우)
+   ✓ 8시간 동안 seamless 사용 가능
+```
+
+---
+
+### 0.3 Auth Portal 프로젝트 구조 (🔥 신규)
+
+```
+dashboard/
+├── auth_portal_443/                    # 중앙 인증 포털 (신규 프로젝트)
+│   ├── frontend/                       # React + Vite
+│   │   ├── src/
+│   │   │   ├── App.tsx                 # 메인 앱
+│   │   │   ├── pages/
+│   │   │   │   ├── Login.tsx           # SSO 로그인 페이지
+│   │   │   │   ├── ServiceMenu.tsx     # 서비스 선택 메뉴
+│   │   │   │   └── Callback.tsx        # SAML ACS 콜백
+│   │   │   ├── components/
+│   │   │   │   ├── ServiceCard.tsx     # 서비스 카드
+│   │   │   │   └── UserProfile.tsx     # 사용자 정보
+│   │   │   └── utils/
+│   │   │       └── api.ts              # Auth API 클라이언트
+│   │   ├── package.json
+│   │   ├── vite.config.ts
+│   │   └── nginx.conf                  # Nginx 설정 (443 → 프록시)
+│   │
+│   ├── backend/                        # Flask Auth 서버 (포트 4430)
+│   │   ├── app.py                      # 메인 Flask 앱
+│   │   ├── sso/                        # SAML SSO 모듈
+│   │   │   ├── __init__.py
+│   │   │   ├── saml_config.py          # SAML 설정 (dev/prod)
+│   │   │   ├── saml_auth.py            # SAMLAuthManager
+│   │   │   └── routes.py               # /sso/* 엔드포인트
+│   │   ├── jwt_manager/                # JWT 토큰 관리
+│   │   │   ├── __init__.py
+│   │   │   ├── token_issuer.py         # 토큰 발급
+│   │   │   └── token_validator.py      # 토큰 검증
+│   │   ├── api/                        # REST API
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py                 # 인증 API
+│   │   │   └── services.py             # 서비스 목록 API
+│   │   ├── database/
+│   │   │   └── sessions.db             # Redis + SQLite (백업)
+│   │   ├── saml_certs/                 # SAML 인증서
+│   │   │   ├── sp-cert.pem
+│   │   │   ├── sp-key.pem
+│   │   │   └── idp-cert.pem
+│   │   ├── requirements.txt
+│   │   ├── .env.development
+│   │   ├── .env.production
+│   │   ├── start.sh
+│   │   └── stop.sh
+│   │
+│   └── docker-compose.yml              # Redis + Auth Backend
+
+├── frontend_3010/                      # 관리 대시보드 (기존)
+│   └── (JWT 토큰 검증 로직 추가)
+
+├── backend_5010/                       # 관리 Backend (기존)
+│   └── (JWT 토큰 검증 미들웨어 추가)
+
+├── frontend_5173/                      # 자동화 Frontend (신규)
+│   └── (JWT 토큰 검증 로직 추가)
+
+├── backend_5000/                       # 자동화 Backend (신규)
+│   ├── (JWT 토큰 검증 미들웨어)
+│   └── (5010 프록시 설정)
+
+└── backend_5001/                       # 자동화 Proxy (신규)
+    └── (5000 프록시)
+```
+
+### 0.4 개발 환경 구축 (saml-idp) - 업데이트
+
+#### Step 1: saml-idp 설치 및 설정
+
+```bash
+# dashboard/saml_idp/ 디렉토리 생성
+mkdir -p /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/saml_idp
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/saml_idp
+
+# saml-idp 설치 (Node.js 필요)
+npm install -g saml-idp
+
+# 설정 파일 생성 (업데이트: Auth Portal 4430으로 변경)
+cat > config.js << 'EOF'
+module.exports = {
+  // Service Provider (Auth Portal)
+  sp: {
+    entityId: 'http://localhost:4430/sso/metadata',
+    assertionConsumerService: 'http://localhost:4430/sso/acs'
+  },
+
+  // Identity Provider (saml-idp)
+  idp: {
+    entityId: 'http://localhost:7000/metadata',
+    ssoUrl: 'http://localhost:7000/saml/sso',
+    sloUrl: 'http://localhost:7000/saml/slo',
+    cert: './idp-cert.pem',
+    key: './idp-key.pem'
+  },
+
+  // 테스트 사용자 (그룹 업데이트)
+  users: [
+    {
+      nameID: 'user01',
+      email: 'user01@hpc.local',
+      displayName: 'Test User 1',
+      groups: ['HPC-Users', 'GPU-Users', 'Automation-Users']  // 모든 서비스 접근
+    },
+    {
+      nameID: 'user02',
+      email: 'user02@hpc.local',
+      displayName: 'Test User 2',
+      groups: ['HPC-Users']  // 관리 대시보드만 접근
+    },
+    {
+      nameID: 'automation_user',
+      email: 'automation@hpc.local',
+      displayName: 'Automation User',
+      groups: ['Automation-Users']  // 자동화 시스템만 접근
+    },
+    {
+      nameID: 'admin',
+      email: 'admin@hpc.local',
+      displayName: 'Administrator',
+      groups: ['HPC-Admins', 'HPC-Users', 'GPU-Users', 'Automation-Users']  // 모든 권한
+    }
+  ]
+};
+EOF
+
+# 인증서 생성 (자체 서명)
+openssl req -x509 -newkey rsa:2048 -keyout idp-key.pem -out idp-cert.pem -days 365 -nodes \
+  -subj "/C=KR/ST=Seoul/L=Seoul/O=HPC Lab/CN=localhost"
+
+# saml-idp 시작 스크립트
+cat > start.sh << 'EOF'
+#!/bin/bash
+saml-idp \
+  --port 7000 \
+  --config config.js \
+  --cert idp-cert.pem \
+  --key idp-key.pem \
+  --issuer "http://localhost:7000" \
+  --acsUrl "http://localhost:4430/sso/acs" \
+  --audience "hpc-auth-portal"
+EOF
+
+chmod +x start.sh
+
+# saml-idp 실행
+./start.sh
+```
+
+#### Step 2: Backend SAML 통합
+
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010
+source venv/bin/activate
+
+# SAML 라이브러리 설치
+pip install python3-saml redis flask-session
+
+# Redis 설치 (세션 저장용)
+# Ubuntu/Debian
+sudo apt install redis-server -y
+# CentOS/RHEL
+sudo yum install redis -y
+
+sudo systemctl start redis
+sudo systemctl enable redis
+```
+
+### 0.5 Auth Portal Backend 구현 (🔥 신규)
+
+#### JWT 토큰 관리자
+
+```python
+# auth_portal_443/backend/jwt_manager/token_issuer.py
+import jwt
+import time
+import os
+from datetime import datetime, timedelta
+
+class JWTTokenIssuer:
+    """JWT 토큰 발급"""
+
+    def __init__(self):
+        # 환경 변수에서 비밀키 로드 (프로덕션에서는 반드시 변경!)
+        self.secret_key = os.getenv('JWT_SECRET_KEY', 'change-this-secret-key-in-production')
+        self.algorithm = 'HS256'
+        self.token_ttl = 28800  # 8시간 (초)
+
+    def issue_token(self, user_data):
+        """사용자 정보로부터 JWT 토큰 발급"""
+        now = datetime.utcnow()
+        payload = {
+            'user_id': user_data['nameID'],
+            'email': user_data.get('email', ''),
+            'display_name': user_data.get('displayName', ''),
+            'groups': user_data.get('groups', []),
+            'iat': now,  # Issued At
+            'exp': now + timedelta(seconds=self.token_ttl),  # Expiration
+            'iss': 'hpc-auth-portal',  # Issuer
+        }
+
+        token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
+        return token
+
+    def refresh_token(self, old_token):
+        """기존 토큰 갱신 (만료 1시간 전부터 가능)"""
+        try:
+            # 토큰 검증 (만료되지 않은 경우에만)
+            payload = jwt.decode(old_token, self.secret_key, algorithms=[self.algorithm])
+
+            # 만료 시간 확인
+            exp = datetime.fromtimestamp(payload['exp'])
+            now = datetime.utcnow()
+
+            # 만료 1시간 전부터 갱신 가능
+            if (exp - now).total_seconds() > 3600:
+                return {'error': 'Token is still valid, no refresh needed'}, None
+
+            # 새 토큰 발급
+            user_data = {
+                'nameID': payload['user_id'],
+                'email': payload['email'],
+                'displayName': payload['display_name'],
+                'groups': payload['groups']
+            }
+
+            new_token = self.issue_token(user_data)
+            return None, new_token
+
+        except jwt.ExpiredSignatureError:
+            return {'error': 'Token has expired'}, None
+        except jwt.InvalidTokenError as e:
+            return {'error': f'Invalid token: {str(e)}'}, None
+```
+
+```python
+# auth_portal_443/backend/jwt_manager/token_validator.py
+import jwt
+import os
+
+class JWTTokenValidator:
+    """JWT 토큰 검증 (모든 서비스에서 공유)"""
+
+    def __init__(self):
+        self.secret_key = os.getenv('JWT_SECRET_KEY', 'change-this-secret-key-in-production')
+        self.algorithm = 'HS256'
+
+    def validate_token(self, token):
+        """토큰 검증"""
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            return payload, None
+        except jwt.ExpiredSignatureError:
+            return None, {'error': 'Token has expired', 'code': 'TOKEN_EXPIRED'}
+        except jwt.InvalidTokenError as e:
+            return None, {'error': f'Invalid token: {str(e)}', 'code': 'INVALID_TOKEN'}
+
+    def check_permission(self, token, required_groups):
+        """권한 확인"""
+        payload, error = self.validate_token(token)
+        if error:
+            return False, error
+
+        user_groups = set(payload.get('groups', []))
+        required = set(required_groups)
+
+        # HPC-Admins는 모든 권한 가짐
+        if 'HPC-Admins' in user_groups:
+            return True, None
+
+        # 필요한 그룹과 교집합 확인
+        if user_groups & required:
+            return True, None
+
+        return False, {'error': 'Insufficient permissions', 'code': 'PERMISSION_DENIED'}
+```
+
+#### SAML SSO 라우트 (별도 Blueprint)
+
+```python
+# auth_portal_443/backend/sso/routes.py
+from flask import Blueprint, request, jsonify, redirect, session as flask_session
+from sso.saml_auth import SAMLAuthManager
+from sso.saml_config import get_saml_settings
+from jwt_manager.token_issuer import JWTTokenIssuer
+import os
+
+sso_bp = Blueprint('sso', __name__, url_prefix='/sso')
+
+# SAML 매니저 초기화
+ENVIRONMENT = os.getenv('SAML_ENV', 'dev')
+saml_settings = get_saml_settings(ENVIRONMENT)
+saml_auth = SAMLAuthManager(saml_settings)
+jwt_issuer = JWTTokenIssuer()
+
+@sso_bp.route('/login')
+def login():
+    """SSO 로그인 시작"""
+    try:
+        return_url = saml_auth.login()
+        return redirect(return_url)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@sso_bp.route('/acs', methods=['POST'])
+def acs():
+    """SAML Assertion Consumer Service"""
+    try:
+        # SAML Response 처리
+        user_data = saml_auth.acs()
+
+        # Redis 세션 생성
+        session_id = saml_auth.create_session(user_data)
+
+        # JWT 토큰 발급
+        token = jwt_issuer.issue_token(user_data)
+
+        # Flask 세션에 저장
+        flask_session['session_id'] = session_id
+        flask_session['jwt_token'] = token
+
+        # 서비스 선택 메뉴로 리다이렉트 (Frontend 콜백 페이지)
+        return redirect('/callback')
+
+    except Exception as e:
+        return jsonify({'error': f'Authentication failed: {str(e)}'}), 401
+
+@sso_bp.route('/metadata')
+def metadata():
+    """SAML SP Metadata"""
+    try:
+        metadata_xml = saml_auth.get_metadata()
+        return metadata_xml, 200, {'Content-Type': 'application/xml'}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@sso_bp.route('/logout')
+def logout():
+    """SSO 로그아웃"""
+    session_id = flask_session.get('session_id')
+    if session_id:
+        saml_auth.delete_session(session_id)
+
+    flask_session.clear()
+    return redirect('/')
+```
+
+#### Auth Portal API
+
+```python
+# auth_portal_443/backend/api/auth.py
+from flask import Blueprint, request, jsonify, session as flask_session
+from jwt_manager.token_issuer import JWTTokenIssuer
+from jwt_manager.token_validator import JWTTokenValidator
+from sso.saml_auth import SAMLAuthManager
+from sso.saml_config import get_saml_settings
+import os
+
+auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+# JWT 매니저 초기화
+jwt_issuer = JWTTokenIssuer()
+jwt_validator = JWTTokenValidator()
+
+# SAML 매니저 초기화
+ENVIRONMENT = os.getenv('SAML_ENV', 'dev')
+saml_settings = get_saml_settings(ENVIRONMENT)
+saml_auth = SAMLAuthManager(saml_settings)
+
+@auth_bp.route('/verify', methods=['POST'])
+def verify_token():
+    """JWT 토큰 검증 (다른 서비스에서 호출)"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'valid': False, 'error': 'No token provided'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload, error = jwt_validator.validate_token(token)
+
+    if error:
+        return jsonify({'valid': False, **error}), 401
+
+    return jsonify({'valid': True, 'user': payload})
+
+@auth_bp.route('/refresh', methods=['POST'])
+def refresh_token():
+    """JWT 토큰 갱신"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'No token provided'}), 401
+
+    old_token = auth_header.split(' ')[1]
+    error, new_token = jwt_issuer.refresh_token(old_token)
+
+    if error:
+        return jsonify(error), 401
+
+    return jsonify({'token': new_token})
+
+@auth_bp.route('/session')
+def get_session():
+    """현재 세션 정보 조회"""
+    session_id = flask_session.get('session_id')
+    if not session_id:
+        return jsonify({'authenticated': False}), 401
+
+    session_data = saml_auth.get_session(session_id)
+    if not session_data:
+        return jsonify({'authenticated': False}), 401
+
+    return jsonify({
+        'authenticated': True,
+        'user': {
+            'user_id': session_data['user_id'],
+            'email': session_data['email'],
+            'display_name': session_data['display_name'],
+            'groups': session_data['groups']
+        },
+        'token': flask_session.get('jwt_token')
+    })
+```
+
+```python
+# auth_portal_443/backend/api/services.py
+from flask import Blueprint, jsonify, session as flask_session
+from jwt_manager.token_validator import JWTTokenValidator
+
+services_bp = Blueprint('services', __name__, url_prefix='/api/services')
+jwt_validator = JWTTokenValidator()
+
+# 서비스 정의
+SERVICES = [
+    {
+        'id': 'admin_dashboard',
+        'name': '관리 대시보드',
+        'description': '클러스터 관리, Job 제출, VNC Visualization',
+        'url': 'http://localhost:3010',
+        'icon': '🖥️',
+        'required_groups': ['HPC-Users'],
+        'color': 'blue'
+    },
+    {
+        'id': 'automation_system',
+        'name': '자동화 시스템',
+        'description': '워크플로우 관리, 자동화된 Batch Job 실행',
+        'url': 'http://localhost:5173',
+        'icon': '🤖',
+        'required_groups': ['Automation-Users'],
+        'color': 'green'
+    }
+]
+
+@services_bp.route('/')
+def list_services():
+    """사용자가 접근 가능한 서비스 목록 반환"""
+    token = flask_session.get('jwt_token')
+    if not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    payload, error = jwt_validator.validate_token(token)
+    if error:
+        return jsonify(error), 401
+
+    user_groups = set(payload.get('groups', []))
+
+    # HPC-Admins는 모든 서비스 접근
+    is_admin = 'HPC-Admins' in user_groups
+
+    # 사용자가 접근 가능한 서비스 필터링
+    accessible_services = []
+    for service in SERVICES:
+        required = set(service['required_groups'])
+        if is_admin or (user_groups & required):
+            accessible_services.append(service)
+
+    return jsonify({
+        'services': accessible_services,
+        'user': {
+            'user_id': payload['user_id'],
+            'display_name': payload['display_name'],
+            'groups': payload['groups']
+        }
+    })
+
+@services_bp.route('/<service_id>/access')
+def get_service_access_url(service_id):
+    """특정 서비스 접근 URL 반환 (JWT 토큰 포함)"""
+    token = flask_session.get('jwt_token')
+    if not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    # 서비스 찾기
+    service = next((s for s in SERVICES if s['id'] == service_id), None)
+    if not service:
+        return jsonify({'error': 'Service not found'}), 404
+
+    # 권한 확인
+    has_permission, error = jwt_validator.check_permission(token, service['required_groups'])
+    if not has_permission:
+        return jsonify(error), 403
+
+    # 서비스 URL에 토큰 쿼리 파라미터 추가
+    access_url = f"{service['url']}?token={token}"
+
+    return jsonify({
+        'service': service,
+        'access_url': access_url,
+        'token': token
+    })
+```
+
+#### Auth Portal 메인 앱
+
+```python
+# auth_portal_443/backend/app.py
+from flask import Flask, session
+from flask_session import Session
+from flask_cors import CORS
+import redis
+import os
+
+app = Flask(__name__)
+
+# CORS 설정 (개발 환경)
+CORS(app, supports_credentials=True, origins=[
+    'http://localhost:443',
+    'http://localhost:3010',
+    'http://localhost:5173'
+])
+
+# Flask-Session 설정 (Redis)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'change-this-in-production')
+app.config['SESSION_TYPE'] = 'redis'
+app.config['SESSION_REDIS'] = redis.Redis(host='localhost', port=6379, db=0)
+app.config['SESSION_COOKIE_SECURE'] = False  # HTTPS 사용 시 True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 28800  # 8시간
+
+Session(app)
+
+# Blueprint 등록
+from sso.routes import sso_bp
+from api.auth import auth_bp
+from api.services import services_bp
+
+app.register_blueprint(sso_bp)
+app.register_blueprint(auth_bp)
+app.register_blueprint(services_bp)
+
+# 헬스체크
+@app.route('/health')
+def health():
+    return {'status': 'ok', 'service': 'auth-portal'}
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=4430, debug=True)
+```
+
+---
+
+### 0.6 기존 서비스에 JWT 검증 추가
+
+#### backend_5010 (관리 대시보드)
+
+```python
+# backend_5010/jwt_middleware.py (신규)
+from functools import wraps
+from flask import request, jsonify
+import jwt
+import os
+
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'change-this-secret-key-in-production')
+
+def jwt_required(f):
+    """JWT 토큰 검증 데코레이터"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'No token provided'}), 401
+
+        token = auth_header.split(' ')[1]
+
+        try:
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+            request.user = payload  # 사용자 정보를 request 객체에 추가
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+
+        return f(*args, **kwargs)
+    return decorated_function
+
+def permission_required(required_groups):
+    """권한 확인 데코레이터"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not hasattr(request, 'user'):
+                return jsonify({'error': 'Not authenticated'}), 401
+
+            user_groups = set(request.user.get('groups', []))
+            required = set(required_groups)
+
+            # HPC-Admins는 모든 권한
+            if 'HPC-Admins' in user_groups:
+                return f(*args, **kwargs)
+
+            if not (user_groups & required):
+                return jsonify({'error': 'Permission denied'}), 403
+
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+```
+
+```python
+# backend_5010/visualization/__init__.py 업데이트
+from flask import Blueprint, request, jsonify
+from jwt_middleware import jwt_required, permission_required
+
+visualization_bp = Blueprint('visualization', __name__, url_prefix='/api/visualization')
+
+@visualization_bp.route('/sessions', methods=['POST'])
+@jwt_required
+@permission_required(['GPU-Users'])
+def create_session():
+    """VNC 세션 생성 (JWT 인증 + GPU 권한 필요)"""
+    user_id = request.user['user_id']  # JWT에서 추출
+
+    # ... (기존 세션 생성 로직)
+
+    return jsonify({'session': session_data})
+```
+
+#### backend_5000 (자동화 시스템)
+
+```python
+# backend_5000/app.py (신규)
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import jwt
+import os
+import requests
+
+app = Flask(__name__)
+CORS(app)
+
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'change-this-secret-key-in-production')
+BACKEND_5010_URL = 'http://localhost:5010'
+
+# JWT 검증 (backend_5010과 동일)
+def jwt_required(f):
+    # ... (위와 동일)
+
+@app.route('/api/workflows', methods=['GET'])
+@jwt_required
+@permission_required(['Automation-Users'])
+def list_workflows():
+    """워크플로우 목록 (자동화 권한 필요)"""
+    user_id = request.user['user_id']
+
+    # ... 워크플로우 목록 반환
+
+    return jsonify({'workflows': workflows})
+
+@app.route('/api/slurm/<path:subpath>', methods=['GET', 'POST', 'DELETE'])
+@jwt_required
+def proxy_to_5010(subpath):
+    """backend_5010 프록시"""
+    # JWT 토큰을 그대로 전달
+    auth_header = request.headers.get('Authorization')
+
+    # 5010으로 요청 전달
+    url = f'{BACKEND_5010_URL}/api/{subpath}'
+    headers = {'Authorization': auth_header}
+
+    if request.method == 'GET':
+        resp = requests.get(url, headers=headers)
+    elif request.method == 'POST':
+        resp = requests.post(url, headers=headers, json=request.json)
+    elif request.method == 'DELETE':
+        resp = requests.delete(url, headers=headers)
+
+    return jsonify(resp.json()), resp.status_code
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
+```
+
+---
+
+### 0.7 Frontend JWT 처리
+
+#### frontend_3010 (관리 대시보드)
+
+```typescript
+// frontend_3010/src/utils/auth.ts (신규)
+export class AuthService {
+  private static TOKEN_KEY = 'jwt_token';
+
+  // URL에서 토큰 추출 및 저장
+  static initializeFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+
+    if (token) {
+      this.setToken(token);
+      // URL에서 토큰 제거
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+
+  static setToken(token: string) {
+    localStorage.setItem(this.TOKEN_KEY, token);
+  }
+
+  static getToken(): string | null {
+    return localStorage.getItem(this.TOKEN_KEY);
+  }
+
+  static clearToken() {
+    localStorage.removeItem(this.TOKEN_KEY);
+  }
+
+  static async verifyToken(): Promise<boolean> {
+    const token = this.getToken();
+    if (!token) return false;
+
+    try {
+      const response = await fetch('http://localhost:4430/api/auth/verify', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  static getAuthHeader() {
+    const token = this.getToken();
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  }
+}
+```
+
+```typescript
+// frontend_3010/src/App.tsx 업데이트
+import { useEffect, useState } from 'react';
+import { AuthService } from './utils/auth';
+
+function App() {
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // URL에서 토큰 추출
+    AuthService.initializeFromURL();
+
+    // 토큰 검증
+    AuthService.verifyToken().then(valid => {
+      if (!valid) {
+        // 인증 실패 시 Auth Portal로 리다이렉트
+        window.location.href = 'http://localhost:443';
+      } else {
+        setAuthenticated(true);
+      }
+    });
+  }, []);
+
+  if (!authenticated) {
+    return <div>Authenticating...</div>;
+  }
+
+  return (
+    // ... 기존 앱 컴포넌트
+  );
+}
+```
+
+```typescript
+// frontend_3010/src/utils/api.ts 업데이트
+import { AuthService } from './auth';
+
+export async function fetchAPI(url: string, options: RequestInit = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...AuthService.getAuthHeader(),  // JWT 토큰 자동 추가
+    ...options.headers
+  };
+
+  const response = await fetch(url, { ...options, headers });
+
+  if (response.status === 401) {
+    // 토큰 만료 시 Auth Portal로 리다이렉트
+    AuthService.clearToken();
+    window.location.href = 'http://localhost:443';
+  }
+
+  return response;
+}
+```
+
+```python
+# backend_5010/sso/saml_config.py
+import os
+
+# SAML 설정
+SAML_SETTINGS = {
+    # Service Provider (SP) 설정
+    'sp': {
+        'entityId': os.getenv('SAML_SP_ENTITY_ID', 'http://localhost:5010/sso/metadata'),
+        'assertionConsumerService': {
+            'url': os.getenv('SAML_ACS_URL', 'http://localhost:5010/sso/acs'),
+            'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST'
+        },
+        'singleLogoutService': {
+            'url': os.getenv('SAML_SLS_URL', 'http://localhost:5010/sso/sls'),
+            'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
+        },
+        'NameIDFormat': 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
+        'x509cert': '',
+        'privateKey': ''
+    },
+
+    # Identity Provider (IdP) 설정
+    'idp': {
+        # 개발 환경: saml-idp
+        'dev': {
+            'entityId': 'http://localhost:7000/metadata',
+            'singleSignOnService': {
+                'url': 'http://localhost:7000/saml/sso',
+                'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
+            },
+            'singleLogoutService': {
+                'url': 'http://localhost:7000/saml/slo',
+                'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
+            },
+            'x509cert': open('saml_certs/idp-cert.pem').read()
+        },
+
+        # 프로덕션 환경: ADFS
+        'prod': {
+            'entityId': os.getenv('ADFS_ENTITY_ID', 'http://adfs.your-domain.com/adfs/services/trust'),
+            'singleSignOnService': {
+                'url': os.getenv('ADFS_SSO_URL', 'https://adfs.your-domain.com/adfs/ls/'),
+                'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
+            },
+            'singleLogoutService': {
+                'url': os.getenv('ADFS_SLO_URL', 'https://adfs.your-domain.com/adfs/ls/'),
+                'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
+            },
+            'x509cert': os.getenv('ADFS_CERT', '')
+        }
+    },
+
+    'security': {
+        'nameIdEncrypted': False,
+        'authnRequestsSigned': True,
+        'logoutRequestSigned': True,
+        'logoutResponseSigned': True,
+        'signMetadata': True,
+        'wantMessagesSigned': True,
+        'wantAssertionsSigned': True,
+        'wantNameId': True,
+        'wantNameIdEncrypted': False,
+        'wantAssertionsEncrypted': False,
+        'signatureAlgorithm': 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
+        'digestAlgorithm': 'http://www.w3.org/2001/04/xmlenc#sha256'
+    }
+}
+
+def get_saml_settings(environment='dev'):
+    """환경에 따른 SAML 설정 반환"""
+    settings = SAML_SETTINGS.copy()
+    settings['idp'] = SAML_SETTINGS['idp'][environment]
+    return settings
+```
+
+```python
+# backend_5010/sso/saml_auth.py
+from onelogin.saml2.auth import OneLogin_Saml2_Auth
+from onelogin.saml2.utils import OneLogin_Saml2_Utils
+from flask import request, session
+import redis
+
+class SAMLAuthManager:
+    """SAML 인증 관리"""
+
+    def __init__(self, saml_settings):
+        self.saml_settings = saml_settings
+        self.redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
+    def init_saml_auth(self, req):
+        """SAML Auth 객체 초기화"""
+        auth = OneLogin_Saml2_Auth(req, self.saml_settings)
+        return auth
+
+    def prepare_flask_request(self):
+        """Flask request를 SAML 형식으로 변환"""
+        url_data = {
+            'https': 'on' if request.scheme == 'https' else 'off',
+            'http_host': request.host,
+            'server_port': request.environ.get('SERVER_PORT'),
+            'script_name': request.path,
+            'get_data': request.args.copy(),
+            'post_data': request.form.copy()
+        }
+        return url_data
+
+    def login(self):
+        """SSO 로그인 시작 (SAML AuthnRequest 생성)"""
+        req = self.prepare_flask_request()
+        auth = self.init_saml_auth(req)
+
+        # SAML AuthnRequest 생성 및 IdP로 리다이렉트
+        return auth.login(return_to=request.args.get('return_to', '/visualization'))
+
+    def acs(self):
+        """Assertion Consumer Service (SAML Response 처리)"""
+        req = self.prepare_flask_request()
+        auth = self.init_saml_auth(req)
+
+        # SAML Response 처리
+        auth.process_response()
+
+        errors = auth.get_errors()
+        if errors:
+            raise Exception(f"SAML authentication failed: {', '.join(errors)}")
+
+        if not auth.is_authenticated():
+            raise Exception("User not authenticated")
+
+        # 사용자 정보 추출
+        user_data = {
+            'nameID': auth.get_nameid(),
+            'email': auth.get_attribute('email')[0] if auth.get_attribute('email') else '',
+            'displayName': auth.get_attribute('displayName')[0] if auth.get_attribute('displayName') else '',
+            'groups': auth.get_attribute('groups') or [],
+            'sessionIndex': auth.get_session_index()
+        }
+
+        return user_data
+
+    def create_session(self, user_data):
+        """사용자 세션 생성 (Redis)"""
+        import uuid
+        import time
+
+        session_id = str(uuid.uuid4())
+        session_data = {
+            'session_id': session_id,
+            'user_id': user_data['nameID'],
+            'email': user_data['email'],
+            'display_name': user_data['displayName'],
+            'groups': ','.join(user_data['groups']),
+            'saml_session_index': user_data['sessionIndex'],
+            'created_at': int(time.time()),
+            'expires_at': int(time.time()) + 28800  # 8시간
+        }
+
+        # Redis에 세션 저장 (TTL: 8시간)
+        self.redis_client.hmset(f"session:{session_id}", session_data)
+        self.redis_client.expire(f"session:{session_id}", 28800)
+
+        # 사용자별 세션 리스트에 추가
+        self.redis_client.sadd(f"user_sessions:{user_data['nameID']}", session_id)
+
+        return session_id
+
+    def get_session(self, session_id):
+        """세션 정보 조회"""
+        session_data = self.redis_client.hgetall(f"session:{session_id}")
+        if not session_data:
+            return None
+
+        # groups를 리스트로 변환
+        session_data['groups'] = session_data.get('groups', '').split(',') if session_data.get('groups') else []
+        return session_data
+
+    def logout(self, session_id):
+        """SSO 로그아웃"""
+        session_data = self.get_session(session_id)
+        if not session_data:
+            return None
+
+        req = self.prepare_flask_request()
+        auth = self.init_saml_auth(req)
+
+        # SAML LogoutRequest 생성
+        return auth.logout(
+            name_id=session_data['user_id'],
+            session_index=session_data.get('saml_session_index')
+        )
+
+    def check_permission(self, session_id, required_groups):
+        """권한 확인"""
+        session_data = self.get_session(session_id)
+        if not session_data:
+            return False
+
+        user_groups = set(session_data['groups'])
+        required = set(required_groups)
+
+        # 사용자 그룹이 필요한 그룹과 교집합이 있는지 확인
+        return bool(user_groups & required)
+```
+
+```python
+# backend_5010/sso/routes.py
+from flask import render_template, redirect, request, session as flask_session, jsonify, url_for
+from . import sso_bp
+from .saml_auth import SAMLAuthManager
+from .saml_config import get_saml_settings
+import os
+
+# 환경 변수로 개발/프로덕션 환경 선택
+ENVIRONMENT = os.getenv('SAML_ENV', 'dev')  # dev 또는 prod
+saml_settings = get_saml_settings(ENVIRONMENT)
+saml_auth = SAMLAuthManager(saml_settings)
+
+@sso_bp.route('/login')
+def login():
+    """SSO 로그인 시작"""
+    try:
+        return_url = saml_auth.login()
+        return redirect(return_url)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@sso_bp.route('/acs', methods=['POST'])
+def acs():
+    """Assertion Consumer Service (SAML Response 수신)"""
+    try:
+        # SAML Response 처리
+        user_data = saml_auth.acs()
+
+        # 세션 생성
+        session_id = saml_auth.create_session(user_data)
+
+        # Flask 세션에 세션 ID 저장
+        flask_session['session_id'] = session_id
+        flask_session['user_id'] = user_data['nameID']
+
+        # 원래 요청했던 URL로 리다이렉트
+        return_to = request.form.get('RelayState', '/visualization')
+        return redirect(return_to)
+
+    except Exception as e:
+        return jsonify({'error': f'Authentication failed: {str(e)}'}), 401
+
+@sso_bp.route('/logout')
+def logout():
+    """SSO 로그아웃"""
+    session_id = flask_session.get('session_id')
+    if session_id:
+        try:
+            logout_url = saml_auth.logout(session_id)
+            flask_session.clear()
+            return redirect(logout_url)
+        except Exception as e:
+            flask_session.clear()
+            return redirect('/login')
+
+    return redirect('/login')
+
+@sso_bp.route('/metadata')
+def metadata():
+    """SAML Metadata (SP) 제공"""
+    req = saml_auth.prepare_flask_request()
+    auth = saml_auth.init_saml_auth(req)
+    settings = auth.get_settings()
+    metadata = settings.get_sp_metadata()
+    errors = settings.validate_metadata(metadata)
+
+    if errors:
+        return jsonify({'errors': errors}), 500
+
+    return metadata, 200, {'Content-Type': 'text/xml'}
+
+@sso_bp.route('/session')
+def get_session_info():
+    """현재 세션 정보 조회 (디버깅용)"""
+    session_id = flask_session.get('session_id')
+    if not session_id:
+        return jsonify({'authenticated': False}), 401
+
+    session_data = saml_auth.get_session(session_id)
+    if not session_data:
+        return jsonify({'authenticated': False}), 401
+
+    return jsonify({
+        'authenticated': True,
+        'user': {
+            'user_id': session_data['user_id'],
+            'email': session_data['email'],
+            'display_name': session_data['display_name'],
+            'groups': session_data['groups']
+        }
+    })
+```
+
+### 0.5 App.py 통합
+
+```python
+# backend_5010/app.py 업데이트
+from flask import Flask, session
+from flask_session import Session
+import redis
+
+app = Flask(__name__)
+
+# Flask-Session 설정 (Redis 백엔드)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+app.config['SESSION_TYPE'] = 'redis'
+app.config['SESSION_REDIS'] = redis.Redis(host='localhost', port=6379, db=0)
+app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS 사용 시
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 28800  # 8시간
+
+Session(app)
+
+# SSO Blueprint 등록
+from sso import sso_bp
+app.register_blueprint(sso_bp)
+
+# 기존 Blueprint들
+# ... (기존 코드)
+
+# 인증 데코레이터
+from functools import wraps
+from flask import redirect, url_for
+
+def login_required(f):
+    """로그인 필수 데코레이터"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'session_id' not in session:
+            return redirect(url_for('sso.login', return_to=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def permission_required(groups):
+    """권한 확인 데코레이터"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            from sso.routes import saml_auth
+
+            session_id = session.get('session_id')
+            if not session_id:
+                return redirect(url_for('sso.login', return_to=request.url))
+
+            if not saml_auth.check_permission(session_id, groups):
+                return jsonify({'error': 'Permission denied'}), 403
+
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+```
+
+### 0.6 Visualization API에 인증 적용
+
+```python
+# backend_5010/visualization/__init__.py
+from flask import Blueprint, session, jsonify
+from app import login_required, permission_required
+
+visualization_bp = Blueprint('visualization', __name__, url_prefix='/api/visualization')
+
+@visualization_bp.route('/sessions', methods=['POST'])
+@login_required
+@permission_required(['HPC-Users', 'GPU-Users'])  # GPU 사용 권한 필요
+def create_session():
+    """VNC 세션 생성 (로그인 + GPU 권한 필요)"""
+    user_id = session.get('user_id')
+
+    # ... (기존 세션 생성 로직)
+
+    return jsonify({'session': session_data})
+
+@visualization_bp.route('/sessions', methods=['GET'])
+@login_required
+def list_sessions():
+    """사용자 세션 목록 (로그인만 필요)"""
+    user_id = session.get('user_id')
+
+    # ... (세션 목록 조회)
+
+    return jsonify({'sessions': sessions})
+```
+
+### 0.7 프로덕션 ADFS 연동 준비
+
+#### ADFS 서버 설정 (관리자 작업)
+
+```powershell
+# ADFS 서버에서 실행 (PowerShell)
+
+# 1. Relying Party Trust 추가
+Add-ADFSRelyingPartyTrust `
+    -Name "Slurm Dashboard" `
+    -MetadataUrl "http://your-dashboard-host:5010/sso/metadata" `
+    -IssuanceAuthorizationRulesFile "permit-all.txt" `
+    -Identifier "http://your-dashboard-host:5010/sso/metadata"
+
+# 2. Claim Rules 설정
+$ruleSet = @'
+@RuleName = "Send LDAP Attributes"
+c:[Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/windowsaccountname"]
+ => issue(store = "Active Directory",
+    types = ("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+             "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",
+             "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname",
+             "http://schemas.xmlsoap.org/claims/Group"),
+    query = ";mail,givenName,sn,tokenGroups;{0}",
+    param = c.Value);
+
+@RuleName = "Transform to NameID"
+c:[Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"]
+ => issue(Type = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+    Issuer = c.Issuer,
+    OriginalIssuer = c.OriginalIssuer,
+    Value = c.Value,
+    ValueType = c.ValueType);
+'@
+
+Set-ADFSRelyingPartyTrust `
+    -TargetName "Slurm Dashboard" `
+    -IssuanceTransformRules $ruleSet
+```
+
+#### Backend 환경 변수 설정 (프로덕션)
+
+```bash
+# backend_5010/.env.production
+SAML_ENV=prod
+ADFS_ENTITY_ID=http://adfs.your-domain.com/adfs/services/trust
+ADFS_SSO_URL=https://adfs.your-domain.com/adfs/ls/
+ADFS_SLO_URL=https://adfs.your-domain.com/adfs/ls/
+ADFS_CERT="<ADFS 인증서 내용>"
+SECRET_KEY="<강력한 비밀키 생성>"
+```
+
+---
+
+## 1. 현황 분석
+
+### 1.1 기존 시스템 구조
+
+#### Slurm + Apptainer 인프라 (이미 구축됨)
+```
+KooSlurmInstallAutomationRefactory/
+├── apptainers/                      # Apptainer 이미지 저장소
+│   ├── README.md
+│   ├── ubuntu_python.def
+│   └── *.sif 파일들
+├── sync_apptainers_to_nodes.sh      # 노드 동기화 스크립트
+├── my_cluster.yaml                  # Apptainer 설정 포함
+└── dashboard/
+    ├── backend_5010/
+    ├── frontend_3010/
+    ├── websocket_5011/
+    ├── node_exporter_9100/
+    └── prometheus_9090/
+```
+
+#### 계산 노드 Apptainer 경로
+- **공유 이미지**: `/scratch/apptainers/` (read-only .sif 파일)
+- **사용자 샌드박스**: `/scratch/apptainer_sandboxes/` (writable)
+- **바인드 경로**: `/home`, `/share`, `/scratch`, `/tmp`
+
+#### 기존 Apptainer 설정 (my_cluster.yaml)
+```yaml
+container_support:
+  apptainer:
+    enabled: true
+    version: 1.2.5
+    install_path: /usr/local
+    image_path: /share/apptainer/images
+    cache_path: /tmp/apptainer
+    scratch_image_path: /scratch/apptainer/images
+    bind_paths:
+      - /home
+      - /share
+      - /scratch
+      - /tmp
+    auto_sync_images: true
+```
+
+### 1.2 요구사항 정리
+
+#### 핵심 요구사항
+1. **Slurm Job으로 실행**: `sbatch`로 Apptainer 샌드박스 실행
+2. **샌드박스 모드**: Writable filesystem (사용자 설정 저장)
+3. **GPU 접근**: `--nv` 옵션으로 NVIDIA GPU 접근
+4. **VNC 서버**: 샌드박스 내부에서 TurboVNC 실행
+5. **웹 접속**: noVNC로 브라우저에서 접속
+6. **다중 사용자**: 사용자별 독립적인 샌드박스
+
+#### 기술적 요구사항
+- Apptainer 1.2.5+ (already installed)
+- TurboVNC (컨테이너 내부)
+- VirtualGL (컨테이너 내부)
+- XFCE4 데스크톱 (컨테이너 내부)
+- WebSocket 프록시 (외부)
+
+---
+
+## 2. 기술 스택 선택
+
+### 2.1 최종 선택: **Apptainer 샌드박스 + TurboVNC + React**
+
+#### 선택 근거
+
+| 항목 | Open onDemand | Apptainer 샌드박스 방식 |
+|------|---------------|-------------------------|
+| 아키텍처 일관성 | ❌ 별도 서버 | ✅ 기존 Slurm/Apptainer 활용 |
+| Apptainer 통합 | ⚠️ 제한적 | ✅ 완벽한 통합 |
+| GPU 접근 | ⚠️ 추가 설정 | ✅ `--nv` 플래그로 간단 |
+| 샌드박스 지원 | ❌ 없음 | ✅ 네이티브 지원 |
+| 기존 인프라 활용 | ❌ 새 인프라 | ✅ 100% 재사용 |
+| 유지보수 | ⚠️ Ruby/Rails | ✅ Python/React (일관성) |
+
+**결론**: Apptainer 샌드박스 방식이 기존 인프라와 완벽하게 통합되며, GPU 접근이 간단하고, 샌드박스 모드를 네이티브로 지원합니다.
+
+---
+
+## 3. Apptainer 샌드박스 아키텍처
+
+### 3.1 전체 데이터 흐름
+
+```
+User Browser (React)
+    ↓ (1) Create Session Request
+Backend API (5010)
+    ↓ (2) Submit Slurm Job
+Slurm Controller
+    ↓ (3) Schedule to GPU Node
+GPU Node (node001)
+    ↓ (4) Create/Run Apptainer Sandbox
+Apptainer Sandbox (/scratch/apptainer_sandboxes/user_sessionid/)
+    ├─ TurboVNC Server (Display :1)  ← (5) Start VNC
+    ├─ VirtualGL
+    ├─ XFCE4 Desktop
+    └─ GPU Applications
+    ↓ (6) VNC Port (5901)
+WebSocket Proxy (6001)
+    ↓ (7) WebSocket ↔ TCP
+User Browser (noVNC)
+    ↓ (8) Display Desktop
+```
+
+### 3.2 샌드박스 생성 플로우
+
+```bash
+# 1. Master .sif 이미지 (read-only)
+/scratch/apptainers/ubuntu_vnc_gpu.sif
+
+# 2. 세션별 샌드박스 생성 (writable)
+apptainer build --sandbox \
+    /scratch/apptainer_sandboxes/user_session123/ \
+    /scratch/apptainers/ubuntu_vnc_gpu.sif
+
+# 3. 샌드박스 실행 (GPU 포함)
+apptainer exec --nv --writable \
+    --bind /home:/home \
+    --bind /scratch:/scratch \
+    /scratch/apptainer_sandboxes/user_session123/ \
+    /opt/TurboVNC/bin/vncserver :1
+
+# 4. 샌드박스 내부 구조
+/scratch/apptainer_sandboxes/user_session123/
+├── bin/, usr/, etc/ (OS 파일 시스템)
+├── opt/TurboVNC/
+├── opt/VirtualGL/
+├── home/user/.vnc/        # VNC 설정 (persistent)
+├── tmp/                   # 임시 파일
+└── var/log/               # 로그
+```
+
+### 3.3 Slurm Job 스크립트 구조
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=vnc_session_{{SESSION_ID}}
+#SBATCH --nodelist={{NODE_ID}}
+#SBATCH --gres=gpu:1
+#SBATCH --mem=8G
+#SBATCH --time=08:00:00
+#SBATCH --output=/scratch/vnc_logs/%j.out
+
+# 환경 변수
+export SESSION_ID={{SESSION_ID}}
+export DISPLAY=:{{DISPLAY_NUM}}
+export SANDBOX_PATH=/scratch/apptainer_sandboxes/${USER}_${SESSION_ID}
+
+# 1. 샌드박스 생성 (첫 실행 시)
+if [ ! -d "$SANDBOX_PATH" ]; then
+    echo "Creating sandbox..."
+    apptainer build --sandbox \
+        $SANDBOX_PATH \
+        /scratch/apptainers/ubuntu_vnc_gpu.sif
+fi
+
+# 2. VNC 비밀번호 설정
+echo "Setting VNC password..."
+apptainer exec --nv --writable $SANDBOX_PATH \
+    bash -c "mkdir -p ~/.vnc && echo '{{VNC_PASSWORD}}' | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd"
+
+# 3. TurboVNC 서버 시작
+echo "Starting TurboVNC server..."
+apptainer exec --nv --writable \
+    --bind /home:/home \
+    --bind /scratch:/scratch \
+    $SANDBOX_PATH \
+    /opt/TurboVNC/bin/vncserver $DISPLAY \
+        -geometry {{RESOLUTION}} \
+        -depth 24 \
+        -securitytypes none
+
+# 4. VNC 서버 PID 저장
+VNC_PID=$(apptainer exec $SANDBOX_PATH pgrep -f "Xvnc $DISPLAY")
+echo "VNC Server PID: $VNC_PID"
+echo $VNC_PID > /scratch/vnc_pids/${SESSION_ID}.pid
+
+# 5. 세션 유지 (Job이 종료되지 않도록)
+echo "VNC session started on $HOSTNAME$DISPLAY"
+echo "Waiting for session termination signal..."
+while [ -f /scratch/vnc_pids/${SESSION_ID}.pid ]; do
+    sleep 10
+done
+
+# 6. 정리 작업
+echo "Terminating VNC server..."
+apptainer exec --nv --writable $SANDBOX_PATH \
+    /opt/TurboVNC/bin/vncserver -kill $DISPLAY
+
+echo "Session terminated."
+```
+
+---
+
+## 4. 시스템 설계
+
+### 4.1 폴더 구조
+
+```
+dashboard/
+├── visualization_6000/              # 세션 관리 백엔드
+│   ├── app.py                       # Flask API
+│   ├── session_manager.py           # 세션 생성/관리
+│   ├── slurm_apptainer.py           # Slurm + Apptainer 통합 ⭐
+│   ├── requirements.txt
+│   ├── start.sh / stop.sh
+│   ├── venv/
+│   ├── logs/
+│   ├── database/
+│   │   └── sessions.db
+│   └── job_templates/               # Slurm Job 템플릿 ⭐
+│       ├── vnc_session.sh.j2        # Jinja2 템플릿
+│       └── cleanup_sandbox.sh.j2
+│
+├── visualization_6001/              # WebSocket 프록시
+│   ├── websocket_proxy.py
+│   ├── requirements.txt
+│   ├── start.sh / stop.sh
+│   └── venv/
+│
+├── frontend_3010/
+│   └── src/components/Visualization/
+│       ├── index.tsx
+│       ├── VNCViewer.tsx
+│       ├── SessionManager.tsx
+│       └── ApptainerStatus.tsx      # 샌드박스 상태 표시 ⭐
+│
+└── apptainer_images/                # Apptainer 이미지 ⭐
+    ├── ubuntu_vnc_gpu.def           # Definition 파일
+    ├── build_image.sh               # 이미지 빌드 스크립트
+    └── sync_to_nodes.sh             # 노드 동기화
+```
+
+### 4.2 컴포넌트 설계
+
+#### visualization_6000/slurm_apptainer.py
+```python
+"""
+Slurm + Apptainer 통합 모듈
+- Apptainer 샌드박스 생성
+- Slurm Job 제출 (샌드박스 실행)
+- VNC 서버 시작 및 모니터링
+"""
+
+import subprocess
+import os
+from jinja2 import Template
+
+class ApptainerSandboxManager:
+    def __init__(self):
+        self.master_image = "/scratch/apptainers/ubuntu_vnc_gpu.sif"
+        self.sandbox_base = "/scratch/apptainer_sandboxes"
+    
+    def create_sandbox(self, user_id, session_id):
+        """사용자별 샌드박스 생성"""
+        sandbox_path = f"{self.sandbox_base}/{user_id}_{session_id}"
+        
+        # 샌드박스가 이미 존재하면 재사용
+        if os.path.exists(sandbox_path):
+            return sandbox_path
+        
+        # 새 샌드박스 생성
+        cmd = [
+            "apptainer", "build", "--sandbox",
+            sandbox_path,
+            self.master_image
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"Failed to create sandbox: {result.stderr}")
+        
+        return sandbox_path
+    
+    def submit_vnc_job(self, session_id, user_id, node_id, 
+                       display_num, resolution, vnc_password):
+        """VNC 세션 Job 제출"""
+        # Job 스크립트 생성 (Jinja2 템플릿)
+        with open("job_templates/vnc_session.sh.j2") as f:
+            template = Template(f.read())
+        
+        job_script = template.render(
+            SESSION_ID=session_id,
+            NODE_ID=node_id,
+            DISPLAY_NUM=display_num,
+            RESOLUTION=resolution,
+            VNC_PASSWORD=vnc_password,
+            USER=user_id
+        )
+        
+        # sbatch로 Job 제출
+        result = subprocess.run(
+            ["sbatch", "--parsable"],
+            input=job_script.encode(),
+            capture_output=True
+        )
+        
+        if result.returncode != 0:
+            raise Exception(f"Failed to submit job: {result.stderr}")
+        
+        job_id = result.stdout.decode().strip()
+        return job_id
+    
+    def cleanup_sandbox(self, session_id, user_id):
+        """샌드박스 정리 (옵션)"""
+        sandbox_path = f"{self.sandbox_base}/{user_id}_{session_id}"
+        
+        # 주의: 샌드박스를 완전히 삭제하면 다음 세션에서 재생성 필요
+        # 선택 1: 삭제
+        # subprocess.run(["rm", "-rf", sandbox_path])
+        
+        # 선택 2: 보관 (다음 세션에서 재사용)
+        # pass
+        
+        # 선택 3: 임시 파일만 정리
+        subprocess.run([
+            "apptainer", "exec", "--writable", sandbox_path,
+            "bash", "-c", "rm -rf /tmp/* /var/tmp/*"
+        ])
+```
+
+---
+
+## 5. 개발 계획
+
+### 5.1 Phase 1: Apptainer 이미지 구축 (1주)
+
+#### 작업 항목
+1. **Apptainer Definition 파일 작성** (2일)
+   - [ ] `ubuntu_vnc_gpu.def` 작성
+   - [ ] TurboVNC 3.0.3 설치
+   - [ ] VirtualGL 3.1 설치
+   - [ ] XFCE4 데스크톱 환경
+   - [ ] GPU 드라이버 호환성 확인
+   - [ ] 기본 애플리케이션 (ParaView, Blender 등)
+
+2. **이미지 빌드 및 테스트** (2일)
+   - [ ] 로컬에서 이미지 빌드
+   - [ ] GPU 노드에서 테스트 (`--nv` 플래그)
+   - [ ] VNC 서버 시작/종료 테스트
+   - [ ] VirtualGL 동작 확인 (`vglrun glxgears`)
+
+3. **샌드박스 모드 검증** (2일)
+   - [ ] Read-only .sif → Writable sandbox 변환
+   - [ ] 샌드박스 내부 수정 테스트
+   - [ ] 사용자 설정 persistence 확인
+   - [ ] 샌드박스 정리 스크립트 작성
+
+4. **노드 배포** (1일)
+   - [ ] 모든 GPU 노드에 .sif 이미지 복사
+   - [ ] `/scratch/apptainers/` 권한 설정
+   - [ ] `/scratch/apptainer_sandboxes/` 디렉토리 생성
+
+#### 검증 기준
+```bash
+# 1. 이미지 빌드 성공
+apptainer build ubuntu_vnc_gpu.sif ubuntu_vnc_gpu.def
+
+# 2. 샌드박스 생성 성공
+apptainer build --sandbox test_sandbox/ ubuntu_vnc_gpu.sif
+
+# 3. GPU 접근 확인
+apptainer exec --nv test_sandbox/ nvidia-smi
+
+# 4. VNC 서버 시작 성공
+apptainer exec --nv --writable test_sandbox/ \
+    /opt/TurboVNC/bin/vncserver :1
+
+# 5. VNC 연결 확인
+vncviewer localhost:5901
+```
+
+### 5.2 Phase 2: Slurm 통합 백엔드 (2주)
+
+#### 작업 항목
+1. **slurm_apptainer.py 모듈 구현** (4일)
+   - [ ] ApptainerSandboxManager 클래스
+   - [ ] create_sandbox() - 샌드박스 생성
+   - [ ] submit_vnc_job() - Job 제출
+   - [ ] cleanup_sandbox() - 정리
+   - [ ] monitor_job_status() - Job 상태 추적
+
+2. **Job 템플릿 작성** (2일)
+   - [ ] vnc_session.sh.j2 (Jinja2 템플릿)
+   - [ ] 파라미터: session_id, node_id, display, resolution, password
+   - [ ] 샌드박스 생성/재사용 로직
+   - [ ] VNC 서버 시작
+   - [ ] 에러 처리 및 로깅
+
+3. **session_manager.py 업데이트** (3일)
+   - [ ] create_session() - Apptainer 통합
+   - [ ] DB 스키마 업데이트 (sandbox_path 컬럼 추가)
+   - [ ] 세션 생성 플로우 수정
+   - [ ] 세션 종료 시 샌드박스 정리
+
+4. **REST API 구현** (3일)
+   - [ ] POST /api/visualization/sessions
+   - [ ] GET /api/visualization/sessions
+   - [ ] DELETE /api/visualization/sessions/:id
+   - [ ] GET /api/visualization/nodes (GPU 정보 포함)
+   - [ ] GET /api/visualization/sandboxes/:id (샌드박스 상태)
+
+#### 검증 기준
+- [ ] API 호출로 샌드박스 생성 성공
+- [ ] Slurm Job이 정상적으로 제출됨
+- [ ] VNC 서버가 샌드박스 내부에서 시작됨
+- [ ] 세션 DB에 sandbox_path 저장됨
+
+### 5.3 Phase 3: WebSocket 프록시 + 프론트엔드 (1주)
+
+#### 작업 항목
+1. **WebSocket 프록시** (2일)
+   - [ ] websocket_proxy.py (기존 계획 동일)
+   - [ ] WebSocket ↔ TCP 변환
+   - [ ] 세션별 연결 라우팅
+
+2. **React 컴포넌트** (3일)
+   - [ ] Visualization/index.tsx
+   - [ ] VNCViewer.tsx (noVNC)
+   - [ ] SessionManager.tsx
+   - [ ] ApptainerStatus.tsx (샌드박스 상태)
+   - [ ] NodeSelector.tsx (GPU 노드 선택)
+
+3. **대시보드 통합** (2일)
+   - [ ] Dashboard.tsx에 'visualization' 탭 추가
+   - [ ] Sidebar 메뉴 추가
+   - [ ] API 연동
+
+#### 검증 기준
+- [ ] 브라우저에서 세션 생성 가능
+- [ ] noVNC로 데스크톱 표시됨
+- [ ] GPU 애플리케이션 실행 가능 (glxgears)
+
+### 5.4 Phase 4: 최적화 및 테스트 (1주)
+
+#### 작업 항목
+1. **성능 최적화** (2일)
+   - [ ] 샌드박스 재사용 전략
+   - [ ] VNC 압축 설정
+   - [ ] WebSocket 버퍼링
+
+2. **에러 처리** (2일)
+   - [ ] Job 실패 시 재시도
+   - [ ] 샌드박스 생성 실패 처리
+   - [ ] VNC 연결 끊김 복구
+
+3. **E2E 테스트** (2일)
+   - [ ] 세션 생성 → VNC 연결 → 종료
+   - [ ] 다중 세션 동시 생성
+   - [ ] GPU 애플리케이션 테스트
+
+4. **문서화** (1일)
+   - [ ] 사용자 가이드
+   - [ ] 관리자 가이드
+   - [ ] API 문서
+
+---
+
+## 6. Apptainer 이미지 구성
+
+### 6.1 ubuntu_vnc_gpu.def
+
+```singularity
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    # 기본 패키지 업데이트
+    apt-get update && apt-get upgrade -y
+    
+    # 필수 패키지 설치
+    apt-get install -y \
+        wget curl vim git \
+        build-essential \
+        xorg xfce4 xfce4-terminal \
+        dbus-x11 \
+        mesa-utils \
+        python3 python3-pip \
+        net-tools
+
+    # TurboVNC 설치
+    cd /tmp
+    wget https://sourceforge.net/projects/turbovnc/files/3.0.3/turbovnc_3.0.3_amd64.deb
+    dpkg -i turbovnc_3.0.3_amd64.deb
+    apt-get install -f -y
+    rm turbovnc_3.0.3_amd64.deb
+
+    # VirtualGL 설치
+    wget https://sourceforge.net/projects/virtualgl/files/3.1/virtualgl_3.1_amd64.deb
+    dpkg -i virtualgl_3.1_amd64.deb
+    apt-get install -f -y
+    rm virtualgl_3.1_amd64.deb
+
+    # GPU 애플리케이션 설치
+    apt-get install -y \
+        paraview \
+        blender \
+        gimp
+
+    # 정리
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%environment
+    export PATH=/opt/TurboVNC/bin:$PATH
+    export PATH=/opt/VirtualGL/bin:$PATH
+    export VGL_DISPLAY=:0
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%startscript
+    # XFCE4 시작
+    startxfce4
+
+%runscript
+    echo "Ubuntu VNC GPU Container"
+    echo "TurboVNC: /opt/TurboVNC/bin/vncserver"
+    echo "VirtualGL: vglrun <command>"
+    exec /bin/bash "$@"
+
+%labels
+    Author koopark
+    Version 1.0
+    Description Ubuntu 22.04 with TurboVNC, VirtualGL, XFCE4 for GPU visualization
+```
+
+### 6.2 이미지 빌드 스크립트
+
+```bash
+#!/bin/bash
+# apptainer_images/build_image.sh
+
+set -e
+
+IMAGE_NAME="ubuntu_vnc_gpu"
+DEF_FILE="${IMAGE_NAME}.def"
+SIF_FILE="${IMAGE_NAME}.sif"
+
+echo "Building Apptainer image..."
+sudo apptainer build $SIF_FILE $DEF_FILE
+
+echo "Testing image..."
+apptainer exec $SIF_FILE /opt/TurboVNC/bin/vncserver -version
+apptainer exec $SIF_FILE vglrun glxinfo | grep "OpenGL renderer"
+
+echo "Image built successfully: $SIF_FILE"
+echo "Next step: ./sync_to_nodes.sh"
+```
+
+### 6.3 노드 동기화 스크립트
+
+```bash
+#!/bin/bash
+# apptainer_images/sync_to_nodes.sh
+
+IMAGE_FILE="ubuntu_vnc_gpu.sif"
+TARGET_DIR="/scratch/apptainers"
+NODES="node001 node002"
+
+for node in $NODES; do
+    echo "Syncing to $node..."
+    ssh $node "mkdir -p $TARGET_DIR"
+    scp $IMAGE_FILE $node:$TARGET_DIR/
+    ssh $node "chmod 755 $TARGET_DIR/$IMAGE_FILE"
+    echo "✓ $node done"
+done
+
+echo "All nodes synced!"
+```
+
+---
+
+## 7. Slurm 통합
+
+### 7.1 Job 템플릿 (vnc_session.sh.j2)
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=vnc_{{SESSION_ID}}
+#SBATCH --nodelist={{NODE_ID}}
+#SBATCH --gres=gpu:1
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=4
+#SBATCH --time=08:00:00
+#SBATCH --output=/scratch/vnc_logs/{{SESSION_ID}}_%j.out
+#SBATCH --error=/scratch/vnc_logs/{{SESSION_ID}}_%j.err
+
+# ========================================
+# VNC Session in Apptainer Sandbox
+# Session ID: {{SESSION_ID}}
+# Node: {{NODE_ID}}
+# Display: :{{DISPLAY_NUM}}
+# ========================================
+
+set -e
+
+# 환경 변수
+export SESSION_ID="{{SESSION_ID}}"
+export USER_ID="{{USER}}"
+export DISPLAY=":{{DISPLAY_NUM}}"
+export VNC_PORT=$((5900 + {{DISPLAY_NUM}}))
+export SANDBOX_PATH="/scratch/apptainer_sandboxes/${USER_ID}_${SESSION_ID}"
+export MASTER_IMAGE="/scratch/apptainers/ubuntu_vnc_gpu.sif"
+export VNC_PASSWORD="{{VNC_PASSWORD}}"
+export RESOLUTION="{{RESOLUTION}}"
+
+echo "=========================================="
+echo "Starting VNC Session"
+echo "Session ID: $SESSION_ID"
+echo "User: $USER_ID"
+echo "Node: $HOSTNAME"
+echo "Display: $DISPLAY"
+echo "VNC Port: $VNC_PORT"
+echo "Sandbox: $SANDBOX_PATH"
+echo "=========================================="
+
+# 1. 샌드박스 생성 (존재하지 않으면)
+if [ ! -d "$SANDBOX_PATH" ]; then
+    echo "[1/5] Creating sandbox from master image..."
+    apptainer build --sandbox \
+        "$SANDBOX_PATH" \
+        "$MASTER_IMAGE"
+    echo "✓ Sandbox created"
+else
+    echo "[1/5] Sandbox already exists, reusing..."
+fi
+
+# 2. VNC 디렉토리 및 비밀번호 설정
+echo "[2/5] Configuring VNC password..."
+apptainer exec --nv --writable \
+    --bind /scratch:/scratch \
+    "$SANDBOX_PATH" \
+    bash -c "
+        mkdir -p ~/.vnc
+        echo '$VNC_PASSWORD' | vncpasswd -f > ~/.vnc/passwd
+        chmod 600 ~/.vnc/passwd
+        echo '✓ VNC password set'
+    "
+
+# 3. VNC 시작 스크립트 생성
+echo "[3/5] Creating VNC startup script..."
+apptainer exec --nv --writable \
+    --bind /scratch:/scratch \
+    "$SANDBOX_PATH" \
+    bash -c "
+        cat > ~/.vnc/xstartup << 'EOF'
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+export VGL_DISPLAY=:0
+startxfce4 &
+EOF
+        chmod +x ~/.vnc/xstartup
+        echo '✓ Startup script created'
+    "
+
+# 4. TurboVNC 서버 시작
+echo "[4/5] Starting TurboVNC server..."
+apptainer exec --nv --writable \
+    --bind /home:/home \
+    --bind /scratch:/scratch \
+    "$SANDBOX_PATH" \
+    /opt/TurboVNC/bin/vncserver "$DISPLAY" \
+        -geometry "$RESOLUTION" \
+        -depth 24 \
+        -securitytypes none
+
+# VNC PID 확인 및 저장
+sleep 2
+VNC_PID=$(apptainer exec "$SANDBOX_PATH" pgrep -f "Xvnc $DISPLAY" || echo "")
+if [ -z "$VNC_PID" ]; then
+    echo "✗ Failed to start VNC server"
+    exit 1
+fi
+
+echo "✓ VNC server started (PID: $VNC_PID)"
+mkdir -p /scratch/vnc_pids
+echo "$VNC_PID" > /scratch/vnc_pids/${SESSION_ID}.pid
+
+# 5. 세션 정보 출력
+echo "[5/5] Session ready!"
+echo "=========================================="
+echo "VNC Server Information:"
+echo "  Display: $DISPLAY"
+echo "  Port: $VNC_PORT"
+echo "  Node: $HOSTNAME"
+echo "  PID: $VNC_PID"
+echo "  Sandbox: $SANDBOX_PATH"
+echo "=========================================="
+
+# 세션 유지 (PID 파일이 존재하는 동안)
+echo "Waiting for termination signal..."
+while [ -f /scratch/vnc_pids/${SESSION_ID}.pid ]; do
+    # VNC 프로세스 살아있는지 확인
+    if ! apptainer exec "$SANDBOX_PATH" ps -p "$VNC_PID" > /dev/null 2>&1; then
+        echo "✗ VNC process died unexpectedly"
+        break
+    fi
+    sleep 10
+done
+
+# 6. 정리 작업
+echo "Terminating VNC server..."
+apptainer exec --nv --writable \
+    --bind /scratch:/scratch \
+    "$SANDBOX_PATH" \
+    /opt/TurboVNC/bin/vncserver -kill "$DISPLAY" || true
+
+# PID 파일 삭제
+rm -f /scratch/vnc_pids/${SESSION_ID}.pid
+
+echo "Session terminated cleanly."
+```
+
+### 7.2 샌드박스 정리 스크립트 (cleanup_sandbox.sh.j2)
+
+```bash
+#!/bin/bash
+# 샌드박스 정리 (선택적)
+
+SESSION_ID="{{SESSION_ID}}"
+USER_ID="{{USER}}"
+SANDBOX_PATH="/scratch/apptainer_sandboxes/${USER_ID}_${SESSION_ID}"
+
+echo "Cleaning up sandbox: $SANDBOX_PATH"
+
+# 옵션 1: 임시 파일만 정리 (샌드박스 재사용)
+apptainer exec --writable "$SANDBOX_PATH" \
+    bash -c "rm -rf /tmp/* /var/tmp/* ~/.vnc/*.log"
+
+# 옵션 2: 샌드박스 완전 삭제 (다음 세션에서 재생성)
+# rm -rf "$SANDBOX_PATH"
+
+echo "Cleanup complete."
+```
+
+---
+
+## 8. API 설계
+
+### 8.1 POST /api/visualization/sessions - 세션 생성
+
+**Request:**
+```json
+{
+  "user_id": "koopark",
+  "node_id": "node001",
+  "resolution": "1920x1080",
+  "quality": "high"
+}
+```
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "session": {
+    "session_id": "abc123",
+    "node_id": "node001",
+    "display": 1,
+    "port": 5901,
+    "job_id": "12345",
+    "sandbox_path": "/scratch/apptainer_sandboxes/koopark_abc123",
+    "websocket_url": "ws://localhost:6001/ws/abc123",
+    "status": "starting"
+  }
+}
+```
+
+### 8.2 GET /api/visualization/sandboxes/:id - 샌드박스 상태
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "sandbox": {
+    "session_id": "abc123",
+    "path": "/scratch/apptainer_sandboxes/koopark_abc123",
+    "size_mb": 2048,
+    "created_at": "2025-10-16T10:00:00Z",
+    "status": "active",
+    "vnc_running": true,
+    "gpu_available": true
+  }
+}
+```
+
+---
+
+## 9. 프론트엔드 통합
+
+### 9.1 ApptainerStatus.tsx (새 컴포넌트)
+
+```typescript
+import React, { useState, useEffect } from 'react';
+import { Box, HardDrive, Cpu, CheckCircle } from 'lucide-react';
+
+interface SandboxStatus {
+  session_id: string;
+  path: string;
+  size_mb: number;
+  status: 'active' | 'creating' | 'error';
+  vnc_running: boolean;
+  gpu_available: boolean;
+}
+
+interface ApptainerStatusProps {
+  sessionId: string;
+}
+
+const ApptainerStatus: React.FC<ApptainerStatusProps> = ({ sessionId }) => {
+  const [status, setStatus] = useState<SandboxStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch(`/api/visualization/sandboxes/${sessionId}`);
+        const data = await response.json();
+        setStatus(data.sandbox);
+      } catch (error) {
+        console.error('Failed to fetch sandbox status:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
+
+  if (loading) return <div>Loading sandbox status...</div>;
+  if (!status) return <div>Sandbox not found</div>;
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-4 rounded shadow">
+      <h3 className="text-lg font-bold mb-2 flex items-center">
+        <Box className="mr-2" size={20} />
+        Apptainer Sandbox Status
+      </h3>
+      
+      <div className="space-y-2">
+        <div className="flex items-center">
+          <HardDrive className="mr-2" size={16} />
+          <span>Path: {status.path}</span>
+        </div>
+        
+        <div className="flex items-center">
+          <span className="mr-2">Size: {status.size_mb} MB</span>
+        </div>
+        
+        <div className="flex items-center">
+          <Cpu className="mr-2" size={16} />
+          <span>GPU: {status.gpu_available ? '✓ Available' : '✗ Not Available'}</span>
+        </div>
+        
+        <div className="flex items-center">
+          {status.vnc_running ? (
+            <CheckCircle className="mr-2 text-green-500" size={16} />
+          ) : (
+            <span className="mr-2 text-red-500">✗</span>
+          )}
+          <span>VNC Server: {status.vnc_running ? 'Running' : 'Stopped'}</span>
+        </div>
+        
+        <div className={`px-2 py-1 rounded inline-block ${
+          status.status === 'active' ? 'bg-green-100 text-green-800' :
+          status.status === 'creating' ? 'bg-yellow-100 text-yellow-800' :
+          'bg-red-100 text-red-800'
+        }`}>
+          {status.status.toUpperCase()}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ApptainerStatus;
+```
+
+---
+
+## 10. 보안 및 성능
+
+### 10.1 보안 고려사항
+
+#### Apptainer 샌드박스 격리
+- **사용자별 샌드박스**: `/scratch/apptainer_sandboxes/USER_SESSION/`
+- **권한 제한**: 샌드박스는 사용자 소유, 700 권한
+- **네트워크 격리**: 필요 시 `--net` 옵션으로 네트워크 제한
+- **루트 권한 없음**: `--fakeroot` 없이 실행 (일반 사용자 권한)
+
+#### VNC 보안
+- **비밀번호**: 세션별 랜덤 생성
+- **로컬 접속만**: VNC는 localhost에만 바인드
+- **WebSocket 프록시**: 외부 접속은 프록시를 통해서만
+
+### 10.2 성능 최적화
+
+#### 샌드박스 재사용 전략
+```python
+def get_or_create_sandbox(user_id, session_id, reuse=True):
+    """샌드박스 재사용 전략"""
+    sandbox_path = f"/scratch/apptainer_sandboxes/{user_id}_{session_id}"
+    
+    if reuse:
+        # 기존 샌드박스 검색 (사용자별로 1개만 유지)
+        user_sandboxes = glob(f"/scratch/apptainer_sandboxes/{user_id}_*")
+        if user_sandboxes:
+            # 가장 최근 샌드박스 재사용
+            latest_sandbox = max(user_sandboxes, key=os.path.getmtime)
+            return latest_sandbox
+    
+    # 새 샌드박스 생성
+    create_sandbox(sandbox_path)
+    return sandbox_path
+```
+
+#### 샌드박스 생성 시간 단축
+- **Overlay 사용**: `--overlay` 옵션으로 베이스 이미지 공유
+- **병렬 생성**: 여러 세션 동시 생성 시 비동기 처리
+- **캐시 활용**: Apptainer 캐시 디렉토리 설정
+
+---
+
+## 11. 테스트 계획
+
+### 11.1 단위 테스트
+
+#### Apptainer 통합 테스트
+```python
+# tests/test_apptainer_sandbox.py
+def test_create_sandbox():
+    manager = ApptainerSandboxManager()
+    sandbox_path = manager.create_sandbox("testuser", "test123")
+    assert os.path.exists(sandbox_path)
+    assert os.path.isdir(sandbox_path)
+
+def test_vnc_in_sandbox():
+    # 샌드박스에서 VNC 서버 시작
+    cmd = ["apptainer", "exec", "--nv", "--writable", sandbox_path,
+           "/opt/TurboVNC/bin/vncserver", ":1"]
+    result = subprocess.run(cmd, capture_output=True)
+    assert result.returncode == 0
+```
+
+### 11.2 통합 테스트
+
+#### E2E 플로우 테스트
+```python
+@pytest.mark.asyncio
+async def test_full_session_lifecycle():
+    # 1. 세션 생성
+    response = await create_session_api(
+        user_id="testuser",
+        node_id="node001"
+    )
+    session_id = response['session']['session_id']
+    
+    # 2. Job 상태 확인 (RUNNING까지 대기)
+    await wait_for_job_running(session_id, timeout=60)
+    
+    # 3. 샌드박스 상태 확인
+    sandbox_status = await get_sandbox_status(session_id)
+    assert sandbox_status['vnc_running'] == True
+    assert sandbox_status['gpu_available'] == True
+    
+    # 4. WebSocket 연결
+    async with websockets.connect(f"ws://localhost:6001/ws/{session_id}") as ws:
+        # VNC 핸드셰이크
+        await ws.send(b'RFB 003.008\n')
+        response = await ws.recv()
+        assert b'RFB' in response
+    
+    # 5. 세션 종료
+    await terminate_session(session_id)
+    
+    # 6. 정리 확인
+    await asyncio.sleep(5)
+    assert not os.path.exists(f"/scratch/vnc_pids/{session_id}.pid")
+```
+
+---
+
+## 12. 구현 로드맵
+
+| 주차 | 작업 내용 | 주요 산출물 | 검증 |
+|------|-----------|-------------|------|
+| **Week 1** | Apptainer 이미지 구축 | ubuntu_vnc_gpu.sif, 샌드박스 테스트 | GPU 접근, VNC 시작 확인 |
+| **Week 2-3** | Slurm 통합 백엔드 | slurm_apptainer.py, Job 템플릿, REST API | API로 샌드박스 생성 가능 |
+| **Week 4** | WebSocket + 프론트엔드 | websocket_proxy.py, React 컴포넌트 | 브라우저에서 데스크톱 표시 |
+| **Week 5** | 최적화 + 테스트 | 성능 튜닝, E2E 테스트, 문서 | 24시간 안정성 테스트 |
+
+---
+
+## 13. 기존 Dashboard 인프라와의 통합 ⭐ (신규 추가)
+
+### 13.1 현재 Dashboard 구조 분석
+
+```
+dashboard/
+├── backend_5010/           # 메인 백엔드 API (Flask)
+│   ├── app.py             # 메인 애플리케이션
+│   ├── database/          # SQLite DB
+│   ├── slurm_commands.py  # Slurm 명령 래퍼
+│   └── websocket_server.py
+├── frontend_3010/          # React 프론트엔드
+│   └── src/components/    # 기존 컴포넌트들
+├── websocket_5011/         # WebSocket 서버
+│   └── database/          # 세션 DB
+├── prometheus_9090/        # 메트릭 수집
+└── node_exporter_9100/     # 노드 메트릭
+```
+
+### 13.2 통합 전략
+
+#### 옵션 A: backend_5010 확장 방식 (권장 ⭐)
+
+**장점**:
+- 단일 백엔드로 관리 간소화
+- 기존 인증/세션 시스템 재사용
+- 프론트엔드 통합 용이
+
+**구현 방법**:
+```python
+# backend_5010/app.py에 새 Blueprint 추가
+from visualization_api import visualization_bp
+
+app.register_blueprint(visualization_bp, url_prefix='/api/visualization')
+```
+
+**폴더 구조**:
+```
+backend_5010/
+├── app.py                          # 기존 메인 앱
+├── visualization/                  # 새로운 모듈 ⭐
+│   ├── __init__.py
+│   ├── session_manager.py          # VNC 세션 관리
+│   ├── apptainer_manager.py        # Apptainer 통합 ⭐
+│   ├── vnc_proxy.py                # VNC WebSocket 프록시
+│   └── job_templates/              # Slurm Job 템플릿
+│       ├── vnc_session.sh.j2
+│       └── cleanup_sandbox.sh.j2
+├── database/
+│   └── sessions.db                 # VNC 세션 테이블 추가
+└── static/apptainer_images/        # Apptainer Definition 파일
+```
+
+#### 옵션 B: 독립 서비스 방식 (visualization_6000)
+
+**장점**:
+- 서비스 격리로 안정성 향상
+- 독립적인 스케일링 가능
+
+**단점**:
+- 인증 시스템 중복
+- 관리 복잡도 증가
+
+### 13.3 Database 통합
+
+#### VNC 세션 테이블 추가
+```sql
+-- backend_5010/database/sessions.db
+CREATE TABLE IF NOT EXISTS vnc_sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    slurm_job_id TEXT,
+    sandbox_path TEXT,
+    display_num INTEGER,
+    vnc_port INTEGER,
+    websocket_port INTEGER,
+    status TEXT,  -- 'creating', 'starting', 'running', 'stopped', 'error'
+    resolution TEXT,
+    quality TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    stopped_at TIMESTAMP,
+    error_message TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE INDEX idx_vnc_user_status ON vnc_sessions(user_id, status);
+CREATE INDEX idx_vnc_job_id ON vnc_sessions(slurm_job_id);
+```
+
+#### 세션 리소스 쿼터 테이블
+```sql
+CREATE TABLE IF NOT EXISTS vnc_quotas (
+    user_id TEXT PRIMARY KEY,
+    max_concurrent_sessions INTEGER DEFAULT 2,
+    max_session_duration_hours INTEGER DEFAULT 8,
+    allowed_nodes TEXT,  -- JSON array: ["node001", "node002"]
+    gpu_allowed BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 13.4 WebSocket 통합
+
+#### WebSocket 라우팅 확장
+```python
+# websocket_5011/websocket_server.py 확장
+
+import asyncio
+import websockets
+from vnc_proxy import VNCProxyHandler
+
+class WebSocketRouter:
+    def __init__(self):
+        self.routes = {
+            '/ws/slurm': self.handle_slurm_ws,
+            '/ws/vnc/{session_id}': self.handle_vnc_ws,  # ⭐ 신규
+        }
+
+    async def handle_vnc_ws(self, websocket, session_id):
+        """VNC WebSocket 프록시"""
+        proxy = VNCProxyHandler(session_id)
+        await proxy.start(websocket)
+
+# backend_5010/visualization/vnc_proxy.py
+class VNCProxyHandler:
+    """WebSocket ↔ TCP VNC 프록시"""
+
+    def __init__(self, session_id):
+        self.session_id = session_id
+        self.vnc_socket = None
+
+    async def start(self, websocket):
+        # 1. 세션 정보 조회
+        session = get_session_from_db(self.session_id)
+        vnc_host = session['node_id']
+        vnc_port = session['vnc_port']
+
+        # 2. VNC 서버 TCP 연결
+        reader, writer = await asyncio.open_connection(vnc_host, vnc_port)
+
+        # 3. 양방향 프록시
+        await asyncio.gather(
+            self.ws_to_tcp(websocket, writer),
+            self.tcp_to_ws(reader, websocket)
+        )
+```
+
+---
+
+## 14. 보안 및 인증 시스템 ⭐ (신규 추가)
+
+### 14.1 사용자 인증 플로우
+
+```
+1. User Login (frontend_3010)
+   ↓
+2. JWT Token 발급 (backend_5010/auth)
+   ↓
+3. VNC 세션 생성 요청 + JWT Token
+   ↓
+4. Token 검증 → User ID 추출
+   ↓
+5. 사용자별 쿼터 확인
+   ↓
+6. Slurm Job 제출 (사용자 권한으로)
+   ↓
+7. VNC 접속 URL 반환 (세션별 토큰 포함)
+```
+
+### 14.2 VNC 세션 보안
+
+#### 세션별 일회용 토큰
+```python
+import secrets
+import hashlib
+import time
+
+class VNCSessionAuth:
+    """VNC 세션 인증"""
+
+    @staticmethod
+    def generate_session_token(session_id, user_id):
+        """세션별 일회용 토큰 생성"""
+        secret = secrets.token_urlsafe(32)
+        timestamp = int(time.time())
+
+        # 토큰 = SHA256(session_id + user_id + secret + timestamp)
+        token_data = f"{session_id}:{user_id}:{secret}:{timestamp}"
+        token = hashlib.sha256(token_data.encode()).hexdigest()
+
+        # DB에 저장 (TTL: 1시간)
+        save_session_token(session_id, token, expires_in=3600)
+
+        return token
+
+    @staticmethod
+    def validate_session_token(session_id, token):
+        """토큰 검증"""
+        stored_token = get_session_token(session_id)
+
+        if not stored_token:
+            return False
+
+        if stored_token['token'] != token:
+            return False
+
+        if time.time() > stored_token['expires_at']:
+            return False
+
+        return True
+```
+
+#### VNC 비밀번호 관리
+```python
+class VNCPasswordManager:
+    """VNC 비밀번호 생성 및 관리"""
+
+    @staticmethod
+    def generate_vnc_password(length=8):
+        """강력한 VNC 비밀번호 생성"""
+        import string
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+        password = ''.join(secrets.choice(alphabet) for _ in range(length))
+        return password
+
+    @staticmethod
+    def store_encrypted_password(session_id, password):
+        """비밀번호 암호화 저장"""
+        from cryptography.fernet import Fernet
+
+        key = get_encryption_key()  # 환경변수에서 로드
+        fernet = Fernet(key)
+        encrypted = fernet.encrypt(password.encode())
+
+        save_to_db(session_id, encrypted)
+```
+
+### 14.3 네트워크 보안
+
+#### VNC 포트 방화벽 규칙
+```bash
+# 계산 노드에서 VNC 포트는 localhost에만 바인드
+# WebSocket 프록시만 외부 접속 허용
+
+# node001: VNC 서버 (localhost:5901)
+vncserver :1 -localhost yes
+
+# head01: WebSocket 프록시 (0.0.0.0:6001)
+# 프록시만 외부 접속 가능, VNC 직접 접속 차단
+```
+
+#### SSH 터널 방식 (추가 보안)
+```python
+def create_ssh_tunnel(session_id, node_id, vnc_port):
+    """SSH 터널을 통한 VNC 접속"""
+    import paramiko
+
+    ssh = paramiko.SSHClient()
+    ssh.connect(node_id, username='slurm')
+
+    # 로컬 포트 포워딩: localhost:local_port → node:vnc_port
+    local_port = allocate_local_port()
+
+    transport = ssh.get_transport()
+    tunnel = transport.open_channel(
+        'direct-tcpip',
+        (node_id, vnc_port),
+        ('localhost', local_port)
+    )
+
+    return tunnel, local_port
+```
+
+---
+
+## 15. 에러 처리 및 복구 시나리오 ⭐ (신규 추가)
+
+### 15.1 에러 분류 및 처리
+
+| 에러 유형 | 원인 | 복구 전략 |
+|----------|------|----------|
+| **샌드박스 생성 실패** | 디스크 부족, 권한 문제 | 자동 재시도 (3회), 다른 노드로 재할당 |
+| **VNC 서버 시작 실패** | 포트 충돌, X11 오류 | Display 번호 자동 변경, 재시작 |
+| **Slurm Job 실패** | 리소스 부족, 노드 다운 | 큐에서 대기, 다른 노드로 재스케줄링 |
+| **WebSocket 연결 끊김** | 네트워크 오류 | 자동 재연결 (클라이언트), 세션 유지 |
+| **GPU 접근 실패** | 드라이버 오류, 다른 Job 사용 중 | Job 재시작, 다른 GPU로 재할당 |
+
+### 15.2 자동 복구 로직
+
+```python
+class VNCSessionRecovery:
+    """VNC 세션 자동 복구"""
+
+    async def monitor_sessions(self):
+        """세션 헬스체크 및 자동 복구"""
+        while True:
+            sessions = get_active_sessions()
+
+            for session in sessions:
+                health = await self.check_session_health(session)
+
+                if health['status'] == 'unhealthy':
+                    await self.recover_session(session, health['error'])
+
+            await asyncio.sleep(30)  # 30초마다 체크
+
+    async def check_session_health(self, session):
+        """세션 상태 확인"""
+        checks = {
+            'slurm_job': self.check_slurm_job(session['slurm_job_id']),
+            'vnc_process': self.check_vnc_process(session),
+            'sandbox': self.check_sandbox_exists(session['sandbox_path']),
+            'network': self.check_vnc_connection(session)
+        }
+
+        for check_name, result in checks.items():
+            if not result['ok']:
+                return {
+                    'status': 'unhealthy',
+                    'error': check_name,
+                    'details': result
+                }
+
+        return {'status': 'healthy'}
+
+    async def recover_session(self, session, error_type):
+        """세션 복구"""
+        recovery_strategies = {
+            'slurm_job': self.recover_slurm_job,
+            'vnc_process': self.recover_vnc_process,
+            'sandbox': self.recover_sandbox,
+            'network': self.recover_network
+        }
+
+        strategy = recovery_strategies.get(error_type)
+        if strategy:
+            try:
+                await strategy(session)
+                log_recovery_success(session['session_id'], error_type)
+            except Exception as e:
+                log_recovery_failure(session['session_id'], error_type, str(e))
+                # 3회 실패 시 세션 종료
+                if session['recovery_attempts'] >= 3:
+                    await self.terminate_session(session['session_id'])
+```
+
+### 15.3 에러 알림 시스템
+
+```python
+class VNCAlertManager:
+    """VNC 세션 알림 관리"""
+
+    def send_session_alert(self, session_id, alert_type, message):
+        """사용자에게 세션 알림 전송"""
+        session = get_session(session_id)
+        user_id = session['user_id']
+
+        # 1. WebSocket으로 실시간 알림
+        websocket_notify(user_id, {
+            'type': 'vnc_session_alert',
+            'session_id': session_id,
+            'alert_type': alert_type,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        })
+
+        # 2. DB에 알림 기록
+        save_notification(user_id, 'vnc_session', message)
+
+        # 3. 심각한 오류는 이메일 발송
+        if alert_type == 'critical':
+            send_email(get_user_email(user_id), message)
+```
+
+---
+
+## 16. 모니터링 및 로깅 ⭐ (신규 추가)
+
+### 16.1 Prometheus 메트릭 추가
+
+```python
+# backend_5010/visualization/metrics.py
+from prometheus_client import Counter, Gauge, Histogram
+
+# VNC 세션 메트릭
+vnc_sessions_total = Counter(
+    'vnc_sessions_total',
+    'Total VNC sessions created',
+    ['user_id', 'node_id']
+)
+
+vnc_sessions_active = Gauge(
+    'vnc_sessions_active',
+    'Number of active VNC sessions',
+    ['node_id']
+)
+
+vnc_session_duration = Histogram(
+    'vnc_session_duration_seconds',
+    'VNC session duration',
+    ['user_id'],
+    buckets=[300, 1800, 3600, 7200, 28800]  # 5m, 30m, 1h, 2h, 8h
+)
+
+# 샌드박스 메트릭
+apptainer_sandbox_build_time = Histogram(
+    'apptainer_sandbox_build_seconds',
+    'Apptainer sandbox build time',
+    ['node_id'],
+    buckets=[5, 10, 20, 30, 60, 120]
+)
+
+# VNC 서버 메트릭
+vnc_server_start_failures = Counter(
+    'vnc_server_start_failures_total',
+    'VNC server start failures',
+    ['node_id', 'error_type']
+)
+```
+
+### 16.2 Grafana 대시보드 추가
+
+```json
+// prometheus_9090/grafana_vnc_dashboard.json
+{
+  "dashboard": {
+    "title": "VNC Visualization Sessions",
+    "panels": [
+      {
+        "title": "Active VNC Sessions",
+        "targets": [{
+          "expr": "sum(vnc_sessions_active) by (node_id)"
+        }]
+      },
+      {
+        "title": "Session Creation Rate",
+        "targets": [{
+          "expr": "rate(vnc_sessions_total[5m])"
+        }]
+      },
+      {
+        "title": "Sandbox Build Time",
+        "targets": [{
+          "expr": "histogram_quantile(0.95, apptainer_sandbox_build_seconds)"
+        }]
+      }
+    ]
+  }
+}
+```
+
+### 16.3 상세 로깅
+
+```python
+# backend_5010/visualization/logging_config.py
+import logging
+from logging.handlers import RotatingFileHandler
+
+def setup_vnc_logging():
+    """VNC 세션 전용 로깅 설정"""
+
+    # 세션 생성/종료 로그
+    session_logger = logging.getLogger('vnc.session')
+    session_handler = RotatingFileHandler(
+        '/var/log/dashboard/vnc_sessions.log',
+        maxBytes=100*1024*1024,  # 100MB
+        backupCount=10
+    )
+    session_logger.addHandler(session_handler)
+
+    # Apptainer 관련 로그
+    apptainer_logger = logging.getLogger('vnc.apptainer')
+    apptainer_handler = RotatingFileHandler(
+        '/var/log/dashboard/apptainer.log',
+        maxBytes=50*1024*1024,
+        backupCount=5
+    )
+    apptainer_logger.addHandler(apptainer_handler)
+
+    # 에러 전용 로그
+    error_logger = logging.getLogger('vnc.errors')
+    error_handler = RotatingFileHandler(
+        '/var/log/dashboard/vnc_errors.log',
+        maxBytes=50*1024*1024,
+        backupCount=5
+    )
+    error_logger.addHandler(error_handler)
+
+# 사용 예시
+session_logger.info(f"Session created: {session_id}, user={user_id}, node={node_id}")
+apptainer_logger.info(f"Sandbox built: {sandbox_path}, duration={duration}s")
+error_logger.error(f"VNC start failed: {session_id}, error={error_msg}")
+```
+
+---
+
+## 17. 리소스 관리 및 쿼터 정책 ⭐ (신규 추가)
+
+### 17.1 사용자별 리소스 제한
+
+```python
+class VNCResourceManager:
+    """VNC 세션 리소스 관리"""
+
+    def check_user_quota(self, user_id):
+        """사용자 쿼터 확인"""
+        quota = get_user_quota(user_id)
+        current_sessions = count_active_sessions(user_id)
+
+        if current_sessions >= quota['max_concurrent_sessions']:
+            raise QuotaExceededException(
+                f"User {user_id} has reached max sessions limit: {quota['max_concurrent_sessions']}"
+            )
+
+        return True
+
+    def allocate_resources(self, user_id, session_request):
+        """리소스 할당"""
+        # 1. GPU 가용성 확인
+        if session_request['gpu_required']:
+            available_nodes = get_nodes_with_available_gpu()
+            if not available_nodes:
+                raise ResourceUnavailableException("No GPU available")
+
+        # 2. Display 번호 할당
+        node_id = session_request['node_id']
+        display_num = self.allocate_display_number(node_id)
+
+        # 3. 포트 할당
+        vnc_port = 5900 + display_num
+        websocket_port = 6000 + display_num
+
+        return {
+            'display_num': display_num,
+            'vnc_port': vnc_port,
+            'websocket_port': websocket_port
+        }
+
+    def allocate_display_number(self, node_id):
+        """노드별 Display 번호 할당"""
+        # 노드별 사용 중인 Display 번호 조회
+        used_displays = get_used_display_numbers(node_id)
+
+        # 1-99 범위에서 미사용 번호 찾기
+        for display_num in range(1, 100):
+            if display_num not in used_displays:
+                return display_num
+
+        raise ResourceUnavailableException("No available display number")
+```
+
+### 17.2 디스크 공간 관리
+
+```python
+class SandboxDiskManager:
+    """샌드박스 디스크 관리"""
+
+    def cleanup_old_sandboxes(self, threshold_days=7):
+        """오래된 샌드박스 자동 정리"""
+        import os
+        import shutil
+        from datetime import datetime, timedelta
+
+        sandbox_base = "/scratch/apptainer_sandboxes"
+        threshold_date = datetime.now() - timedelta(days=threshold_days)
+
+        for sandbox_dir in os.listdir(sandbox_base):
+            sandbox_path = os.path.join(sandbox_base, sandbox_dir)
+
+            # 마지막 접근 시간 확인
+            last_access = datetime.fromtimestamp(os.path.getatime(sandbox_path))
+
+            if last_access < threshold_date:
+                # 활성 세션인지 확인
+                if not is_active_sandbox(sandbox_path):
+                    print(f"Removing old sandbox: {sandbox_path}")
+                    shutil.rmtree(sandbox_path)
+
+    def enforce_disk_quota(self, user_id, max_size_gb=50):
+        """사용자별 샌드박스 디스크 쿼터"""
+        user_sandboxes = get_user_sandboxes(user_id)
+        total_size = sum(get_dir_size(s) for s in user_sandboxes)
+
+        if total_size > max_size_gb * 1024**3:
+            # 가장 오래된 샌드박스 삭제
+            oldest_sandbox = min(user_sandboxes, key=os.path.getatime)
+            remove_sandbox(oldest_sandbox)
+```
+
+### 17.3 GPU 할당 정책
+
+```python
+class GPUAllocationPolicy:
+    """GPU 할당 정책"""
+
+    def select_gpu_node(self, user_id, gpu_type=None):
+        """최적의 GPU 노드 선택"""
+        available_nodes = get_nodes_with_gpu(gpu_type)
+
+        # 1. 사용률이 가장 낮은 노드 선택
+        node_loads = {
+            node: get_gpu_utilization(node)
+            for node in available_nodes
+        }
+
+        # 2. Fair-share: 사용자가 최근에 사용한 노드 제외
+        recent_nodes = get_recent_used_nodes(user_id, hours=24)
+        for node in recent_nodes:
+            if node in node_loads:
+                node_loads[node] += 50  # 패널티 부여
+
+        # 3. 가장 낮은 부하의 노드 반환
+        selected_node = min(node_loads, key=node_loads.get)
+        return selected_node
+```
+
+---
+
+## 18. 즉시 시작 가능한 작업 (업데이트)
+
+### Step 1: Backend 확장 준비
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010
+
+# Visualization 모듈 디렉토리 생성
+mkdir -p visualization/job_templates
+mkdir -p static/apptainer_images
+
+# Python 가상환경 활성화
+source venv/bin/activate
+
+# 추가 의존성 설치
+pip install jinja2 cryptography paramiko
+```
+
+### Step 2: Apptainer Definition 파일 작성
+```bash
+cd static/apptainer_images
+
+# ubuntu_vnc_gpu.def 작성
+cat > ubuntu_vnc_gpu.def << 'EOF'
+Bootstrap: docker
+From: ubuntu:22.04
+# ... (Section 6.1의 내용)
+EOF
+```
+
+### Step 3: Database 스키마 업데이트
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010
+
+# SQLite에 VNC 테이블 추가
+sqlite3 database/sessions.db << 'EOF'
+-- Section 13.3의 SQL 스크립트 실행
+EOF
+```
+
+### Step 4: Slurm Job 템플릿 작성
+```bash
+cd visualization/job_templates
+
+# vnc_session.sh.j2 작성
+cat > vnc_session.sh.j2 << 'EOF'
+# Section 7.1의 템플릿 내용
+EOF
+```
+
+---
+
+## 19. Frontend React 컴포넌트 통합 상세 ⭐ (신규 추가)
+
+### 19.1 기존 Frontend 구조 활용
+
+```typescript
+// frontend_3010/src/App.tsx에 새 라우트 추가
+import Visualization from './components/Visualization';
+
+function App() {
+  return (
+    <Routes>
+      {/* 기존 라우트들 */}
+      <Route path="/jobs" element={<Jobs />} />
+      <Route path="/nodes" element={<Nodes />} />
+
+      {/* 새로운 Visualization 라우트 ⭐ */}
+      <Route path="/visualization" element={<Visualization />} />
+    </Routes>
+  );
+}
+```
+
+### 19.2 Visualization 컴포넌트 구조
+
+```
+frontend_3010/src/components/Visualization/
+├── index.tsx                    # 메인 Visualization 페이지
+├── SessionManager.tsx           # 세션 생성/관리 UI
+├── VNCViewer.tsx                # noVNC 통합
+├── NodeSelector.tsx             # GPU 노드 선택
+├── ApptainerStatus.tsx          # 샌드박스 상태 (기존)
+├── SessionList.tsx              # 사용자 세션 목록
+├── SessionControls.tsx          # 세션 제어 (중지, 재시작)
+└── hooks/
+    ├── useVNCSession.ts         # 세션 관리 훅
+    ├── useWebSocket.ts          # WebSocket 연결 훅
+    └── useNoVNC.ts              # noVNC 초기화 훅
+```
+
+### 19.3 SessionManager 구현 예시
+
+```typescript
+// frontend_3010/src/components/Visualization/SessionManager.tsx
+import React, { useState } from 'react';
+import { Monitor, Cpu, HardDrive } from 'lucide-react';
+import { useVNCSession } from './hooks/useVNCSession';
+import NodeSelector from './NodeSelector';
+
+const SessionManager: React.FC = () => {
+  const { createSession, sessions, loading } = useVNCSession();
+  const [selectedNode, setSelectedNode] = useState<string>('');
+  const [resolution, setResolution] = useState('1920x1080');
+
+  const handleCreateSession = async () => {
+    if (!selectedNode) {
+      alert('Please select a GPU node');
+      return;
+    }
+
+    try {
+      const session = await createSession({
+        node_id: selectedNode,
+        resolution: resolution,
+        quality: 'high',
+        gpu_required: true
+      });
+
+      console.log('Session created:', session);
+    } catch (error) {
+      console.error('Failed to create session:', error);
+    }
+  };
+
+  return (
+    <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow">
+      <h2 className="text-2xl font-bold mb-4 flex items-center">
+        <Monitor className="mr-2" />
+        Remote Desktop Visualization
+      </h2>
+
+      <div className="space-y-4">
+        {/* 노드 선택 */}
+        <NodeSelector
+          onSelect={setSelectedNode}
+          selectedNode={selectedNode}
+        />
+
+        {/* 해상도 선택 */}
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Resolution
+          </label>
+          <select
+            value={resolution}
+            onChange={(e) => setResolution(e.target.value)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="1920x1080">1920x1080 (Full HD)</option>
+            <option value="2560x1440">2560x1440 (2K)</option>
+            <option value="3840x2160">3840x2160 (4K)</option>
+          </select>
+        </div>
+
+        {/* 세션 생성 버튼 */}
+        <button
+          onClick={handleCreateSession}
+          disabled={loading || !selectedNode}
+          className="w-full bg-blue-600 text-white p-3 rounded hover:bg-blue-700 disabled:bg-gray-400"
+        >
+          {loading ? 'Creating Session...' : 'Launch Desktop'}
+        </button>
+      </div>
+
+      {/* 활성 세션 목록 */}
+      <SessionList sessions={sessions} />
+    </div>
+  );
+};
+```
+
+### 19.4 VNCViewer 컴포넌트 (noVNC 통합)
+
+```typescript
+// frontend_3010/src/components/Visualization/VNCViewer.tsx
+import React, { useEffect, useRef } from 'react';
+import RFB from '@novnc/novnc/core/rfb';
+import { useNoVNC } from './hooks/useNoVNC';
+
+interface VNCViewerProps {
+  sessionId: string;
+  websocketUrl: string;
+  onDisconnect?: () => void;
+}
+
+const VNCViewer: React.FC<VNCViewerProps> = ({
+  sessionId,
+  websocketUrl,
+  onDisconnect
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { rfb, connect, disconnect, connected } = useNoVNC();
+
+  useEffect(() => {
+    if (containerRef.current && websocketUrl) {
+      connect(containerRef.current, websocketUrl);
+    }
+
+    return () => {
+      disconnect();
+    };
+  }, [websocketUrl]);
+
+  return (
+    <div className="vnc-viewer-container">
+      <div className="vnc-toolbar bg-gray-800 text-white p-2 flex justify-between">
+        <span>Session: {sessionId}</span>
+        <span>{connected ? '🟢 Connected' : '🔴 Disconnected'}</span>
+      </div>
+
+      <div
+        ref={containerRef}
+        className="vnc-screen bg-black"
+        style={{ width: '100%', height: 'calc(100vh - 200px)' }}
+      />
+    </div>
+  );
+};
+
+export default VNCViewer;
+```
+
+### 19.5 Custom Hooks
+
+```typescript
+// frontend_3010/src/components/Visualization/hooks/useVNCSession.ts
+import { useState, useEffect } from 'react';
+
+interface VNCSession {
+  session_id: string;
+  node_id: string;
+  status: string;
+  websocket_url: string;
+  created_at: string;
+}
+
+export const useVNCSession = () => {
+  const [sessions, setSessions] = useState<VNCSession[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchSessions = async () => {
+    const response = await fetch('/api/visualization/sessions');
+    const data = await response.json();
+    setSessions(data.sessions);
+  };
+
+  const createSession = async (options: any) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/visualization/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options)
+      });
+      const data = await response.json();
+
+      await fetchSessions();
+      return data.session;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const terminateSession = async (sessionId: string) => {
+    await fetch(`/api/visualization/sessions/${sessionId}`, {
+      method: 'DELETE'
+    });
+    await fetchSessions();
+  };
+
+  useEffect(() => {
+    fetchSessions();
+    const interval = setInterval(fetchSessions, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return { sessions, createSession, terminateSession, loading };
+};
+```
+
+---
+
+## 20. 운영 및 유지보수 가이드 ⭐ (신규 추가)
+
+### 20.1 일일 운영 체크리스트
+
+```bash
+#!/bin/bash
+# dashboard/backend_5010/visualization/daily_check.sh
+
+# 1. 활성 VNC 세션 확인
+echo "=== Active VNC Sessions ==="
+sqlite3 database/sessions.db "SELECT session_id, user_id, node_id, status FROM vnc_sessions WHERE status='running';"
+
+# 2. 샌드박스 디스크 사용량
+echo -e "\n=== Sandbox Disk Usage ==="
+du -sh /scratch/apptainer_sandboxes/*
+
+# 3. VNC 로그 에러 확인
+echo -e "\n=== Recent VNC Errors ==="
+tail -n 50 /var/log/dashboard/vnc_errors.log
+
+# 4. Slurm Job 상태
+echo -e "\n=== VNC Slurm Jobs ==="
+squeue -o "%.18i %.9P %.30j %.8u %.2t %.10M %.6D %R" | grep "vnc_"
+
+# 5. 좀비 샌드박스 정리
+echo -e "\n=== Cleaning Zombie Sandboxes ==="
+python3 /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/visualization/cleanup_sandboxes.py
+```
+
+### 20.2 성능 튜닝 가이드
+
+#### TurboVNC 최적화
+```bash
+# vncserver 옵션 최적화
+vncserver :1 \
+  -geometry 1920x1080 \
+  -depth 24 \
+  -SecurityTypes None \
+  -AlwaysShared \
+  -AcceptPointerEvents=1 \
+  -SendCutText=0 \
+  -AcceptCutText=0 \
+  -MaxIdleTime=28800  # 8시간
+```
+
+#### Apptainer 캐시 최적화
+```yaml
+# my_cluster.yaml 업데이트
+container_support:
+  apptainer:
+    enabled: true
+    cache_path: /scratch/apptainer_cache  # SSD 스토리지 권장
+    tmp_dir: /scratch/tmp                 # 빠른 임시 디렉토리
+    parallel_builds: 4                    # 병렬 빌드 수
+```
+
+### 20.3 백업 및 복구
+
+```bash
+#!/bin/bash
+# 백업 스크립트
+BACKUP_DIR="/backup/vnc_system/$(date +%Y%m%d)"
+mkdir -p $BACKUP_DIR
+
+# 1. 데이터베이스 백업
+sqlite3 /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/database/sessions.db ".backup $BACKUP_DIR/sessions.db"
+
+# 2. Apptainer Definition 파일 백업
+cp /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/static/apptainer_images/*.def $BACKUP_DIR/
+
+# 3. Job 템플릿 백업
+cp -r /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/visualization/job_templates $BACKUP_DIR/
+
+# 4. 마스터 이미지 백업 (선택적)
+# cp /scratch/apptainers/ubuntu_vnc_gpu.sif $BACKUP_DIR/
+```
+
+### 20.4 트러블슈팅 가이드
+
+| 문제 | 증상 | 해결 방법 |
+|------|------|----------|
+| VNC 화면 검은색 | 연결되지만 화면 표시 안됨 | `~/.vnc/xstartup` 확인, XFCE4 시작 스크립트 검증 |
+| GPU 인식 안됨 | `nvidia-smi` 실패 | `--nv` 플래그 확인, 호스트 드라이버 버전 확인 |
+| 샌드박스 생성 느림 | 30초 이상 소요 | 캐시 디렉토리를 SSD로 이동, Overlay 방식 사용 |
+| 포트 충돌 | VNC 서버 시작 실패 | Display 번호 자동 할당 로직 확인 |
+| WebSocket 끊김 | 연결 불안정 | 프록시 타임아웃 설정 증가, 네트워크 확인 |
+
+---
+
+## 21. 주요 차이점 요약 (업데이트)
+
+### 🔄 원래 계획 vs 보강된 최종 계획
+
+| 항목 | 원래 계획 | **보강된 최종 계획** |
+|------|----------|---------------------|
+| **아키텍처** | 독립 서비스 (visualization_6000) | **backend_5010 확장 (권장) ⭐** |
+| **Database** | 새 DB 생성 | **기존 sessions.db 확장** |
+| **인증** | 별도 인증 | **기존 JWT 시스템 재사용** |
+| **WebSocket** | 독립 프록시 | **websocket_5011 확장** |
+| **모니터링** | 언급 없음 | **Prometheus + Grafana 통합 ⭐** |
+| **보안** | 기본 VNC 비밀번호 | **세션별 토큰, 암호화, SSH 터널 ⭐** |
+| **에러 처리** | 기본 재시도 | **자동 복구 + 알림 시스템 ⭐** |
+| **리소스 관리** | 언급 없음 | **쿼터, GPU 할당 정책, 디스크 정리 ⭐** |
+| **Frontend** | 간단한 통합 | **상세 컴포넌트 + Custom Hooks ⭐** |
+| **운영** | 언급 없음 | **일일 체크리스트, 백업, 트러블슈팅 ⭐** |
+
+---
+
+## 22. 개발 우선순위 및 로드맵 (통합 아키텍처 반영) ⭐
+
+### Phase 0: 중앙 인증 포털 (Auth Portal) 구축 (Week 1-2) - **CRITICAL PRIORITY** 🔥
+
+**목표**: 443 포트 메인 포털 + SAML SSO + JWT 토큰 시스템 완성
+
+#### Week 1, Day 1-2: 인프라 구축
+- [ ] **환경 설정**
+  - [ ] Redis 설치 및 설정
+  - [ ] Node.js 설치 (saml-idp용)
+  - [ ] Nginx 설치 (443 포트 프록시용)
+- [ ] **saml-idp 설정**
+  - [ ] saml-idp 설치
+  - [ ] config.js 작성 (Auth Portal 4430 연동)
+  - [ ] 자체 서명 인증서 생성
+  - [ ] 테스트 사용자 4명 설정
+    - user01: 모든 서비스 접근
+    - user02: 관리 대시보드만
+    - automation_user: 자동화만
+    - admin: 모든 권한
+
+#### Week 1, Day 3-5: Auth Portal Backend
+- [ ] **프로젝트 생성**
+  - [ ] auth_portal_443/backend 디렉토리 생성
+  - [ ] 가상환경 설정
+  - [ ] requirements.txt 작성 (python3-saml, PyJWT, flask-session, redis)
+- [ ] **SAML 모듈 (sso/)**
+  - [ ] saml_config.py (dev/prod 분리)
+  - [ ] saml_auth.py (SAMLAuthManager)
+  - [ ] routes.py (/login, /acs, /logout, /metadata)
+- [ ] **JWT 모듈 (jwt_manager/)**
+  - [ ] token_issuer.py (토큰 발급 + 갱신)
+  - [ ] token_validator.py (토큰 검증 + 권한 확인)
+- [ ] **API (api/)**
+  - [ ] auth.py (/verify, /refresh, /session)
+  - [ ] services.py (서비스 목록, 접근 URL)
+- [ ] **app.py**
+  - [ ] Flask-Session + Redis 설정
+  - [ ] Blueprint 등록
+  - [ ] CORS 설정
+
+#### Week 1, Day 6-7 + Week 2, Day 1-2: Auth Portal Frontend
+- [ ] **프로젝트 생성**
+  - [ ] auth_portal_443/frontend (Vite + React + TypeScript)
+  - [ ] Tailwind CSS 설정
+- [ ] **페이지**
+  - [ ] Login.tsx (SSO 로그인 버튼)
+  - [ ] ServiceMenu.tsx (서비스 선택 화면)
+  - [ ] Callback.tsx (SAML ACS 처리)
+- [ ] **컴포넌트**
+  - [ ] ServiceCard.tsx (서비스 카드 UI)
+  - [ ] UserProfile.tsx (사용자 정보 + 로그아웃)
+- [ ] **유틸**
+  - [ ] api.ts (Auth API 클라이언트)
+
+#### Week 2, Day 3-4: 통합 테스트
+- [ ] **단위 테스트**
+  - [ ] JWT 토큰 발급/검증 테스트
+  - [ ] SAML 인증 플로우 테스트
+  - [ ] 권한 확인 로직 테스트
+- [ ] **E2E 테스트**
+  - [ ] saml-idp 로그인 → JWT 발급
+  - [ ] 서비스 목록 표시 (user01 → 2개, user02 → 1개)
+  - [ ] 서비스 선택 → 토큰과 함께 리다이렉트
+
+#### Week 2, Day 5-7: Nginx 프록시 설정
+- [ ] **Nginx 설정 (443 → 프록시)**
+  - [ ] SSL 인증서 생성 (자체 서명 또는 Let's Encrypt)
+  - [ ] 443 → Auth Portal Frontend 프록시
+  - [ ] /api → Auth Portal Backend (4430) 프록시
+  - [ ] CORS 헤더 추가
+- [ ] **통합 테스트**
+  - [ ] https://localhost → Auth Portal 접속
+  - [ ] SSO 로그인 플로우 완료
+  - [ ] 서비스 선택 → 3010 또는 5173으로 리다이렉트
+
+#### 검증 기준
+- ✅ saml-idp 로그인 → JWT 토큰 발급
+- ✅ 서비스 목록에 권한 기반 필터링 적용
+- ✅ 관리 대시보드/자동화 시스템 선택 가능
+- ✅ Nginx 443 포트에서 HTTPS 접속 가능
+
+---
+
+### Phase 1: 기존 서비스 JWT 통합 (Week 3) - **HIGH PRIORITY**
+
+**목표**: frontend_3010, backend_5010에 JWT 검증 추가
+
+#### Week 3, Day 1-3: backend_5010 JWT 통합
+- [ ] **JWT 미들웨어 추가**
+  - [ ] jwt_middleware.py 생성
+  - [ ] @jwt_required 데코레이터
+  - [ ] @permission_required 데코레이터
+- [ ] **기존 API 업데이트**
+  - [ ] visualization API에 @jwt_required + @permission_required(['GPU-Users']) 적용
+  - [ ] Slurm API에 @jwt_required + @permission_required(['HPC-Users']) 적용
+  - [ ] 모든 엔드포인트 `request.user` 사용하도록 수정
+- [ ] **환경 변수 설정**
+  - [ ] .env 파일에 JWT_SECRET_KEY 추가 (Auth Portal과 동일)
+
+#### Week 3, Day 4-5: frontend_3010 JWT 통합
+- [ ] **AuthService 추가**
+  - [ ] src/utils/auth.ts 생성
+  - [ ] URL에서 토큰 추출 (initializeFromURL)
+  - [ ] 토큰 저장/조회/삭제 (localStorage)
+  - [ ] 토큰 검증 (Auth Portal /verify 호출)
+- [ ] **App.tsx 업데이트**
+  - [ ] useEffect에서 토큰 검증
+  - [ ] 인증 실패 시 Auth Portal로 리다이렉트
+- [ ] **API 클라이언트 업데이트**
+  - [ ] src/utils/api.ts 수정
+  - [ ] 모든 요청에 Authorization 헤더 자동 추가
+  - [ ] 401 응답 시 Auth Portal로 리다이렉트
+
+#### Week 3, Day 6-7: 통합 테스트
+- [ ] **E2E 플로우**
+  - [ ] Auth Portal 로그인 → 관리 대시보드 선택
+  - [ ] frontend_3010에서 토큰 검증 성공
+  - [ ] Slurm Job 제출 API 호출 (JWT 토큰 포함)
+  - [ ] VNC 세션 생성 (GPU-Users 권한 확인)
+- [ ] **권한 테스트**
+  - [ ] user02 (HPC-Users만) → VNC 접근 불가 (403)
+  - [ ] user01 (GPU-Users 포함) → VNC 접근 가능
+
+#### 검증 기준
+- ✅ frontend_3010 자동 토큰 검증
+- ✅ backend_5010 모든 API JWT 보호
+- ✅ 권한 기반 API 접근 제어 동작
+
+---
+
+### Phase 2: 자동화 시스템 구축 (Week 4-5) - **HIGH PRIORITY**
+
+**목표**: frontend_5173, backend_5000/5001 신규 개발
+
+#### Week 4: backend_5000/5001
+- [ ] **backend_5000 기본 구조**
+  - [ ] Flask 프로젝트 생성
+  - [ ] JWT 미들웨어 추가 (backend_5010과 동일)
+  - [ ] @permission_required(['Automation-Users'])
+- [ ] **워크플로우 API**
+  - [ ] /api/workflows (목록, 생성, 삭제)
+  - [ ] /api/workflows/<id>/execute (실행)
+  - [ ] /api/workflows/<id>/status (상태 조회)
+- [ ] **5010 프록시**
+  - [ ] /api/slurm/* → backend_5010으로 프록시
+  - [ ] JWT 토큰 전달
+- [ ] **backend_5001 프록시 서버**
+  - [ ] Flask 또는 Nginx
+  - [ ] 5001 → 5000 프록시
+
+#### Week 5: frontend_5173
+- [ ] **프로젝트 생성**
+  - [ ] Vite + React + TypeScript
+  - [ ] Tailwind CSS
+- [ ] **AuthService 통합** (frontend_3010과 동일)
+- [ ] **워크플로우 UI**
+  - [ ] 워크플로우 목록
+  - [ ] 워크플로우 생성/편집
+  - [ ] Job 실행 및 모니터링
+
+#### 검증 기준
+- ✅ Auth Portal → 자동화 시스템 선택 → frontend_5173 접속
+- ✅ automation_user로 로그인 → 워크플로우 접근 가능
+- ✅ user02 (Automation-Users 없음) → 403 에러
+
+---
+
+### Phase 3-4: VNC, 모니터링, 최적화 (Week 6-8)
+(기존 계획 유지)
+
+---
+
+### Phase 1: 핵심 VNC 기능 (Week 2-3) - **HIGH PRIORITY**
+
+**목표**: 인증된 사용자가 VNC 세션을 생성하고 접속할 수 있도록 구현
+
+#### Week 2: Backend 구현
+- [ ] **인증 통합**
+  - [ ] visualization API에 `@login_required` 적용
+  - [ ] VNC 세션 생성 시 `@permission_required(['GPU-Users'])` 적용
+  - [ ] 사용자별 세션 격리 (user_id 기반)
+- [ ] **Database 스키마**
+  - [ ] vnc_sessions 테이블 추가
+  - [ ] vnc_quotas 테이블 추가
+  - [ ] user_id 외래키 설정
+- [ ] **Apptainer 통합**
+  - [ ] ubuntu_vnc_gpu.def 작성
+  - [ ] 이미지 빌드 및 노드 배포
+  - [ ] 샌드박스 생성 스크립트
+- [ ] **Slurm 통합**
+  - [ ] vnc_session.sh.j2 템플릿 작성
+  - [ ] Job 제출 로직 (사용자 권한으로 제출)
+  - [ ] Job 상태 모니터링
+
+#### Week 3: Frontend + WebSocket
+- [ ] **Frontend 컴포넌트**
+  - [ ] SessionManager (세션 생성 UI)
+  - [ ] NodeSelector (GPU 노드 선택)
+  - [ ] VNCViewer (noVNC 통합)
+  - [ ] SessionList (사용자 세션 목록)
+- [ ] **WebSocket 프록시**
+  - [ ] websocket_5011 확장
+  - [ ] VNC 프록시 핸들러
+  - [ ] 세션 인증 확인
+
+#### 검증 기준
+- ✅ SSO 로그인 후 VNC 세션 생성 가능
+- ✅ GPU-Users 그룹만 세션 생성 가능
+- ✅ 샌드박스 내에서 VNC 서버 시작
+- ✅ 브라우저에서 Desktop 표시
+- ✅ 사용자별 세션 격리 확인
+
+---
+
+### Phase 2: 보안 강화 및 리소스 관리 (Week 4) - **HIGH PRIORITY**
+
+#### 보안 강화
+- [ ] VNC 비밀번호 암호화 (Fernet)
+- [ ] 세션별 토큰 시스템 (SHA256)
+- [ ] SSH 터널 옵션 추가
+- [ ] SAML Assertion 서명 검증 강화
+
+#### 리소스 관리
+- [ ] 사용자 쿼터 시스템 (최대 세션 수)
+- [ ] GPU 할당 정책 (Fair-share)
+- [ ] Display 번호 자동 할당
+- [ ] 샌드박스 디스크 관리
+
+#### ADFS 연동 준비
+- [ ] 프로덕션 SAML 설정 (.env.production)
+- [ ] ADFS 관리자와 협업
+  - [ ] Relying Party Trust 설정
+  - [ ] Claim Rules 설정
+  - [ ] 그룹 매핑 확인
+- [ ] 환경 변수 전환 테스트 (dev → prod)
+
+#### 검증 기준
+- ✅ 사용자당 최대 2개 세션 제한
+- ✅ GPU 사용률 기반 노드 할당
+- ✅ VNC 비밀번호 암호화 저장
+- ✅ ADFS 연동 테스트 (가능한 경우)
+
+---
+
+### Phase 3: 모니터링 및 자동 복구 (Week 5) - **MEDIUM PRIORITY**
+
+#### 모니터링
+- [ ] Prometheus 메트릭 추가
+  - [ ] vnc_sessions_total
+  - [ ] vnc_sessions_active
+  - [ ] apptainer_sandbox_build_time
+  - [ ] sso_login_failures
+- [ ] Grafana 대시보드 생성
+- [ ] 로깅 시스템 개선
+
+#### 자동 복구
+- [ ] 세션 헬스체크 (30초 주기)
+- [ ] VNC 프로세스 자동 재시작
+- [ ] Slurm Job 재스케줄링
+- [ ] 에러 알림 시스템 (WebSocket + Email)
+
+#### 검증 기준
+- ✅ Grafana에서 세션 상태 시각화
+- ✅ VNC 서버 크래시 시 자동 복구
+- ✅ 에러 알림 수신 확인
+
+---
+
+### Phase 4: 최적화 및 운영 (Week 6) - **LOW PRIORITY**
+
+#### 성능 최적화
+- [ ] TurboVNC 옵션 튜닝
+- [ ] Apptainer 캐시 최적화 (SSD 활용)
+- [ ] 샌드박스 재사용 전략
+- [ ] WebSocket 버퍼링 최적화
+
+#### 운영 자동화
+- [ ] 일일 체크리스트 스크립트
+- [ ] 백업 자동화 (Database, Definition 파일)
+- [ ] 좀비 샌드박스 자동 정리
+- [ ] 로그 로테이션 설정
+
+#### 문서화
+- [ ] 사용자 가이드 (SSO 로그인, 세션 생성)
+- [ ] 관리자 가이드 (ADFS 설정, 트러블슈팅)
+- [ ] API 문서 (Swagger/OpenAPI)
+
+#### 검증 기준
+- ✅ 샌드박스 생성 < 30초
+- ✅ 24시간 안정성 테스트 통과
+- ✅ 문서 완성도 90% 이상
+
+---
+
+### 전체 로드맵 타임라인
+
+```
+Week 1: [SSO 인증 시스템] ████████████████████ (Critical)
+Week 2: [VNC Backend]      ████████████████     (High)
+Week 3: [VNC Frontend]     ████████████████     (High)
+Week 4: [보안 + 리소스]     ████████████         (High)
+Week 5: [모니터링 + 복구]   ████████             (Medium)
+Week 6: [최적화 + 운영]     ████                 (Low)
+```
+
+### 주요 마일스톤
+
+| Week | 마일스톤 | 핵심 기능 |
+|------|---------|----------|
+| **Week 1** | SSO 인증 완성 | saml-idp 로그인, 권한 검증, Redis 세션 |
+| **Week 2-3** | VNC 세션 생성 | Apptainer + Slurm + VNC + noVNC |
+| **Week 4** | 보안 + ADFS | 토큰 암호화, ADFS 연동 준비 |
+| **Week 5** | 모니터링 | Prometheus, 자동 복구 |
+| **Week 6** | 프로덕션 준비 | 성능 튜닝, 문서화, 운영 자동화 |
+
+---
+
+## 23. 성공 기준 (업데이트)
+
+### 기능적 기준
+- [x] **기존 인프라 통합**: backend_5010, websocket_5011, database 재사용 ✅
+- [ ] GPU 노드 선택 가능
+- [ ] Apptainer 샌드박스 자동 생성
+- [ ] 샌드박스 내에서 VNC 서버 시작
+- [ ] 브라우저에서 Ubuntu 데스크톱 표시
+- [ ] GPU 애플리케이션 실행 가능 (vglrun glxgears)
+- [ ] 샌드박스 재사용으로 빠른 재시작
+- [ ] 다중 세션 지원 (사용자당 최대 2-3개)
+- [ ] **인증 및 보안**: JWT + 세션 토큰 + 암호화 ✅
+- [ ] **자동 복구**: 세션 헬스체크 + 에러 복구 ✅
+- [ ] **리소스 관리**: 쿼터 + GPU 할당 + 디스크 정리 ✅
+
+### 성능 기준
+- [ ] 샌드박스 생성: < 30초 (첫 실행)
+- [ ] 샌드박스 재사용: < 5초 (재실행)
+- [ ] VNC 응답 시간: < 100ms
+- [ ] GPU 애플리케이션 성능: 네이티브 대비 95% 이상
+- [ ] **WebSocket 처리량**: 1,000+ 메시지/초 ✅
+
+### 안정성 기준
+- [ ] 24시간 연속 운영 시 장애 없음
+- [ ] 샌드박스 격리로 사용자 간 간섭 없음
+- [ ] Slurm Job 실패 시 자동 재시도 (최대 3회)
+- [ ] **에러 복구율**: 90% 이상 자동 복구 ✅
+- [ ] **세션 복구 시간**: < 30초 ✅
+
+### 운영 기준
+- [ ] **모니터링**: Prometheus + Grafana 대시보드 ✅
+- [ ] **로깅**: 구조화된 로그 (세션, Apptainer, 에러) ✅
+- [ ] **백업**: 일일 자동 백업 ✅
+- [ ] **문서화**: 사용자 가이드 + 관리자 가이드 + API 문서 ✅
+
+---
+
+## 24. 즉시 시작 가능한 작업 (Auth Portal 443 중심) 🔥
+
+### **Phase 0-1: Auth Portal 인프라 구축 (Week 1 Day 1-2)**
+
+#### Step 1: 필수 인프라 설치 (30분)
+
+```bash
+# Redis 설치 (세션 저장소)
+sudo apt update
+sudo apt install redis-server -y
+sudo systemctl start redis
+sudo systemctl enable redis
+redis-cli ping  # PONG 응답 확인
+
+# Node.js 18 설치 (saml-idp용)
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+node --version  # v18.x.x 확인
+
+# Nginx 설치 (443 HTTPS 프록시)
+sudo apt install -y nginx
+sudo systemctl start nginx
+sudo systemctl enable nginx
+nginx -v  # 버전 확인
+```
+
+#### Step 2: Auth Portal 프로젝트 구조 생성 (10분)
+
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard
+
+# Backend 디렉토리 구조
+mkdir -p auth_portal_443/backend/{sso,jwt_manager,api,database,saml_certs}
+mkdir -p auth_portal_443/backend/sso
+mkdir -p auth_portal_443/backend/jwt_manager
+mkdir -p auth_portal_443/backend/api
+mkdir -p auth_portal_443/backend/database
+
+# Frontend 디렉토리 (나중에 npm create vite로 초기화)
+mkdir -p auth_portal_443/frontend
+
+# 구조 확인
+tree auth_portal_443 -L 3
+# auth_portal_443/
+# ├── backend/
+# │   ├── sso/
+# │   ├── jwt_manager/
+# │   ├── api/
+# │   ├── database/
+# │   └── saml_certs/
+# └── frontend/
+```
+
+#### Step 3: saml-idp 개발 환경 설정 (20분)
+
+```bash
+# saml-idp 설치
+npm install -g saml-idp
+
+# saml-idp 디렉토리 생성
+mkdir -p /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/saml_idp
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/saml_idp
+
+# 자체 서명 인증서 생성
+openssl req -x509 -newkey rsa:2048 -keyout idp-key.pem -out idp-cert.pem -days 365 -nodes \
+  -subj "/C=KR/ST=Seoul/L=Seoul/O=HPC Lab/CN=localhost"
+
+# Section 0.4의 config.js 생성 (4명의 테스트 사용자 포함)
+cat > config.js << 'EOF'
+module.exports = {
+  user: 'user01',  // 기본 로그인 사용자
+  users: [
+    {
+      nameID: 'user01',
+      email: 'user01@hpc.local',
+      displayName: 'Test User 1',
+      groups: ['HPC-Users', 'GPU-Users', 'Automation-Users']  // 모든 서비스 접근
+    },
+    {
+      nameID: 'user02',
+      email: 'user02@hpc.local',
+      displayName: 'Test User 2',
+      groups: ['HPC-Users']  // 3010 관리 대시보드만
+    },
+    {
+      nameID: 'automation_user',
+      email: 'automation@hpc.local',
+      displayName: 'Automation User',
+      groups: ['Automation-Users']  // 5173 자동화 시스템만
+    },
+    {
+      nameID: 'admin',
+      email: 'admin@hpc.local',
+      displayName: 'Administrator',
+      groups: ['HPC-Admins', 'HPC-Users', 'GPU-Users', 'Automation-Users']  // 전체 접근
+    }
+  ],
+  audience: 'hpc-auth-portal',  // Auth Portal SP EntityID
+  destination: 'http://localhost:4430/sso/acs',  // Auth Portal ACS URL
+  acsUrl: 'http://localhost:4430/sso/acs',
+  sloUrl: 'http://localhost:4430/sso/slo'
+};
+EOF
+
+# start.sh 생성
+cat > start.sh << 'EOF'
+#!/bin/bash
+saml-idp --iss http://localhost:7000/metadata \
+  --acs http://localhost:4430/sso/acs \
+  --aud hpc-auth-portal \
+  --cert idp-cert.pem \
+  --key idp-key.pem \
+  --port 7000 \
+  --config config.js
+EOF
+chmod +x start.sh
+
+# saml-idp 실행 (별도 터미널)
+./start.sh
+# 출력: IdP is running on http://localhost:7000
+```
+
+---
+
+### **Phase 0-2: Auth Portal Backend 구현 (Week 1 Day 3-5)**
+
+#### Step 4: Backend Python 환경 설정 (15분)
+
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_443/backend
+
+# Python 가상환경 생성
+python3 -m venv venv
+source venv/bin/activate
+
+# 필수 라이브러리 설치
+pip install flask flask-cors python3-saml PyJWT redis flask-session
+
+# requirements.txt 생성
+pip freeze > requirements.txt
+
+# saml-idp 인증서 복사
+cp ../../saml_idp/idp-cert.pem saml_certs/idp-cert.pem
+```
+
+#### Step 5: SAML 인증 모듈 구현 (1-2시간)
+
+Section 0.5의 코드를 참조하여 다음 파일들을 생성합니다:
+
+```bash
+cd sso
+
+# 1. saml_config.py (SAML SP 설정)
+cat > saml_config.py << 'EOF'
+# Section 0.5 참조: SAML SP 설정
+import os
+
+def get_saml_settings():
+    return {
+        "strict": True,
+        "debug": True,
+        "sp": {
+            "entityId": "hpc-auth-portal",
+            "assertionConsumerService": {
+                "url": "http://localhost:4430/sso/acs",
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+            },
+            "singleLogoutService": {
+                "url": "http://localhost:4430/sso/slo",
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+            },
+            "x509cert": "",
+            "privateKey": ""
+        },
+        "idp": {
+            "entityId": "http://localhost:7000/metadata",
+            "singleSignOnService": {
+                "url": "http://localhost:7000/saml/sso",
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+            },
+            "x509cert": open("saml_certs/idp-cert.pem").read()
+        }
+    }
+EOF
+
+# 2. saml_auth.py (SAML 인증 처리)
+# Section 0.5 참조: SAMLAuthManager 클래스
+
+# 3. routes.py (SAML 라우트)
+# Section 0.5 참조: /sso/login, /sso/acs, /sso/metadata
+
+# 4. __init__.py
+touch __init__.py
+```
+
+#### Step 6: JWT 토큰 매니저 구현 (1시간)
+
+```bash
+cd ../jwt_manager
+
+# token_issuer.py (JWT 발급)
+# Section 0.5 참조: JWTTokenIssuer 클래스
+
+# token_validator.py (JWT 검증)
+# Section 0.5 참조: JWTTokenValidator 클래스
+
+# __init__.py
+touch __init__.py
+```
+
+#### Step 7: Services API 구현 (1시간)
+
+```bash
+cd ../api
+
+# services.py (서비스 목록 및 접근 제어)
+# Section 0.5 참조: SERVICES 목록 및 엔드포인트
+
+# auth.py (세션 검증 API)
+# Section 0.5 참조: /api/auth/verify, /api/auth/refresh
+
+# __init__.py
+touch __init__.py
+```
+
+#### Step 8: Auth Portal Backend 메인 앱 구성 (30분)
+
+```bash
+cd ..  # auth_portal_443/backend
+
+# app.py (Flask 앱 메인)
+cat > app.py << 'EOF'
+from flask import Flask, session
+from flask_cors import CORS
+from flask_session import Session
+import redis
+import os
+
+# 모듈 임포트
+from sso.routes import sso_bp
+from api.services import services_bp
+from api.auth import auth_bp
+
+app = Flask(__name__)
+CORS(app, supports_credentials=True)
+
+# 세션 설정 (Redis)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SESSION_TYPE'] = 'redis'
+app.config['SESSION_REDIS'] = redis.from_url('redis://localhost:6379')
+app.config['SESSION_COOKIE_NAME'] = 'auth_portal_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 28800  # 8시간
+
+Session(app)
+
+# Blueprint 등록
+app.register_blueprint(sso_bp, url_prefix='/sso')
+app.register_blueprint(services_bp, url_prefix='/api/services')
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
+
+@app.route('/health')
+def health():
+    return {'status': 'ok', 'service': 'auth-portal-backend'}
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=4430, debug=True)
+EOF
+
+# .env 파일 생성
+cat > .env << 'EOF'
+FLASK_ENV=development
+SECRET_KEY=dev-secret-key-change-in-production
+JWT_SECRET_KEY=jwt-secret-key-shared-across-all-services
+REDIS_URL=redis://localhost:6379
+SAML_ENV=dev
+EOF
+```
+
+#### Step 9: Backend 테스트 (30분)
+
+```bash
+# Terminal 1: saml-idp 실행
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/saml_idp
+./start.sh
+
+# Terminal 2: Auth Portal Backend 실행
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_443/backend
+source venv/bin/activate
+python app.py
+
+# Terminal 3: 테스트
+curl http://localhost:4430/health
+curl http://localhost:4430/sso/metadata  # SAML SP Metadata 확인
+curl http://localhost:4430/api/services  # 서비스 목록 확인 (인증 없이 접근 가능)
+
+# 브라우저 테스트
+# http://localhost:4430/sso/login 접속 → saml-idp 로그인 페이지로 리다이렉트
+```
+
+---
+
+### **Phase 0-3: Auth Portal Frontend 구현 (Week 1 Day 6-7, Week 2 Day 1-2)**
+
+#### Step 10: React + Vite 프로젝트 초기화 (15분)
+
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_443
+
+# Vite React TypeScript 프로젝트 생성
+npm create vite@latest frontend -- --template react-ts
+cd frontend
+npm install
+
+# 추가 라이브러리 설치
+npm install react-router-dom axios jwt-decode
+npm install @types/node --save-dev
+
+# 개발 서버 실행 (포트 변경: 5173 → 4431)
+# vite.config.ts 수정
+cat >> vite.config.ts << 'EOF'
+export default {
+  server: {
+    port: 4431
+  }
+}
+EOF
+```
+
+#### Step 11: Auth Portal 페이지 구현 (2-3시간)
+
+Section 0.6과 0.7을 참조하여 다음 페이지를 구현합니다:
+
+```bash
+cd src
+
+# 1. Login 페이지 (src/pages/Login.tsx)
+# - SAML SSO 로그인 버튼 (/sso/login으로 리다이렉트)
+# - 로고 및 환영 메시지
+
+# 2. ServiceMenu 페이지 (src/pages/ServiceMenu.tsx)
+# - 사용자 정보 표시 (displayName, email, groups)
+# - /api/services에서 서비스 목록 가져오기
+# - 그룹별 접근 가능 서비스 필터링
+# - 서비스 카드 클릭 시 JWT 토큰을 쿼리스트링으로 전달하여 리다이렉트
+#   예: http://localhost:3010?token=eyJhbGciOi...
+
+# 3. Callback 페이지 (src/pages/Callback.tsx)
+# - SAML ACS 처리 후 리다이렉트 받는 페이지
+# - 세션 확인 → ServiceMenu로 이동
+
+# 4. AuthService (src/utils/auth.ts)
+# - 세션 검증 (/api/auth/verify)
+# - 토큰 리프레시 (/api/auth/refresh)
+# - 로그아웃 (/api/auth/logout)
+
+# 5. App.tsx 라우팅
+# - / → Login
+# - /callback → Callback
+# - /services → ServiceMenu (Protected Route)
+```
+
+#### Step 12: Frontend 통합 테스트 (30분)
+
+```bash
+# Terminal 1: saml-idp
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/saml_idp
+./start.sh
+
+# Terminal 2: Auth Portal Backend
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_443/backend
+source venv/bin/activate
+python app.py
+
+# Terminal 3: Auth Portal Frontend
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_443/frontend
+npm run dev
+
+# 브라우저 테스트
+# 1. http://localhost:4431 접속
+# 2. "SSO 로그인" 버튼 클릭
+# 3. saml-idp 로그인 (user01 / 비밀번호 없음)
+# 4. ServiceMenu 페이지로 리다이렉트
+# 5. 서비스 카드 2개 표시 확인 (user01은 모든 서비스 접근 가능)
+```
+
+---
+
+### **Phase 0-4: Nginx HTTPS 프록시 설정 (Week 2 Day 3-4)**
+
+#### Step 13: SSL 인증서 생성 (10분)
+
+```bash
+# 자체 서명 인증서 생성 (개발용)
+sudo mkdir -p /etc/nginx/ssl
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/nginx/ssl/auth_portal.key \
+  -out /etc/nginx/ssl/auth_portal.crt \
+  -subj "/C=KR/ST=Seoul/L=Seoul/O=HPC Lab/CN=localhost"
+```
+
+#### Step 14: Nginx 설정 (20분)
+
+```bash
+# Nginx 설정 파일 생성
+sudo nano /etc/nginx/sites-available/auth_portal_443
+
+# 다음 내용 입력:
+server {
+    listen 443 ssl;
+    server_name localhost;
+
+    ssl_certificate /etc/nginx/ssl/auth_portal.crt;
+    ssl_certificate_key /etc/nginx/ssl/auth_portal.key;
+
+    # Frontend (React)
+    location / {
+        proxy_pass http://localhost:4431;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Backend API
+    location /api/ {
+        proxy_pass http://localhost:4430/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SAML SSO
+    location /sso/ {
+        proxy_pass http://localhost:4430/sso/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# 설정 활성화
+sudo ln -s /etc/nginx/sites-available/auth_portal_443 /etc/nginx/sites-enabled/
+sudo nginx -t  # 설정 검증
+sudo systemctl reload nginx
+```
+
+#### Step 15: HTTPS 통합 테스트 (30분)
+
+```bash
+# 모든 서비스 실행 후
+# https://localhost 접속 (브라우저에서 자체 서명 인증서 경고 무시)
+# SSO 로그인 플로우 완전 테스트
+```
+
+---
+
+### **Phase 1: 기존 서비스 JWT 통합 (Week 3)**
+
+#### Step 16: backend_5010 JWT 미들웨어 추가
+
+Section 0.6의 코드 참조:
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010
+
+# jwt_middleware.py 생성
+# @jwt_required 데코레이터 추가
+# 기존 API에 적용
+```
+
+#### Step 17: frontend_3010 JWT 핸들링 추가
+
+Section 0.7의 코드 참조:
+```bash
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/frontend_3010/src
+
+# utils/auth.ts 생성
+# AuthService.initializeFromURL() 호출 (App.tsx)
+# API 요청 시 Authorization 헤더 추가
+```
+
+---
+
+### **Phase 2-4: 이후 작업 (Week 4-8)**
+
+#### Step 18: Automation System (backend_5000/5001 + frontend_5173)
+#### Step 19: VNC Visualization 기능 (Apptainer + TurboVNC)
+#### Step 20: Monitoring (Prometheus + Grafana)
+#### Step 21: 운영 최적화 및 문서화
+
+---
+
+## 25. 체크리스트 및 검증 ✅
+
+### Phase 0 Week 1-2 완료 기준 (Auth Portal 443)
+
+#### Week 1 Day 1-2: 인프라 (Step 1-3)
+- [ ] **필수 서비스 설치**
+  - [ ] Redis 실행 중 (`redis-cli ping` → PONG)
+  - [ ] Node.js 18.x 설치 완료
+  - [ ] Nginx 실행 중
+- [ ] **saml-idp 설정**
+  - [ ] saml-idp 포트 7000에서 실행 중
+  - [ ] config.js에 4명의 테스트 사용자 등록
+  - [ ] idp-cert.pem 생성 완료
+- [ ] **프로젝트 디렉토리**
+  - [ ] auth_portal_443/backend/{sso,jwt_manager,api,database,saml_certs} 생성
+  - [ ] auth_portal_443/frontend 디렉토리 존재
+
+#### Week 1 Day 3-5: Backend (Step 4-9)
+- [ ] **Backend 환경**
+  - [ ] Python venv 활성화
+  - [ ] 필수 라이브러리 설치: flask, python3-saml, PyJWT, redis, flask-session
+  - [ ] saml_certs/idp-cert.pem 복사 완료
+- [ ] **SAML 인증 모듈**
+  - [ ] `sso/saml_config.py`: SP 설정 완료
+  - [ ] `sso/saml_auth.py`: SAMLAuthManager 클래스 구현
+  - [ ] `sso/routes.py`: /sso/login, /sso/acs, /sso/metadata 엔드포인트
+- [ ] **JWT 토큰 매니저**
+  - [ ] `jwt_manager/token_issuer.py`: JWTTokenIssuer 클래스
+  - [ ] `jwt_manager/token_validator.py`: JWTTokenValidator 클래스
+- [ ] **Services API**
+  - [ ] `api/services.py`: SERVICES 목록 및 /api/services 엔드포인트
+  - [ ] `api/auth.py`: /api/auth/verify, /api/auth/refresh 엔드포인트
+- [ ] **Backend 메인 앱**
+  - [ ] app.py: Flask-Session + Redis 설정
+  - [ ] Blueprint 등록 (sso, services, auth)
+  - [ ] .env 파일 생성 (JWT_SECRET_KEY 포함)
+- [ ] **Backend 테스트**
+  - [ ] `http://localhost:4430/health` → 200 OK
+  - [ ] `http://localhost:4430/sso/metadata` → SAML SP Metadata 출력
+  - [ ] `http://localhost:4430/api/services` → 서비스 목록 2개 반환
+  - [ ] `http://localhost:4430/sso/login` → saml-idp로 리다이렉트
+
+#### Week 1 Day 6-7, Week 2 Day 1-2: Frontend (Step 10-12)
+- [ ] **React 프로젝트 초기화**
+  - [ ] npm create vite 완료 (react-ts 템플릿)
+  - [ ] 라이브러리 설치: react-router-dom, axios, jwt-decode
+  - [ ] vite.config.ts: port 4431 설정
+- [ ] **페이지 구현**
+  - [ ] `pages/Login.tsx`: SSO 로그인 버튼
+  - [ ] `pages/ServiceMenu.tsx`: 사용자 정보 + 서비스 카드 목록
+  - [ ] `pages/Callback.tsx`: SAML ACS 후 리다이렉트 처리
+  - [ ] `utils/auth.ts`: AuthService 클래스 (세션 검증, 토큰 리프레시)
+  - [ ] App.tsx: 라우팅 설정 (/, /callback, /services)
+- [ ] **Frontend 테스트**
+  - [ ] `http://localhost:4431` 접속 → Login 페이지 표시
+  - [ ] "SSO 로그인" 버튼 클릭 → saml-idp 로그인 페이지
+  - [ ] user01 로그인 → ServiceMenu 페이지로 리다이렉트
+  - [ ] 서비스 카드 2개 표시 (관리 대시보드, 자동화 시스템)
+  - [ ] user02 로그인 → 서비스 카드 1개 표시 (관리 대시보드만)
+
+#### Week 2 Day 3-4: Nginx HTTPS (Step 13-15)
+- [ ] **SSL 인증서**
+  - [ ] `/etc/nginx/ssl/auth_portal.crt` 생성
+  - [ ] `/etc/nginx/ssl/auth_portal.key` 생성
+- [ ] **Nginx 설정**
+  - [ ] `/etc/nginx/sites-available/auth_portal_443` 생성
+  - [ ] location / → http://localhost:4431 (Frontend)
+  - [ ] location /api/ → http://localhost:4430/api/ (Backend API)
+  - [ ] location /sso/ → http://localhost:4430/sso/ (SAML)
+  - [ ] sites-enabled 심볼릭 링크 생성
+  - [ ] nginx -t 검증 통과
+  - [ ] nginx 재시작 완료
+- [ ] **HTTPS 테스트**
+  - [ ] `https://localhost` 접속 (인증서 경고 무시)
+  - [ ] SSO 로그인 플로우 완전 동작
+  - [ ] ServiceMenu에서 서비스 클릭 → JWT 토큰 전달 확인
+
+### Phase 1 Week 3 완료 기준 (기존 서비스 JWT 통합)
+- [ ] **backend_5010 JWT 미들웨어**
+  - [ ] jwt_middleware.py 구현
+  - [ ] @jwt_required 데코레이터 추가
+  - [ ] 기존 API 엔드포인트에 @jwt_required 적용
+  - [ ] JWT_SECRET_KEY 환경 변수 설정 (Auth Portal과 동일)
+- [ ] **frontend_3010 JWT 핸들링**
+  - [ ] utils/auth.ts 생성
+  - [ ] AuthService.initializeFromURL() 구현 (쿼리스트링에서 토큰 추출)
+  - [ ] API 요청 시 Authorization 헤더 추가
+  - [ ] App.tsx에서 AuthService 초기화
+- [ ] **통합 테스트**
+  - [ ] Auth Portal (443) 로그인 → ServiceMenu
+  - [ ] "관리 대시보드" 클릭 → `http://localhost:3010?token=...`로 리다이렉트
+  - [ ] frontend_3010이 토큰 추출 → localStorage 저장
+  - [ ] backend_5010 API 호출 시 JWT 검증 성공
+
+### Phase 2 Week 4-5 완료 기준 (Automation System)
+- [ ] backend_5000 JWT 미들웨어 적용
+- [ ] backend_5000 → backend_5010 프록시 구현
+- [ ] frontend_5173 JWT 핸들링 구현
+- [ ] Auth Portal ServiceMenu에서 자동화 시스템 접근 성공
+
+### Phase 3-4 Week 6-8 완료 기준 (VNC + Monitoring + Operations)
+- [ ] Apptainer 이미지 빌드 및 배포
+- [ ] VNC Job 제출 성공
+- [ ] noVNC 브라우저 연결
+- [ ] GPU 애플리케이션 실행 (glxgears)
+- [ ] Prometheus + Grafana 대시보드 생성
+- [ ] 자동 복구 시스템 동작
+- [ ] 문서 완성 (사용자 + 관리자 가이드)
+
+---
+
+## 26. 트러블슈팅 (Auth Portal 관련) 🔧
+
+### 자주 발생하는 문제
+
+| 문제 | 원인 | 해결 방법 |
+|------|------|----------|
+| **SAML Response 검증 실패** | 인증서 불일치 | `auth_portal_443/backend/saml_certs/idp-cert.pem` 경로 확인, sso/saml_config.py에서 인증서 읽기 확인 |
+| **Redis 연결 실패** | Redis 미실행 | `sudo systemctl start redis && redis-cli ping` |
+| **세션 생성 안됨** | Flask-Session 설정 오류 | app.py에서 `app.config['SESSION_TYPE'] = 'redis'` 확인, Session(app) 호출 확인 |
+| **JWT 토큰 검증 실패** | SECRET_KEY 불일치 | Auth Portal과 backend_5010의 JWT_SECRET_KEY가 동일한지 확인 (.env 파일) |
+| **권한 검증 실패 (ServiceMenu)** | groups 파싱 오류 | saml-idp config.js에서 groups 배열 확인, ACS에서 `saml_response['groups']` 파싱 확인 |
+| **로그인 무한 루프** | 쿠키 설정 문제 | app.config['SESSION_COOKIE_SECURE'] = False (HTTP 환경), CORS 설정 확인 |
+| **ServiceMenu 빈 화면** | SAML ACS 후 리다이렉트 실패 | routes.py의 ACS 핸들러에서 `/callback`으로 리다이렉트 확인 |
+| **서비스 카드가 안 보임** | 그룹 필터링 문제 | ServiceMenu.tsx에서 user.groups와 service.required_groups 비교 로직 확인 |
+| **Nginx 502 Bad Gateway** | Backend 미실행 | auth_portal_443/backend에서 `python app.py` 실행 확인 (포트 4430) |
+| **Nginx 404 Not Found (/)** | Frontend 미실행 | auth_portal_443/frontend에서 `npm run dev` 실행 확인 (포트 4431) |
+
+### 디버깅 명령어
+
+#### 서비스 상태 확인
+```bash
+# Redis 실행 확인
+redis-cli ping  # PONG 응답 확인
+sudo systemctl status redis
+
+# Nginx 실행 확인
+sudo systemctl status nginx
+sudo nginx -t  # 설정 검증
+
+# saml-idp 실행 확인
+curl http://localhost:7000/metadata  # IdP Metadata 출력
+
+# Auth Portal Backend 실행 확인
+curl http://localhost:4430/health  # {"status": "ok", "service": "auth-portal-backend"}
+
+# Auth Portal Frontend 실행 확인
+curl http://localhost:4431  # HTML 출력
+```
+
+#### Redis 세션 디버깅
+```bash
+# Redis CLI 접속
+redis-cli
+
+# 세션 키 확인
+> KEYS session:*
+> KEYS flask_session:*
+
+# 세션 내용 확인
+> GET flask_session:<session_id>
+
+# 모든 키 확인
+> KEYS *
+
+# Redis 비우기 (테스트 시)
+> FLUSHALL
+```
+
+#### SAML 디버깅
+```bash
+# SAML SP Metadata 검증 (Auth Portal)
+curl http://localhost:4430/sso/metadata | xmllint --format -
+
+# SAML IdP Metadata 검증 (saml-idp)
+curl http://localhost:7000/metadata | xmllint --format -
+
+# ACS 엔드포인트 확인
+curl -X POST http://localhost:4430/sso/acs  # 400 에러 정상 (SAML Response 필요)
+```
+
+#### JWT 디버깅
+```bash
+# JWT 토큰 디코딩 (https://jwt.io 또는 Python)
+python3 << 'EOF'
+import jwt
+token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."  # 실제 토큰 입력
+try:
+    payload = jwt.decode(token, "jwt-secret-key-shared-across-all-services", algorithms=['HS256'])
+    print("✅ 토큰 검증 성공:")
+    print(f"  user_id: {payload['user_id']}")
+    print(f"  groups: {payload['groups']}")
+    print(f"  exp: {payload['exp']}")
+except jwt.ExpiredSignatureError:
+    print("❌ 토큰 만료")
+except jwt.InvalidTokenError as e:
+    print(f"❌ 토큰 검증 실패: {e}")
+EOF
+```
+
+#### Backend 로그 확인
+```bash
+# Auth Portal Backend 로그 (Flask 디버그 모드)
+cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_443/backend
+source venv/bin/activate
+FLASK_DEBUG=1 python app.py
+
+# saml-idp 로그 확인 (실행 터미널)
+# POST /saml/sso → 로그인 요청
+# POST /saml/acs → ACS 응답
+```
+
+#### Network 디버깅
+```bash
+# 포트 사용 확인
+sudo netstat -tuln | grep -E '443|4430|4431|7000|6379'
+# 443    (Nginx HTTPS)
+# 4430   (Auth Portal Backend)
+# 4431   (Auth Portal Frontend)
+# 7000   (saml-idp)
+# 6379   (Redis)
+
+# 프로세스 확인
+ps aux | grep -E 'redis|nginx|python|node|saml-idp'
+```
+
+### 일반적인 해결 순서
+
+#### 문제: 로그인이 안됨
+1. **Redis 확인**: `redis-cli ping` → PONG 응답
+2. **saml-idp 확인**: `curl http://localhost:7000/metadata`
+3. **Backend 확인**: `curl http://localhost:4430/health`
+4. **SAML 플로우 확인**: 브라우저 개발자 도구 Network 탭
+   - `/sso/login` → 302 리다이렉트 (saml-idp)
+   - saml-idp 로그인 폼 표시
+   - saml-idp POST `/saml/acs` → 302 리다이렉트 (Auth Portal)
+   - `/callback` → ServiceMenu 페이지
+
+#### 문제: ServiceMenu에 서비스가 안 보임
+1. **사용자 그룹 확인**: 브라우저 개발자 도구 Console
+   ```javascript
+   // ServiceMenu.tsx에서 console.log 추가
+   console.log('User groups:', user.groups);
+   console.log('Available services:', services);
+   ```
+2. **API 응답 확인**: `curl http://localhost:4430/api/services`
+3. **그룹 매칭 로직 확인**: ServiceMenu.tsx의 필터링 조건
+
+#### 문제: JWT 토큰이 전달 안됨
+1. **토큰 발급 확인**: Auth Portal Backend 로그에서 `issue_token` 호출 확인
+2. **리다이렉트 URL 확인**: 브라우저 개발자 도구 Network 탭
+   - 예상: `http://localhost:3010?token=eyJhbGci...`
+3. **Frontend JWT 추출 확인**: frontend_3010의 AuthService.initializeFromURL() 호출 확인
+4. **localStorage 확인**: 브라우저 개발자 도구 Application → Local Storage
+   - `jwt_token` 키 존재 확인
+
+---
+
+**문서 버전**: 5.0 (Auth Portal 443 통합 아키텍처 완료)
+
+### 변경 이력
+- **v5.0** (2025-10-16): Auth Portal 443 중심 아키텍처로 전면 재구성
+  - Section 0: 7개 서비스 통합 아키텍처 다이어그램 추가
+  - Section 0.5: Auth Portal Backend 완전 구현 (SAML + JWT + Services API)
+  - Section 0.6: JWT 미들웨어 (backend_5010/5000)
+  - Section 0.7: Frontend JWT 핸들링
+  - Section 22: 개발 로드맵 4단계로 재구성 (Auth Portal → JWT 통합 → Automation → VNC/Monitoring)
+  - Section 24: 즉시 시작 가능한 작업 21단계로 상세화
+  - Section 25: Phase별 체크리스트 세분화
+  - Section 26: Auth Portal 트러블슈팅 가이드 추가
+- **v4.0** (2025-10-16): SSO 최우선 순위 반영
+- **v3.0** (2025-10-15): 초기 보안 및 모니터링 계획 추가
+- **v2.0** (2025-10-14): VNC 핵심 기능 설계 완료
+- **v1.0** (2025-10-13): 초기 문서 작성
+
+**최종 수정일**: 2025-10-16
+**작성자**: AI Assistant
+**검토자**: koopark
+
+**주요 변경사항**:
+- 🔥 **ADFS SSO 인증 시스템 Section 0 추가** (최우선)
+- ✅ saml-idp 개발 환경 구축 가이드
+- ✅ python3-saml 통합 코드 (SAMLAuthManager)
+- ✅ Redis 세션 관리 시스템
+- ✅ 권한 기반 접근 제어 (@permission_required)
+- ✅ ADFS 프로덕션 연동 준비 (PowerShell 스크립트)
+- ✅ Phase 0 (Week 1): SSO 인증 시스템 - CRITICAL PRIORITY
+- ✅ 개발 로드맵 재조정 (SSO → VNC → 보안 → 모니터링)
+- ✅ 즉시 시작 가능한 작업 업데이트 (SSO 중심)
+- ✅ SSO 트러블슈팅 가이드 추가
+
+**다음 우선순위**:
+1. **Week 1**: saml-idp + Redis + SAML Backend 구현
+2. **Week 2-3**: VNC 세션 생성 + noVNC 통합
+3. **Week 4**: ADFS 연동 + 보안 강화
+
+**END OF DOCUMENT**

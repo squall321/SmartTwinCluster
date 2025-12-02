@@ -1,0 +1,169 @@
+# Slurm 클러스터 3단계 - 운영 최적화 템플릿
+# 성능 튜닝, 전력 관리, 컨테이너 지원, 병렬 파일시스템, 백업/복구
+
+# 설정 파일 버전 (필수)
+config_version: "1.0"
+
+performance_tuning:
+  kernel_parameters:
+    vm.swappiness: "{{ SWAPPINESS }}"
+    vm.dirty_ratio: "{{ DIRTY_RATIO }}"
+    vm.dirty_background_ratio: "{{ DIRTY_BG_RATIO }}"
+    net.core.rmem_max: "{{ RMEM_MAX }}"
+    net.core.wmem_max: "{{ WMEM_MAX }}"
+    net.ipv4.tcp_rmem: "{{ TCP_RMEM }}"
+    net.ipv4.tcp_wmem: "{{ TCP_WMEM }}"
+  
+  ulimits:
+    nofile: "{{ ULIMIT_NOFILE }}"
+    nproc: "{{ ULIMIT_NPROC }}"
+    memlock: "{{ ULIMIT_MEMLOCK }}"
+    stack: "{{ ULIMIT_STACK }}"
+  
+  cpu_governor: "{{ CPU_GOVERNOR }}"  # performance, ondemand, powersave
+  numa_balancing: "{{ NUMA_BALANCING }}"
+
+power_management:
+  enabled: "{{ POWER_MGMT_ENABLED }}"
+  idle_timeout: "{{ IDLE_TIMEOUT }}"
+  suspend_program: "{{ SUSPEND_PROGRAM }}"
+  resume_program: "{{ RESUME_PROGRAM }}"
+  suspend_timeout: "{{ SUSPEND_TIMEOUT }}"
+  
+  ipmi:
+    enabled: "{{ IPMI_ENABLED }}"
+    username: "{{ IPMI_USER }}"
+    password: "{{ IPMI_PASSWORD }}"
+    interface: "{{ IPMI_INTERFACE }}"  # lan, lanplus
+  
+  wake_on_lan:
+    enabled: "{{ WOL_ENABLED }}"
+    mac_addresses:
+      "{{ NODE_1 }}": "{{ NODE_1_MAC }}"
+      "{{ NODE_2 }}": "{{ NODE_2_MAC }}"
+
+container_support:
+  singularity:
+    enabled: "{{ SINGULARITY_ENABLED }}"
+    version: "{{ SINGULARITY_VERSION }}"
+    install_path: "{{ SINGULARITY_PATH }}"
+    image_path: "{{ SINGULARITY_IMAGE_PATH }}"
+    cache_path: "{{ SINGULARITY_CACHE_PATH }}"
+    bind_paths:
+      - "{{ BIND_PATH_1 }}"
+      - "{{ BIND_PATH_2 }}"
+  
+  docker:
+    enabled: "{{ DOCKER_ENABLED }}"
+    rootless: "{{ DOCKER_ROOTLESS }}"
+    data_root: "{{ DOCKER_DATA_ROOT }}"
+
+high_performance_networking:
+  infiniband:
+    enabled: "{{ IB_ENABLED }}"
+    subnet_manager: "{{ IB_SM_HOST }}"
+    opensm_priority: "{{ OPENSM_PRIORITY }}"
+    
+  omni_path:
+    enabled: "{{ OPA_ENABLED }}"
+    fabric_manager: "{{ OPA_FM_HOST }}"
+    
+  rdma:
+    enabled: "{{ RDMA_ENABLED }}"
+    rxe_enabled: "{{ RXE_ENABLED }}"
+
+parallel_filesystems:
+  lustre:
+    enabled: "{{ LUSTRE_ENABLED }}"
+    version: "{{ LUSTRE_VERSION }}"
+    mds_servers:
+      - "{{ LUSTRE_MDS_1 }}"
+      - "{{ LUSTRE_MDS_2 }}"
+    oss_servers:
+      - "{{ LUSTRE_OSS_1 }}"
+      - "{{ LUSTRE_OSS_2 }}"
+    mount_point: "{{ LUSTRE_MOUNT }}"
+    stripe_size: "{{ LUSTRE_STRIPE_SIZE }}"
+    stripe_count: "{{ LUSTRE_STRIPE_COUNT }}"
+  
+  beegfs:
+    enabled: "{{ BEEGFS_ENABLED }}"
+    version: "{{ BEEGFS_VERSION }}"
+    mgmt_server: "{{ BEEGFS_MGMT }}"
+    meta_servers:
+      - "{{ BEEGFS_META_1 }}"
+      - "{{ BEEGFS_META_2 }}"
+    storage_servers:
+      - "{{ BEEGFS_STORAGE_1 }}"
+      - "{{ BEEGFS_STORAGE_2 }}"
+    mount_point: "{{ BEEGFS_MOUNT }}"
+    stripe_pattern: "{{ BEEGFS_STRIPE_PATTERN }}"
+  
+  gpfs:
+    enabled: "{{ GPFS_ENABLED }}"
+    cluster_name: "{{ GPFS_CLUSTER }}"
+    filesystem_name: "{{ GPFS_FILESYSTEM }}"
+    mount_point: "{{ GPFS_MOUNT }}"
+
+gpu_computing:
+  nvidia:
+    enabled: "{{ NVIDIA_GPU_ENABLED }}"
+    driver_version: "{{ NVIDIA_DRIVER_VERSION }}"
+    cuda_version: "{{ CUDA_VERSION }}"
+    mig_enabled: "{{ MIG_ENABLED }}"
+    persistence_mode: "{{ GPU_PERSISTENCE }}"
+  
+  amd:
+    enabled: "{{ AMD_GPU_ENABLED }}"
+    rocm_version: "{{ ROCM_VERSION }}"
+
+job_accounting:
+  tres_enabled: "{{ TRES_ENABLED }}"
+  track_wckey: "{{ TRACK_WCKEY }}"
+  track_licenses: "{{ TRACK_LICENSES }}"
+  priority_calculation:
+    age_weight: "{{ AGE_WEIGHT }}"
+    fairshare_weight: "{{ FAIRSHARE_WEIGHT }}"
+    job_size_weight: "{{ JOBSIZE_WEIGHT }}"
+    partition_weight: "{{ PARTITION_WEIGHT }}"
+
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: "{{ BACKUP_SCHEDULE }}"
+    retention_days: "{{ BACKUP_RETENTION }}"
+    backup_path: "{{ BACKUP_PATH }}"
+    remote_backup: "{{ REMOTE_BACKUP_ENABLED }}"
+    
+  database_backup:
+    enabled: "{{ DB_BACKUP_ENABLED }}"
+    schedule: "{{ DB_BACKUP_SCHEDULE }}"
+    retention_days: "{{ DB_BACKUP_RETENTION }}"
+    backup_path: "{{ DB_BACKUP_PATH }}"
+    
+  disaster_recovery:
+    enabled: "{{ DR_ENABLED }}"
+    recovery_site: "{{ DR_SITE }}"
+    rpo_hours: "{{ RPO_HOURS }}"
+    rto_hours: "{{ RTO_HOURS }}"
+    failback_procedure: "{{ FAILBACK_PROCEDURE }}"
+
+security_hardening:
+  fail2ban:
+    enabled: "{{ FAIL2BAN_ENABLED }}"
+    max_retry: "{{ FAIL2BAN_MAXRETRY }}"
+    ban_time: "{{ FAIL2BAN_BANTIME }}"
+    
+  cgroups_v2:
+    enabled: "{{ CGROUPS_V2_ENABLED }}"
+    memory_accounting: "{{ MEMORY_ACCOUNTING }}"
+    cpu_accounting: "{{ CPU_ACCOUNTING }}"
+    
+  network_security:
+    firewall_rules:
+      - port: "{{ CUSTOM_PORT_1 }}"
+        protocol: "{{ PROTOCOL_1 }}"
+        source: "{{ SOURCE_1 }}"
+      - port: "{{ CUSTOM_PORT_2 }}"
+        protocol: "{{ PROTOCOL_2 }}"
+        source: "{{ SOURCE_2 }}"

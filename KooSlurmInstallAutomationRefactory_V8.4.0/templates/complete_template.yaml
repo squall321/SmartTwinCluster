@@ -1,0 +1,372 @@
+# Slurm 클러스터 완전 통합 설정 템플릿
+# 모든 단계 (1: 기본, 2: 고급, 3: 최적화) 통합
+
+# =============================================================================
+# 메타데이터 및 설치 단계 설정
+# =============================================================================
+metadata:
+  template_version: "1.0.0"
+  created_date: "2025-09-23"
+  author: "Slurm Automation Team"
+  description: "Complete Slurm cluster configuration template"
+
+stage: "{{ INSTALL_STAGE }}"  # 1, 2, 3 or "all"
+
+# =============================================================================
+# STAGE 1: 기본 설치 설정
+# =============================================================================
+cluster_info:
+  cluster_name: "{{ CLUSTER_NAME }}"
+  domain: "{{ DOMAIN }}"
+  admin_email: "{{ ADMIN_EMAIL }}"
+  timezone: "{{ TIMEZONE }}"
+  description: "{{ CLUSTER_DESCRIPTION }}"
+
+nodes:
+  controller:
+    hostname: "{{ CONTROLLER_HOSTNAME }}"
+    ip_address: "{{ CONTROLLER_IP }}"
+    ssh_user: "{{ SSH_USER }}"
+    ssh_port: "{{ SSH_PORT }}"
+    ssh_key_path: "{{ SSH_KEY_PATH }}"
+    os_type: "{{ OS_TYPE }}"
+    hardware:
+      cpus: "{{ CONTROLLER_CPUS }}"
+      memory_mb: "{{ CONTROLLER_MEMORY }}"
+      disk_gb: "{{ CONTROLLER_DISK }}"
+      architecture: "{{ CONTROLLER_ARCH }}"
+  
+  compute_nodes:
+    # 템플릿에서 여러 노드 정의 가능
+    - hostname: "{{ COMPUTE_NODE_1_HOSTNAME }}"
+      ip_address: "{{ COMPUTE_NODE_1_IP }}"
+      ssh_user: "{{ SSH_USER }}"
+      ssh_port: "{{ SSH_PORT }}"
+      ssh_key_path: "{{ SSH_KEY_PATH }}"
+      os_type: "{{ OS_TYPE }}"
+      node_type: "{{ NODE_1_TYPE }}"  # gpu, cpu, memory, hybrid
+      hardware:
+        cpus: "{{ COMPUTE_1_CPUS }}"
+        sockets: "{{ COMPUTE_1_SOCKETS }}"
+        cores_per_socket: "{{ COMPUTE_1_CORES_PER_SOCKET }}"
+        threads_per_core: "{{ COMPUTE_1_THREADS_PER_CORE }}"
+        memory_mb: "{{ COMPUTE_1_MEMORY }}"
+        tmp_disk_mb: "{{ COMPUTE_1_TMP_DISK }}"
+        gpu:
+          type: "{{ COMPUTE_1_GPU_TYPE }}"
+          count: "{{ COMPUTE_1_GPU_COUNT }}"
+          memory_gb: "{{ COMPUTE_1_GPU_MEMORY }}"
+    
+    - hostname: "{{ COMPUTE_NODE_2_HOSTNAME }}"
+      ip_address: "{{ COMPUTE_NODE_2_IP }}"
+      ssh_user: "{{ SSH_USER }}"
+      ssh_port: "{{ SSH_PORT }}"
+      ssh_key_path: "{{ SSH_KEY_PATH }}"
+      os_type: "{{ OS_TYPE }}"
+      node_type: "{{ NODE_2_TYPE }}"
+      hardware:
+        cpus: "{{ COMPUTE_2_CPUS }}"
+        sockets: "{{ COMPUTE_2_SOCKETS }}"
+        cores_per_socket: "{{ COMPUTE_2_CORES_PER_SOCKET }}"
+        threads_per_core: "{{ COMPUTE_2_THREADS_PER_CORE }}"
+        memory_mb: "{{ COMPUTE_2_MEMORY }}"
+        tmp_disk_mb: "{{ COMPUTE_2_TMP_DISK }}"
+        gpu:
+          type: "{{ COMPUTE_2_GPU_TYPE }}"
+          count: "{{ COMPUTE_2_GPU_COUNT }}"
+
+network:
+  management_network: "{{ MGMT_NETWORK }}"
+  compute_network: "{{ COMPUTE_NETWORK }}"
+  storage_network: "{{ STORAGE_NETWORK }}"
+  dns_servers:
+    - "{{ DNS_SERVER_1 }}"
+    - "{{ DNS_SERVER_2 }}"
+  firewall:
+    enabled: "{{ FIREWALL_ENABLED }}"
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: "{{ SSH_PORT }}"
+
+slurm_config:
+  version: "{{ SLURM_VERSION }}"
+  build_options: "{{ SLURM_BUILD_OPTIONS }}"
+  install_path: "{{ SLURM_INSTALL_PATH }}"
+  config_path: "{{ SLURM_CONFIG_PATH }}"
+  log_path: "{{ SLURM_LOG_PATH }}"
+  spool_path: "{{ SLURM_SPOOL_PATH }}"
+  reboot_program: "{{ REBOOT_PROGRAM }}"  # 노드 재부팅 프로그램 경로 (기본값: /sbin/reboot)
+  
+  partitions:
+    - name: "{{ PARTITION_1_NAME }}"
+      nodes: "{{ PARTITION_1_NODES }}"
+      default: "{{ PARTITION_1_DEFAULT }}"
+      max_time: "{{ PARTITION_1_MAX_TIME }}"
+      max_nodes: "{{ PARTITION_1_MAX_NODES }}"
+      priority_tier: "{{ PARTITION_1_PRIORITY }}"
+      qos: "{{ PARTITION_1_QOS }}"
+      
+  scheduling:
+    scheduler_type: "{{ SCHEDULER_TYPE }}"
+    select_type: "{{ SELECT_TYPE }}"
+    preempt_mode: "{{ PREEMPT_MODE }}"
+    priority_type: "{{ PRIORITY_TYPE }}"
+
+users:
+  slurm_user: "{{ SLURM_USER }}"
+  slurm_uid: "{{ SLURM_UID }}"
+  slurm_gid: "{{ SLURM_GID }}"
+  cluster_users:
+    - username: "{{ USER_1_NAME }}"
+      uid: "{{ USER_1_UID }}"
+      gid: "{{ USER_1_GID }}"
+      groups: 
+        - "{{ USER_1_GROUPS }}"
+      default_account: "{{ USER_1_ACCOUNT }}"
+
+shared_storage:
+  nfs_server: "{{ NFS_SERVER }}"
+  mount_points:
+    - source: "{{ NFS_HOME_PATH }}"
+      target: "/home"
+      options: "{{ NFS_HOME_OPTIONS }}"
+    - source: "{{ NFS_SHARE_PATH }}"
+      target: "/shared"
+      options: "{{ NFS_SHARE_OPTIONS }}"
+
+# =============================================================================
+# STAGE 2: 고급 기능 설정
+# =============================================================================
+database:
+  enabled: "{{ DB_ENABLED }}"
+  type: "{{ DB_TYPE }}"  # mysql, mariadb, postgresql
+  host: "{{ DB_HOST }}"
+  port: "{{ DB_PORT }}"
+  database_name: "{{ DB_NAME }}"
+  username: "{{ DB_USER }}"
+  password: "{{ DB_PASSWORD }}"
+  backup_schedule: "{{ DB_BACKUP_SCHEDULE }}"
+  replication: "{{ DB_REPLICATION_ENABLED }}"
+
+monitoring:
+  ganglia:
+    enabled: "{{ GANGLIA_ENABLED }}"
+    gmetad_host: "{{ GANGLIA_HOST }}"
+    gmond_port: "{{ GANGLIA_PORT }}"
+  
+  prometheus:
+    enabled: "{{ PROMETHEUS_ENABLED }}"
+    port: "{{ PROMETHEUS_PORT }}"
+    node_exporter: "{{ NODE_EXPORTER_ENABLED }}"
+    slurm_exporter: "{{ SLURM_EXPORTER_ENABLED }}"
+    retention_days: "{{ PROMETHEUS_RETENTION }}"
+  
+  grafana:
+    enabled: "{{ GRAFANA_ENABLED }}"
+    port: "{{ GRAFANA_PORT }}"
+    admin_password: "{{ GRAFANA_PASSWORD }}"
+    
+  nagios:
+    enabled: "{{ NAGIOS_ENABLED }}"
+    server: "{{ NAGIOS_SERVER }}"
+
+high_availability:
+  controller_ha:
+    enabled: "{{ HA_ENABLED }}"
+    primary_controller: "{{ PRIMARY_CONTROLLER }}"
+    backup_controller: "{{ BACKUP_CONTROLLER }}"
+    virtual_ip: "{{ VIRTUAL_IP }}"
+    failover_timeout: "{{ FAILOVER_TIMEOUT }}"
+    shared_storage: "{{ HA_SHARED_STORAGE }}"
+
+security:
+  munge:
+    key_rotation_days: "{{ MUNGE_KEY_ROTATION }}"
+    key_backup_location: "{{ MUNGE_BACKUP_PATH }}"
+    
+  ssl:
+    enabled: "{{ SSL_ENABLED }}"
+    cert_path: "{{ SSL_CERT_PATH }}"
+    key_path: "{{ SSL_KEY_PATH }}"
+    ca_path: "{{ SSL_CA_PATH }}"
+    
+  selinux:
+    enabled: "{{ SELINUX_ENABLED }}"
+    mode: "{{ SELINUX_MODE }}"
+    
+  pam:
+    enabled: "{{ PAM_ENABLED }}"
+    module: "{{ PAM_MODULE }}"
+
+authentication:
+  ldap:
+    enabled: "{{ LDAP_ENABLED }}"
+    server: "{{ LDAP_SERVER }}"
+    base_dn: "{{ LDAP_BASE_DN }}"
+    bind_dn: "{{ LDAP_BIND_DN }}"
+    bind_password: "{{ LDAP_BIND_PASSWORD }}"
+    
+  kerberos:
+    enabled: "{{ KERBEROS_ENABLED }}"
+    realm: "{{ KERBEROS_REALM }}"
+    kdc: "{{ KERBEROS_KDC }}"
+
+environment_modules:
+  enabled: "{{ MODULES_ENABLED }}"
+  type: "{{ MODULES_TYPE }}"
+  modulefiles_path: "{{ MODULEFILES_PATH }}"
+  default_modules: 
+    - "{{ DEFAULT_MODULE_1 }}"
+    - "{{ DEFAULT_MODULE_2 }}"
+
+# =============================================================================
+# STAGE 3: 운영 최적화 설정
+# =============================================================================
+performance_tuning:
+  kernel_parameters:
+    vm.swappiness: "{{ SWAPPINESS }}"
+    vm.dirty_ratio: "{{ DIRTY_RATIO }}"
+    vm.dirty_background_ratio: "{{ DIRTY_BG_RATIO }}"
+    net.core.rmem_max: "{{ RMEM_MAX }}"
+    net.core.wmem_max: "{{ WMEM_MAX }}"
+    kernel.shmmax: "{{ SHMMAX }}"
+    kernel.shmall: "{{ SHMALL }}"
+    
+  ulimits:
+    nofile: "{{ ULIMIT_NOFILE }}"
+    nproc: "{{ ULIMIT_NPROC }}"
+    memlock: "{{ ULIMIT_MEMLOCK }}"
+    stack: "{{ ULIMIT_STACK }}"
+    
+  cpu_governor: "{{ CPU_GOVERNOR }}"
+  numa_balancing: "{{ NUMA_BALANCING }}"
+  transparent_hugepages: "{{ THP_ENABLED }}"
+
+power_management:
+  enabled: "{{ POWER_MGMT_ENABLED }}"
+  idle_timeout: "{{ IDLE_TIMEOUT }}"
+  suspend_program: "{{ SUSPEND_PROGRAM }}"
+  resume_program: "{{ RESUME_PROGRAM }}"
+  suspend_timeout: "{{ SUSPEND_TIMEOUT }}"
+  
+  ipmi:
+    enabled: "{{ IPMI_ENABLED }}"
+    username: "{{ IPMI_USER }}"
+    password: "{{ IPMI_PASSWORD }}"
+    interface: "{{ IPMI_INTERFACE }}"
+
+container_support:
+  singularity:
+    enabled: "{{ SINGULARITY_ENABLED }}"
+    version: "{{ SINGULARITY_VERSION }}"
+    install_path: "{{ SINGULARITY_PATH }}"
+    image_path: "{{ SINGULARITY_IMAGE_PATH }}"
+    cache_path: "{{ SINGULARITY_CACHE_PATH }}"
+    
+  docker:
+    enabled: "{{ DOCKER_ENABLED }}"
+    rootless: "{{ DOCKER_ROOTLESS }}"
+    data_root: "{{ DOCKER_DATA_ROOT }}"
+
+high_performance_networking:
+  infiniband:
+    enabled: "{{ IB_ENABLED }}"
+    subnet_manager: "{{ IB_SM_HOST }}"
+    opensm_priority: "{{ OPENSM_PRIORITY }}"
+    
+  omni_path:
+    enabled: "{{ OPA_ENABLED }}"
+    fabric_manager: "{{ OPA_FM_HOST }}"
+
+parallel_filesystems:
+  lustre:
+    enabled: "{{ LUSTRE_ENABLED }}"
+    version: "{{ LUSTRE_VERSION }}"
+    mds_servers: 
+      - "{{ LUSTRE_MDS_1 }}"
+    oss_servers:
+      - "{{ LUSTRE_OSS_1 }}"
+    mount_point: "{{ LUSTRE_MOUNT }}"
+    
+  beegfs:
+    enabled: "{{ BEEGFS_ENABLED }}"
+    mgmt_server: "{{ BEEGFS_MGMT }}"
+    mount_point: "{{ BEEGFS_MOUNT }}"
+
+gpu_computing:
+  nvidia:
+    enabled: "{{ NVIDIA_GPU_ENABLED }}"
+    driver_version: "{{ NVIDIA_DRIVER_VERSION }}"
+    cuda_version: "{{ CUDA_VERSION }}"
+    mig_enabled: "{{ MIG_ENABLED }}"
+    persistence_mode: "{{ GPU_PERSISTENCE }}"
+    
+  amd:
+    enabled: "{{ AMD_GPU_ENABLED }}"
+    rocm_version: "{{ ROCM_VERSION }}"
+
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: "{{ BACKUP_SCHEDULE }}"
+    retention_days: "{{ BACKUP_RETENTION }}"
+    backup_path: "{{ BACKUP_PATH }}"
+    remote_backup: "{{ REMOTE_BACKUP_ENABLED }}"
+    
+  disaster_recovery:
+    enabled: "{{ DR_ENABLED }}"
+    recovery_site: "{{ DR_SITE }}"
+    rpo_hours: "{{ RPO_HOURS }}"
+    rto_hours: "{{ RTO_HOURS }}"
+
+# =============================================================================
+# 추가 고급 설정
+# =============================================================================
+job_accounting:
+  tres_enabled: "{{ TRES_ENABLED }}"
+  track_wckey: "{{ TRACK_WCKEY }}"
+  track_licenses: "{{ TRACK_LICENSES }}"
+  priority_calculation:
+    age_weight: "{{ AGE_WEIGHT }}"
+    fairshare_weight: "{{ FAIRSHARE_WEIGHT }}"
+    job_size_weight: "{{ JOBSIZE_WEIGHT }}"
+
+license_management:
+  flexlm:
+    enabled: "{{ FLEXLM_ENABLED }}"
+    servers:
+      - name: "{{ LICENSE_1_NAME }}"
+        server: "{{ LICENSE_1_SERVER }}"
+        port: "{{ LICENSE_1_PORT }}"
+
+custom_scripts:
+  prolog: "{{ PROLOG_SCRIPT }}"
+  epilog: "{{ EPILOG_SCRIPT }}"
+  task_prolog: "{{ TASK_PROLOG_SCRIPT }}"
+  task_epilog: "{{ TASK_EPILOG_SCRIPT }}"
+
+# =============================================================================
+# 검증 및 테스트 설정
+# =============================================================================
+validation:
+  network_tests:
+    - ping_test: true
+    - ssh_test: true
+    - port_connectivity: true
+    
+  slurm_tests:
+    - basic_job_submission: true
+    - gpu_job_test: "{{ GPU_TEST_ENABLED }}"
+    - mpi_job_test: "{{ MPI_TEST_ENABLED }}"
+    - accounting_test: "{{ ACCOUNTING_TEST_ENABLED }}"
+
+# =============================================================================
+# 문서화 및 주석
+# =============================================================================
+documentation:
+  installation_notes: "{{ INSTALLATION_NOTES }}"
+  maintenance_procedures: "{{ MAINTENANCE_PROCEDURES }}"
+  troubleshooting_guide: "{{ TROUBLESHOOTING_GUIDE }}"
+  contact_info: "{{ SUPPORT_CONTACT }}"

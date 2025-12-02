@@ -1,0 +1,88 @@
+# Slurm 클러스터 2단계 - 고급 기능 템플릿
+# 데이터베이스, 모니터링, 고가용성, 보안 등 고급 기능들
+
+# 설정 파일 버전 (필수)
+config_version: "1.0"
+
+database:
+  enabled: "{{ DB_ENABLED }}"
+  host: "{{ DB_HOST }}"
+  port: 3306
+  database_name: "slurm_acct_db"
+  username: "{{ DB_USER }}"
+  password: "{{ DB_PASSWORD }}"
+  backup_schedule: "{{ DB_BACKUP_SCHEDULE }}"
+
+monitoring:
+  ganglia:
+    enabled: "{{ GANGLIA_ENABLED }}"
+    gmetad_host: "{{ GANGLIA_HOST }}"
+    gmond_port: 8649
+  
+  prometheus:
+    enabled: "{{ PROMETHEUS_ENABLED }}"
+    port: 9090
+    node_exporter: true
+    slurm_exporter: true
+  
+  grafana:
+    enabled: "{{ GRAFANA_ENABLED }}"
+    port: 3000
+    admin_password: "{{ GRAFANA_PASSWORD }}"
+
+high_availability:
+  controller_ha:
+    enabled: "{{ HA_ENABLED }}"
+    primary_controller: "{{ PRIMARY_CONTROLLER }}"
+    backup_controller: "{{ BACKUP_CONTROLLER }}"
+    virtual_ip: "{{ VIRTUAL_IP }}"
+    failover_timeout: "{{ FAILOVER_TIMEOUT }}"
+
+security:
+  munge:
+    key_rotation_days: "{{ MUNGE_KEY_ROTATION }}"
+    key_backup_location: "{{ MUNGE_BACKUP_PATH }}"
+  
+  ssl:
+    enabled: "{{ SSL_ENABLED }}"
+    cert_path: "{{ SSL_CERT_PATH }}"
+    key_path: "{{ SSL_KEY_PATH }}"
+    ca_path: "{{ SSL_CA_PATH }}"
+  
+  selinux:
+    enabled: "{{ SELINUX_ENABLED }}"
+    mode: "{{ SELINUX_MODE }}"  # enforcing, permissive, disabled
+
+environment_modules:
+  enabled: "{{ MODULES_ENABLED }}"
+  type: "{{ MODULES_TYPE }}"  # modules, lmod
+  modulefiles_path: "{{ MODULEFILES_PATH }}"
+  default_modules:
+    - "{{ DEFAULT_MODULE_1 }}"
+    - "{{ DEFAULT_MODULE_2 }}"
+
+time_synchronization:
+  ntp_servers:
+    - "{{ NTP_SERVER_1 }}"
+    - "{{ NTP_SERVER_2 }}"
+  timezone: "{{ TIMEZONE }}"
+
+logging:
+  centralized_logging:
+    enabled: "{{ CENTRALIZED_LOG_ENABLED }}"
+    syslog_server: "{{ SYSLOG_SERVER }}"
+    log_level: "{{ LOG_LEVEL }}"  # debug, info, warning, error
+  
+  log_rotation:
+    enabled: true
+    retention_days: "{{ LOG_RETENTION_DAYS }}"
+    max_size: "{{ LOG_MAX_SIZE }}"
+
+mail_alerts:
+  enabled: "{{ MAIL_ALERTS_ENABLED }}"
+  smtp_server: "{{ SMTP_SERVER }}"
+  smtp_port: "{{ SMTP_PORT }}"
+  from_address: "{{ MAIL_FROM }}"
+  admin_emails:
+    - "{{ ADMIN_EMAIL_1 }}"
+    - "{{ ADMIN_EMAIL_2 }}"

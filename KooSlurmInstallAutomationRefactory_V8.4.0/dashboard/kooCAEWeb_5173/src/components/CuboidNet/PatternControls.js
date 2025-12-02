@@ -1,0 +1,13 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { Button, Col, InputNumber, Row, Select, Space } from "antd";
+const faceOptions = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"].map(f => ({ label: f, value: f }));
+const patternOptions = [
+    { value: "wrap-cross", label: "Wrap Cross (중앙 십자)" },
+    { value: "band-h", label: "Band Horizontal (가로 띠)" },
+    { value: "band-v", label: "Band Vertical (세로 띠)" },
+    { value: "border-only", label: "Border Only (테두리)" },
+    { value: "corner-pads", label: "Corner Pads (코너 패드)" },
+];
+export default function PatternControls(p) {
+    return (_jsxs(Row, { gutter: [12, 8], align: "middle", children: [_jsxs(Col, { xs: 24, md: 8, lg: 6, children: [_jsx("small", { children: "Faces" }), _jsx(Select, { mode: "multiple", value: p.selectedFaces, style: { width: "100%" }, onChange: (v) => p.setSelectedFaces(v), options: faceOptions })] }), _jsxs(Col, { xs: 24, md: 8, lg: 6, children: [_jsx("small", { children: "Pattern" }), _jsx(Select, { value: p.patternKind, style: { width: "100%" }, onChange: (v) => p.setPatternKind(v), options: patternOptions })] }), _jsxs(Col, { xs: 12, sm: 8, md: 6, lg: 4, children: [_jsx("small", { children: "Line (mm)" }), _jsx(InputNumber, { min: 0.5, value: p.lineMM, onChange: (v) => p.setLineMM(Number(v)), style: { width: "100%" } })] }), _jsxs(Col, { xs: 12, sm: 8, md: 6, lg: 4, children: [_jsx("small", { children: "Band (mm)" }), _jsx(InputNumber, { min: 1, value: p.bandMM, onChange: (v) => p.setBandMM(Number(v)), style: { width: "100%" } })] }), _jsxs(Col, { xs: 12, sm: 8, md: 6, lg: 4, children: [_jsx("small", { children: "Border (mm)" }), _jsx(InputNumber, { min: 0.5, value: p.borderMM, onChange: (v) => p.setBorderMM(Number(v)), style: { width: "100%" } })] }), _jsxs(Col, { xs: 12, sm: 8, md: 6, lg: 4, children: [_jsx("small", { children: "Pad (mm)" }), _jsx(InputNumber, { min: 1, value: p.padMM, onChange: (v) => p.setPadMM(Number(v)), style: { width: "100%" } })] }), _jsxs(Col, { xs: 12, sm: 8, md: 6, lg: 4, children: [_jsx("small", { children: "Gap (mm)" }), _jsx(InputNumber, { min: 0, value: p.gapMM, onChange: (v) => p.setGapMM(Number(v)), style: { width: "100%" } })] }), _jsx(Col, { xs: 24, children: _jsxs(Space, { wrap: true, children: [_jsx(Button, { type: "primary", onClick: p.onApply, children: "Apply to face(s)" }), _jsx(Button, { onClick: p.onClearSelected, children: "Clear selected faces" }), _jsx(Button, { danger: true, onClick: p.onClearAll, children: "Clear all patterns" }), _jsx(Button, { onClick: p.onWrapY, children: "Add wrap around Y" }), _jsx(Button, { onClick: p.onWrapX, children: "Add wrap around X" }), _jsx(Button, { onClick: p.onWrapZ, children: "Add wrap around Z" })] }) })] }));
+}

@@ -1,0 +1,265 @@
+import React, { useState, useEffect } from 'react';
+import { AlertTriangle, AlertCircle, X, Settings } from 'lucide-react';
+import { API_CONFIG } from "../../config/api.config";
+
+interface DiskAlert {
+  level: 'warning' | 'critical';
+  path: string;
+  node: string;
+  usage: number;
+  threshold: number;
+  message: string;
+  timestamp: string;
+}
+
+interface AlertSummary {
+  total: number;
+  warning: number;
+  critical: number;
+  latest: DiskAlert | null;
+}
+
+const DiskUsageAlerts: React.FC = () => {
+  const [alerts, setAlerts] = useState<DiskAlert[]>([]);
+  const [summary, setSummary] = useState<AlertSummary | null>(null);
+  const [thresholds, setThresholds] = useState({ warning: 75, critical: 90 });
+  const [showSettings, setShowSettings] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    loadAlerts();
+    // 5분마다 자동 체크
+    const interval = setInterval(loadAlerts, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadAlerts = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/alerts/disk`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setAlerts(data.data.alerts || []);
+        setSummary(data.data.summary);
+        if (data.data.thresholds) {
+          setThresholds(data.data.thresholds);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load alerts:', error);
+    }
+  };
+
+  const clearAlerts = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/alerts/disk/clear`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        setAlerts([]);
+        setSummary(null);
+      }
+    } catch (error) {
+      console.error('Failed to clear alerts:', error);
+    }
+  };
+
+  const updateThresholds = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/alerts/disk/thresholds`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(thresholds)
+      });
+      
+      if (response.ok) {
+        setShowSettings(false);
+        loadAlerts();
+      }
+    } catch (error) {
+      console.error('Failed to update thresholds:', error);
+    }
+  };
+
+  if (!summary || summary.total === 0) {
+    return null; // 알림 없으면 표시 안 함
+  }
+
+  const getAlertColor = (level: string) => {
+    return level === 'critical' 
+      ? 'bg-red-900/30 border-red-500/50 text-red-200'
+      : 'bg-yellow-900/30 border-yellow-500/50 text-yellow-200';
+  };
+
+  const getAlertIcon = (level: string) => {
+    return level === 'critical'
+      ? <AlertCircle className="w-5 h-5 text-red-400" />
+      : <AlertTriangle className="w-5 h-5 text-yellow-400" />;
+  };
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 max-w-md">
+      {/* Collapsed State */}
+      {collapsed ? (
+        <button
+          onClick={() => setCollapsed(false)}
+          className={`
+            flex items-center gap-2 px-4 py-3 rounded-lg border shadow-lg
+            ${summary.critical > 0 
+              ? 'bg-red-900/90 border-red-500 hover:bg-red-900' 
+              : 'bg-yellow-900/90 border-yellow-500 hover:bg-yellow-900'
+            }
+            transition-colors
+          `}
+        >
+          {summary.critical > 0 ? (
+            <AlertCircle className="w-5 h-5 text-red-400" />
+          ) : (
+            <AlertTriangle className="w-5 h-5 text-yellow-400" />
+          )}
+          <span className="text-sm font-medium text-white">
+            {summary.total} Disk Alert{summary.total !== 1 ? 's' : ''}
+          </span>
+        </button>
+      ) : (
+        /* Expanded State */
+        <div className="bg-gray-800 rounded-lg border border-gray-600 shadow-xl overflow-hidden">
+          {/* Header */}
+          <div className={`
+            px-4 py-3 border-b flex items-center justify-between
+            ${summary.critical > 0 
+              ? 'bg-red-900/30 border-red-500/50' 
+              : 'bg-yellow-900/30 border-yellow-500/50'
+            }
+          `}>
+            <div className="flex items-center gap-2">
+              {summary.critical > 0 ? (
+                <AlertCircle className="w-5 h-5 text-red-400" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-yellow-400" />
+              )}
+              <h3 className="text-sm font-bold text-gray-50">
+                Disk Usage Alerts ({summary.total})
+              </h3>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="text-gray-400 hover:text-gray-200 transition"
+                title="Settings"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCollapsed(true)}
+                className="text-gray-400 hover:text-gray-200 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Settings Panel */}
+          {showSettings && (
+            <div className="bg-gray-700/50 px-4 py-3 border-b border-gray-600">
+              <h4 className="text-xs font-semibold text-gray-300 mb-2">
+                Alert Thresholds
+              </h4>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-400 w-20">Warning:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={thresholds.warning}
+                    onChange={(e) => setThresholds({
+                      ...thresholds,
+                      warning: parseInt(e.target.value) || 0
+                    })}
+                    className="flex-1 px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-50"
+                  />
+                  <span className="text-xs text-gray-400">%</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-400 w-20">Critical:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={thresholds.critical}
+                    onChange={(e) => setThresholds({
+                      ...thresholds,
+                      critical: parseInt(e.target.value) || 0
+                    })}
+                    className="flex-1 px-2 py-1 bg-gray-600 border border-gray-500 rounded text-xs text-gray-50"
+                  />
+                  <span className="text-xs text-gray-400">%</span>
+                </div>
+                <button
+                  onClick={updateThresholds}
+                  className="w-full px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs font-medium transition"
+                >
+                  Update
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Alerts List */}
+          <div className="max-h-80 overflow-y-auto">
+            {alerts.slice(-5).reverse().map((alert, idx) => (
+              <div
+                key={idx}
+                className={`px-4 py-3 border-b border-gray-600 last:border-b-0 ${getAlertColor(alert.level)}`}
+              >
+                <div className="flex items-start gap-2">
+                  {getAlertIcon(alert.level)}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold uppercase">
+                        {alert.level}
+                      </span>
+                      <span className="text-xs opacity-75">
+                        {alert.node} - {alert.path}
+                      </span>
+                    </div>
+                    <p className="text-sm">{alert.message}</p>
+                    <p className="text-xs opacity-75 mt-1">
+                      {new Date(alert.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div className="px-4 py-2 bg-gray-700/50 border-t border-gray-600">
+            <div className="flex items-center justify-between text-xs">
+              <div className="text-gray-400">
+                {summary.warning > 0 && (
+                  <span className="text-yellow-400">{summary.warning} warning</span>
+                )}
+                {summary.warning > 0 && summary.critical > 0 && ', '}
+                {summary.critical > 0 && (
+                  <span className="text-red-400">{summary.critical} critical</span>
+                )}
+              </div>
+              <button
+                onClick={clearAlerts}
+                className="text-blue-400 hover:text-blue-300 transition"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default DiskUsageAlerts;

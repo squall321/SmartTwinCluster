@@ -1,0 +1,25 @@
+import type { Face, PatternKind } from "./types";
+type Props = {
+    selectedFaces: Face[];
+    setSelectedFaces: (f: Face[]) => void;
+    patternKind: PatternKind;
+    setPatternKind: (k: PatternKind) => void;
+    lineMM: number;
+    setLineMM: (n: number) => void;
+    bandMM: number;
+    setBandMM: (n: number) => void;
+    borderMM: number;
+    setBorderMM: (n: number) => void;
+    padMM: number;
+    setPadMM: (n: number) => void;
+    gapMM: number;
+    setGapMM: (n: number) => void;
+    onApply: () => void;
+    onClearSelected: () => void;
+    onClearAll: () => void;
+    onWrapX: () => void;
+    onWrapY: () => void;
+    onWrapZ: () => void;
+};
+export default function PatternControls(p: Props): import("react/jsx-runtime").JSX.Element;
+export {};

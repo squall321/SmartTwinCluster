@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "start_time": "2025-10-06T09:41:12.897676",
+    "end_time": "2025-10-06T09:41:21.486362",
+    "total_duration": 8.588686227798462,
+    "sampling_interval": 60,
+    "total_samples": 1,
+    "pid": 1846678
+  },
+  "summary": {
+    "cpu": {
+      "avg_percent": 0.0,
+      "max_percent": 0.0,
+      "min_percent": 0.0,
+      "total_cpu_time": 0.08
+    },
+    "memory": {
+      "avg_rss_mb": 41.27734375,
+      "max_rss_mb": 41.27734375,
+      "min_rss_mb": 41.27734375,
+      "peak_rss_mb": 41.27734375
+    },
+    "execution": {
+      "total_duration": 8.588683366775513,
+      "total_samples": 1
+    }
+  },
+  "function_stats": {},
+  "samples": [
+    {
+      "timestamp": "2025-10-06T09:41:13.067691",
+      "elapsed_time": 0.1700272560119629,
+      "cpu_percent": 0.0,
+      "cpu_time_total": 0.08,
+      "memory_rss_mb": 41.27734375,
+      "memory_vms_mb": 488.08984375,
+      "num_threads": 7,
+      "pid": 1846678
+    }
+  ]
+}

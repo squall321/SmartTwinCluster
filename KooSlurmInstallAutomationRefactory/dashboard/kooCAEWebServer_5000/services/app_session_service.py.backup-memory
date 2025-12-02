@@ -1,0 +1,294 @@
+"""
+App Session Service
+앱 세션의 생명주기를 관리하는 서비스
+"""
+
+import uuid
+import time
+from datetime import datetime
+from typing import Dict, List, Optional
+from services.slurm_app_manager import SlurmAppManager
+from services.ssh_tunnel_manager import SSHTunnelManager
+
+
+class AppSessionService:
+    """앱 세션 관리 서비스"""
+
+    def __init__(self):
+        # 메모리에 세션 저장 (나중에 DB로 변경 가능)
+        self.sessions: Dict[str, dict] = {}
+
+        # Slurm 앱 매니저
+        self.slurm_manager = SlurmAppManager()
+
+        # SSH 터널 매니저
+        self.tunnel_manager = SSHTunnelManager()
+
+        # 사용 가능한 앱 목록
+        self.available_apps = {
+            'gedit': {
+                'id': 'gedit',
+                'name': 'GEdit',
+                'version': '1.0.0',
+                'description': 'Simple GNOME text editor for Linux',
+                'category': 'editor',
+                'tags': ['text', 'editor', 'document', 'gnome'],
+                'container_image': 'gedit.sif',
+                'default_config': {
+                    'resources': {
+                        'cpus': 2,
+                        'memory': '4Gi',
+                        'gpu': False
+                    },
+                    'display': {
+                        'type': 'novnc',
+                        'width': 1280,
+                        'height': 720
+                    }
+                }
+            }
+        }
+
+        # VNC 포트 범위 (6080-6099)
+        self.vnc_port_range = range(6080, 6100)
+        self.used_ports = set()
+
+    def list_available_apps(self) -> List[dict]:
+        """사용 가능한 앱 목록 반환"""
+        return list(self.available_apps.values())
+
+    def get_app_info(self, app_id: str) -> Optional[dict]:
+        """특정 앱 정보 조회"""
+        return self.available_apps.get(app_id)
+
+    def _allocate_port(self) -> int:
+        """사용 가능한 VNC 포트 할당"""
+        for port in self.vnc_port_range:
+            if port not in self.used_ports:
+                self.used_ports.add(port)
+                return port
+        raise Exception("No available VNC ports")
+
+    def _release_port(self, port: int):
+        """포트 해제"""
+        self.used_ports.discard(port)
+
+    def create_session(self, app_id: str, config: dict) -> dict:
+        """
+        새 세션 생성
+
+        Args:
+            app_id: 앱 ID (예: 'gedit')
+            config: 앱 설정
+
+        Returns:
+            생성된 세션 정보
+        """
+        # 앱 존재 확인
+        app_info = self.available_apps.get(app_id)
+        if not app_info:
+            raise ValueError(f"App {app_id} not found")
+
+        # 세션 ID 생성
+        session_id = str(uuid.uuid4())
+
+        # VNC 포트 할당
+        vnc_port = self._allocate_port()
+
+        # 세션 정보 생성
+        session = {
+            'id': session_id,
+            'appId': app_id,
+            'appName': app_info['name'],
+            'status': 'creating',  # creating -> running -> stopped
+            'config': config,
+            'vnc_port': vnc_port,
+            'displayUrl': f'/vncproxy/{vnc_port}/vnc.html?autoconnect=true&resize=scale',
+            'websocketUrl': f'/vncproxy/{vnc_port}/websockify',  # nginx proxy를 통한 WebSocket
+            'createdAt': datetime.now().isoformat(),
+            'updatedAt': datetime.now().isoformat(),
+            'container_id': None,  # Apptainer 인스턴스 ID (나중에 설정)
+        }
+
+        # 세션 저장
+        self.sessions[session_id] = session
+
+        # 실제 Apptainer 컨테이너 시작
+        self._start_real_session(session_id, app_id, vnc_port)
+
+        return session
+
+    def _start_real_session(self, session_id: str, app_id: str, vnc_port: int):
+        """Slurm Job 제출하여 세션 시작"""
+        import threading
+
+        def submit_job():
+            try:
+                # Slurm Job 제출
+                job_info = self.slurm_manager.submit_app_job(
+                    session_id=session_id,
+                    app_id=app_id,
+                    vnc_port=vnc_port
+                )
+
+                # 세션 업데이트
+                if session_id in self.sessions:
+                    self.sessions[session_id]['job_id'] = job_info['job_id']
+                    self.sessions[session_id]['status'] = 'pending'  # Slurm job pending
+                    self.sessions[session_id]['updatedAt'] = datetime.now().isoformat()
+                    print(f"[SessionService] Slurm job submitted for session {session_id}: {job_info['job_id']}")
+
+                # Job 상태 모니터링 (이미 SlurmAppManager에서 백그라운드로 실행 중)
+                # Job이 RUNNING 상태가 되면 노드 정보 업데이트
+                self._monitor_job_for_session(session_id)
+
+            except Exception as e:
+                print(f"[SessionService] Error submitting job: {e}")
+                if session_id in self.sessions:
+                    self.sessions[session_id]['status'] = 'error'
+                    self.sessions[session_id]['updatedAt'] = datetime.now().isoformat()
+
+        # 백그라운드에서 Job 제출
+        thread = threading.Thread(target=submit_job, daemon=True)
+        thread.start()
+
+    def _monitor_job_for_session(self, session_id: str):
+        """Job 상태를 모니터링하여 세션 정보 업데이트"""
+        import threading
+
+        def monitor():
+            # 최대 60초 동안 RUNNING 상태 대기
+            for i in range(60):
+                time.sleep(1)
+
+                job_info = self.slurm_manager.get_job_status_info(session_id)
+                if not job_info:
+                    break
+
+                if job_info['status'] == 'RUNNING':
+                    # 세션에 노드 정보 업데이트
+                    if session_id in self.sessions:
+                        node = job_info.get('node')
+                        node_ip = job_info.get('node_ip', 'localhost')
+                        vnc_port = job_info['vnc_port']
+
+                        print(f"[SessionService] Session {session_id} is RUNNING on {node}({node_ip}):{vnc_port}")
+
+                        # SSH 터널 생성 (원격 노드의 VNC를 로컬 포트로 포워딩)
+                        local_port = self.tunnel_manager.create_tunnel(
+                            session_id=session_id,
+                            remote_host=node,  # viz-node001 같은 호스트명 사용
+                            remote_port=vnc_port
+                        )
+
+                        if local_port:
+                            print(f"[SessionService] SSH tunnel created: localhost:{local_port} -> {node}:{vnc_port}")
+
+                            # Wait for VNC server to be actually ready through the tunnel
+                            import socket
+                            vnc_ready = False
+                            max_attempts = 30  # 30 seconds max wait
+                            for attempt in range(max_attempts):
+                                try:
+                                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                    sock.settimeout(1)
+                                    result = sock.connect_ex(('localhost', local_port))
+                                    sock.close()
+                                    if result == 0:
+                                        print(f"[SessionService] VNC server ready at localhost:{local_port}")
+                                        vnc_ready = True
+                                        # Wait additional 3 seconds for full initialization
+                                        time.sleep(3)
+                                        break
+                                except Exception as e:
+                                    pass
+                                time.sleep(1)
+
+                            if vnc_ready:
+                                # nginx reverse proxy를 통한 접속 (Mixed Content 에러 방지)
+                                self.sessions[session_id]['status'] = 'running'
+                                self.sessions[session_id]['node'] = node
+                                self.sessions[session_id]['node_ip'] = node_ip
+                                self.sessions[session_id]['local_port'] = local_port
+                                # nginx /vncproxy/<port>/ 경로로 프록시됨
+                                self.sessions[session_id]['displayUrl'] = f'/vncproxy/{local_port}/vnc.html?autoconnect=true&resize=scale'
+                                self.sessions[session_id]['websocketUrl'] = f'/vncproxy/{local_port}/websockify'
+                                self.sessions[session_id]['updatedAt'] = datetime.now().isoformat()
+                            else:
+                                print(f"[SessionService] VNC server not ready after {max_attempts} seconds")
+                                self.sessions[session_id]['status'] = 'error'
+                                self.sessions[session_id]['error'] = 'VNC server not responding'
+                                self.sessions[session_id]['updatedAt'] = datetime.now().isoformat()
+                        else:
+                            print(f"[SessionService] Failed to create SSH tunnel")
+                            self.sessions[session_id]['status'] = 'error'
+                            self.sessions[session_id]['error'] = 'Failed to create SSH tunnel'
+                            self.sessions[session_id]['updatedAt'] = datetime.now().isoformat()
+                    break
+                elif job_info['status'] in ['COMPLETED', 'FAILED', 'CANCELLED']:
+                    # Job 종료
+                    if session_id in self.sessions:
+                        self.sessions[session_id]['status'] = 'stopped'
+                        self.sessions[session_id]['updatedAt'] = datetime.now().isoformat()
+                    break
+
+        thread = threading.Thread(target=monitor, daemon=True)
+        thread.start()
+
+    def list_sessions(self) -> List[dict]:
+        """모든 세션 목록 반환"""
+        return list(self.sessions.values())
+
+    def get_session(self, session_id: str) -> Optional[dict]:
+        """특정 세션 조회"""
+        return self.sessions.get(session_id)
+
+    def delete_session(self, session_id: str) -> bool:
+        """
+        세션 삭제
+
+        Returns:
+            성공 여부
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return False
+
+        # SSH 터널 종료
+        self.tunnel_manager.close_tunnel(session_id)
+
+        # VNC 포트 해제
+        self._release_port(session['vnc_port'])
+
+        # Slurm Job 취소
+        self.slurm_manager.cancel_job(session_id)
+
+        # 세션 삭제
+        del self.sessions[session_id]
+
+        return True
+
+    def restart_session(self, session_id: str) -> Optional[dict]:
+        """
+        세션 재시작
+
+        Returns:
+            재시작된 세션 정보
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return None
+
+        # 기존 Job 취소 (있는 경우)
+        self.slurm_manager.cancel_job(session_id)
+
+        # 상태 업데이트
+        session['status'] = 'creating'
+        session['updatedAt'] = datetime.now().isoformat()
+
+        # 새 Job 제출
+        app_id = session['appId']
+        vnc_port = session['vnc_port']
+        self._start_real_session(session_id, app_id, vnc_port)
+
+        return session

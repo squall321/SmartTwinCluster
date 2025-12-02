@@ -1,0 +1,46 @@
+**Material,MIDXX
+*MAT_ELASTIC_TITLE
+Steel
+$$     MID        RO         E        PR
+     MIDXX    1100.02.41270E09      0.37
+**Material,MIDXX
+*MAT_ELASTIC_TITLE
+Panel
+$$     MID        RO         E        PR
+     MIDXX    2230.02.50000E09      0.30
+**Material,MIDXX
+*MAT_ELASTIC_TITLE
+CU-DMA
+$$     MID        RO         E        PR
+     MIDXX    7900.01.0534E+11      0.30
+**Material,MIDXX
+*MAT_ELASTIC_TITLE
+SUS-DMA
+$$     MID        RO         E        PR
+     MIDXX    7900.01.5925E+11      0.30
+**Material,MIDXX
+*MAT_LOW_DENSITY_FOAM_TITLE
+TPU
+     MIDXX    254.80 5.000E+07        991.0000E+20       0.0       0.0      0.05
+       1.0       0.0       0.0       0.0       0.0       0.0       0.0
+**Material,MIDXX
+*MAT_ELASTIC_TITLE
+P-film
+$$     MID        RO         E        PR
+     MIDXX    2200.03.7570E+09      0.35
+**Material,MIDXX
+*MAT_ELASTIC_TITLE
+PSA-rheology
+$$     MID        RO         E        PR
+     MIDXX    2000.00.0340E+06      0.35
+**Material,MIDXX
+*MAT_ELASTIC_PERI
+$#     mid        ro         E        GT        GS   
+     MIDXX  2.440E+3  72.0E+09    1.0E+0
+**Material,MIDXX
+*MAT_ORIENTED_CRACK
+$$     MID        RO         E        PR      SIGY      ETAN        FS       PRF
+     MIDXX    2500.0   7.0E+10      0.22   1.0e+08   1.0E+10     50E+6       0.1
+$$    SOFT     CVELO
+       1.0       0.0
+**End

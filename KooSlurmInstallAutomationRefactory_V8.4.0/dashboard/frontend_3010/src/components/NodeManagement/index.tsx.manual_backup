@@ -1,0 +1,474 @@
+import React, { useState, useEffect } from 'react';
+import { API_CONFIG } from '../config/api.config';
+import {
+  Server,
+  Activity,
+  Power,
+  PlayCircle,
+  PauseCircle,
+  RotateCw,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
+  RefreshCw,
+  Info,
+  Clock,
+  Cpu,
+  HardDrive
+} from 'lucide-react';
+
+interface Node {
+  name: string;
+  state: string;
+  cpus: string;
+  memory: string;
+  free_memory: string;
+  cpu_load: string;
+  time_limit: string;
+  nodes: string;
+}
+
+interface NodeDetail {
+  [key: string]: string;
+}
+
+interface NodesResponse {
+  success: boolean;
+  nodes: Node[];
+  count: number;
+  mode: 'mock' | 'production';
+  timestamp: string;
+}
+
+interface ActionResponse {
+  success: boolean;
+  message: string;
+  node_name: string;
+  timestamp: string;
+}
+
+const NodeManagement: React.FC = () => {
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  // 초기값을 null로 설정하여 API 응답을 기다림
+  const [mode, setMode] = useState<'mock' | 'production' | null>(null);
+
+  // 노드 목록 조회
+  const fetchNodes = async () => {
+    console.log('[NodeManagement] fetchNodes called');
+    try {
+      // 캐시 방지를 위한 타임스탬프 추가
+      const timestamp = new Date().getTime();
+      const url = `http://localhost:5010/api/nodes?_t=${timestamp}`;
+      console.log('[NodeManagement] Fetching:', url);
+      
+      const response = await fetch(url, {
+        cache: 'no-cache',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      console.log('[NodeManagement] Response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data: NodesResponse = await response.json();
+      console.log('[NodeManagement] Parsed data:', {
+        success: data.success,
+        mode: data.mode,
+        count: data.count,
+        nodesLength: data.nodes?.length
+      });
+      
+      if (data.success) {
+        // 상태 업데이트
+        setNodes(data.nodes);
+        
+        // Mode 업데이트 - 강제로 새로운 값 설정
+        const newMode = data.mode;
+        console.log('[NodeManagement] API Response - Mode:', newMode, 'Count:', data.count);
+        
+        // 이전 모드와 다르면 경고 표시
+        if (mode !== null && mode !== newMode) {
+          console.warn('[NodeManagement] Mode changed from', mode, 'to', newMode);
+        }
+        
+        setMode(newMode);
+        setError(null);
+      } else {
+        console.error('[NodeManagement] API returned success=false');
+        setError('API returned success=false');
+      }
+    } catch (err) {
+      console.error('[NodeManagement] Fetch error:', err);
+      setError('Failed to connect to backend');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 노드 상세 정보 조회
+  const fetchNodeDetail = async (nodeName: string) => {
+    try {
+      const response = await fetch(`http://localhost:5010/api/nodes/${nodeName}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setNodeDetail(data.node);
+        setSelectedNode(nodeName);
+      }
+    } catch (err) {
+      console.error('Node detail fetch error:', err);
+    }
+  };
+
+  // 노드 액션 실행
+  const executeNodeAction = async (action: 'drain' | 'resume' | 'reboot', nodeName: string) => {
+    let reason = '';
+    if (action === 'drain' || action === 'reboot') {
+      reason = prompt(`Enter reason for ${action}:`) || `Manual ${action}`;
+    }
+
+    if (!confirm(`Are you sure you want to ${action.toUpperCase()} ${nodeName}?`)) {
+      return;
+    }
+
+    setActionLoading(`${action}-${nodeName}`);
+    try {
+      const response = await fetch(`http://localhost:5010/api/nodes/${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ node_name: nodeName, reason })
+      });
+
+      const data: ActionResponse = await response.json();
+
+      if (data.success) {
+        alert(data.message);
+        await fetchNodes(); // 목록 새로고침
+        if (selectedNode === nodeName) {
+          await fetchNodeDetail(nodeName); // 상세 정보 새로고침
+        }
+      } else {
+        alert(`Failed to ${action} node: ${data.message || 'Unknown error'}`);
+      }
+    } catch (err) {
+      alert(`Error: ${err}`);
+      console.error(`Node ${action} error:`, err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // 초기 로드 및 자동 새로고침
+  useEffect(() => {
+    console.log('[NodeManagement] Component mounted, fetching nodes...');
+    fetchNodes();
+  }, []);
+
+  useEffect(() => {
+    if (autoRefresh) {
+      console.log('[NodeManagement] Auto-refresh enabled');
+      const interval = setInterval(() => {
+        console.log('[NodeManagement] Auto-refreshing...');
+        fetchNodes();
+      }, 10000); // 10초마다 새로고침
+      return () => {
+        console.log('[NodeManagement] Auto-refresh disabled');
+        clearInterval(interval);
+      };
+    }
+  }, [autoRefresh]);
+
+  // mode 상태 변경 감지
+  useEffect(() => {
+    console.log('[NodeManagement] Mode state updated:', mode);
+  }, [mode]);
+
+  // 상태별 아이콘 및 색상
+  const getStateIcon = (state: string) => {
+    const lowerState = state.toLowerCase();
+    if (lowerState.includes('idle')) {
+      return <CheckCircle className="w-5 h-5 text-green-500" />;
+    } else if (lowerState.includes('allocated') || lowerState.includes('mixed')) {
+      return <Activity className="w-5 h-5 text-blue-500" />;
+    } else if (lowerState.includes('drain') || lowerState.includes('down')) {
+      return <XCircle className="w-5 h-5 text-red-500" />;
+    } else {
+      return <AlertCircle className="w-5 h-5 text-yellow-500" />;
+    }
+  };
+
+  const getStateColor = (state: string) => {
+    const lowerState = state.toLowerCase();
+    if (lowerState.includes('idle')) {
+      return 'bg-green-50 text-green-700 border-green-200';
+    } else if (lowerState.includes('allocated') || lowerState.includes('mixed')) {
+      return 'bg-blue-50 text-blue-700 border-blue-200';
+    } else if (lowerState.includes('drain') || lowerState.includes('down')) {
+      return 'bg-red-50 text-red-700 border-red-200';
+    } else {
+      return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+        <span className="ml-2 text-gray-600">Loading nodes...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Server className="w-8 h-8 text-blue-600" />
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">Node Management</h2>
+            <p className="text-sm text-gray-500">
+              Manage compute nodes: Drain, Resume, Reboot
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          {/* Mode Badge */}
+          {mode !== null && (
+            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+              mode === 'mock' 
+                ? 'bg-yellow-100 text-yellow-800' 
+                : 'bg-green-100 text-green-800'
+            }`}>
+              {mode === 'mock' ? '🎭 MOCK MODE' : '🚀 PRODUCTION'}
+            </span>
+          )}
+          {mode === null && (
+            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
+              ⏳ Loading...
+            </span>
+          )}
+
+          {/* Auto Refresh Toggle */}
+          <button
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              autoRefresh
+                ? 'bg-blue-500 text-white hover:bg-blue-600'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            <RefreshCw className={`w-4 h-4 inline mr-1 ${autoRefresh ? 'animate-spin' : ''}`} />
+            {autoRefresh ? 'Auto Refresh ON' : 'Auto Refresh OFF'}
+          </button>
+
+          {/* Manual Refresh */}
+          <button
+            onClick={fetchNodes}
+            className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            disabled={loading}
+          >
+            <RefreshCw className={`w-4 h-4 inline mr-1 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 text-red-500" />
+          <span className="text-red-700">{error}</span>
+        </div>
+      )}
+
+      {/* Stats Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        {['IDLE', 'ALLOCATED', 'DRAINED', 'DOWN'].map((state) => {
+          const count = nodes.filter(n => n.state.toUpperCase().includes(state)).length;
+          return (
+            <div key={state} className={`p-4 rounded-lg border ${getStateColor(state)}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium opacity-75">{state}</p>
+                  <p className="text-2xl font-bold">{count}</p>
+                </div>
+                {getStateIcon(state)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Nodes Table */}
+      <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Node Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  State
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  CPUs
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Memory
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  CPU Load
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {nodes.map((node) => (
+                <tr 
+                  key={node.name}
+                  className="hover:bg-gray-50 transition-colors cursor-pointer"
+                  onClick={() => fetchNodeDetail(node.name)}
+                >
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <Server className="w-5 h-5 text-gray-400 mr-2" />
+                      <span className="font-medium text-gray-900">{node.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      {getStateIcon(node.state)}
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStateColor(node.state)}`}>
+                        {node.state}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                    <Cpu className="w-4 h-4 inline mr-1 text-gray-400" />
+                    {node.cpus}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                    <HardDrive className="w-4 h-4 inline mr-1 text-gray-400" />
+                    {node.memory} MB
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                    {node.cpu_load}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* Drain Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          executeNodeAction('drain', node.name);
+                        }}
+                        disabled={actionLoading === `drain-${node.name}` || node.state.toLowerCase().includes('drain')}
+                        className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Drain node"
+                      >
+                        <PauseCircle className="w-5 h-5" />
+                      </button>
+
+                      {/* Resume Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          executeNodeAction('resume', node.name);
+                        }}
+                        disabled={actionLoading === `resume-${node.name}` || !node.state.toLowerCase().includes('drain')}
+                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Resume node"
+                      >
+                        <PlayCircle className="w-5 h-5" />
+                      </button>
+
+                      {/* Reboot Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          executeNodeAction('reboot', node.name);
+                        }}
+                        disabled={actionLoading === `reboot-${node.name}`}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Reboot node"
+                      >
+                        <RotateCw className="w-5 h-5" />
+                      </button>
+
+                      {/* Info Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fetchNodeDetail(node.name);
+                        }}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="View details"
+                      >
+                        <Info className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Node Detail Panel */}
+      {selectedNode && nodeDetail && (
+        <div className="mt-6 bg-white rounded-lg shadow-lg border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+              <Server className="w-6 h-6 text-blue-600" />
+              {selectedNode} - Detailed Information
+            </h3>
+            <button
+              onClick={() => setSelectedNode(null)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Object.entries(nodeDetail).map(([key, value]) => (
+              <div key={key} className="flex items-start gap-2 p-3 bg-gray-50 rounded-lg">
+                <span className="font-medium text-gray-700 min-w-[120px]">{key}:</span>
+                <span className="text-gray-900">{value || 'N/A'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {nodes.length === 0 && !loading && !error && (
+        <div className="text-center py-12">
+          <Server className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 text-lg">No nodes found</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default NodeManagement;

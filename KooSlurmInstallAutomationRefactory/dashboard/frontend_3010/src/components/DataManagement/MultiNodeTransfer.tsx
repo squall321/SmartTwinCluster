@@ -1,0 +1,371 @@
+import React, { useState } from 'react';
+import { Send, Server, CheckCircle, XCircle, Loader, AlertCircle } from 'lucide-react';
+import { API_CONFIG } from "../../config/api.config";
+
+interface MultiNodeTransferProps {
+  sourcePath: string;
+  sourceNode?: string;
+  availableNodes: string[];
+  onTransferComplete?: (results: any) => void;
+  onClose?: () => void;
+}
+
+interface TransferStatus {
+  node: string;
+  status: 'pending' | 'transferring' | 'completed' | 'failed';
+  progress?: number;
+  error?: string;
+  startTime?: number;
+  endTime?: number;
+}
+
+const MultiNodeTransfer: React.FC<MultiNodeTransferProps> = ({
+  sourcePath,
+  sourceNode,
+  availableNodes,
+  onTransferComplete,
+  onClose
+}) => {
+  const [selectedNodes, setSelectedNodes] = useState<Set<string>>(new Set());
+  const [destination, setDestination] = useState('/scratch/');
+  const [transferring, setTransferring] = useState(false);
+  const [transferStatus, setTransferStatus] = useState<Map<string, TransferStatus>>(new Map());
+
+  const toggleNode = (node: string) => {
+    const newSelected = new Set(selectedNodes);
+    if (newSelected.has(node)) {
+      newSelected.delete(node);
+    } else {
+      newSelected.add(node);
+    }
+    setSelectedNodes(newSelected);
+  };
+
+  const selectAll = () => {
+    if (selectedNodes.size === availableNodes.length) {
+      setSelectedNodes(new Set());
+    } else {
+      setSelectedNodes(new Set(availableNodes));
+    }
+  };
+
+  const startTransfer = async () => {
+    if (selectedNodes.size === 0) {
+      alert('Please select at least one target node');
+      return;
+    }
+
+    setTransferring(true);
+
+    // 초기 상태 설정
+    const initialStatus = new Map<string, TransferStatus>();
+    Array.from(selectedNodes).forEach(node => {
+      initialStatus.set(node, {
+        node,
+        status: 'pending',
+        startTime: Date.now()
+      });
+    });
+    setTransferStatus(initialStatus);
+
+    try {
+      // API 호출 - 병렬 전송
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/transfer/to-nodes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          source_path: sourcePath,
+          target_nodes: Array.from(selectedNodes),
+          destination: destination
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // 결과 업데이트
+        const updatedStatus = new Map(transferStatus);
+        
+        result.transfers?.forEach((transfer: any) => {
+          const nodeStatus = updatedStatus.get(transfer.item);
+          if (nodeStatus) {
+            updatedStatus.set(transfer.item, {
+              ...nodeStatus,
+              status: transfer.success ? 'completed' : 'failed',
+              error: transfer.error,
+              endTime: Date.now()
+            });
+          }
+        });
+
+        setTransferStatus(updatedStatus);
+
+        if (onTransferComplete) {
+          onTransferComplete(result);
+        }
+
+        // 모두 완료되면 3초 후 자동 닫기
+        setTimeout(() => {
+          if (onClose) onClose();
+        }, 3000);
+      } else {
+        // 전체 실패
+        const updatedStatus = new Map(transferStatus);
+        Array.from(selectedNodes).forEach(node => {
+          const nodeStatus = updatedStatus.get(node);
+          if (nodeStatus) {
+            updatedStatus.set(node, {
+              ...nodeStatus,
+              status: 'failed',
+              error: result.error || 'Transfer failed',
+              endTime: Date.now()
+            });
+          }
+        });
+        setTransferStatus(updatedStatus);
+      }
+    } catch (error) {
+      console.error('Transfer failed:', error);
+      
+      // 에러 처리
+      const updatedStatus = new Map(transferStatus);
+      Array.from(selectedNodes).forEach(node => {
+        const nodeStatus = updatedStatus.get(node);
+        if (nodeStatus) {
+          updatedStatus.set(node, {
+            ...nodeStatus,
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Network error',
+            endTime: Date.now()
+          });
+        }
+      });
+      setTransferStatus(updatedStatus);
+    } finally {
+      setTransferring(false);
+    }
+  };
+
+  const getStatusIcon = (status: TransferStatus['status']) => {
+    switch (status) {
+      case 'pending':
+        return <Server className="w-5 h-5 text-gray-400" />;
+      case 'transferring':
+        return <Loader className="w-5 h-5 text-blue-400 animate-spin" />;
+      case 'completed':
+        return <CheckCircle className="w-5 h-5 text-green-400" />;
+      case 'failed':
+        return <XCircle className="w-5 h-5 text-red-400" />;
+    }
+  };
+
+  const getStatusColor = (status: TransferStatus['status']) => {
+    switch (status) {
+      case 'pending':
+        return 'bg-gray-500/20 border-gray-500/30';
+      case 'transferring':
+        return 'bg-blue-500/20 border-blue-500/30';
+      case 'completed':
+        return 'bg-green-500/20 border-green-500/30';
+      case 'failed':
+        return 'bg-red-500/20 border-red-500/30';
+    }
+  };
+
+  const completedCount = Array.from(transferStatus.values()).filter(
+    s => s.status === 'completed'
+  ).length;
+  const failedCount = Array.from(transferStatus.values()).filter(
+    s => s.status === 'failed'
+  ).length;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden border border-gray-700">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border-b border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-500/20 rounded-lg">
+                <Send className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-50">
+                  Multi-Node Parallel Transfer
+                </h3>
+                <p className="text-sm text-gray-300">
+                  Transfer files to multiple nodes simultaneously
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(80vh-140px)]">
+          {/* Source Info */}
+          <div className="bg-gray-700/50 rounded-lg p-4">
+            <h4 className="text-sm font-semibold text-gray-300 mb-2">Source</h4>
+            <div className="text-sm text-gray-50 font-mono">{sourcePath}</div>
+            {sourceNode && (
+              <div className="text-xs text-gray-400 mt-1">From: {sourceNode}</div>
+            )}
+          </div>
+
+          {/* Destination */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2">
+              Destination Path
+            </label>
+            <input
+              type="text"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              disabled={transferring}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-50 font-mono text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50"
+              placeholder="/scratch/filename"
+            />
+          </div>
+
+          {/* Node Selection */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-gray-300">
+                Target Nodes ({selectedNodes.size} selected)
+              </h4>
+              <button
+                onClick={selectAll}
+                disabled={transferring}
+                className="text-sm text-blue-400 hover:text-blue-300 transition disabled:opacity-50"
+              >
+                {selectedNodes.size === availableNodes.length ? 'Deselect All' : 'Select All'}
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {availableNodes.map(node => {
+                const status = transferStatus.get(node);
+                const isSelected = selectedNodes.has(node);
+
+                return (
+                  <div
+                    key={node}
+                    className={`
+                      flex items-center justify-between p-3 rounded-lg border transition
+                      ${status ? getStatusColor(status.status) : isSelected ? 'bg-blue-500/10 border-blue-500/30' : 'bg-gray-700/30 border-gray-600'}
+                      ${!transferring && !status ? 'cursor-pointer hover:bg-gray-700/50' : ''}
+                    `}
+                    onClick={() => !transferring && !status && toggleNode(node)}
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      {status ? (
+                        getStatusIcon(status.status)
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleNode(node)}
+                          disabled={transferring}
+                          className="w-4 h-4 rounded border-gray-500"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      )}
+                      
+                      <Server className="w-4 h-4 text-gray-400" />
+                      
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-gray-50">{node}</div>
+                        {status && (
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            {status.status === 'completed' && (
+                              <span className="text-green-400">
+                                ✓ Completed in {((status.endTime! - status.startTime!) / 1000).toFixed(1)}s
+                              </span>
+                            )}
+                            {status.status === 'failed' && (
+                              <span className="text-red-400">✗ {status.error}</span>
+                            )}
+                            {status.status === 'transferring' && (
+                              <span className="text-blue-400">Transferring...</span>
+                            )}
+                            {status.status === 'pending' && (
+                              <span className="text-gray-400">Pending...</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {status && status.status === 'completed' && (
+                      <CheckCircle className="w-5 h-5 text-green-400" />
+                    )}
+                    {status && status.status === 'failed' && (
+                      <AlertCircle className="w-5 h-5 text-red-400" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Progress Summary */}
+          {transferStatus.size > 0 && (
+            <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-500/30 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-gray-50 mb-3">Transfer Progress</h4>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="text-gray-400">Total</div>
+                  <div className="text-xl font-bold text-gray-50">{transferStatus.size}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Completed</div>
+                  <div className="text-xl font-bold text-green-400">{completedCount}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Failed</div>
+                  <div className="text-xl font-bold text-red-400">{failedCount}</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-700 p-4 bg-gray-800/50">
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              disabled={transferring}
+              className="flex-1 px-4 py-2 border border-gray-600 rounded text-gray-50 hover:bg-gray-700 transition disabled:opacity-50"
+            >
+              {transferStatus.size > 0 && !transferring ? 'Close' : 'Cancel'}
+            </button>
+            
+            {!transferring && transferStatus.size === 0 && (
+              <button
+                onClick={startTransfer}
+                disabled={selectedNodes.size === 0}
+                className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Start Transfer ({selectedNodes.size} nodes)
+              </button>
+            )}
+            
+            {transferring && (
+              <button
+                disabled
+                className="flex-1 px-4 py-2 bg-blue-500/50 text-white rounded font-medium cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Loader className="w-4 h-4 animate-spin" />
+                Transferring...
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MultiNodeTransfer;

@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "vis-network": "^10.0.1"
+  },
+  "devDependencies": {
+    "@types/vis": "^4.21.27"
+  }
+}

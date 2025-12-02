@@ -1,0 +1,163 @@
+import os
+from flask import Blueprint, request, jsonify, g
+from werkzeug.utils import secure_filename
+from middleware.jwt_middleware import jwt_required
+from services.file_parser import parse_filename, parse_dyna_file_pid, get_boundary_box_of_given_partid_and_nodes, parse_kfile_nodes, calculate_bbox_from_elements, parse_kfile_all
+
+
+
+upload_bp = Blueprint('upload', __name__)
+UPLOAD_ROOT = "uploads"
+
+@upload_bp.route('/api/upload_lsdyna_files', methods=['POST'])
+@jwt_required
+def upload_lsdyna_files():
+    username = g.user.get('username')
+    upload_path = os.path.join(UPLOAD_ROOT, secure_filename(username))
+    os.makedirs(upload_path, exist_ok=True)
+
+    uploaded_files = request.files.getlist("files")
+    parsed_results = []
+
+    for file in uploaded_files:
+        if file.filename is None:
+            continue
+        filename = secure_filename(file.filename)
+        save_path = os.path.join(upload_path, filename)
+        file.save(save_path)
+
+        params = parse_filename(filename)
+        parsed_results.append({
+            "filename": filename,
+            "parameters": params
+        })
+
+    return jsonify({
+        "success": True,
+        "data": parsed_results
+    })
+
+@upload_bp.route('/api/upload_dyna_file_and_find_pid', methods=['POST', 'OPTIONS'])
+@jwt_required
+def upload_dyna_file_and_find_pid():
+    username = g.user.get('username')
+    upload_path = os.path.join(UPLOAD_ROOT, secure_filename(username))
+    os.makedirs(upload_path, exist_ok=True)
+
+    file = request.files.get("file")
+    if not file:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(upload_path, filename)
+    file.save(save_path)
+
+    try:
+        with open(save_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            parts = parse_dyna_file_pid(content)
+      
+        updated_parts = []
+        for part in parts:
+            updated_parts.append(part)
+
+    except Exception as e:
+        return jsonify({'error': f'파일 처리 중 오류 발생: {str(e)}'}), 500
+
+    return jsonify({
+        "success": True,
+        "filename": filename,
+        "parts": updated_parts
+    })
+
+@upload_bp.route('/api/upload_dyna_file_and_find_pid_with_bd', methods=['POST', 'OPTIONS'])
+@jwt_required
+def upload_dyna_file_and_find_pid_with_bd():
+    username = g.user.get('username')
+    upload_path = os.path.join(UPLOAD_ROOT, secure_filename(username))
+    os.makedirs(upload_path, exist_ok=True)
+
+    file = request.files.get("file")
+    if not file:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(upload_path, filename)
+    file.save(save_path)
+
+    try:
+        with open(save_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            parts = parse_dyna_file_pid(content)
+
+        parsed = parse_kfile_all(save_path)
+        nodes = parsed["nodes"]
+        elements_by_pid = parsed["elements_by_pid"]
+
+        updated_parts = []
+        for part in parts:
+            part_id = part["id"]
+            elements = elements_by_pid.get(part_id)
+            if elements:
+                bbox = calculate_bbox_from_elements(elements, nodes)
+                part["boundaryBox"] = bbox
+                updated_parts.append(part)
+
+    except Exception as e:
+        return jsonify({'error': f'파일 처리 중 오류 발생: {str(e)}'}), 500
+
+    return jsonify({
+        "success": True,
+        "filename": filename,
+        "parts": updated_parts
+    })
+
+
+
+
+
+def upload_dyna_file_and_find_pid_old():
+    user_id = request.form.get("user", "default_user")
+    upload_path = os.path.join(UPLOAD_ROOT, secure_filename(user_id))
+    os.makedirs(upload_path, exist_ok=True)
+
+    file = request.files.get("file")
+    if not file:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(upload_path, filename)
+    file.save(save_path)
+
+    try:
+        with open(save_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            parts = parse_dyna_file_pid(content)
+        
+        nodes = parse_kfile_nodes(save_path)
+        
+        updated_parts = []
+        for part in parts:
+            part_id = part["id"]
+            # 기존 boundary box 함수 호출
+            bbox = get_boundary_box_of_given_partid_and_nodes(save_path, part_id, nodes)
+
+            part["boundaryBox"] = {
+                "min_x": bbox["min_x"],
+                "max_x": bbox["max_x"],
+                "min_y": bbox["min_y"],
+                "max_y": bbox["max_y"],
+                "min_z": bbox["min_z"],
+                "max_z": bbox["max_z"]
+            }
+            updated_parts.append(part)
+
+    except Exception as e:
+        return jsonify({'error': f'파일 처리 중 오류 발생: {str(e)}'}), 500
+
+    return jsonify({
+        "success": True,
+        "filename": filename,
+        "parts": updated_parts
+    })
+    

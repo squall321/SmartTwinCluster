@@ -1,0 +1,229 @@
+config_version: '1.0'
+stage: 3
+cluster_info:
+  cluster_name: mini-cluster
+  domain: hpc.local
+  admin_email: admin@hpc.local
+  timezone: Asia/Seoul
+  # 공통 SSH 비밀번호 (모든 노드 동일, 개발용)
+  ssh_password: "Soseks314!"
+installation:
+  install_method: package
+  offline_mode: false
+  package_cache_path: /var/cache/slurm_packages
+  compile_options: --with-pmix --with-hwloc
+nodes:
+  controller:
+    hostname: smarttwincluster
+    ip_address: 192.168.122.1
+    ssh_user: koopark
+    ssh_port: 22
+    ssh_key_path: ~/.ssh/id_rsa
+    os_type: ubuntu22
+    node_type: controller
+    hardware:
+      cpus: 8
+      memory_mb: 4096
+      disk_gb: 500
+  compute_nodes:
+  - hostname: node001
+    ip_address: 192.168.122.90
+    ssh_user: koopark
+    ssh_port: 22
+    ssh_key_path: ~/.ssh/id_rsa
+    os_type: ubuntu22
+    node_type: compute
+    hardware:
+      cpus: 2
+      sockets: 1
+      cores_per_socket: 2
+      threads_per_core: 1
+      memory_mb: 4096
+      tmp_disk_mb: 102400
+  - hostname: node002
+    ip_address: 192.168.122.103
+    ssh_user: koopark
+    ssh_port: 22
+    ssh_key_path: ~/.ssh/id_rsa
+    os_type: ubuntu22
+    node_type: compute
+    hardware:
+      cpus: 2
+      sockets: 1
+      cores_per_socket: 2
+      threads_per_core: 1
+      memory_mb: 4096
+      tmp_disk_mb: 102400
+  - hostname: viz-node001
+    ip_address: 192.168.122.252
+    ssh_user: koopark
+    ssh_port: 22
+    ssh_key_path: ~/.ssh/id_rsa
+    os_type: ubuntu22
+    node_type: viz
+    hardware:
+      cpus: 2
+      sockets: 2
+      cores_per_socket: 1
+      threads_per_core: 1
+      memory_mb: 3584
+      tmp_disk_mb: 204800
+      gpus: 1
+      gpu_type: amd
+      gres: gpu:amd:1
+network:
+  management_network: 192.168.122.0/24
+  compute_network: 192.168.122.0/24
+  firewall:
+    enabled: true
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: 22
+time_synchronization:
+  enabled: true
+  ntp_servers:
+  - time.google.com
+  - time.cloudflare.com
+  - pool.ntp.org
+  timezone: Asia/Seoul
+slurm_config:
+  version: 22.05.8
+  install_path: /usr/local/slurm
+  config_path: /usr/local/slurm/etc
+  log_path: /var/log/slurm
+  spool_path: /var/spool/slurm
+  state_save_location: /var/spool/slurm/state
+  sandbox_path: /scratch/apptainer_sandboxes
+  reboot_program: /sbin/reboot  # 노드 재부팅 프로그램 경로
+  scheduler:
+    type: sched/backfill
+    max_job_count: 10000
+    max_array_size: 1000
+  accounting:
+    storage_type: accounting_storage/none
+    storage_host: ''
+  partitions:
+  - name: normal
+    nodes: node[001-002]
+    default: true
+    max_time: 7-00:00:00
+    max_nodes: 2
+    state: UP
+  - name: viz
+    nodes: viz-node001
+    default: false
+    max_time: "60-00:00:00"  # 60일
+    max_nodes: 1
+    state: UP
+    gres: gpu:amd:1
+    exclusive: false
+users:
+  admin_user: koopark
+  slurm_user: slurm
+  slurm_uid: 1001
+  slurm_gid: 1001
+  munge_user: munge
+  munge_uid: 1002
+  munge_gid: 1002
+  cluster_users:
+  - username: user01
+    uid: 2001
+    gid: 2001
+    groups:
+    - users
+    - hpc
+  - username: user02
+    uid: 2002
+    gid: 2001
+    groups:
+    - users
+    - hpc
+shared_storage:
+  # 완전 분산 아키텍처: 모든 노드가 로컬 디스크 사용
+  # /home: 각 노드 로컬 디스크 (유저별 VNC 샌드박스 저장)
+  # /scratch: 각 노드 로컬 디스크 (Apptainer 이미지 복사)
+  nfs_server: ""
+  mount_points: []
+database:
+  enabled: false
+monitoring:
+  ganglia:
+    enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+high_availability:
+  controller_ha:
+    enabled: false
+security:
+  munge:
+    key_rotation_days: 30
+  selinux:
+    enabled: true
+    mode: permissive
+environment_modules:
+  enabled: false
+performance_tuning:
+  enabled: false
+power_management:
+  enabled: false
+container_support:
+  apptainer:
+    enabled: true
+    version: 1.2.5
+    install_path: /usr/local
+    image_path: /share/apptainer/images
+    cache_path: /tmp/apptainer
+    bind_paths:
+    - /home
+    - /share
+    - /scratch
+    - /tmp
+    # 로컬 복사 배포 전략 (네트워크 병목 방지)
+    deployment_strategy: local_copy  # local_copy | nfs_shared
+    master_images_path: /scratch/apptainers  # 헤드노드 마스터 이미지
+    node_local_path: /scratch/apptainers     # 각 노드 로컬 복사 경로
+    # 노드 타입별 배포 맵핑
+    node_type_images:
+      compute:
+        - compute/gromacs.sif
+        - compute/tensorflow.sif
+        - compute/openmpi.sif
+      viz:
+        - visualization/vnc_desktop
+      controller:
+        - visualization/vnc_desktop  # 테스트용
+    # 유저 샌드박스 (viz 노드에만)
+    user_sandboxes_path: /home/{username}/.vnc_sandboxes
+    user_sandboxes_chmod: '0700'  # 본인만 접근
+  singularity:
+    enabled: false
+  docker:
+    enabled: false
+mpi_support:
+  enabled: true
+  mpi_type: openmpi
+  version: latest
+  install_path: /usr/local/mpi
+  auto_configure: true
+parallel_filesystems:
+  lustre:
+    enabled: false
+  beegfs:
+    enabled: false
+gpu_computing:
+  nvidia:
+    enabled: true
+    nodes: []  # 호스트용
+  amd:
+    enabled: true
+    nodes: [viz-node001]  # viz 노드용
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: 0 3 * * 0
+    retention_days: 30
+    backup_path: /backup/slurm

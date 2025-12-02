@@ -1,0 +1,152 @@
+#!/bin/bash
+################################################################################
+# 모든 프론트엔드 빌드 스크립트
+# Dashboard Frontend, VNC Service, CAE Frontend 빌드
+################################################################################
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo "=========================================="
+echo "🔨 프론트엔드 빌드 시작"
+echo "=========================================="
+echo ""
+
+BUILD_SUCCESS=0
+BUILD_FAILED=0
+
+# ==================== 1. Dashboard Frontend (3010) ====================
+echo -e "${BLUE}[1/3] Dashboard Frontend 빌드 중...${NC}"
+if [ -d "frontend_3010" ]; then
+    cd frontend_3010
+
+    # node_modules 확인
+    if [ ! -d "node_modules" ]; then
+        echo "  → npm install 실행 중..."
+        npm install --silent
+    fi
+
+    # 빌드 실행 (타입 체크 스킵)
+    echo "  → 빌드 실행 중 (타입 체크 스킵)..."
+    if npx vite build > /tmp/dashboard_build.log 2>&1; then
+        echo -e "${GREEN}✅ Dashboard Frontend 빌드 성공${NC}"
+        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
+    else
+        echo -e "${RED}❌ Dashboard Frontend 빌드 실패${NC}"
+        echo "  → 로그: /tmp/dashboard_build.log"
+        tail -20 /tmp/dashboard_build.log
+        BUILD_FAILED=$((BUILD_FAILED + 1))
+    fi
+
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${YELLOW}⚠  frontend_3010 디렉토리 없음${NC}"
+fi
+echo ""
+
+# ==================== 2. VNC Service (8002) ====================
+echo -e "${BLUE}[2/3] VNC Service 빌드 중...${NC}"
+if [ -d "vnc_service_8002" ]; then
+    cd vnc_service_8002
+
+    # node_modules 확인
+    if [ ! -d "node_modules" ]; then
+        echo "  → npm install 실행 중..."
+        npm install --silent
+    fi
+
+    # 빌드 실행 (타입 체크 스킵)
+    echo "  → 빌드 실행 중 (타입 체크 스킵)..."
+    if npx vite build > /tmp/vnc_build.log 2>&1; then
+        echo -e "${GREEN}✅ VNC Service 빌드 성공${NC}"
+        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
+    else
+        echo -e "${RED}❌ VNC Service 빌드 실패${NC}"
+        echo "  → 로그: /tmp/vnc_build.log"
+        tail -20 /tmp/vnc_build.log
+        BUILD_FAILED=$((BUILD_FAILED + 1))
+    fi
+
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${YELLOW}⚠  vnc_service_8002 디렉토리 없음${NC}"
+fi
+echo ""
+
+# ==================== 3. CAE Frontend (5173) ====================
+echo -e "${BLUE}[3/4] CAE Frontend 빌드 중...${NC}"
+if [ -d "kooCAEWeb_5173" ]; then
+    cd kooCAEWeb_5173
+
+    # node_modules 확인
+    if [ ! -d "node_modules" ]; then
+        echo "  → npm install 실행 중..."
+        npm install --silent
+    fi
+
+    # 빌드 실행 (타입 체크 스킵)
+    echo "  → 빌드 실행 중 (타입 체크 스킵)..."
+    if npx vite build > /tmp/cae_build.log 2>&1; then
+        echo -e "${GREEN}✅ CAE Frontend 빌드 성공${NC}"
+        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
+    else
+        echo -e "${RED}❌ CAE Frontend 빌드 실패${NC}"
+        echo "  → 로그: /tmp/cae_build.log"
+        tail -20 /tmp/cae_build.log
+        BUILD_FAILED=$((BUILD_FAILED + 1))
+    fi
+
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${YELLOW}⚠  kooCAEWeb_5173 디렉토리 없음${NC}"
+fi
+echo ""
+
+# ==================== 4. App Service (5174) ====================
+echo -e "${BLUE}[4/4] App Service 빌드 중...${NC}"
+if [ -d "app_5174" ]; then
+    cd app_5174
+
+    # node_modules 확인
+    if [ ! -d "node_modules" ]; then
+        echo "  → npm install 실행 중..."
+        npm install --silent
+    fi
+
+    # 빌드 실행 (타입 체크 스킵)
+    echo "  → 빌드 실행 중 (타입 체크 스킵)..."
+    if npx vite build > /tmp/app_build.log 2>&1; then
+        cp landing.html dist/index.html 2>/dev/null || true
+        echo -e "${GREEN}✅ App Service 빌드 성공${NC}"
+        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
+    else
+        echo -e "${RED}❌ App Service 빌드 실패${NC}"
+        echo "  → 로그: /tmp/app_build.log"
+        tail -20 /tmp/app_build.log
+        BUILD_FAILED=$((BUILD_FAILED + 1))
+    fi
+
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${YELLOW}⚠  app_5174 디렉토리 없음${NC}"
+fi
+echo ""
+
+
+# ==================== 빌드 결과 ====================
+echo "=========================================="
+if [ $BUILD_FAILED -eq 0 ]; then
+    echo -e "${GREEN}✅ 모든 프론트엔드 빌드 완료! ($BUILD_SUCCESS/4)${NC}"
+    echo "=========================================="
+    exit 0
+else
+    echo -e "${RED}❌ 일부 빌드 실패 (성공: $BUILD_SUCCESS, 실패: $BUILD_FAILED)${NC}"
+    echo "=========================================="
+    exit 1
+fi

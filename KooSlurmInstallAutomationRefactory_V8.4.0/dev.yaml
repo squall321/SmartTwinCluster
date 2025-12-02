@@ -1,0 +1,208 @@
+# 2노드 Slurm 클러스터 예시 설정 (개선 버전)
+# 헤드노드 1개 + 계산노드 1개 구성
+# Stage 1 기본 설치용 실제 설정 예시
+
+# 설정 파일 버전
+config_version: "1.0"
+
+stage: 1  # 설치 단계 (1: 기본, 2: 고급, 3: 최적화)
+
+cluster_info:
+  cluster_name: "mini-cluster"
+  domain: "hpc.local"
+  admin_email: "admin@hpc.local"
+  timezone: "Asia/Seoul"
+
+# 설치 방법 설정
+installation:
+  install_method: "package"  # package (권장, 빠름) 또는 source (느림)
+  offline_mode: false
+  package_cache_path: "/var/cache/slurm_packages"
+  compile_options: "--with-pmix --with-hwloc"
+
+nodes:
+  controller:
+    hostname: "head01"
+    ip_address: "192.168.1.10"
+    ssh_user: "root"
+    ssh_port: 22
+    ssh_key_path: "~/.ssh/id_rsa"
+    os_type: "centos8"
+    node_type: "controller"
+    hardware:
+      cpus: 8
+      memory_mb: 16384
+      disk_gb: 500
+  
+  compute_nodes:
+    - hostname: "compute01"
+      ip_address: "192.168.1.20"
+      ssh_user: "root"
+      ssh_port: 22
+      ssh_key_path: "~/.ssh/id_rsa"
+      os_type: "centos8"
+      node_type: "compute"
+      hardware:
+        cpus: 16
+        sockets: 1
+        cores_per_socket: 8
+        threads_per_core: 2
+        memory_mb: 32768
+        tmp_disk_mb: 102400
+        gpu:
+          type: "nvidia"
+          count: 1
+
+network:
+  management_network: "192.168.1.0/24"
+  compute_network: "192.168.1.0/24"
+  firewall:
+    enabled: true
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: 22
+
+# 시간 동기화 설정
+time_synchronization:
+  enabled: true
+  ntp_servers:
+    - "time.google.com"
+    - "time.cloudflare.com"
+    - "pool.ntp.org"
+  timezone: "Asia/Seoul"
+
+slurm_config:
+  version: "22.05.8"
+  install_path: "/usr/local/slurm"
+  config_path: "/usr/local/slurm/etc"
+  log_path: "/var/log/slurm"
+  spool_path: "/var/spool/slurm"
+  state_save_location: "/var/spool/slurm/state"
+  
+  scheduler:
+    type: "sched/backfill"
+    max_job_count: 10000
+    max_array_size: 1000
+  
+  accounting:
+    storage_type: "accounting_storage/none"
+    storage_host: ""
+  
+  partitions:
+    - name: "gpu"
+      nodes: "compute01"
+      default: true
+      max_time: "7-00:00:00"
+      max_nodes: 1
+      state: "UP"
+    - name: "debug"
+      nodes: "compute01"
+      default: false
+      max_time: "00:30:00"
+      max_nodes: 1
+      state: "UP"
+
+users:
+  slurm_user: "slurm"
+  slurm_uid: 1001
+  slurm_gid: 1001
+  munge_user: "munge"
+  munge_uid: 1002
+  munge_gid: 1002
+  
+  cluster_users:
+    - username: "user01"
+      uid: 2001
+      gid: 2001
+      groups: 
+        - "users"
+        - "hpc"
+    - username: "user02"
+      uid: 2002
+      gid: 2001
+      groups: 
+        - "users"
+        - "hpc"
+
+shared_storage:
+  nfs_server: "192.168.1.10"
+  mount_points:
+    - source: "/export/home"
+      target: "/home"
+      options: "rw,sync,hard,intr"
+    - source: "/export/share"
+      target: "/share"
+      options: "rw,sync,hard,intr"
+    - source: "/export/apps"
+      target: "/apps"
+      options: "ro,sync,hard,intr"
+
+# Stage 2 고급 기능 (비활성화 상태)
+database:
+  enabled: false
+  type: "mysql"
+  host: "localhost"
+  port: 3306
+  database_name: "slurm_acct_db"
+  username: "slurm"
+  password: "changeme"
+
+monitoring:
+  ganglia:
+    enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+
+high_availability:
+  controller_ha:
+    enabled: false
+
+security:
+  munge:
+    key_rotation_days: 30
+  selinux:
+    enabled: true
+    mode: "permissive"
+
+environment_modules:
+  enabled: false
+
+# Stage 3 운영 최적화
+performance_tuning:
+  enabled: false
+
+power_management:
+  enabled: false
+
+container_support:
+  apptainer:
+    enabled: false
+  singularity:
+    enabled: false
+  docker:
+    enabled: false
+
+parallel_filesystems:
+  lustre:
+    enabled: false
+  beegfs:
+    enabled: false
+
+gpu_computing:
+  nvidia:
+    enabled: true
+    driver_version: "470.82.01"
+    cuda_version: "11.4"
+  amd:
+    enabled: false
+
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: "0 3 * * 0"
+    retention_days: 30
+    backup_path: "/backup/slurm"

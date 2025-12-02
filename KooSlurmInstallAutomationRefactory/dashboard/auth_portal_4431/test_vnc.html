@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VNC API Test</title>
+</head>
+<body>
+    <h1>VNC API Test</h1>
+    <button onclick="testVNC()">Test VNC API</button>
+    <pre id="result"></pre>
+
+    <script>
+        async function testVNC() {
+            const resultEl = document.getElementById('result');
+            resultEl.textContent = 'Testing...';
+
+            const token = localStorage.getItem('jwt_token');
+            if (!token) {
+                resultEl.textContent = 'Error: No JWT token found in localStorage';
+                return;
+            }
+
+            const url = 'http://110.15.177.120:5010/api/vnc/sessions';
+            resultEl.textContent = `Fetching from: ${url}\nWith token: ${token.substring(0, 30)}...\n\n`;
+
+            try {
+                resultEl.textContent += 'Starting fetch...\n';
+
+                // Add timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+                resultEl.textContent += `Got response! Status: ${response.status}\n`;
+
+                const data = await response.json();
+                resultEl.textContent += `Response:\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultEl.textContent += `\n❌ Error: ${error.name}\n`;
+                resultEl.textContent += `Message: ${error.message}\n`;
+                if (error.name === 'AbortError') {
+                    resultEl.textContent += '\nFetch timed out after 5 seconds!\n';
+                    resultEl.textContent += 'This means the browser cannot reach the backend.\n';
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+*.log
+saml/certs/*.key
+saml/certs/*.pem
+.DS_Store
+node_modules/

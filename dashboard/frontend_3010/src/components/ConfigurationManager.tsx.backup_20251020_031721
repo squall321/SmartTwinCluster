@@ -1,0 +1,380 @@
+import React, { useRef, useState } from 'react';
+import { Download, Upload, Save, FolderOpen, X, FileCode, RefreshCw } from 'lucide-react';
+import { useClusterStore } from '../store/clusterStore';
+import { downloadSlurmYAML, copySlurmYAMLToClipboard } from '../utils/slurmYamlConverter';
+import { useApiMode } from '../hooks/useApiMode';
+import toast from 'react-hot-toast';
+
+interface ConfigurationManagerProps {
+  onClose: () => void;
+}
+
+export const ConfigurationManager: React.FC<ConfigurationManagerProps> = ({ onClose }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  
+  const { mode: apiMode } = useApiMode();
+  
+  const store = useClusterStore();
+  const { 
+    exportConfiguration, 
+    importConfiguration, 
+    downloadConfiguration,
+    loadConfiguration
+  } = store;
+
+  // JSON 파일 다운로드
+  const handleDownload = () => {
+    try {
+      downloadConfiguration();
+      toast.success('Configuration downloaded successfully!');
+      onClose();
+    } catch (error) {
+      toast.error('Failed to download configuration');
+    }
+  };
+
+  // JSON 클립보드 복사
+  const handleCopyJson = () => {
+    try {
+      const jsonData = exportConfiguration();
+      navigator.clipboard.writeText(jsonData);
+      toast.success('Configuration copied to clipboard!');
+    } catch (error) {
+      toast.error('Failed to copy to clipboard');
+    }
+  };
+
+  // 🆕 Slurm YAML 다운로드
+  const handleDownloadYAML = () => {
+    try {
+      const config = {
+        groups: store.groups,
+        totalNodes: store.totalNodes,
+        totalCores: store.totalCores,
+        clusterName: store.clusterName,
+        controllerIp: store.controllerIp,
+      };
+      downloadSlurmYAML(config);
+      toast.success('Slurm YAML downloaded successfully!');
+    } catch (error) {
+      toast.error('Failed to download YAML');
+    }
+  };
+
+  // 🆕 Slurm YAML 클립보드 복사
+  const handleCopyYAML = async () => {
+    try {
+      const config = {
+        groups: store.groups,
+        totalNodes: store.totalNodes,
+        totalCores: store.totalCores,
+        clusterName: store.clusterName,
+        controllerIp: store.controllerIp,
+      };
+      const success = await copySlurmYAMLToClipboard(config);
+      if (success) {
+        toast.success('Slurm YAML copied to clipboard!');
+      } else {
+        toast.error('Failed to copy YAML');
+      }
+    } catch (error) {
+      toast.error('Failed to copy YAML');
+    }
+  };
+
+  // 🆕 실제 Slurm 노드와 동기화
+  const handleSyncFromSlurm = async () => {
+    if (apiMode === 'mock') {
+      toast.error('Sync is only available in Production mode');
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const response = await fetch('http://localhost:5010/api/slurm/sync-nodes', {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        loadConfiguration(data.data);
+        toast.success(`Synced ${data.data.totalNodes} nodes from Slurm!`);
+        onClose();
+      } else {
+        toast.error(data.message || 'Failed to sync nodes');
+      }
+    } catch (error) {
+      toast.error('Failed to connect to Slurm cluster');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // 파일 업로드
+  const handleFileUpload = (file: File) => {
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      try {
+        const jsonData = e.target?.result as string;
+        const success = importConfiguration(jsonData);
+        
+        if (success) {
+          toast.success('Configuration loaded successfully!');
+          onClose();
+        } else {
+          toast.error('Invalid configuration file');
+        }
+      } catch (error) {
+        toast.error('Failed to read file');
+      }
+    };
+    
+    reader.readAsText(file);
+  };
+
+  // 파일 선택
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+  };
+
+  // Drag & Drop
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type === 'application/json') {
+      handleFileUpload(file);
+    } else {
+      toast.error('Please drop a JSON file');
+    }
+  };
+
+  // JSON 텍스트 붙여넣기
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const success = importConfiguration(text);
+      
+      if (success) {
+        toast.success('Configuration loaded from clipboard!');
+        onClose();
+      } else {
+        toast.error('Invalid JSON in clipboard');
+      }
+    } catch (error) {
+      toast.error('Failed to read from clipboard');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          {/* 헤더 */}
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">Configuration Manager</h2>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 rounded-lg transition"
+            >
+              <X size={24} />
+            </button>
+          </div>
+
+          {/* 설명 */}
+          <p className="text-gray-600 mb-6">
+            Save your cluster configuration, export to Slurm YAML, or sync from production Slurm cluster.
+          </p>
+
+          {/* 🆕 Slurm 동기화 섹션 (Production 모드만) */}
+          {apiMode === 'production' && (
+            <div className="mb-8 p-4 bg-green-50 border-2 border-green-200 rounded-lg">
+              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-green-900">
+                <RefreshCw className="w-5 h-5 text-green-600" />
+                Sync from Production Slurm
+              </h3>
+              
+              <p className="text-sm text-green-800 mb-4">
+                Load actual node configuration from your running Slurm cluster
+              </p>
+              
+              <button
+                onClick={handleSyncFromSlurm}
+                disabled={syncing}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed w-full"
+              >
+                <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing...' : 'Sync Nodes from Slurm'}
+              </button>
+            </div>
+          )}
+
+          {/* 저장 섹션 */}
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Save className="w-5 h-5 text-blue-600" />
+              Export Configuration
+            </h3>
+            
+            {/* JSON Export */}
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">📄 Dashboard JSON Format</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  onClick={handleDownload}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                >
+                  <Download size={20} />
+                  Download JSON
+                </button>
+                
+                <button
+                  onClick={handleCopyJson}
+                  className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition"
+                >
+                  <Save size={20} />
+                  Copy JSON
+                </button>
+              </div>
+            </div>
+
+            {/* 🆕 YAML Export */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                🔧 Slurm Installation YAML Format
+              </h4>
+              <p className="text-xs text-gray-500 mb-2">
+                Use this file with KooSlurmInstallAutomation to install Slurm
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  onClick={handleDownloadYAML}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                >
+                  <FileCode size={20} />
+                  Download YAML
+                </button>
+                
+                <button
+                  onClick={handleCopyYAML}
+                  className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-purple-600 text-purple-600 rounded-lg hover:bg-purple-50 transition"
+                >
+                  <FileCode size={20} />
+                  Copy YAML
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 로드 섹션 */}
+          <div>
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <FolderOpen className="w-5 h-5 text-green-600" />
+              Import Configuration
+            </h3>
+            
+            {/* Drag & Drop 영역 */}
+            <div
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-lg p-8 mb-4 transition ${
+                dragActive 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <div className="text-center">
+                <Upload className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                <p className="text-gray-600 mb-2">
+                  Drag and drop a JSON file here, or
+                </p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                >
+                  Browse Files
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+              </div>
+            </div>
+
+            {/* 클립보드에서 로드 */}
+            <button
+              onClick={handlePaste}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-green-600 text-green-600 rounded-lg hover:bg-green-50 transition"
+            >
+              <Upload size={20} />
+              Paste from Clipboard
+            </button>
+          </div>
+
+          {/* 정보 */}
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h4 className="font-semibold text-blue-900 mb-2">📝 What's included?</h4>
+            <ul className="text-sm text-blue-800 space-y-1">
+              <li>• All group configurations and node assignments</li>
+              <li>• Core size limits per group</li>
+              <li>• Cluster metadata and network settings</li>
+              <li>• 🆕 YAML format compatible with Slurm installer</li>
+              {apiMode === 'production' && (
+                <li>• 🆕 Sync with real Slurm cluster nodes</li>
+              )}
+            </ul>
+          </div>
+
+          {/* 경고 */}
+          <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <h4 className="font-semibold text-amber-900 mb-2">⚠️ Important</h4>
+            <p className="text-sm text-amber-800">
+              Loading a configuration will replace your current setup. 
+              Make sure to save your current configuration first if needed.
+            </p>
+          </div>
+
+          {/* 🆕 사용 가이드 */}
+          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <h4 className="font-semibold text-gray-900 mb-2">🚀 Quick Guide</h4>
+            <div className="text-sm text-gray-700 space-y-2">
+              <p><strong>JSON Format:</strong> Use for dashboard backup/restore</p>
+              <p><strong>YAML Format:</strong> Use for installing Slurm cluster:</p>
+              <pre className="bg-gray-800 text-green-400 p-2 rounded text-xs mt-1 overflow-x-auto">
+./install_slurm.py -c slurm-cluster-YYYY-MM-DD.yaml --stage all
+              </pre>
+              {apiMode === 'production' && (
+                <p className="pt-2 border-t"><strong>Sync:</strong> Import current production cluster state</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

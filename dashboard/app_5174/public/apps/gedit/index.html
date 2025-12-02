@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GEdit App (v2.0 - WebSocket Fix)</title>
+
+    <!-- Cache Control -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Remote GEdit Application" />
+    <meta name="theme-color" content="#646cff" />
+    <link rel="manifest" href="/app/apps/gedit/manifest.json" />
+
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="/app/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="GEdit" />
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #app-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        #display-iframe {
+            flex: 1;
+            border: none;
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+
+        #status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            transition: opacity 0.3s;
+        }
+
+        #status-overlay.hidden {
+            display: none;
+        }
+
+        .app-icon {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 64px;
+            box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
+        }
+
+        .status-content {
+            text-align: center;
+            max-width: 500px;
+            padding: 0 2rem;
+        }
+
+        .status-content h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .status-content p {
+            font-size: 1.2rem;
+            opacity: 0.8;
+            line-height: 1.6;
+        }
+
+        .launch-button {
+            padding: 1.2rem 3rem;
+            font-size: 1.3rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .launch-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.6);
+        }
+
+        .launch-button:active {
+            transform: translateY(0);
+        }
+
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 5px solid rgba(102, 126, 234, 0.2);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #install-prompt {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            display: none;
+            flex-direction: column;
+            gap: 1rem;
+            max-width: 350px;
+            z-index: 10000;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        #install-prompt.show {
+            display: flex;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(100px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .install-header {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .install-description {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .install-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .install-buttons button {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        #install-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            flex: 1;
+        }
+
+        #install-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        #dismiss-btn {
+            background: transparent;
+            color: white;
+            padding: 0.6rem;
+        }
+
+        #dismiss-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <iframe id="display-iframe" src="about:blank" allow="fullscreen; clipboard-read; clipboard-write" allowfullscreen></iframe>
+
+        <div id="status-overlay">
+            <div class="app-icon">📝</div>
+            <div class="status-content">
+                <h1>GEdit</h1>
+                <p id="status-message">Initializing...</p>
+            </div>
+            <div id="action-container"></div>
+        </div>
+    </div>
+
+    <div id="install-prompt">
+        <div class="install-header">Install GEdit App</div>
+        <div class="install-description">
+            Install for the best experience - works like a native app!
+        </div>
+        <div class="install-buttons">
+            <button id="install-btn">Install</button>
+            <button id="dismiss-btn">×</button>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'gedit_session_id';
+        // Use Nginx reverse proxy path to avoid CORS and Mixed Content issues
+        // Always use relative path through nginx proxy
+        const API_BASE = `${window.location.protocol}//${window.location.host}/cae`;
+
+        const iframe = document.getElementById('display-iframe');
+        const statusOverlay = document.getElementById('status-overlay');
+        const statusMessage = document.getElementById('status-message');
+        const actionContainer = document.getElementById('action-container');
+        const installPrompt = document.getElementById('install-prompt');
+
+        // PWA Install Prompt
+        let deferredPrompt;
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+
+            if (!window.matchMedia('(display-mode: standalone)').matches) {
+                installPrompt.classList.add('show');
+            }
+        });
+
+        document.getElementById('install-btn').addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+
+            console.log(`User ${outcome} the install prompt`);
+            deferredPrompt = null;
+            installPrompt.classList.remove('show');
+        });
+
+        document.getElementById('dismiss-btn').addEventListener('click', () => {
+            installPrompt.classList.remove('show');
+        });
+
+        window.addEventListener('appinstalled', () => {
+            console.log('PWA installed');
+            installPrompt.classList.remove('show');
+        });
+
+        // Show launch button
+        function showLaunchButton() {
+            statusMessage.textContent = 'Ready to launch GEdit';
+            actionContainer.innerHTML = '<button class="launch-button" onclick="window.launchApp()">Launch GEdit</button>';
+        }
+
+        // Show loading spinner
+        function showLoading(message) {
+            statusMessage.textContent = message;
+            actionContainer.innerHTML = '<div class="spinner"></div>';
+        }
+
+        // Create new session
+        async function createSession() {
+            console.log('[GEdit] Creating new session...');
+            showLoading('Creating session...');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/app/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ appId: 'gedit', config: {} })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to create session: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const sessionId = data.session?.id;
+
+                if (!sessionId) {
+                    throw new Error('No session ID in response');
+                }
+
+                console.log('[GEdit] Session created:', sessionId);
+                localStorage.setItem(STORAGE_KEY, sessionId);
+
+                return sessionId;
+            } catch (error) {
+                console.error('[GEdit] Create session error:', error);
+                statusMessage.textContent = 'Failed to create session: ' + error.message;
+                actionContainer.innerHTML = '<button class="launch-button" onclick="window.launchApp()">Retry</button>';
+                return null;
+            }
+        }
+
+        // Check session status
+        async function checkSession(sessionId) {
+            try {
+                const response = await fetch(`${API_BASE}/api/app/sessions/${sessionId}`);
+
+                if (!response.ok) {
+                    return null;
+                }
+
+                const data = await response.json();
+                return data.session;
+            } catch (error) {
+                console.error('[GEdit] Check session error:', error);
+                return null;
+            }
+        }
+
+        // Connect to session
+        async function connectToSession(sessionId) {
+            console.log('[GEdit] Connecting to session:', sessionId);
+            showLoading('Connecting...');
+
+            let attempts = 0;
+            const maxAttempts = 60;
+
+            const pollInterval = setInterval(async () => {
+                attempts++;
+
+                if (attempts > maxAttempts) {
+                    clearInterval(pollInterval);
+                    statusMessage.textContent = 'Connection timeout';
+                    actionContainer.innerHTML = '<button class="launch-button" onclick="window.launchApp()">Retry</button>';
+                    return;
+                }
+
+                const session = await checkSession(sessionId);
+
+                if (!session) {
+                    clearInterval(pollInterval);
+                    console.log('[GEdit] Session not found, creating new one');
+                    localStorage.removeItem(STORAGE_KEY);
+                    launchApp();
+                    return;
+                }
+
+                // Check if session is in a terminal/failed state (job was cancelled externally)
+                const terminalStates = ['failed', 'cancelled', 'completed', 'timeout', 'error'];
+                if (terminalStates.includes(session.status.toLowerCase())) {
+                    clearInterval(pollInterval);
+                    console.log('[GEdit] Session in terminal state:', session.status, '- creating new one');
+                    statusMessage.textContent = `Previous session ${session.status}, restarting...`;
+                    localStorage.removeItem(STORAGE_KEY);
+
+                    // Wait a bit to show the message, then restart
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    launchApp();
+                    return;
+                }
+
+                if (session.status === 'running' && session.displayUrl) {
+                    // Job is running, now verify VNC is actually ready
+                    statusMessage.textContent = `Verifying VNC server... (${attempts}/${maxAttempts})`;
+
+                    try {
+                        // Step 1: Try to fetch the VNC HTML page to verify it's accessible
+                        const vncUrl = session.displayUrl.replace('?autoconnect=true&resize=scale', '');
+                        const testResponse = await fetch(vncUrl);
+
+                        // Check if we got a successful response with HTML content
+                        if (testResponse.ok) {
+                            const contentType = testResponse.headers.get('content-type');
+
+                            // Verify it's actually HTML (not an error page)
+                            if (contentType && contentType.includes('text/html')) {
+                                console.log('[GEdit] VNC HTML page accessible');
+
+                                // Step 2: Test WebSocket connection
+                                statusMessage.textContent = `Testing WebSocket connection... (${attempts}/${maxAttempts})`;
+
+                                // Convert relative WebSocket URL to absolute if needed
+                                let wsUrl = session.websocketUrl || session.displayUrl.replace(/^https?:\/\//, (match) => match.startsWith('https') ? 'wss://' : 'ws://').replace('/vnc.html?autoconnect=true&resize=scale', '/websockify');
+
+                                // If wsUrl is a relative path (starts with /), convert to absolute WebSocket URL
+                                if (wsUrl.startsWith('/')) {
+                                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                                    wsUrl = `${protocol}//${window.location.host}${wsUrl}`;
+                                }
+
+                                try {
+                                    const ws = new WebSocket(wsUrl);
+
+                                    // Set short timeout for WebSocket test
+                                    const wsTimeout = setTimeout(() => {
+                                        ws.close();
+                                        console.log('[GEdit] WebSocket test timeout');
+                                    }, 2000);
+
+                                    ws.onopen = async () => {
+                                        clearTimeout(wsTimeout);
+
+                                        // Wait for VNC protocol handshake
+                                        let vncReady = false;
+                                        ws.onmessage = (event) => {
+                                            // VNC server sends RFB protocol version as first message
+                                            console.log('[GEdit] Received VNC protocol handshake');
+                                            vncReady = true;
+                                        };
+
+                                        // Wait a bit for VNC handshake
+                                        await new Promise(resolve => setTimeout(resolve, 2000));
+                                        ws.close();
+                                        clearInterval(pollInterval);
+
+                                        console.log('[GEdit] WebSocket connection verified!', vncReady ? '(VNC handshake received)' : '(proceeding anyway)');
+
+                                        // Wait additional time to ensure full initialization
+                                        // This ensures VNC server, websockify, and gedit are all fully ready
+                                        statusMessage.textContent = 'VNC server ready, warming up display...';
+                                        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 seconds total wait
+
+                                        // Open VNC in new tab (not popup)
+                                        console.log('[GEdit] Opening VNC window:', session.displayUrl);
+                                        window.open(session.displayUrl, '_blank');
+
+                                        statusMessage.textContent = 'GEdit opened in new window!';
+                                        actionContainer.innerHTML = '<button class="launch-button" onclick="window.open(\'' + session.displayUrl + '\', \'_blank\')">Reopen GEdit</button>';
+
+                                        setTimeout(() => {
+                                            statusOverlay.classList.add('hidden');
+                                        }, 1000);
+                                    };
+
+                                    ws.onerror = () => {
+                                        clearTimeout(wsTimeout);
+                                        console.log('[GEdit] WebSocket not ready yet');
+                                    };
+                                } catch (wsError) {
+                                    console.log('[GEdit] WebSocket test failed:', wsError.message);
+                                }
+                            } else {
+                                // Got response but not HTML - VNC not ready
+                                console.log('[GEdit] Response not HTML, VNC not ready yet');
+                                statusMessage.textContent = `Waiting for VNC server... (${attempts}/${maxAttempts})`;
+                            }
+                        } else {
+                            // Non-200 response
+                            console.log('[GEdit] VNC returned status:', testResponse.status);
+                            statusMessage.textContent = `Waiting for VNC server... (${attempts}/${maxAttempts})`;
+                        }
+                    } catch (error) {
+                        // VNC not ready yet (connection refused, timeout, etc)
+                        console.log('[GEdit] VNC not ready yet:', error.message);
+                        statusMessage.textContent = `Waiting for VNC server... (${attempts}/${maxAttempts})`;
+                    }
+                } else {
+                    statusMessage.textContent = `Status: ${session.status}... (${attempts}/${maxAttempts})`;
+                }
+            }, 1000);
+        }
+
+        // Delete existing session
+        async function deleteSession(sessionId) {
+            try {
+                console.log('[GEdit] Deleting session:', sessionId);
+                const response = await fetch(`${API_BASE}/api/app/sessions/${sessionId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    console.log('[GEdit] Session deleted successfully');
+                } else {
+                    console.warn('[GEdit] Failed to delete session:', response.status);
+                }
+            } catch (error) {
+                console.error('[GEdit] Error deleting session:', error);
+            }
+        }
+
+        // Main launch function
+        window.launchApp = async function() {
+            console.log('[GEdit] Launching app...');
+
+            // ALWAYS clean up old sessions first
+            let sessionId = localStorage.getItem(STORAGE_KEY);
+
+            if (sessionId) {
+                console.log('[GEdit] Found existing session, cleaning up:', sessionId);
+                statusMessage.textContent = 'Cleaning up old session...';
+
+                // Delete old session (this will also cancel the Slurm job and SSH tunnel)
+                await deleteSession(sessionId);
+                localStorage.removeItem(STORAGE_KEY);
+
+                // Wait a bit for cleanup
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            // Always create fresh session
+            console.log('[GEdit] Creating new session...');
+            statusMessage.textContent = 'Creating new session...';
+            sessionId = await createSession();
+
+            if (sessionId) {
+                await connectToSession(sessionId);
+            }
+        };
+
+        // Auto-launch on page load
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const autoLaunch = urlParams.get('autoLaunch') !== 'false';
+
+            if (autoLaunch) {
+                // Auto-launch after short delay
+                setTimeout(() => {
+                    launchApp();
+                }, 500);
+            } else {
+                showLaunchButton();
+            }
+        });
+    </script>
+</body>
+</html>

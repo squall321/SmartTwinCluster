@@ -1,0 +1,212 @@
+#!/bin/bash
+# 전체 시스템 통합 시작 스크립트 (Phase 1-5)
+# Phase 1: Auth Portal (4430, 4431)
+# Phase 2-4: Dashboard + Monitoring (3010, 5010, 5011, 9090, 9100)
+# Phase 5: VNC Service (8002)
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo "=========================================="
+echo "🚀 HPC Cluster 전체 시스템 시작"
+echo "=========================================="
+echo ""
+
+# ==================== 1. 기존 서비스 종료 ====================
+echo -e "${BLUE}[1/4] 기존 서비스 종료 중...${NC}"
+
+# Phase 1 종료
+if [ -f "./stop_phase1.sh" ]; then
+    ./stop_phase1.sh > /dev/null 2>&1
+fi
+
+# Phase 2-4 종료
+if [ -f "./stop_all.sh" ]; then
+    ./stop_all.sh > /dev/null 2>&1
+fi
+
+# VNC Service 종료
+if [ -f "vnc_service_8002/.vnc_service.pid" ]; then
+    kill $(cat vnc_service_8002/.vnc_service.pid) 2>/dev/null
+    rm -f vnc_service_8002/.vnc_service.pid
+fi
+
+# 추가 정리: 모든 관련 프로세스 강제 종료
+pkill -f "auth_portal_4430.*app.py" 2>/dev/null
+pkill -f "auth_portal_4431.*vite" 2>/dev/null
+pkill -f "backend_5010.*app.py" 2>/dev/null
+pkill -f "websocket_5011.*python" 2>/dev/null
+pkill -f "frontend_3010.*vite" 2>/dev/null
+pkill -f "vnc_service_8002.*vite" 2>/dev/null
+pkill -f "prometheus.*9090" 2>/dev/null
+pkill -f "node_exporter.*9100" 2>/dev/null
+
+sleep 3
+echo -e "${GREEN}✅ 기존 서비스 종료 완료${NC}"
+echo ""
+
+# ==================== 2. Phase 1 시작 (Auth Portal) ====================
+echo -e "${BLUE}[2/4] Phase 1: Auth Portal 시작 중...${NC}"
+
+if [ -f "./start_phase1.sh" ]; then
+    ./start_phase1.sh
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✅ Phase 1 시작 완료${NC}"
+    else
+        echo -e "${RED}❌ Phase 1 시작 실패${NC}"
+    fi
+else
+    echo -e "${RED}❌ start_phase1.sh 없음${NC}"
+fi
+echo ""
+
+# ==================== 3. Phase 2-4 시작 (Dashboard) ====================
+echo -e "${BLUE}[3/4] Phase 2-4: Dashboard + Monitoring 시작 중...${NC}"
+
+if [ -f "./start_all.sh" ]; then
+    ./start_all.sh
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✅ Phase 2-4 시작 완료${NC}"
+    else
+        echo -e "${RED}❌ Phase 2-4 시작 실패${NC}"
+    fi
+else
+    echo -e "${RED}❌ start_all.sh 없음${NC}"
+fi
+echo ""
+
+# ==================== 4. Phase 5 시작 (VNC Service) ====================
+echo -e "${BLUE}[4/7] Phase 5: VNC Service 시작 중...${NC}"
+
+if [ -f "vnc_service_8002/start.sh" ]; then
+    cd vnc_service_8002
+    ./start.sh
+    cd "$SCRIPT_DIR"
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✅ Phase 5 시작 완료${NC}"
+    else
+        echo -e "${RED}❌ Phase 5 시작 실패${NC}"
+    fi
+else
+    echo -e "${RED}❌ vnc_service_8002/start.sh 없음${NC}"
+fi
+echo ""
+
+# ==================== 5. CAE Backend 5000 시작 ====================
+echo -e "${BLUE}[5/7] CAE Backend (5000) 시작 중...${NC}"
+
+if [ -d "kooCAEWebServer_5000" ]; then
+    cd kooCAEWebServer_5000
+
+    # venv 활성화 및 앱 시작
+    if [ -d "venv" ]; then
+        nohup venv/bin/python app.py > /tmp/cae_backend_5000.log 2>&1 &
+        CAE_BACKEND_PID=$!
+        echo $CAE_BACKEND_PID > .cae_backend.pid
+        echo -e "${GREEN}✅ CAE Backend 시작 (PID: $CAE_BACKEND_PID)${NC}"
+    else
+        echo -e "${YELLOW}⚠️  venv 없음, python3 직접 실행${NC}"
+        nohup python3 app.py > /tmp/cae_backend_5000.log 2>&1 &
+        CAE_BACKEND_PID=$!
+        echo $CAE_BACKEND_PID > .cae_backend.pid
+        echo -e "${GREEN}✅ CAE Backend 시작 (PID: $CAE_BACKEND_PID)${NC}"
+    fi
+
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${RED}❌ kooCAEWebServer_5000 디렉토리 없음${NC}"
+fi
+echo ""
+
+# ==================== 6. CAE Automation 5001 시작 ====================
+echo -e "${BLUE}[6/7] CAE Automation Server (5001) 시작 중...${NC}"
+
+if [ -d "kooCAEWebAutomationServer_5001" ]; then
+    cd kooCAEWebAutomationServer_5001
+
+    # venv 활성화 및 앱 시작
+    if [ -d "venv" ]; then
+        nohup venv/bin/python app.py > /tmp/cae_automation_5001.log 2>&1 &
+        CAE_AUTO_PID=$!
+        echo $CAE_AUTO_PID > .cae_automation.pid
+        echo -e "${GREEN}✅ CAE Automation 시작 (PID: $CAE_AUTO_PID)${NC}"
+    else
+        echo -e "${YELLOW}⚠️  venv 없음, python3 직접 실행${NC}"
+        nohup python3 app.py > /tmp/cae_automation_5001.log 2>&1 &
+        CAE_AUTO_PID=$!
+        echo $CAE_AUTO_PID > .cae_automation.pid
+        echo -e "${GREEN}✅ CAE Automation 시작 (PID: $CAE_AUTO_PID)${NC}"
+    fi
+
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${RED}❌ kooCAEWebAutomationServer_5001 디렉토리 없음${NC}"
+fi
+echo ""
+
+# ==================== 7. CAE Frontend 5173 시작 ====================
+echo -e "${BLUE}[7/7] CAE Frontend (5173) 시작 중...${NC}"
+
+if [ -d "kooCAEWeb_5173" ]; then
+    cd kooCAEWeb_5173
+
+    # npm dev 서버 시작
+    if [ -f "package.json" ]; then
+        nohup npm run dev > /tmp/cae_frontend_5173.log 2>&1 &
+        CAE_FRONTEND_PID=$!
+        echo $CAE_FRONTEND_PID > .cae_frontend.pid
+        echo -e "${GREEN}✅ CAE Frontend 시작 (PID: $CAE_FRONTEND_PID)${NC}"
+    else
+        echo -e "${RED}❌ package.json 없음${NC}"
+    fi
+
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${RED}❌ kooCAEWeb_5173 디렉토리 없음${NC}"
+fi
+echo ""
+
+# ==================== 최종 상태 확인 ====================
+echo "=========================================="
+echo -e "${GREEN}✅ 전체 시스템 시작 완료!${NC}"
+echo "=========================================="
+echo ""
+echo "🔗 접속 정보:"
+echo ""
+echo "  📱 Phase 1: Auth Portal"
+echo "     Auth Frontend:  http://localhost:4431"
+echo "     Auth Backend:   http://localhost:4430"
+echo ""
+echo "  📊 Phase 2-4: Dashboard"
+echo "     Dashboard:      http://localhost:3010"
+echo "     Backend API:    http://localhost:5010"
+echo "     WebSocket:      ws://localhost:5011/ws"
+echo ""
+echo "  📈 Monitoring"
+echo "     Prometheus:     http://localhost:9090"
+echo "     Node Exporter:  http://localhost:9100/metrics"
+echo ""
+echo "  🖥️  Phase 5: VNC Service"
+echo "     VNC Service:    http://localhost:8002"
+echo ""
+echo "  🔧 CAE Services (Computer-Aided Engineering)"
+echo "     CAE Backend:    http://localhost:5000"
+echo "     CAE Automation: http://localhost:5001"
+echo "     CAE Frontend:   http://localhost:5173"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "💡 사용 방법:"
+echo "   1. http://localhost:4431 에서 로그인"
+echo "   2. 서비스 카드에서 원하는 서비스 선택"
+echo "   3. VNC Service는 토큰과 함께 자동 연결"
+echo "   4. CAE 시뮬레이션: http://localhost:5173"
+echo ""
+echo "🔴 전체 종료: ./stop_complete.sh"
+echo ""

@@ -1,0 +1,155 @@
+from flask import Blueprint, request, jsonify
+import utils.slurm_utils as slurm_utils
+from werkzeug.utils import secure_filename
+from datetime import datetime
+import subprocess
+import os
+import json
+import random
+
+slurm_bp = Blueprint('slurm', __name__)
+UPLOAD_ROOT = "uploads"
+
+
+@slurm_bp.route("/api/slurm/sinfo", methods=["GET"])
+def sinfo():
+    return jsonify({"output": slurm_utils.get_sinfo()})
+
+
+@slurm_bp.route("/api/slurm/squeue", methods=["GET"])
+def squeue():
+    return jsonify({"output": slurm_utils.get_squeue()})
+
+
+@slurm_bp.route("/api/slurm/submit", methods=["POST"])
+def submit():
+    if request.json is None:
+        return jsonify({"error": "Invalid JSON"}), 400
+    content = request.json.get("script")
+    result = slurm_utils.submit_job(content)
+    return jsonify({"result": result})
+
+
+@slurm_bp.route("/api/slurm/cancel/<job_id>", methods=["DELETE"])
+def cancel(job_id):
+    result = slurm_utils.cancel_job(job_id)
+    return jsonify({"result": result})
+
+
+@slurm_bp.route("/api/slurm/lsdyna-core-usage", methods=["GET"])
+def lsdyna_core_usage():
+    if slurm_utils.MOCK_MODE:
+        return jsonify({"lsdyna_cores": slurm_utils.get_lsdyna_core_usage()})
+    try:
+        output = subprocess.check_output("squeue -o '%j|%C'", shell=True, text=True)
+        lines = output.strip().splitlines()[1:]
+        lsdyna_total = 0
+        for line in lines:
+            parts = line.strip().split("|")
+            if len(parts) == 2 and "lsdyna" in parts[0].lower():
+                lsdyna_total += int(parts[1])
+        return jsonify({"lsdyna_cores": lsdyna_total})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@slurm_bp.route("/api/slurm/job-stats", methods=["GET"])
+def job_stats():
+    return jsonify(slurm_utils.get_job_stats())
+
+
+@slurm_bp.route("/api/slurm/submit-lsdyna-jobs", methods=["POST"])
+def submit_lsdyna_jobs():
+    files = request.files.getlist("files")
+    meta = []
+    for i in range(len(files)):
+        meta_json = request.form.get(f"meta[{i}]")
+        if meta_json:
+            meta.append(json.loads(meta_json))
+        else:
+            return jsonify({"error": f"Missing metadata for file {i}"}), 400
+
+    submitted_jobs = []
+    user_id = request.form.get("user", "default_user")
+    upload_path = os.path.join(UPLOAD_ROOT, secure_filename(user_id))
+    os.makedirs(upload_path, exist_ok=True)
+    date = datetime.now().strftime("%Y%m%d%H%M%S")
+    upload_path = os.path.join(upload_path, date)
+    os.makedirs(upload_path, exist_ok=True)
+
+    for i, file in enumerate(files):
+        job_meta = meta[i]
+        filename = file.filename
+        save_path = f"{upload_path}/{filename}"
+        file.save(save_path)
+
+        if slurm_utils.MOCK_MODE:
+            job_id = str(random.randint(10000, 99999))
+            node = random.choice(slurm_utils.MOCK_NODES)
+            slurm_utils.MOCK_RUNNING.append({
+                "id": job_id,
+                "name": job_meta["filename"],
+                "user": "mockuser",
+                "state": "RUNNING",
+                "cpus": job_meta["cores"],
+                "submit_time": slurm_utils.now(),
+                "start_time": slurm_utils.now(),
+                "duration": slurm_utils.DURATION_MAP[job_meta["cores"]],
+                "node": node
+            })
+            submitted_jobs.append({
+                "filename": filename,
+                "cores": job_meta["cores"],
+                "result": f"[MOCK] Submitted as job {job_id}"
+            })
+        else:
+            script = f"""#!/bin/bash
+#SBATCH -J {job_meta['filename']}
+#SBATCH -n {job_meta['cores']}
+#SBATCH --time=00:20:00
+#SBATCH -o /tmp/{filename}.out
+
+echo "Running {job_meta['filename']} with {job_meta['cores']} cores..."
+lsdyna_{job_meta['version'].lower()}_{job_meta['mode'].lower()}_{job_meta['precision'].lower()} i={save_path}
+"""
+            script_path = f"/tmp/{filename}.sbatch"
+            with open(script_path, "w") as f:
+                f.write(script)
+
+            result = subprocess.run(["sbatch", script_path], capture_output=True, text=True)
+            submitted_jobs.append({
+                "filename": filename,
+                "cores": job_meta["cores"],
+                "result": result.stdout.strip()
+            })
+
+    return jsonify({"submitted": submitted_jobs})
+
+
+@slurm_bp.route("/api/slurm/user-core-usage", methods=["GET"])
+def user_core_usage():
+    from collections import defaultdict
+
+    user_core_map = defaultdict(int)
+
+    if slurm_utils.MOCK_MODE:
+        for job in slurm_utils.MOCK_RUNNING:
+            user_core_map[job["user"]] += job["cpus"]
+    else:
+        try:
+            output = subprocess.check_output("squeue -o '%u|%C'", shell=True, text=True)
+            lines = output.strip().splitlines()[1:]  # 첫 줄은 헤더
+            for line in lines:
+                user, cpus = line.strip().split("|")
+                user_core_map[user] += int(cpus)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # 정렬된 결과 반환 (코어 수 기준 내림차순)
+    result = sorted(
+        [{"user": user, "cores": cores} for user, cores in user_core_map.items()],
+        key=lambda x: x["cores"],
+        reverse=True
+    )
+
+    return jsonify(result)

@@ -1,0 +1,195 @@
+config_version: '1.0'
+stage: 3
+cluster_info:
+  cluster_name: mini-cluster
+  domain: hpc.local
+  admin_email: admin@hpc.local
+  timezone: Asia/Seoul
+installation:
+  install_method: package
+  offline_mode: false
+  package_cache_path: /var/cache/slurm_packages
+  compile_options: --with-pmix --with-hwloc
+nodes:
+  controller:
+    hostname: smarttwincluster
+    ip_address: 192.168.122.1
+    ssh_user: koopark
+    ssh_port: 22
+    ssh_key_path: ~/.ssh/id_rsa
+    os_type: ubuntu22
+    node_type: controller
+    hardware:
+      cpus: 8
+      memory_mb: 4096
+      disk_gb: 500
+  compute_nodes:
+  - hostname: node001
+    ip_address: 192.168.122.90
+    ssh_user: koopark
+    ssh_port: 22
+    ssh_key_path: ~/.ssh/id_rsa
+    os_type: ubuntu22
+    node_type: compute
+    hardware:
+      cpus: 2
+      sockets: 1
+      cores_per_socket: 2
+      threads_per_core: 1
+      memory_mb: 4096
+      tmp_disk_mb: 102400
+  - hostname: node002
+    ip_address: 192.168.122.103
+    ssh_user: koopark
+    ssh_port: 22
+    ssh_key_path: ~/.ssh/id_rsa
+    os_type: ubuntu22
+    node_type: compute
+    hardware:
+      cpus: 2
+      sockets: 1
+      cores_per_socket: 2
+      threads_per_core: 1
+      memory_mb: 4096
+      tmp_disk_mb: 102400
+network:
+  management_network: 192.168.122.0/24
+  compute_network: 192.168.122.0/24
+  firewall:
+    enabled: true
+    ports:
+      slurmd: 6818
+      slurmctld: 6817
+      slurmdbd: 6819
+      ssh: 22
+time_synchronization:
+  enabled: true
+  ntp_servers:
+  - time.google.com
+  - time.cloudflare.com
+  - pool.ntp.org
+  timezone: Asia/Seoul
+slurm_config:
+  version: 22.05.8
+  install_path: /usr/local/slurm
+  config_path: /usr/local/slurm/etc
+  log_path: /var/log/slurm
+  spool_path: /var/spool/slurm
+  state_save_location: /var/spool/slurm/state
+  reboot_program: /sbin/reboot  # 노드 재부팅 프로그램 경로
+  scheduler:
+    type: sched/backfill
+    max_job_count: 10000
+    max_array_size: 1000
+  accounting:
+    storage_type: accounting_storage/none
+    storage_host: ''
+  partitions:
+  - name: normal
+    nodes: node[1-2]
+    default: true
+    max_time: 7-00:00:00
+    max_nodes: 2
+    state: UP
+  - name: debug
+    nodes: node1
+    default: false
+    max_time: 00:30:00
+    max_nodes: 1
+    state: UP
+users:
+  slurm_user: slurm
+  slurm_uid: 1001
+  slurm_gid: 1001
+  munge_user: munge
+  munge_uid: 1002
+  munge_gid: 1002
+  cluster_users:
+  - username: user01
+    uid: 2001
+    gid: 2001
+    groups:
+    - users
+    - hpc
+  - username: user02
+    uid: 2002
+    gid: 2001
+    groups:
+    - users
+    - hpc
+shared_storage:
+  nfs_server: 192.168.122.1
+  mount_points:
+  - source: /export/home
+    target: /home
+    options: rw,sync,hard,intr
+  - source: /export/share
+    target: /share
+    options: rw,sync,hard,intr
+  - source: /export/apps
+    target: /apps
+    options: ro,sync,hard,intr
+database:
+  enabled: false
+monitoring:
+  ganglia:
+    enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+high_availability:
+  controller_ha:
+    enabled: false
+security:
+  munge:
+    key_rotation_days: 30
+  selinux:
+    enabled: true
+    mode: permissive
+environment_modules:
+  enabled: false
+performance_tuning:
+  enabled: false
+power_management:
+  enabled: false
+container_support:
+  apptainer:
+    enabled: true
+    version: 1.2.5
+    install_path: /usr/local
+    image_path: /share/apptainer/images
+    cache_path: /tmp/apptainer
+    scratch_image_path: /scratch/apptainer/images
+    bind_paths:
+    - /home
+    - /share
+    - /scratch
+    - /tmp
+    auto_sync_images: true
+  singularity:
+    enabled: false
+  docker:
+    enabled: false
+mpi_support:
+  enabled: true
+  mpi_type: openmpi
+  version: latest
+  install_path: /usr/local/mpi
+  auto_configure: true
+parallel_filesystems:
+  lustre:
+    enabled: false
+  beegfs:
+    enabled: false
+gpu_computing:
+  nvidia:
+    enabled: false
+  amd:
+    enabled: false
+backup_and_recovery:
+  config_backup:
+    enabled: true
+    schedule: 0 3 * * 0
+    retention_days: 30
+    backup_path: /backup/slurm

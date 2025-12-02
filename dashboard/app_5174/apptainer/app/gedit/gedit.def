@@ -1,0 +1,97 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    # 기본 시스템 업데이트
+    apt-get update
+    apt-get upgrade -y
+
+    # GEdit 및 필수 패키지 설치
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        gedit \
+        tigervnc-standalone-server \
+        tigervnc-common \
+        websockify \
+        xfce4 \
+        xfce4-terminal \
+        dbus-x11 \
+        x11-utils \
+        x11-xserver-utils \
+        fonts-noto \
+        fonts-noto-cjk \
+        supervisor \
+        curl \
+        wget \
+        python3
+
+    # VNC 디렉토리 생성
+    mkdir -p /root/.vnc
+
+    # VNC 비밀번호 설정 (빈 비밀번호)
+    echo "" | vncpasswd -f > /root/.vnc/passwd
+    chmod 600 /root/.vnc/passwd
+
+    # xstartup 스크립트 생성 (앱만 실행, 데스크톱 환경 없음)
+    cat > /root/.vnc/xstartup << 'XSTARTUP_EOF'
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+
+# 배경색 설정 (회색)
+xsetroot -solid grey &
+
+# Window manager 없이 X 환경만 준비
+# 앱은 start-gedit.sh에서 실행됨
+XSTARTUP_EOF
+    chmod +x /root/.vnc/xstartup
+
+    # Supervisor 설정 디렉토리 생성
+    mkdir -p /etc/supervisor/conf.d
+
+    # noVNC 설치
+    mkdir -p /opt/novnc
+    cd /opt/novnc
+    wget -q https://github.com/novnc/noVNC/archive/refs/tags/v1.4.0.tar.gz
+    tar -xzf v1.4.0.tar.gz --strip-components=1
+    rm v1.4.0.tar.gz
+
+    # 정리
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%files
+    start-gedit.sh /start-gedit.sh
+    supervisord.conf /etc/supervisor/conf.d/gedit.conf
+    vnc_fullscreen.html /opt/novnc/vnc_fullscreen.html
+
+%runscript
+    exec /start-gedit.sh
+
+%environment
+    export DISPLAY=:1
+    export VNC_RESOLUTION=1280x720
+    export VNC_DEPTH=24
+    export VNC_PORT=5901
+    export WEBSOCKIFY_PORT=6080
+
+%labels
+    Author KooSlurmAutomation
+    Version 1.0.0
+    App gedit
+    Description "GEdit text editor with VNC"
+
+%help
+    This container runs GEdit text editor with TigerVNC and websockify.
+
+    Usage:
+        apptainer run gedit.sif
+
+    Ports:
+        5901 - VNC server
+        6080 - noVNC websocket proxy
+
+    Environment variables:
+        VNC_RESOLUTION (default: 1280x720)
+        VNC_DEPTH (default: 24)
+        VNC_PORT (default: 5901)
+        WEBSOCKIFY_PORT (default: 6080)

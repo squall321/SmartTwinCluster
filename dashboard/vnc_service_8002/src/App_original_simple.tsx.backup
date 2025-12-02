@@ -1,0 +1,385 @@
+import { useState, useEffect } from 'react'
+import './App.css'
+
+interface VNCSession {
+  session_id: string
+  job_id: number
+  status: string
+  node?: string
+  novnc_url?: string
+  vnc_port: number
+  novnc_port: number
+  geometry: string
+  image_id?: string
+  image_name?: string
+  created_at: string
+}
+
+interface VNCImage {
+  id: string
+  name: string
+  description: string
+  icon: string
+  default: boolean
+  available: boolean
+}
+
+function App() {
+  const [sessions, setSessions] = useState<VNCSession[]>([])
+  const [images, setImages] = useState<VNCImage[]>([])
+  const [selectedImageId, setSelectedImageId] = useState<string>('xfce4')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [resetDialogSession, setResetDialogSession] = useState<string | null>(null)
+
+  // URL에서 토큰 가져오기 및 저장
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token')
+    if (token) {
+      localStorage.setItem('jwt_token', token)
+      // URL에서 토큰 제거 (보안)
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [])
+
+  // 이미지 목록 조회
+  const fetchImages = async () => {
+    try {
+      const token = localStorage.getItem('jwt_token')
+      const response = await fetch('/dashboardapi/vnc/images', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (!response.ok) throw new Error('Failed to fetch images')
+
+      const data = await response.json()
+      setImages(data.images || [])
+
+      // 기본 이미지 선택
+      const defaultImage = data.images.find((img: VNCImage) => img.default)
+      if (defaultImage) {
+        setSelectedImageId(defaultImage.id)
+      }
+    } catch (err: any) {
+      console.error('Failed to load images:', err)
+    }
+  }
+
+  // 세션 목록 조회
+  const fetchSessions = async () => {
+    try {
+      setLoading(true)
+      const token = localStorage.getItem('jwt_token')
+      const response = await fetch('/dashboardapi/vnc/sessions', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (!response.ok) throw new Error('Failed to fetch sessions')
+
+      const data = await response.json()
+      setSessions(data.sessions || [])
+      setError('')
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 세션 생성
+  const createSession = async () => {
+    try {
+      setCreating(true)
+      const token = localStorage.getItem('jwt_token')
+
+      // 기존 세션이 있고 다른 이미지를 선택한 경우 경고
+      const existingSession = sessions.find(s => s.status === 'running' || s.status === 'pending')
+      if (existingSession && existingSession.image_id && existingSession.image_id !== selectedImageId) {
+        const confirmed = confirm(
+          `⚠️ 이미지 변경 감지!\n\n` +
+          `현재 세션: ${existingSession.image_name || existingSession.image_id}\n` +
+          `새 이미지: ${images.find(img => img.id === selectedImageId)?.name}\n\n` +
+          `이미지를 변경하면 기존 세션 데이터가 초기화됩니다.\n` +
+          `계속하시겠습니까?`
+        )
+
+        if (!confirmed) {
+          setCreating(false)
+          return
+        }
+
+        // 기존 세션 초기화
+        await resetSession(existingSession.session_id)
+      }
+
+      const response = await fetch('/dashboardapi/vnc/sessions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          image_id: selectedImageId,
+          geometry: '1920x1080',
+          duration_hours: 4,
+          gpu_count: 1
+        })
+      })
+
+      if (!response.ok) throw new Error('Failed to create session')
+
+      await fetchSessions()
+      setError('')
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  // 세션 삭제
+  const deleteSession = async (sessionId: string) => {
+    if (!confirm('세션을 종료하시겠습니까?')) return
+
+    try {
+      const token = localStorage.getItem('jwt_token')
+      const response = await fetch(`/dashboardapi/vnc/sessions/${sessionId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (!response.ok) throw new Error('Failed to delete session')
+
+      await fetchSessions()
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  // 세션 초기화 (Sandbox 삭제)
+  const resetSession = async (sessionId: string) => {
+    try {
+      const token = localStorage.getItem('jwt_token')
+      const response = await fetch(`/dashboardapi/vnc/sessions/${sessionId}/reset`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (!response.ok) throw new Error('Failed to reset session')
+
+      await fetchSessions()
+      setResetDialogSession(null)
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  const handleResetClick = (sessionId: string) => {
+    setResetDialogSession(sessionId)
+  }
+
+  const confirmReset = () => {
+    if (resetDialogSession) {
+      resetSession(resetDialogSession)
+    }
+  }
+
+  // 초기 로드 및 자동 갱신
+  useEffect(() => {
+    fetchImages()
+    fetchSessions()
+    const interval = setInterval(fetchSessions, 5000) // 5초마다 갱신
+    return () => clearInterval(interval)
+  }, [])
+
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'running': return '#10b981'
+      case 'pending': return '#f59e0b'
+      case 'completed': return '#6b7280'
+      default: return '#ef4444'
+    }
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'running': return '실행 중'
+      case 'pending': return '대기 중'
+      case 'completed': return '완료됨'
+      default: return status
+    }
+  }
+
+  return (
+    <div className="app">
+      <header className="header">
+        <div className="header-content">
+          <h1>🖥️ VNC Visualization Service</h1>
+          <p>GPU 가속 원격 데스크톱</p>
+        </div>
+        <div className="header-actions">
+          <div className="image-selector">
+            <label htmlFor="image-select">데스크톱 환경:</label>
+            <select
+              id="image-select"
+              value={selectedImageId}
+              onChange={(e) => setSelectedImageId(e.target.value)}
+              className="image-select"
+            >
+              {images.filter(img => img.available).map(image => (
+                <option key={image.id} value={image.id}>
+                  {image.icon} {image.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            className="btn-primary"
+            onClick={createSession}
+            disabled={creating}
+          >
+            {creating ? '생성 중...' : '+ 새 세션'}
+          </button>
+        </div>
+      </header>
+
+      {error && (
+        <div className="error-banner">
+          ❌ {error}
+        </div>
+      )}
+
+      <main className="main">
+        <div className="sessions-grid">
+          {loading && sessions.length === 0 ? (
+            <div className="loading">로딩 중...</div>
+          ) : sessions.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">💻</div>
+              <h3>활성 세션이 없습니다</h3>
+              <p>새 VNC 세션을 생성하여 원격 데스크톱을 시작하세요</p>
+            </div>
+          ) : (
+            sessions.map(session => (
+              <div key={session.session_id} className="session-card">
+                <div className="session-header">
+                  <div>
+                    <h3>
+                      {session.image_name || 'VNC 세션'} #{session.session_id.split('-').pop()}
+                    </h3>
+                    <span
+                      className="status-badge"
+                      style={{ backgroundColor: getStatusColor(session.status) }}
+                    >
+                      {getStatusText(session.status)}
+                    </span>
+                  </div>
+                  <div className="session-actions-header">
+                    <button
+                      className="btn-reset"
+                      onClick={() => handleResetClick(session.session_id)}
+                      title="세션 데이터 초기화"
+                    >
+                      🔄 초기화
+                    </button>
+                    <button
+                      className="btn-danger"
+                      onClick={() => deleteSession(session.session_id)}
+                    >
+                      종료
+                    </button>
+                  </div>
+                </div>
+
+                <div className="session-info">
+                  <div className="info-row">
+                    <span className="label">Job ID:</span>
+                    <span className="value">{session.job_id}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">노드:</span>
+                    <span className="value">{session.node || '-'}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">해상도:</span>
+                    <span className="value">{session.geometry}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">VNC 포트:</span>
+                    <span className="value">{session.vnc_port}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">생성 시간:</span>
+                    <span className="value">
+                      {new Date(session.created_at).toLocaleString('ko-KR')}
+                    </span>
+                  </div>
+                </div>
+
+                {session.status === 'running' && session.novnc_url && (
+                  <div className="session-actions">
+                    <a
+                      href={session.novnc_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-connect"
+                    >
+                      🚀 연결하기
+                    </a>
+                  </div>
+                )}
+
+                {session.status === 'pending' && (
+                  <div className="session-pending">
+                    ⏳ 세션 시작 대기 중...
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </main>
+
+      {/* 초기화 확인 다이얼로그 */}
+      {resetDialogSession && (
+        <div className="dialog-overlay" onClick={() => setResetDialogSession(null)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>⚠️ 세션 데이터 초기화</h2>
+            <p>
+              현재 세션의 모든 데이터가 삭제됩니다.<br />
+              세션이 종료되고 샌드박스가 완전히 초기화됩니다.<br />
+              <br />
+              <strong>이 작업은 되돌릴 수 없습니다.</strong>
+            </p>
+            <div className="dialog-actions">
+              <button className="btn-secondary" onClick={() => setResetDialogSession(null)}>
+                취소
+              </button>
+              <button className="btn-danger" onClick={confirmReset}>
+                초기화
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <footer className="footer">
+        <a href="/" className="back-link">
+          ← Auth Portal로 돌아가기
+        </a>
+      </footer>
+    </div>
+  )
+}
+
+export default App

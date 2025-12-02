@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>noVNC Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1e1e1e;
+            color: #fff;
+        }
+        #controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #2d2d2d;
+            border-radius: 5px;
+        }
+        input[type="text"] {
+            width: 400px;
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid #444;
+            background: #3d3d3d;
+            color: #fff;
+            border-radius: 3px;
+        }
+        button {
+            padding: 8px 20px;
+            background: #007acc;
+            border: none;
+            color: white;
+            cursor: pointer;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #005a9e;
+        }
+        #screen {
+            border: 2px solid #444;
+            background: #000;
+        }
+        #status {
+            margin-top: 10px;
+            padding: 10px;
+            background: #2d2d2d;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .connected { color: #4ec9b0; }
+        .disconnected { color: #f48771; }
+    </style>
+    <script type="module">
+        import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.min.js';
+
+        let rfb = null;
+
+        window.connect = function() {
+            const url = document.getElementById('vncUrl').value;
+            if (!url) {
+                alert('Please enter VNC WebSocket URL');
+                return;
+            }
+
+            updateStatus('Connecting to ' + url + '...', 'disconnected');
+
+            try {
+                rfb = new RFB(
+                    document.getElementById('screen'),
+                    url,
+                    {
+                        credentials: { password: 'password' }
+                    }
+                );
+
+                rfb.addEventListener('connect', () => {
+                    updateStatus('Connected!', 'connected');
+                });
+
+                rfb.addEventListener('disconnect', () => {
+                    updateStatus('Disconnected', 'disconnected');
+                });
+
+                rfb.scaleViewport = true;
+                rfb.resizeSession = true;
+            } catch (err) {
+                updateStatus('Error: ' + err.message, 'disconnected');
+            }
+        };
+
+        window.disconnect = function() {
+            if (rfb) {
+                rfb.disconnect();
+                rfb = null;
+                updateStatus('Disconnected', 'disconnected');
+            }
+        };
+
+        window.testSession = async function() {
+            updateStatus('Creating session...', 'disconnected');
+
+            try {
+                // 세션 생성
+                const createRes = await fetch('http://localhost:5000/api/app/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ app_id: 'gedit', user_id: 'testuser' })
+                });
+                const session = await createRes.json();
+
+                updateStatus(`Session created: ${session.session_id}. Waiting for VNC...`, 'disconnected');
+
+                // 세션 상태 폴링 (최대 60초)
+                for (let i = 0; i < 60; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    const statusRes = await fetch(`http://localhost:5000/api/app/sessions/${session.session_id}`);
+                    const status = await statusRes.json();
+
+                    updateStatus(`Session status: ${status.status} (${i+1}s)`, 'disconnected');
+
+                    if (status.status === 'running' && status.displayUrl) {
+                        document.getElementById('vncUrl').value = status.displayUrl;
+                        updateStatus(`VNC ready! URL: ${status.displayUrl}`, 'connected');
+
+                        // 자동 연결
+                        setTimeout(() => connect(), 1000);
+                        return;
+                    }
+                }
+
+                updateStatus('Timeout waiting for VNC', 'disconnected');
+            } catch (err) {
+                updateStatus('Error: ' + err.message, 'disconnected');
+            }
+        };
+
+        function updateStatus(message, className) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = className;
+        }
+    </script>
+</head>
+<body>
+    <h1>🖥️ App Framework - noVNC Test</h1>
+
+    <div id="controls">
+        <div>
+            <input type="text"
+                   id="vncUrl"
+                   placeholder="ws://192.168.122.252:6080"
+                   value="">
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+            <button onclick="testSession()">Create & Connect GEdit</button>
+        </div>
+        <div id="status" class="disconnected">Not connected</div>
+    </div>
+
+    <div id="screen"></div>
+
+    <div style="margin-top: 20px; padding: 15px; background: #2d2d2d; border-radius: 5px;">
+        <h3>📝 Instructions</h3>
+        <ol>
+            <li><strong>Option 1:</strong> Click "Create & Connect GEdit" to automatically create session and connect</li>
+            <li><strong>Option 2:</strong> Manually enter VNC URL (e.g., ws://192.168.122.252:6080) and click "Connect"</li>
+        </ol>
+        <p><strong>Note:</strong> Make sure backend is running at http://localhost:5000</p>
+    </div>
+</body>
+</html>
