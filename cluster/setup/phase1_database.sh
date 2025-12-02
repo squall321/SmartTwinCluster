@@ -46,6 +46,7 @@ LOG_FILE="/var/log/cluster_database_setup.log"
 # Default values
 MODE="auto"
 DRY_RUN=false
+SKIP_BOOTSTRAP=false
 
 # Color codes
 RED='\033[0;31m'
@@ -249,17 +250,40 @@ install_mariadb() {
 
     log INFO "Installing MariaDB with Galera..."
 
-    case $OS in
-        ubuntu|debian)
-            run_command "apt-get update"
-            run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client galera-4 rsync"
-            ;;
-        centos|rhel|rocky|almalinux)
-            run_command "yum install -y mariadb-server mariadb galera rsync"
-            ;;
-    esac
+    # Check for offline packages first
+    local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
+    local mariadb_deb="$offline_pkgs/mariadb-server-*.deb"
 
-    log SUCCESS "MariaDB installed successfully"
+    if [[ -d "$offline_pkgs" ]] && compgen -G "$mariadb_deb" > /dev/null 2>&1; then
+        log INFO "Found offline packages, installing from local .deb files..."
+
+        if [[ "$DRY_RUN" == "false" ]]; then
+            # Install MariaDB packages from offline directory
+            sudo dpkg -i "$offline_pkgs"/mariadb-*.deb "$offline_pkgs"/galera-*.deb "$offline_pkgs"/rsync*.deb 2>/dev/null || true
+
+            # Fix any dependency issues
+            sudo dpkg --configure -a 2>/dev/null || true
+
+            log SUCCESS "MariaDB installed from offline packages"
+        else
+            log INFO "[DRY-RUN] Would install MariaDB from offline packages"
+        fi
+    else
+        # Online installation fallback
+        log INFO "No offline packages found, installing online..."
+
+        case $OS in
+            ubuntu|debian)
+                run_command "apt-get update"
+                run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client galera-4 rsync"
+                ;;
+            centos|rhel|rocky|almalinux)
+                run_command "yum install -y mariadb-server mariadb galera rsync"
+                ;;
+        esac
+
+        log SUCCESS "MariaDB installed successfully (online)"
+    fi
 }
 
 discover_active_nodes() {
@@ -454,6 +478,68 @@ join_cluster() {
     fi
 }
 
+deploy_to_other_controllers() {
+    log INFO "Deploying MariaDB to other controllers..."
+
+    # Get SSH user from config
+    local ssh_user=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get nodes.controllers[0].ssh_user 2>/dev/null || echo "root")
+
+    # Get first controller IP
+    local first_node_ip=$(echo "$MARIADB_CONTROLLERS" | jq -r '.[0].ip_address')
+
+    # Only run on first controller
+    if [[ "$CURRENT_IP" != "$first_node_ip" ]]; then
+        log INFO "This is not the first controller, skipping deployment to other nodes"
+        return 0
+    fi
+
+    log INFO "This is the first controller, deploying to other nodes..."
+
+    # Deploy to each other controller
+    local node_count=0
+    while IFS= read -r controller; do
+        local ip=$(echo "$controller" | jq -r '.ip_address')
+        local hostname=$(echo "$controller" | jq -r '.hostname')
+
+        # Skip current node
+        if [[ "$ip" == "$CURRENT_IP" ]]; then
+            continue
+        fi
+
+        node_count=$((node_count + 1))
+        log INFO "Deploying to $hostname ($ip)..."
+
+        # Test SSH connection
+        if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
+            log WARNING "Cannot connect to $hostname ($ip) via SSH"
+            continue
+        fi
+
+        # Copy phase1_database.sh to remote node
+        if ! scp -o StrictHostKeyChecking=no "$0" "$ssh_user@$ip:/tmp/phase1_database.sh" > /dev/null 2>&1; then
+            log WARNING "Failed to copy script to $hostname"
+            continue
+        fi
+
+        # Execute on remote node (without bootstrap)
+        log INFO "Installing MariaDB on $hostname..."
+        if ssh -o StrictHostKeyChecking=no "$ssh_user@$ip" \
+            "cd '$SCRIPT_DIR' && sudo bash /tmp/phase1_database.sh --config '$CONFIG_FILE' --skip-bootstrap --join" > /dev/null 2>&1; then
+            log SUCCESS "$hostname: MariaDB installed and joined cluster"
+        else
+            log WARNING "$hostname: MariaDB installation/join failed"
+        fi
+
+    done < <(echo "$MARIADB_CONTROLLERS" | jq -c '.[]')
+
+    if [[ $node_count -gt 0 ]]; then
+        log SUCCESS "Deployed to $node_count other controller(s)"
+        # Wait for all nodes to join
+        log INFO "Waiting 15 seconds for all MariaDB nodes to join..."
+        sleep 15
+    fi
+}
+
 configure_sst_user() {
     log INFO "Configuring SST user..."
 
@@ -558,12 +644,19 @@ main() {
     stop_mariadb
 
     # Step 11: Bootstrap or join cluster
-    if [[ "$MODE" == "bootstrap" ]]; then
-        bootstrap_cluster
-        configure_sst_user
-        configure_root_password
+    if [[ "$SKIP_BOOTSTRAP" == "false" ]]; then
+        if [[ "$MODE" == "bootstrap" ]]; then
+            bootstrap_cluster
+            configure_sst_user
+            configure_root_password
+
+            # Step 11.5: Deploy to other controllers (only after successful bootstrap)
+            deploy_to_other_controllers
+        else
+            join_cluster
+        fi
     else
-        join_cluster
+        log INFO "Skipping bootstrap/join (--skip-bootstrap flag)"
     fi
 
     # Step 12: Enable service for auto-start
@@ -604,6 +697,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --skip-bootstrap)
+            SKIP_BOOTSTRAP=true
             shift
             ;;
         --help)

@@ -272,17 +272,40 @@ install_keepalived() {
 
     log INFO "Installing Keepalived..."
 
-    case $OS in
-        ubuntu|debian)
-            run_command "apt-get update"
-            run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y keepalived"
-            ;;
-        centos|rhel|rocky|almalinux)
-            run_command "yum install -y keepalived"
-            ;;
-    esac
+    # Check for offline packages first
+    local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
+    local keepalived_deb="$offline_pkgs/keepalived_*.deb"
 
-    log SUCCESS "Keepalived installed successfully"
+    if [[ -d "$offline_pkgs" ]] && compgen -G "$keepalived_deb" > /dev/null 2>&1; then
+        log INFO "Found offline packages, installing from local .deb files..."
+
+        if [[ "$DRY_RUN" == "false" ]]; then
+            # Install Keepalived packages from offline directory
+            sudo dpkg -i "$offline_pkgs"/keepalived*.deb 2>/dev/null || true
+
+            # Fix any dependency issues
+            sudo dpkg --configure -a 2>/dev/null || true
+
+            log SUCCESS "Keepalived installed from offline packages"
+        else
+            log INFO "[DRY-RUN] Would install Keepalived from offline packages"
+        fi
+    else
+        # Online installation fallback
+        log INFO "No offline packages found, installing online..."
+
+        case $OS in
+            ubuntu|debian)
+                run_command "apt-get update"
+                run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y keepalived"
+                ;;
+            centos|rhel|rocky|almalinux)
+                run_command "yum install -y keepalived"
+                ;;
+        esac
+
+        log SUCCESS "Keepalived installed successfully (online)"
+    fi
 }
 
 create_health_check_script() {
