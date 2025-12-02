@@ -2,32 +2,52 @@
 ################################################################################
 # Munge 자동 설치 스크립트 - SSH 키 기반 (비밀번호 불필요)
 # SSH 키가 설정되어 있으면 비밀번호 입력 없이 작동
+#
+# Usage: ./install_munge_auto.sh [CONFIG_FILE]
+#   CONFIG_FILE: Path to YAML config file (default: my_cluster.yaml)
 ################################################################################
 
 set -e
 
-# my_cluster.yaml에서 노드 정보 읽기
-mapfile -t NODES < <(python3 << 'EOFPY'
+# 설정 파일 파라미터 (기본값: my_cluster.yaml)
+CONFIG_FILE="${1:-my_cluster.yaml}"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "❌ 설정 파일을 찾을 수 없습니다: $CONFIG_FILE"
+    exit 1
+fi
+
+echo "📋 설정 파일: $CONFIG_FILE"
+echo ""
+
+# 설정 파일에서 노드 정보 읽기
+mapfile -t NODES < <(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+import os
+config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(node['ip_address'])
 EOFPY
 )
 
-mapfile -t NODE_NAMES < <(python3 << 'EOFPY'
+mapfile -t NODE_NAMES < <(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+import os
+config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(node['hostname'])
 EOFPY
 )
 
-USER_NAME=$(python3 << 'EOFPY'
+USER_NAME=$(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+import os
+config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 print(config['nodes']['controller']['ssh_user'])
 EOFPY
@@ -99,10 +119,12 @@ echo ""
 
 # sshpass 사용 시 비밀번호 설정
 if [ "$USE_SSHPASS" = true ]; then
-    # my_cluster.yaml에서 비밀번호 읽기
-    PASSWORD=$(python3 << 'EOFPY'
+    # 설정 파일에서 비밀번호 읽기
+    PASSWORD=$(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+import os
+config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 password = config.get('cluster_info', {}).get('ssh_password', '')
 print(password if password else '')
@@ -114,7 +136,7 @@ EOFPY
         echo "📝 비밀번호 입력"
         echo "================================================================================"
         echo ""
-        echo "⚠️  my_cluster.yaml에 ssh_password가 설정되지 않았습니다."
+        echo "⚠️  $CONFIG_FILE에 ssh_password가 설정되지 않았습니다."
         echo "노드들의 비밀번호를 입력하세요."
         echo "(모든 노드의 비밀번호가 같다고 가정합니다)"
         echo ""
@@ -140,7 +162,7 @@ EOFPY
         echo ""
         echo "✅ 비밀번호 입력 완료"
     else
-        echo "✅ my_cluster.yaml에서 SSH 비밀번호 로드됨"
+        echo "✅ $CONFIG_FILE에서 SSH 비밀번호 로드됨"
     fi
 
     # sshpass 설치 확인

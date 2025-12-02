@@ -423,7 +423,7 @@ else
 
     if [ -f "install_munge_auto.sh" ]; then
         chmod +x install_munge_auto.sh
-        ./install_munge_auto.sh
+        ./install_munge_auto.sh "$CONFIG_FILE"
 
         if [ $? -eq 0 ]; then
             log_success "Munge 자동 설치 완료"
