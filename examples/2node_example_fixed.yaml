@@ -64,13 +64,16 @@ network:
       slurmdbd: 6819
       ssh: 22
 
-# 시간 동기화 설정 (중요!)
+# 시간 동기화 설정 (Munge 인증에 필수 - 노드 간 ±2분 이내 동기화 필요)
+# 오프라인 환경: 헤드노드를 NTP 서버로 사용
+# 온라인 환경: 외부 NTP 서버 사용 가능
 time_synchronization:
   enabled: true
   ntp_servers:
-    - "time.google.com"
-    - "time.cloudflare.com"
-    - "pool.ntp.org"
+    - "192.168.1.10"       # 헤드노드 IP (오프라인 환경 - 권장)
+    - "head01"             # 헤드노드 호스트명
+    # - "time.google.com"  # 온라인 환경에서만 사용
+    # - "pool.ntp.org"     # 온라인 환경에서만 사용
   timezone: "Asia/Seoul"
 
 slurm_config:
