@@ -162,7 +162,7 @@ SUCCESS_COUNT=0
 FAIL_COUNT=0
 FAILED_NODES=""
 
-echo "$NODES" | while IFS='#' read -r user_ip hostname; do
+while IFS='#' read -r user_ip hostname; do
     echo "----------------------------------------"
     echo "📤 $hostname ($user_ip)"
     echo "----------------------------------------"
@@ -199,24 +199,25 @@ echo "$NODES" | while IFS='#' read -r user_ip hostname; do
     fi
 
     echo ""
-done
+done < <(echo "$NODES")
 
 echo "================================================================================"
 echo "✅ SSH 키 설정 완료!"
 echo "================================================================================"
 echo ""
 
-# 결과 요약 (서브셸에서 변수가 업데이트 안되므로 다시 계산)
-SUCCESS_COUNT=$(echo "$NODES" | wc -l)
-
 echo "📊 결과 요약:"
 echo "  - 설정 완료: $SUCCESS_COUNT개 노드"
+if [ $FAIL_COUNT -gt 0 ]; then
+    echo "  - 설정 실패: $FAIL_COUNT개 노드"
+    echo -e "    $FAILED_NODES"
+fi
 echo ""
 
 echo "🧪 테스트:"
-echo "$NODES" | while IFS='#' read -r user_ip hostname; do
+while IFS='#' read -r user_ip hostname; do
     echo "  ssh $user_ip 'hostname'"
-done
+done < <(echo "$NODES")
 echo ""
 
 echo "✨ 이제 다음 명령어들이 비밀번호 없이 작동합니다:"
@@ -236,20 +237,20 @@ if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     echo ""
     echo "🧪 SSH 접속 테스트 중..."
     echo ""
-    
-    echo "$NODES" | while IFS='#' read -r user_ip hostname; do
+
+    while IFS='#' read -r user_ip hostname; do
         echo -n "  $hostname ($user_ip): "
-        
+
         # 비밀번호 없이 접속 시도
         RESULT=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$user_ip" "hostname" 2>/dev/null)
-        
+
         if [ $? -eq 0 ]; then
             echo "✅ $RESULT"
         else
             echo "❌ 접속 실패 (비밀번호가 필요함)"
         fi
-    done
-    
+    done < <(echo "$NODES")
+
     echo ""
 fi
 
