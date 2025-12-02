@@ -194,8 +194,8 @@ while IFS='#' read -r user_ip hostname; do
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/cp /tmp/hosts.tmp /etc/hosts
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/rm /tmp/hosts.tmp
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/mv /tmp/munge.key /etc/munge/
-$USER_NAME ALL=(ALL) NOPASSWD: /bin/chown munge:munge /etc/munge/munge.key
-$USER_NAME ALL=(ALL) NOPASSWD: /bin/chmod 400 /etc/munge/munge.key
+$USER_NAME ALL=(ALL) NOPASSWD: /bin/chown *
+$USER_NAME ALL=(ALL) NOPASSWD: /bin/chmod *
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart munge
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart redis
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart mariadb
@@ -210,7 +210,6 @@ $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/dpkg --configure -a
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/apt-get update
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/apt-get install *
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/mkdir -p *
-$USER_NAME ALL=(ALL) NOPASSWD: /bin/chmod * /etc/munge/munge.key
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/sbin/gluster *
 EOF
 
