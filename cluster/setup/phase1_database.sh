@@ -28,7 +28,8 @@
 # Date: 2025-10-27
 #############################################################################
 
-set -euo pipefail
+# set -e 제거 - Auto-confirm 모드 및 일부 명령 실패 시에도 계속 진행
+set -uo pipefail
 
 #############################################################################
 # Configuration
@@ -239,13 +240,17 @@ load_config() {
         log WARNING "      root_password: <your-secure-password>"
         log WARNING "      sst_password: <your-secure-password>"
         log WARNING ""
-        if [[ "$DRY_RUN" == "false" ]]; then
+        # Auto-confirm 모드 또는 비대화형 환경에서는 자동 계속
+        if [[ "$DRY_RUN" == "false" ]] && [[ -t 0 ]]; then
+            # 대화형 환경에서만 확인 요청
             read -p "Continue with insecure defaults? (y/N): " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 log ERROR "Aborting. Please configure secure passwords first."
                 exit 1
             fi
+        else
+            log WARNING "Non-interactive mode: continuing with default passwords"
         fi
     fi
 
