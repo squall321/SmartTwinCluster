@@ -183,6 +183,7 @@ while IFS='#' read -r user_ip hostname; do
         else
             # NOPASSWD sudoers 설정 추가
             echo "🔧 NOPASSWD sudoers 설정 중..."
+            echo "   (비밀번호를 한 번 더 입력해야 합니다)"
             USER_NAME=$(echo "$user_ip" | cut -d'@' -f1)
 
             # sudoers 파일 생성 (비밀번호 입력 필요 - 마지막으로 한 번만)
@@ -210,8 +211,8 @@ $USER_NAME ALL=(ALL) NOPASSWD: /bin/mkdir -p *
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/chmod * /etc/munge/munge.key
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/sbin/gluster *"
 
-            # 원격 노드에 sudoers 파일 생성 (마지막으로 비밀번호 입력)
-            echo "$SUDOERS_CONTENT" | ssh -o StrictHostKeyChecking=no "$user_ip" "cat > /tmp/cluster-sudoers && sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'"
+            # 원격 노드에 sudoers 파일 생성 (interactive, -t로 pseudo-terminal 할당)
+            echo "$SUDOERS_CONTENT" | ssh -t -o StrictHostKeyChecking=no "$user_ip" "cat > /tmp/cluster-sudoers && sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'"
 
             if [ $? -eq 0 ]; then
                 echo "   ✅ NOPASSWD sudoers 설정 완료"
