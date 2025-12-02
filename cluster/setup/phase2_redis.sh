@@ -27,7 +27,8 @@
 # Date: 2025-10-27
 #############################################################################
 
-set -euo pipefail
+# set -e 제거 - Auto-confirm 모드 및 일부 명령 실패 시에도 계속 진행
+set -uo pipefail
 
 #############################################################################
 # Configuration
@@ -218,13 +219,17 @@ load_config() {
         log WARNING "      password: <your-secure-password>"
         log WARNING ""
         REDIS_PASSWORD="changeme"
-        if [[ "$DRY_RUN" == "false" ]]; then
+        # Auto-confirm 모드 또는 비대화형 환경에서는 자동 계속
+        if [[ "$DRY_RUN" == "false" ]] && [[ -t 0 ]]; then
+            # 대화형 환경에서만 확인 요청
             read -p "Continue with insecure default? (y/N): " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 log ERROR "Aborting. Please configure secure password first."
                 exit 1
             fi
+        else
+            log WARNING "Non-interactive mode: continuing with default password"
         fi
     fi
 
@@ -389,10 +394,17 @@ determine_redis_mode() {
         log INFO "  - Master-replica replication"
         log INFO "  - Automatic failover via Sentinel"
         log INFO "  - Simpler setup for small deployments"
+    elif [[ $TOTAL_REDIS_NODES -eq 1 ]]; then
+        MODE="standalone"
+        log INFO "1 Redis node detected → Standalone mode"
+        log INFO "Standalone mode provides:"
+        log INFO "  - Single Redis server"
+        log INFO "  - No clustering or replication"
+        log WARNING "Consider adding more Redis nodes for high availability"
     else
-        log ERROR "Need at least 2 Redis-enabled nodes"
-        log ERROR "Current Redis-enabled nodes: $TOTAL_REDIS_NODES"
-        exit 1
+        log WARNING "No Redis-enabled nodes found in config"
+        log WARNING "Setting up standalone Redis on current node"
+        MODE="standalone"
     fi
 }
 
@@ -710,12 +722,17 @@ show_cluster_status() {
         redis-cli -a "$REDIS_PASSWORD" -c CLUSTER INFO 2>/dev/null || true
         echo ""
         redis-cli -a "$REDIS_PASSWORD" -c CLUSTER NODES 2>/dev/null || true
-    else
+    elif [[ "$MODE" == "sentinel" ]]; then
         # Show replication info
         redis-cli -a "$REDIS_PASSWORD" INFO replication 2>/dev/null || true
         echo ""
         log INFO "Sentinel status:"
         redis-cli -p 26379 -a "$REDIS_PASSWORD" SENTINEL masters 2>/dev/null || true
+    else
+        # Standalone mode - show basic info
+        redis-cli -a "$REDIS_PASSWORD" INFO server 2>/dev/null | head -15 || true
+        echo ""
+        redis-cli -a "$REDIS_PASSWORD" PING 2>/dev/null && log SUCCESS "Redis is responding to PING" || true
     fi
 }
 
@@ -767,12 +784,14 @@ main() {
         deploy_to_other_controllers
     fi
 
-    # Step 11: Create cluster or setup sentinel
+    # Step 11: Create cluster or setup sentinel (skip for standalone mode)
     if [[ "$SKIP_CLUSTER" == "false" ]]; then
         if [[ "$MODE" == "cluster" ]]; then
             create_cluster
-        else
+        elif [[ "$MODE" == "sentinel" ]]; then
             setup_sentinel
+        else
+            log INFO "Standalone mode - no cluster/sentinel setup needed"
         fi
     else
         log INFO "Skipping cluster/sentinel creation (--skip-cluster flag)"
@@ -795,12 +814,18 @@ main() {
         log INFO "     redis-cli --cluster create <ip1>:6379 <ip2>:6379 ... --cluster-yes -a '$REDIS_PASSWORD'"
         log INFO "  3. Monitor cluster status: redis-cli -a '$REDIS_PASSWORD' CLUSTER INFO"
         log INFO "  4. Test with: redis-cli -c -a '$REDIS_PASSWORD' SET test 'Hello Redis Cluster'"
-    else
+    elif [[ "$MODE" == "sentinel" ]]; then
         log INFO ""
         log INFO "Next steps:"
         log INFO "  1. Test replication: redis-cli -a '$REDIS_PASSWORD' INFO replication"
         log INFO "  2. Test Sentinel: redis-cli -p 26379 -a '$REDIS_PASSWORD' SENTINEL masters"
         log INFO "  3. Test failover by stopping master node"
+    else
+        log INFO ""
+        log INFO "Standalone Redis setup complete!"
+        log INFO "Test with: redis-cli -a '$REDIS_PASSWORD' PING"
+        log INFO "Set a value: redis-cli -a '$REDIS_PASSWORD' SET test 'Hello Redis'"
+        log INFO "Get a value: redis-cli -a '$REDIS_PASSWORD' GET test"
     fi
 }
 
