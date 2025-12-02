@@ -321,21 +321,32 @@ EOF
     echo "   [3/4] NOPASSWD sudoers 설정 중..."
     scp -o BatchMode=yes -o StrictHostKeyChecking=no "$SUDOERS_TMP" "$user_ip:/tmp/cluster-sudoers" > /dev/null 2>&1
 
+    # sudoers 설치 명령어 (sudo bash -c 안에서 실행되므로 내부에서 sudo 불필요)
+    # 소유권: root:root, 권한: 440 필수
+    SUDOERS_INSTALL_CMD='visudo -c -f /tmp/cluster-sudoers && cp /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chown root:root /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation && rm -f /tmp/cluster-sudoers'
+
     # sshpass가 있으면 사용, 없으면 일반 ssh 사용
+    SUDOERS_OK=false
     if [ "$USE_SSHPASS" = true ]; then
-        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-            "echo '$PASSWORD' | sudo -S bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'" > /dev/null 2>&1
+        if sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null; then
+            SUDOERS_OK=true
+        fi
     else
         # 이미 sudoers가 설정되어 있을 수 있으므로 BatchMode로 먼저 시도
-        if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
-            "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'" > /dev/null 2>&1; then
+        if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
+            "sudo bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null; then
+            SUDOERS_OK=true
+        else
             # 실패하면 interactive로 재시도
-            ssh -t -o StrictHostKeyChecking=no "$user_ip" \
-                "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'" 2>/dev/null
+            if ssh -t -o StrictHostKeyChecking=no "$user_ip" \
+                "sudo bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null; then
+                SUDOERS_OK=true
+            fi
         fi
     fi
 
-    if [ $? -eq 0 ]; then
+    if [ "$SUDOERS_OK" = true ]; then
         echo "   ✅ NOPASSWD sudoers 설정 완료"
     else
         echo "   ⚠️  sudoers 설정 실패"
@@ -348,15 +359,23 @@ EOF
     echo "   [4/4] /etc/hosts 파일 배포 중..."
     scp -o BatchMode=yes -o StrictHostKeyChecking=no /etc/hosts "$user_ip:/tmp/hosts.tmp" > /dev/null 2>&1
 
+    HOSTS_OK=false
+    HOSTS_INSTALL_CMD='cp /tmp/hosts.tmp /etc/hosts && rm -f /tmp/hosts.tmp'
+
     if [ "$USE_SSHPASS" = true ]; then
-        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-            "echo '$PASSWORD' | sudo -S cp /tmp/hosts.tmp /etc/hosts && rm /tmp/hosts.tmp" > /dev/null 2>&1
+        if sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null; then
+            HOSTS_OK=true
+        fi
     else
-        ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
-            "sudo cp /tmp/hosts.tmp /etc/hosts && rm /tmp/hosts.tmp" > /dev/null 2>&1
+        # sudoers가 설정되어 있으면 BatchMode로 성공
+        if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
+            "sudo bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null; then
+            HOSTS_OK=true
+        fi
     fi
 
-    if [ $? -eq 0 ]; then
+    if [ "$HOSTS_OK" = true ]; then
         echo "   ✅ /etc/hosts 배포 완료"
     else
         echo "   ⚠️  /etc/hosts 배포 실패"
