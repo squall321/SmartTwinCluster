@@ -167,8 +167,8 @@ while IFS='#' read -r user_ip hostname; do
     echo "📤 $hostname ($user_ip)"
     echo "----------------------------------------"
 
-    # ssh-copy-id로 공개키 복사
-    ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null
+    # ssh-copy-id로 공개키 복사 (stdin을 /dev/tty로 리다이렉트하여 루프 입력 보호)
+    ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" < /dev/tty 2>/dev/null
 
     if [ $? -eq 0 ]; then
         echo "✅ $hostname: 공개키 복사 완료"
