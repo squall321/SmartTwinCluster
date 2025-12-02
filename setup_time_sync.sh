@@ -3,11 +3,58 @@
 # 시간 동기화 자동 설정 스크립트
 # YAML 설정 기반 chrony/systemd-timesyncd 자동 구성
 # Munge 인증에 필수 (노드 간 ±2분 이내 동기화 필요)
+#
+# 오프라인 환경 지원:
+#   - chrony가 이미 설치된 경우 설정만 변경
+#   - chrony 미설치 시 systemd-timesyncd 사용 (기본 설치됨)
+#   - 헤드노드를 NTP 서버로 사용 가능
 ################################################################################
 
-set -e
-
 CONFIG_FILE="${1:-my_cluster.yaml}"
+
+# --help 옵션
+if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+    cat << 'EOF'
+================================================================================
+🕐 시간 동기화 설정 스크립트
+================================================================================
+
+사용법:
+    ./setup_time_sync.sh [CONFIG_FILE]
+    sudo bash setup_time_sync.sh [CONFIG_FILE]
+
+옵션:
+    -h, --help      이 도움말 표시
+    CONFIG_FILE     YAML 설정 파일 (기본값: my_cluster.yaml)
+
+원격 노드 설정 (오프라인 환경):
+    scp setup_time_sync.sh my_cluster.yaml node001:/tmp/
+    ssh node001 'cd /tmp && sudo bash setup_time_sync.sh my_cluster.yaml'
+
+YAML 설정 예시 (오프라인 - 헤드노드를 NTP 서버로):
+    time_synchronization:
+      enabled: true
+      timezone: Asia/Seoul
+      ntp_servers:
+        - 192.168.1.1        # 헤드노드 IP (오프라인 환경)
+        - head-node          # 또는 헤드노드 호스트명
+
+YAML 설정 예시 (온라인):
+    time_synchronization:
+      enabled: true
+      timezone: Asia/Seoul
+      ntp_servers:
+        - time.google.com
+        - pool.ntp.org
+
+오프라인 환경 주의사항:
+    - chrony가 미설치된 경우 systemd-timesyncd 사용 (Ubuntu 기본)
+    - 헤드노드에서 먼저 실행하여 NTP 서버로 설정
+    - 계산노드는 헤드노드 IP를 ntp_servers에 설정
+
+EOF
+    exit 0
+fi
 
 # 색상 정의
 RED='\033[0;31m'
@@ -133,53 +180,82 @@ CHRONY_EOF
 generate_timesyncd_conf() {
     echo "[Time]"
     echo "NTP=${NTP_SERVERS[*]}"
-    echo "FallbackNTP=pool.ntp.org"
+    # 오프라인 환경에서는 FallbackNTP도 설정된 서버 사용
+    if [ ${#NTP_SERVERS[@]} -gt 1 ]; then
+        echo "FallbackNTP=${NTP_SERVERS[1]}"
+    else
+        echo "FallbackNTP=${NTP_SERVERS[0]}"
+    fi
 }
 
-# 우분투에서 chrony 사용 (더 정확함)
+# 우분투에서 chrony 또는 systemd-timesyncd 사용
 if command -v apt-get &> /dev/null; then
-    echo "   Ubuntu 감지 - chrony 설치 중..."
+    echo "   Ubuntu 감지됨"
 
-    # chrony 설치
-    if ! dpkg -l chrony 2>/dev/null | grep -q "^ii"; then
-        sudo apt-get update -qq
-        sudo apt-get install -y chrony > /dev/null 2>&1
+    # chrony가 이미 설치되어 있는지 확인
+    if dpkg -l chrony 2>/dev/null | grep -q "^ii"; then
+        echo "   chrony가 설치됨 - 설정 적용 중..."
+        generate_chrony_conf | sudo tee /etc/chrony/chrony.conf > /dev/null
+
+        sudo systemctl restart chrony 2>/dev/null && sudo systemctl enable chrony 2>/dev/null
+        sudo systemctl stop systemd-timesyncd 2>/dev/null || true
+        sudo systemctl disable systemd-timesyncd 2>/dev/null || true
+
+        echo -e "${GREEN}✅ chrony 설정 완료${NC}"
+
+    # chrony 미설치 - 온라인이면 설치 시도
+    elif ping -c 1 -W 2 archive.ubuntu.com &>/dev/null 2>&1; then
+        echo "   온라인 환경 - chrony 설치 중..."
+        sudo apt-get update -qq 2>/dev/null
+        if sudo apt-get install -y chrony > /dev/null 2>&1; then
+            generate_chrony_conf | sudo tee /etc/chrony/chrony.conf > /dev/null
+            sudo systemctl restart chrony && sudo systemctl enable chrony
+            sudo systemctl stop systemd-timesyncd 2>/dev/null || true
+            sudo systemctl disable systemd-timesyncd 2>/dev/null || true
+            echo -e "${GREEN}✅ chrony 설치 및 설정 완료${NC}"
+        else
+            echo -e "${YELLOW}⚠️  chrony 설치 실패 - systemd-timesyncd 사용${NC}"
+            generate_timesyncd_conf | sudo tee /etc/systemd/timesyncd.conf > /dev/null
+            sudo systemctl restart systemd-timesyncd 2>/dev/null
+            sudo systemctl enable systemd-timesyncd 2>/dev/null
+        fi
+
+    # 오프라인 환경 - systemd-timesyncd 사용 (Ubuntu 기본 설치됨)
+    else
+        echo -e "${YELLOW}⚠️  오프라인 환경 - systemd-timesyncd 사용 (chrony 미설치)${NC}"
+        generate_timesyncd_conf | sudo tee /etc/systemd/timesyncd.conf > /dev/null
+
+        # systemd-timesyncd 재시작
+        if sudo systemctl restart systemd-timesyncd 2>/dev/null; then
+            sudo systemctl enable systemd-timesyncd 2>/dev/null
+            echo -e "${GREEN}✅ systemd-timesyncd 설정 완료${NC}"
+        else
+            # timedatectl로 NTP 활성화 시도
+            echo "   systemd-timesyncd 재시작 실패 - timedatectl 사용"
+            sudo timedatectl set-ntp true 2>/dev/null || true
+            echo -e "${YELLOW}⚠️  timedatectl로 NTP 활성화 시도함${NC}"
+        fi
     fi
-
-    # chrony 설정
-    echo "   chrony 설정 생성 중..."
-    generate_chrony_conf | sudo tee /etc/chrony/chrony.conf > /dev/null
-
-    # 서비스 재시작
-    sudo systemctl restart chrony
-    sudo systemctl enable chrony
-
-    # systemd-timesyncd 비활성화 (충돌 방지)
-    sudo systemctl stop systemd-timesyncd 2>/dev/null || true
-    sudo systemctl disable systemd-timesyncd 2>/dev/null || true
-
-    echo -e "${GREEN}✅ chrony 설정 완료${NC}"
 
 # RHEL/CentOS
 elif command -v yum &> /dev/null; then
-    echo "   RHEL/CentOS 감지 - chrony 설치 중..."
+    echo "   RHEL/CentOS 감지됨"
 
-    if ! rpm -q chrony &>/dev/null; then
-        sudo yum install -y chrony > /dev/null 2>&1
+    if rpm -q chrony &>/dev/null; then
+        echo "   chrony가 설치됨 - 설정 적용 중..."
+        generate_chrony_conf | sudo tee /etc/chrony.conf > /dev/null
+        sudo systemctl restart chronyd 2>/dev/null && sudo systemctl enable chronyd 2>/dev/null
+        echo -e "${GREEN}✅ chronyd 설정 완료${NC}"
+    else
+        echo -e "${YELLOW}⚠️  chrony 미설치 - 수동 설치 필요${NC}"
+        echo "   sudo yum install -y chrony"
     fi
 
-    generate_chrony_conf | sudo tee /etc/chrony.conf > /dev/null
-
-    sudo systemctl restart chronyd
-    sudo systemctl enable chronyd
-
-    echo -e "${GREEN}✅ chronyd 설정 완료${NC}"
 else
     echo -e "${YELLOW}⚠️  알 수 없는 배포판 - systemd-timesyncd 사용${NC}"
-
     generate_timesyncd_conf | sudo tee /etc/systemd/timesyncd.conf > /dev/null
-    sudo systemctl restart systemd-timesyncd
-    sudo systemctl enable systemd-timesyncd
+    sudo systemctl restart systemd-timesyncd 2>/dev/null || true
+    sudo systemctl enable systemd-timesyncd 2>/dev/null || true
 fi
 
 echo ""
