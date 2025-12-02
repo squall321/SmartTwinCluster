@@ -233,17 +233,40 @@ install_redis() {
 
     log INFO "Installing Redis..."
 
-    case $OS in
-        ubuntu|debian)
-            run_command "apt-get update"
-            run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server redis-tools"
-            ;;
-        centos|rhel|rocky|almalinux)
-            run_command "yum install -y redis"
-            ;;
-    esac
+    # Check for offline packages first
+    local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
+    local redis_deb="$offline_pkgs/redis-server_*.deb"
 
-    log SUCCESS "Redis installed successfully"
+    if [[ -d "$offline_pkgs" ]] && compgen -G "$redis_deb" > /dev/null 2>&1; then
+        log INFO "Found offline packages, installing from local .deb files..."
+
+        if [[ "$DRY_RUN" == "false" ]]; then
+            # Install Redis packages from offline directory
+            sudo dpkg -i "$offline_pkgs"/redis-*.deb "$offline_pkgs"/libjemalloc*.deb 2>/dev/null || true
+
+            # Fix any dependency issues
+            sudo dpkg --configure -a 2>/dev/null || true
+
+            log SUCCESS "Redis installed from offline packages"
+        else
+            log INFO "[DRY-RUN] Would install Redis from offline packages"
+        fi
+    else
+        # Online installation fallback
+        log INFO "No offline packages found, installing online..."
+
+        case $OS in
+            ubuntu|debian)
+                run_command "apt-get update"
+                run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server redis-tools"
+                ;;
+            centos|rhel|rocky|almalinux)
+                run_command "yum install -y redis"
+                ;;
+        esac
+
+        log SUCCESS "Redis installed successfully (online)"
+    fi
 }
 
 discover_active_nodes() {
