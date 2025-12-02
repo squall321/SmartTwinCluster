@@ -92,19 +92,18 @@ echo ""
 # SSH 키 확인 및 생성 (먼저!)
 SSH_KEY="$HOME/.ssh/id_rsa"
 
+# ~/.ssh 디렉토리 확인 및 생성
+if [ ! -d "$HOME/.ssh" ]; then
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+fi
+
 if [ ! -f "$SSH_KEY" ]; then
     echo "🔑 SSH 키가 없습니다. 새로 생성합니다..."
     echo ""
-    read -p "SSH 키 비밀번호를 설정하시겠습니까? (비밀번호 없이 하려면 그냥 Enter) (y/N): " -n 1 -r
-    echo
 
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        # 비밀번호 있는 키
-        ssh-keygen -t rsa -b 4096 -C "slurm-cluster-key"
-    else
-        # 비밀번호 없는 키 (권장)
-        ssh-keygen -t rsa -b 4096 -C "slurm-cluster-key" -N ""
-    fi
+    # 비밀번호 없는 키로 자동 생성 (권장)
+    ssh-keygen -t rsa -b 4096 -f "$SSH_KEY" -C "slurm-cluster-key" -N ""
 
     if [ $? -eq 0 ]; then
         echo "✅ SSH 키 생성 완료: $SSH_KEY"
@@ -214,15 +213,17 @@ $USER_NAME ALL=(ALL) NOPASSWD: /usr/sbin/gluster *
 EOF
 
             # sudoers 파일을 원격 노드에 복사
-            scp -o BatchMode=yes -o StrictHostKeyChecking=no "$SUDOERS_TMP" "$user_ip:/tmp/cluster-sudoers" 2>/dev/null
+            if scp -o BatchMode=yes -o StrictHostKeyChecking=no "$SUDOERS_TMP" "$user_ip:/tmp/cluster-sudoers" 2>/dev/null; then
+                # 원격 노드에서 sudoers 파일 설치 (stdin은 이제 자유로움)
+                ssh -t -o StrictHostKeyChecking=no "$user_ip" "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'"
 
-            # 원격 노드에서 sudoers 파일 설치 (stdin은 이제 자유로움)
-            ssh -t -o StrictHostKeyChecking=no "$user_ip" "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'"
-
-            if [ $? -eq 0 ]; then
-                echo "   ✅ NOPASSWD sudoers 설정 완료"
+                if [ $? -eq 0 ]; then
+                    echo "   ✅ NOPASSWD sudoers 설정 완료"
+                else
+                    echo "   ⚠️  sudoers 설정 실패 - sudo 실행 실패"
+                fi
             else
-                echo "   ⚠️  sudoers 설정 실패 (일부 명령에 비밀번호 필요할 수 있음)"
+                echo "   ⚠️  sudoers 설정 실패 - scp 실패 (SSH 연결 확인 필요)"
             fi
 
             # 로컬 임시 파일 삭제
@@ -230,13 +231,14 @@ EOF
 
             # /etc/hosts 파일 복사 (이제 NOPASSWD로 작동)
             echo "🔧 /etc/hosts 파일 배포 중..."
-            scp -o BatchMode=yes -o StrictHostKeyChecking=no /etc/hosts "$user_ip:/tmp/hosts.tmp" 2>/dev/null
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" "sudo cp /tmp/hosts.tmp /etc/hosts && sudo rm /tmp/hosts.tmp" 2>/dev/null
-
-            if [ $? -eq 0 ]; then
-                echo "   ✅ /etc/hosts 배포 완료"
+            if scp -o BatchMode=yes -o StrictHostKeyChecking=no /etc/hosts "$user_ip:/tmp/hosts.tmp" 2>/dev/null; then
+                if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" "sudo cp /tmp/hosts.tmp /etc/hosts && sudo rm /tmp/hosts.tmp" 2>/dev/null; then
+                    echo "   ✅ /etc/hosts 배포 완료"
+                else
+                    echo "   ⚠️  /etc/hosts 배포 실패 - sudo cp 실패 (sudoers 설정 확인 필요)"
+                fi
             else
-                echo "   ⚠️  /etc/hosts 배포 실패 (수동으로 복사 필요)"
+                echo "   ⚠️  /etc/hosts 배포 실패 - scp 실패 (SSH 연결 확인 필요)"
             fi
         fi
     else
