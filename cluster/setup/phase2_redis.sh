@@ -114,7 +114,20 @@ run_command() {
         log INFO "[DRY-RUN] Would execute: $cmd"
         return 0
     else
-        eval "$cmd"
+        # Use bash -c instead of eval for better security
+        bash -c "$cmd"
+    fi
+}
+
+# SSH options for secure remote connections
+SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
+SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
+
+# Pre-populate known_hosts for security
+populate_known_hosts() {
+    local ip="$1"
+    if [[ -n "$ip" ]]; then
+        ssh-keyscan -H "$ip" >> ~/.ssh/known_hosts 2>/dev/null || true
     fi
 }
 
@@ -189,8 +202,31 @@ load_config() {
     # Get cluster name
     CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster.name 2>/dev/null || echo "multihead_cluster")
 
-    # Get Redis-specific config
-    REDIS_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cache.redis.password 2>/dev/null || echo "changeme")
+    # Get Redis-specific config with validation
+    REDIS_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cache.redis.password 2>/dev/null)
+
+    # Validate password - warn if using insecure default
+    if [[ -z "$REDIS_PASSWORD" || "$REDIS_PASSWORD" == "changeme" ]]; then
+        log WARNING "⚠️  cache.redis.password is not set or uses insecure default!"
+        log WARNING "   Please set a secure password in $CONFIG_FILE"
+        log WARNING "   Using 'changeme' as fallback - NOT RECOMMENDED FOR PRODUCTION"
+        log WARNING ""
+        log WARNING "=== SECURITY NOTICE ==="
+        log WARNING "Add the following to your YAML config:"
+        log WARNING "  cache:"
+        log WARNING "    redis:"
+        log WARNING "      password: <your-secure-password>"
+        log WARNING ""
+        REDIS_PASSWORD="changeme"
+        if [[ "$DRY_RUN" == "false" ]]; then
+            read -p "Continue with insecure default? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log ERROR "Aborting. Please configure secure password first."
+                exit 1
+            fi
+        fi
+    fi
 
     log SUCCESS "Configuration loaded successfully"
 }
@@ -232,6 +268,36 @@ install_redis() {
     fi
 
     log INFO "Installing Redis..."
+
+    # Pre-create redis user with specific UID/GID if configured in YAML
+    # This ensures consistent UID/GID across all nodes for NFS compatibility
+    local redis_uid=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cache.redis.redis_uid 2>/dev/null)
+    local redis_gid=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cache.redis.redis_gid 2>/dev/null)
+
+    if [[ -n "$redis_uid" && -n "$redis_gid" ]]; then
+        log INFO "Pre-creating redis user with UID=$redis_uid, GID=$redis_gid"
+        if [[ "$DRY_RUN" == "false" ]]; then
+            # Create group first if it doesn't exist
+            if ! getent group redis > /dev/null 2>&1; then
+                groupadd -g "$redis_gid" redis
+            fi
+            # Create user if it doesn't exist
+            if ! id redis > /dev/null 2>&1; then
+                useradd -r -u "$redis_uid" -g "$redis_gid" -d /var/lib/redis -s /sbin/nologin redis
+            else
+                log INFO "redis user already exists, skipping creation"
+            fi
+        else
+            log INFO "[DRY-RUN] Would create redis user with UID=$redis_uid, GID=$redis_gid"
+        fi
+    else
+        log INFO "No custom redis UID/GID configured, will use system defaults"
+        log INFO "💡 To set consistent UID/GID across nodes, add to YAML:"
+        log INFO "   cache:"
+        log INFO "     redis:"
+        log INFO "       redis_uid: 998"
+        log INFO "       redis_gid: 998"
+    fi
 
     # Check for offline packages first
     local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
@@ -421,6 +487,9 @@ start_redis() {
 deploy_to_other_controllers() {
     log INFO "Deploying Redis to other controllers..."
 
+    # Track failed nodes for summary
+    local -a FAILED_NODES=()
+
     # Get SSH user from config
     local ssh_user=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get nodes.controllers[0].ssh_user 2>/dev/null || echo "root")
 
@@ -449,26 +518,39 @@ deploy_to_other_controllers() {
         node_count=$((node_count + 1))
         log INFO "Deploying to $hostname ($ip)..."
 
+        # Pre-populate known_hosts for security
+        populate_known_hosts "$ip"
+
         # Test SSH connection (BatchMode prevents password prompts)
-        if ! ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
+        if ! ssh $SSH_OPTS "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
             log WARNING "Cannot connect to $hostname ($ip) via SSH key authentication"
             log WARNING "Please run: ./setup_ssh_passwordless.sh to configure SSH keys"
+            FAILED_NODES+=("$hostname ($ip): SSH connection failed")
             continue
         fi
 
-        # Copy phase2_redis.sh to remote node
-        if ! scp -o BatchMode=yes -o StrictHostKeyChecking=no "$0" "$ssh_user@$ip:/tmp/phase2_redis.sh" > /dev/null 2>&1; then
+        # Copy phase2_redis.sh and config file to remote node
+        if ! scp $SCP_OPTS "$0" "$ssh_user@$ip:/tmp/phase2_redis.sh" > /dev/null 2>&1; then
             log WARNING "Failed to copy script to $hostname"
+            FAILED_NODES+=("$hostname ($ip): Script copy failed")
+            continue
+        fi
+
+        # Copy config file to remote node
+        if ! scp $SCP_OPTS "$CONFIG_FILE" "$ssh_user@$ip:/tmp/cluster_config.yaml" > /dev/null 2>&1; then
+            log WARNING "Failed to copy config to $hostname"
+            FAILED_NODES+=("$hostname ($ip): Config copy failed")
             continue
         fi
 
         # Execute on remote node (without cluster creation)
         log INFO "Installing Redis on $hostname..."
-        if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$ssh_user@$ip" \
-            "cd '$SCRIPT_DIR' && sudo bash /tmp/phase2_redis.sh --config '$CONFIG_FILE' --skip-cluster" > /dev/null 2>&1; then
+        if ssh $SSH_OPTS "$ssh_user@$ip" \
+            "sudo bash /tmp/phase2_redis.sh --config /tmp/cluster_config.yaml --skip-cluster" 2>&1; then
             log SUCCESS "$hostname: Redis installed"
         else
             log WARNING "$hostname: Redis installation failed"
+            FAILED_NODES+=("$hostname ($ip): Installation failed")
         fi
 
     done < <(echo "$REDIS_CONTROLLERS" | jq -c '.[]')
@@ -478,6 +560,16 @@ deploy_to_other_controllers() {
         # Wait for all nodes to be ready
         log INFO "Waiting 10 seconds for all Redis nodes to start..."
         sleep 10
+    fi
+
+    # Report failed nodes summary
+    if [[ ${#FAILED_NODES[@]} -gt 0 ]]; then
+        log ERROR "=== FAILED NODES SUMMARY ==="
+        for failed in "${FAILED_NODES[@]}"; do
+            log ERROR "  - $failed"
+        done
+        log ERROR "Please check these nodes manually and re-run setup"
+        return 1
     fi
 }
 

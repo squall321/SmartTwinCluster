@@ -8,7 +8,8 @@ echo "🔄 install_munge_auto.sh 즉시 교체"
 echo "================================================================================"
 echo ""
 
-cd /home/koopark/claude/KooSlurmInstallAutomationRefactory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 # 백업
 if [ -f "install_munge_auto.sh" ]; then

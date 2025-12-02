@@ -11,6 +11,101 @@ SLURM_DOWNLOAD_URL="https://download.schedmd.com/slurm/slurm-${SLURM_VERSION}.ta
 INSTALL_PREFIX="/usr/local/slurm"
 CONFIG_DIR="/usr/local/slurm/etc"
 
+################################################################################
+# YAML 설정에서 UID/GID 읽기 (일관성 유지)
+################################################################################
+CONFIG_FILE="${1:-my_cluster.yaml}"
+
+# 기본값 (YAML에서 못 읽을 경우)
+SLURM_UID=1001
+SLURM_GID=1001
+MUNGE_UID=1002
+MUNGE_GID=1002
+
+# YAML에서 UID/GID 읽기 함수
+read_uid_gid_from_yaml() {
+    local yaml_file="$1"
+    if [ -f "$yaml_file" ]; then
+        # Python으로 YAML 파싱 시도
+        if python3 -c "import yaml" 2>/dev/null; then
+            # YAML에 slurm 섹션과 UID/GID가 정의되어 있는지 확인
+            local has_uid=$(python3 -c "
+import yaml
+with open('$yaml_file') as f:
+    c = yaml.safe_load(f)
+slurm = c.get('slurm', {})
+print('yes' if 'slurm_uid' in slurm else 'no')
+" 2>/dev/null)
+
+            SLURM_UID=$(python3 -c "
+import yaml
+try:
+    with open('$yaml_file') as f:
+        c = yaml.safe_load(f)
+    print(c.get('slurm', {}).get('slurm_uid', 1001))
+except: print(1001)
+" 2>/dev/null)
+            SLURM_GID=$(python3 -c "
+import yaml
+try:
+    with open('$yaml_file') as f:
+        c = yaml.safe_load(f)
+    print(c.get('slurm', {}).get('slurm_gid', 1001))
+except: print(1001)
+" 2>/dev/null)
+            MUNGE_UID=$(python3 -c "
+import yaml
+try:
+    with open('$yaml_file') as f:
+        c = yaml.safe_load(f)
+    print(c.get('slurm', {}).get('munge_uid', 1002))
+except: print(1002)
+" 2>/dev/null)
+            MUNGE_GID=$(python3 -c "
+import yaml
+try:
+    with open('$yaml_file') as f:
+        c = yaml.safe_load(f)
+    print(c.get('slurm', {}).get('munge_gid', 1002))
+except: print(1002)
+" 2>/dev/null)
+
+            if [ "$has_uid" = "yes" ]; then
+                echo "✅ YAML에서 UID/GID 로드: slurm=$SLURM_UID:$SLURM_GID, munge=$MUNGE_UID:$MUNGE_GID"
+            else
+                echo "⚠️  YAML에 UID/GID 미정의 - 기본값 사용: slurm=$SLURM_UID:$SLURM_GID, munge=$MUNGE_UID:$MUNGE_GID"
+                echo "   💡 YAML에 다음을 추가하면 커스텀 UID/GID 사용 가능:"
+                echo "      slurm:"
+                echo "        slurm_uid: 1001"
+                echo "        slurm_gid: 1001"
+                echo "        munge_uid: 1002"
+                echo "        munge_gid: 1002"
+            fi
+        else
+            echo "⚠️  Python yaml 모듈 없음 - 기본값 사용: slurm=$SLURM_UID:$SLURM_GID"
+        fi
+    else
+        echo "⚠️  설정 파일 없음 ($yaml_file) - 기본값 사용: slurm=$SLURM_UID:$SLURM_GID"
+    fi
+}
+
+# UID 사용 여부 확인 함수
+check_uid_available() {
+    local uid=$1
+    local username=$2
+    if getent passwd "$uid" >/dev/null 2>&1; then
+        local existing_user=$(getent passwd "$uid" | cut -d: -f1)
+        if [ "$existing_user" != "$username" ]; then
+            echo "❌ UID $uid가 이미 '$existing_user' 사용자에게 할당됨!"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# YAML에서 UID/GID 읽기
+read_uid_gid_from_yaml "$CONFIG_FILE"
+
 echo "================================================================================"
 echo "🚀 Slurm ${SLURM_VERSION} with cgroup v2 Support Installation"
 echo "================================================================================"
@@ -69,13 +164,27 @@ echo ""
 
 echo "👤 Step 2/7: Slurm 사용자 생성..."
 echo "--------------------------------------------------------------------------------"
+echo "   사용할 UID/GID: slurm=$SLURM_UID:$SLURM_GID, munge=$MUNGE_UID:$MUNGE_GID"
+
+# UID 충돌 검사
+if ! check_uid_available "$SLURM_UID" "slurm"; then
+    echo "❌ UID 충돌! 다른 UID를 YAML 설정에서 지정하세요."
+    exit 1
+fi
 
 if ! id slurm &>/dev/null; then
-    sudo groupadd -g 1001 slurm
-    sudo useradd -u 1001 -g 1001 -m -s /bin/bash slurm
-    echo "✅ slurm 사용자 생성 완료"
+    sudo groupadd -g "$SLURM_GID" slurm 2>/dev/null || true
+    sudo useradd -u "$SLURM_UID" -g "$SLURM_GID" -m -s /bin/bash slurm
+    echo "✅ slurm 사용자 생성 완료 (UID=$SLURM_UID, GID=$SLURM_GID)"
 else
-    echo "ℹ️  slurm 사용자가 이미 존재합니다"
+    # 기존 사용자의 UID 확인
+    existing_uid=$(id -u slurm)
+    if [ "$existing_uid" != "$SLURM_UID" ]; then
+        echo "⚠️  slurm 사용자가 다른 UID($existing_uid)로 존재합니다 (설정값: $SLURM_UID)"
+        echo "   NFS 공유 시 권한 문제가 발생할 수 있습니다!"
+    else
+        echo "ℹ️  slurm 사용자가 이미 존재합니다 (UID=$existing_uid)"
+    fi
 fi
 
 echo ""
@@ -199,6 +308,13 @@ else
     echo "❌ 설치 실패"
     exit 1
 fi
+
+# ldconfig 설정 (동적 라이브러리 캐시 갱신)
+echo ""
+echo "🔗 라이브러리 캐시 갱신 중..."
+echo "/usr/local/slurm/lib" | sudo tee /etc/ld.so.conf.d/slurm.conf > /dev/null
+sudo ldconfig
+echo "✅ ldconfig 완료"
 
 echo ""
 

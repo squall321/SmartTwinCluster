@@ -278,10 +278,41 @@ load_config() {
     DOMAIN=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('cluster_info', {}).get('domain', 'hpc.local'))")
     DB_VIP=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('vip', ''))" || echo "")
     DB_USER=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('mariadb', {}).get('user', 'hpcadmin'))")
-    DB_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('mariadb', {}).get('root_password', 'changeme'))")
-    REDIS_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('redis', {}).get('password', 'changeme'))")
-    SESSION_SECRET=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('session_secret', 'change-this-secret'))")
-    JWT_SECRET=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('jwt_secret', 'change-this-jwt-secret'))")
+    DB_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('mariadb', {}).get('root_password', ''))")
+    REDIS_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('redis', {}).get('password', ''))")
+    SESSION_SECRET=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('session_secret', ''))")
+    JWT_SECRET=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('jwt_secret', ''))")
+
+    # Validate security-sensitive configurations
+    local config_warnings=false
+    if [[ -z "$DB_PASSWORD" || "$DB_PASSWORD" == "changeme" ]]; then
+        log_warning "⚠️  database.mariadb.root_password not set - using insecure default"
+        DB_PASSWORD="changeme"
+        config_warnings=true
+    fi
+    if [[ -z "$REDIS_PASSWORD" || "$REDIS_PASSWORD" == "changeme" ]]; then
+        log_warning "⚠️  redis.password not set - using insecure default"
+        REDIS_PASSWORD="changeme"
+        config_warnings=true
+    fi
+    if [[ -z "$SESSION_SECRET" || "$SESSION_SECRET" == "change-this-secret" ]]; then
+        log_warning "⚠️  web_services.session_secret not set - using insecure default"
+        SESSION_SECRET="change-this-secret"
+        config_warnings=true
+    fi
+    if [[ -z "$JWT_SECRET" || "$JWT_SECRET" == "change-this-jwt-secret" ]]; then
+        log_warning "⚠️  web_services.jwt_secret not set - using insecure default"
+        JWT_SECRET="change-this-jwt-secret"
+        config_warnings=true
+    fi
+
+    if [[ "$config_warnings" == "true" && "$DRY_RUN" == "false" ]]; then
+        log_warning ""
+        log_warning "=== SECURITY NOTICE ==="
+        log_warning "Some security settings are using insecure defaults."
+        log_warning "Please configure proper secrets in $CONFIG_PATH"
+        log_warning ""
+    fi
 
     # Get all web controllers for upstream configuration
     WEB_CONTROLLERS=$(echo "$config_json" | jq -r '.[] | "\(.ip_address):\(.hostname)"')
@@ -683,6 +714,7 @@ setup_auth_portal_groups() {
 
 # Function to configure SAML IdP users for development
 # Updates users.json in saml_idp_7000 with new group names
+# Reads users from YAML config: web_services.saml.users[]
 setup_saml_idp_users() {
     local dashboard_dir=$1
 
@@ -700,119 +732,167 @@ setup_saml_idp_users() {
         cp "$users_file" "$users_file.backup_$(date +%Y%m%d_%H%M%S)"
         log_info "Users file backed up"
 
-        # Create new users.json with updated groups
-        cat > "$users_file" << 'EOF'
-{
-  "dx_user@hpc.local": {
-    "password": "password123",
-    "email": "dx_user@hpc.local",
-    "userName": "dx_user",
-    "firstName": "DX",
-    "lastName": "사용자",
-    "displayName": "DX 사용자",
-    "groups": ["DX-Users"],
-    "department": "디지털전환팀"
-  },
-  "caeg_user@hpc.local": {
-    "password": "password123",
-    "email": "caeg_user@hpc.local",
-    "userName": "caeg_user",
-    "firstName": "CAEG",
-    "lastName": "사용자",
-    "displayName": "CAEG 사용자",
-    "groups": ["CAEG-Users"],
-    "department": "CAE해석팀"
-  },
-  "koopark@hpc.local": {
-    "password": "admin123",
-    "email": "koopark@hpc.local",
-    "userName": "koopark",
-    "firstName": "Kook Jin",
-    "lastName": "Park",
-    "displayName": "박국진 관리자",
-    "groups": ["HPC-Admins"],
-    "department": "IT관리팀"
-  },
-  "admin@hpc.local": {
-    "password": "admin123",
-    "email": "admin@hpc.local",
-    "userName": "admin",
-    "firstName": "시스템",
-    "lastName": "관리자",
-    "displayName": "시스템 관리자",
-    "groups": ["HPC-Admins"],
-    "department": "IT관리팀"
-  }
-}
-EOF
+        # Read SAML users from YAML config, generate JSON
+        # If not defined in YAML, use secure random passwords
+        local saml_users_json
+        saml_users_json=$(python3 << EOFPY
+import yaml
+import json
+import secrets
+import string
+
+def generate_secure_password(length=16):
+    """Generate a secure random password"""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+try:
+    with open('$CONFIG_PATH') as f:
+        config = yaml.safe_load(f)
+
+    domain = config.get('cluster_info', {}).get('domain', 'hpc.local')
+    saml_config = config.get('web_services', {}).get('saml', {})
+    users = saml_config.get('users', [])
+
+    if not users:
+        # No users defined - create default admin with secure random password
+        admin_password = generate_secure_password()
+        print(f"⚠️  YAML에 SAML 유저가 정의되지 않아 기본 admin 계정 생성", file=__import__('sys').stderr)
+        print(f"   admin@{domain} 비밀번호: {admin_password}", file=__import__('sys').stderr)
+        users = [{
+            'username': 'admin',
+            'password': admin_password,
+            'first_name': 'System',
+            'last_name': 'Admin',
+            'display_name': 'System Administrator',
+            'groups': ['HPC-Admins'],
+            'department': 'IT'
+        }]
+
+    result = {}
+    for user in users:
+        username = user.get('username', 'user')
+        email = f"{username}@{domain}"
+        # Use password from YAML or generate secure one
+        password = user.get('password')
+        if not password or password in ['changeme', 'password123', 'admin123']:
+            password = generate_secure_password()
+            print(f"⚠️  {username}: 보안 비밀번호 자동생성됨 (YAML에 안전한 비밀번호 설정 권장)", file=__import__('sys').stderr)
+
+        result[email] = {
+            'password': password,
+            'email': email,
+            'userName': username,
+            'firstName': user.get('first_name', username),
+            'lastName': user.get('last_name', 'User'),
+            'displayName': user.get('display_name', username),
+            'groups': user.get('groups', ['Users']),
+            'department': user.get('department', 'General')
+        }
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+except Exception as e:
+    print(f"Error: {e}", file=__import__('sys').stderr)
+    exit(1)
+EOFPY
+)
+        if [[ $? -ne 0 ]]; then
+            log_error "Failed to generate SAML users from YAML config"
+            log_warning "Check web_services.saml.users in $CONFIG_PATH"
+            return 1
+        fi
+
+        # Write users.json
+        echo "$saml_users_json" > "$users_file"
 
         # Create config.js for saml-idp (JavaScript format required)
+        # Generate dynamically from YAML config
         local config_js="$dashboard_dir/saml_idp_7000/config.js"
-        cat > "$config_js" << 'EOF'
-/**
- * SAML IdP Configuration File
- * User database for authentication
- */
+        python3 << EOFPY > "$config_js"
+import yaml
+import json
+import secrets
+import string
 
-module.exports = {
-  user: {
-    "koopark@hpc.local": {
-      password: "admin123",
-      email: "koopark@hpc.local",
-      userName: "koopark",
-      firstName: "Kook Jin",
-      lastName: "Park",
-      displayName: "박국진 관리자",
-      groups: "HPC-Admins",
-      department: "IT관리팀"
-    },
-    "admin@hpc.local": {
-      password: "admin123",
-      email: "admin@hpc.local",
-      userName: "admin",
-      firstName: "시스템",
-      lastName: "관리자",
-      displayName: "시스템 관리자",
-      groups: "HPC-Admins",
-      department: "IT관리팀"
-    },
-    "dx_user@hpc.local": {
-      password: "password123",
-      email: "dx_user@hpc.local",
-      userName: "dx_user",
-      firstName: "DX",
-      lastName: "사용자",
-      displayName: "DX 사용자",
-      groups: "DX-Users",
-      department: "디지털전환팀"
-    },
-    "caeg_user@hpc.local": {
-      password: "password123",
-      email: "caeg_user@hpc.local",
-      userName: "caeg_user",
-      firstName: "CAEG",
-      lastName: "사용자",
-      displayName: "CAEG 사용자",
-      groups: "CAEG-Users",
-      department: "CAE해석팀"
-    }
-  },
-  metadata: [
-    {id: "email", optional: false, displayName: 'E-Mail Address', description: 'The e-mail address of the user', multiValue: false},
-    {id: "userName", optional: false, displayName: 'User Name', description: 'The username of the user', multiValue: false},
-    {id: "firstName", optional: false, displayName: 'First Name', description: 'The first name of the user', multiValue: false},
-    {id: "lastName", optional: false, displayName: 'Last Name', description: 'The last name of the user', multiValue: false},
-    {id: "displayName", optional: true, displayName: 'Display Name', description: 'The display name of the user', multiValue: false},
-    {id: "groups", optional: true, displayName: 'Groups', description: 'Group memberships of the user', multiValue: false}
-  ]
-};
-EOF
+def generate_secure_password(length=16):
+    alphabet = string.ascii_letters + string.digits + "!@#\$%^&*"
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-        log_success "SAML IdP users configured (config.js created)"
-        log_info "  - dx_user@hpc.local (password: password123) - DX-Users"
-        log_info "  - caeg_user@hpc.local (password: password123) - CAEG-Users"
-        log_info "  - koopark@hpc.local (password: admin123) - HPC-Admins"
-        log_info "  - admin@hpc.local (password: admin123) - HPC-Admins"
+try:
+    with open('$CONFIG_PATH') as f:
+        config = yaml.safe_load(f)
+
+    domain = config.get('cluster_info', {}).get('domain', 'hpc.local')
+    saml_config = config.get('web_services', {}).get('saml', {})
+    users = saml_config.get('users', [])
+
+    if not users:
+        admin_password = generate_secure_password()
+        users = [{
+            'username': 'admin',
+            'password': admin_password,
+            'first_name': 'System',
+            'last_name': 'Admin',
+            'display_name': 'System Administrator',
+            'groups': ['HPC-Admins'],
+            'department': 'IT'
+        }]
+
+    print('/**')
+    print(' * SAML IdP Configuration File')
+    print(' * User database for authentication')
+    print(' * Auto-generated from YAML config')
+    print(' */')
+    print('')
+    print('module.exports = {')
+    print('  user: {')
+
+    user_entries = []
+    for user in users:
+        username = user.get('username', 'user')
+        email = f"{username}@{domain}"
+        password = user.get('password')
+        if not password or password in ['changeme', 'password123', 'admin123']:
+            password = generate_secure_password()
+
+        groups = user.get('groups', ['Users'])
+        groups_str = groups[0] if isinstance(groups, list) and groups else str(groups)
+
+        entry = f'''    "{email}": {{
+      password: "{password}",
+      email: "{email}",
+      userName: "{username}",
+      firstName: "{user.get('first_name', username)}",
+      lastName: "{user.get('last_name', 'User')}",
+      displayName: "{user.get('display_name', username)}",
+      groups: "{groups_str}",
+      department: "{user.get('department', 'General')}"
+    }}'''
+        user_entries.append(entry)
+
+    print(',\\n'.join(user_entries))
+    print('  },')
+    print('  metadata: [')
+    print('    {id: "email", optional: false, displayName: \'E-Mail Address\', description: \'The e-mail address of the user\', multiValue: false},')
+    print('    {id: "userName", optional: false, displayName: \'User Name\', description: \'The username of the user\', multiValue: false},')
+    print('    {id: "firstName", optional: false, displayName: \'First Name\', description: \'The first name of the user\', multiValue: false},')
+    print('    {id: "lastName", optional: false, displayName: \'Last Name\', description: \'The last name of the user\', multiValue: false},')
+    print('    {id: "displayName", optional: true, displayName: \'Display Name\', description: \'The display name of the user\', multiValue: false},')
+    print('    {id: "groups", optional: true, displayName: \'Groups\', description: \'Group memberships of the user\', multiValue: false}')
+    print('  ]')
+    print('};')
+except Exception as e:
+    print(f"// Error generating config: {e}", file=__import__('sys').stderr)
+    exit(1)
+EOFPY
+
+        if [[ $? -ne 0 ]]; then
+            log_error "Failed to generate SAML config.js"
+            return 1
+        fi
+
+        log_success "SAML IdP users configured from YAML (users.json + config.js)"
+        log_info "  Users loaded from: $CONFIG_PATH (web_services.saml.users)"
     else
         log_info "[DRY-RUN] Would configure SAML IdP test users"
     fi
@@ -1820,37 +1900,69 @@ while true; do sleep 3600; done
 
     # Deploy to each viz node
     for node in $viz_nodes; do
-        local node_ip=$(yq eval ".nodes[] | select(.name == \"$node\") | .ip" "$CONFIG_PATH")
+        # Get node IP and SSH user from YAML config
+        local node_info
+        node_info=$(python3 << EOFPY
+import yaml
+try:
+    with open('$CONFIG_PATH') as f:
+        config = yaml.safe_load(f)
+    # Search in compute_nodes (viz nodes are usually in compute_nodes)
+    for n in config.get('nodes', {}).get('compute_nodes', []):
+        if n.get('hostname') == '$node' or n.get('name') == '$node':
+            ip = n.get('ip_address', n.get('ip', ''))
+            user = n.get('ssh_user', 'root')
+            print(f"{ip}|{user}")
+            exit(0)
+    # Also check controllers
+    for n in config.get('nodes', {}).get('controllers', []):
+        if n.get('hostname') == '$node' or n.get('name') == '$node':
+            ip = n.get('ip_address', n.get('ip', ''))
+            user = n.get('ssh_user', 'root')
+            print(f"{ip}|{user}")
+            exit(0)
+except Exception as e:
+    pass
+EOFPY
+)
+        local node_ip=$(echo "$node_info" | cut -d'|' -f1)
+        local ssh_user=$(echo "$node_info" | cut -d'|' -f2)
+
+        # Fallback to yq if python parsing failed
+        if [[ -z "$node_ip" ]]; then
+            node_ip=$(yq eval ".nodes[] | select(.name == \"$node\") | .ip" "$CONFIG_PATH" 2>/dev/null)
+            ssh_user="root"  # Default fallback
+        fi
 
         if [[ -z "$node_ip" ]]; then
             log_warning "No IP found for node $node"
             continue
         fi
 
-        log_info "Deploying VNC script to $node ($node_ip)..."
+        log_info "Deploying VNC script to $node ($node_ip) as $ssh_user..."
 
         if [[ "$DRY_RUN" == false ]]; then
             # Create /opt/scripts directory on viz node
-            ssh -o StrictHostKeyChecking=no "koopark@$node_ip" "sudo mkdir -p /opt/scripts" || {
+            ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$node_ip" "sudo mkdir -p /opt/scripts" || {
                 log_warning "Failed to create /opt/scripts on $node"
                 continue
             }
 
             # Deploy the script
-            echo "$script_content" | ssh -o StrictHostKeyChecking=no "koopark@$node_ip" "sudo tee /opt/scripts/start-gedit-working.sh > /dev/null" || {
+            echo "$script_content" | ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$node_ip" "sudo tee /opt/scripts/start-gedit-working.sh > /dev/null" || {
                 log_warning "Failed to deploy script to $node"
                 continue
             }
 
             # Make it executable
-            ssh -o StrictHostKeyChecking=no "koopark@$node_ip" "sudo chmod +x /opt/scripts/start-gedit-working.sh" || {
+            ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$node_ip" "sudo chmod +x /opt/scripts/start-gedit-working.sh" || {
                 log_warning "Failed to set permissions on $node"
                 continue
             }
 
             log_success "VNC script deployed to $node"
         else
-            log_info "[DRY-RUN] Would deploy VNC script to $node ($node_ip)"
+            log_info "[DRY-RUN] Would deploy VNC script to $node ($node_ip) as $ssh_user"
         fi
     done
 

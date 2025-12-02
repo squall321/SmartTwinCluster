@@ -277,10 +277,15 @@ for i in "${!NODES[@]}"; do
 
     # Munge 설치
     echo "  [3/5] Munge 설치 중..."
+    MUNGE_INSTALL_CMD='cd /tmp && chmod +x install_munge_manual.sh && ./install_munge_manual.sh'
+
     if [ "$USE_SSHPASS" = true ]; then
-        ssh_cmd $USER_NAME@$node "cd /tmp && chmod +x install_munge_manual.sh && echo '$PASSWORD' | sudo -S ./install_munge_manual.sh" > /dev/null 2>&1
+        # 방법 1: SUDO_ASKPASS + base64 (가장 안정적)
+        ENCODED_PW=$(echo -n "$PASSWORD" | base64)
+        ssh_cmd $USER_NAME@$node \
+            "echo '#!/bin/bash' > /tmp/askpass.sh && echo 'echo $ENCODED_PW | base64 -d' >> /tmp/askpass.sh && chmod +x /tmp/askpass.sh && export SUDO_ASKPASS=/tmp/askpass.sh && sudo -A bash -c '$MUNGE_INSTALL_CMD'; rm -f /tmp/askpass.sh" > /dev/null 2>&1
     else
-        ssh_cmd $USER_NAME@$node "cd /tmp && chmod +x install_munge_manual.sh && sudo ./install_munge_manual.sh" > /dev/null 2>&1
+        ssh_cmd $USER_NAME@$node "sudo bash -c '$MUNGE_INSTALL_CMD'" > /dev/null 2>&1
     fi
     
     # 키 복사 (sudo 필요 없음!)
@@ -292,10 +297,15 @@ for i in "${!NODES[@]}"; do
     
     # 키 설치 및 서비스 시작
     echo "  [5/5] Munge 키 설치 및 서비스 시작..."
+    MUNGE_KEY_CMD='mv /tmp/munge.key /etc/munge/ && chown munge:munge /etc/munge/munge.key && chmod 400 /etc/munge/munge.key && systemctl restart munge'
+
     if [ "$USE_SSHPASS" = true ]; then
-        ssh_cmd $USER_NAME@$node "echo '$PASSWORD' | sudo -S bash -c 'mv /tmp/munge.key /etc/munge/ && chown munge:munge /etc/munge/munge.key && chmod 400 /etc/munge/munge.key && systemctl restart munge'" > /dev/null 2>&1
+        # SUDO_ASKPASS + base64 방식
+        ENCODED_PW=$(echo -n "$PASSWORD" | base64)
+        ssh_cmd $USER_NAME@$node \
+            "echo '#!/bin/bash' > /tmp/askpass.sh && echo 'echo $ENCODED_PW | base64 -d' >> /tmp/askpass.sh && chmod +x /tmp/askpass.sh && export SUDO_ASKPASS=/tmp/askpass.sh && sudo -A bash -c '$MUNGE_KEY_CMD'; rm -f /tmp/askpass.sh" > /dev/null 2>&1
     else
-        ssh_cmd $USER_NAME@$node "sudo bash -c 'mv /tmp/munge.key /etc/munge/ && chown munge:munge /etc/munge/munge.key && chmod 400 /etc/munge/munge.key && systemctl restart munge'" > /dev/null 2>&1
+        ssh_cmd $USER_NAME@$node "sudo bash -c '$MUNGE_KEY_CMD'" > /dev/null 2>&1
     fi
     
     echo "  ✅ $node_name 완료"

@@ -205,10 +205,16 @@ load_config() {
     # GlusterFS mount point
     GLUSTER_MOUNT=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get storage.glusterfs.mount_point 2>/dev/null || echo "/mnt/gluster")
 
-    # MariaDB config for SlurmDBD
+    # MariaDB config for SlurmDBD with validation
     DB_HOST=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get database.mariadb.host 2>/dev/null || echo "$VIP_ADDRESS")
-    # Get root password - try parser first, then fallback to "changeme" (same as MariaDB phase)
-    DB_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get database.mariadb.root_password 2>/dev/null || echo "changeme")
+    DB_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get database.mariadb.root_password 2>/dev/null)
+
+    # Validate password
+    if [[ -z "$DB_PASSWORD" || "$DB_PASSWORD" == "changeme" ]]; then
+        log WARNING "⚠️  database.mariadb.root_password is not set or uses insecure default!"
+        log WARNING "   This should have been configured in Phase 1 (database setup)"
+        DB_PASSWORD="changeme"
+    fi
 
     log SUCCESS "Configuration loaded successfully"
 }

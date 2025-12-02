@@ -346,35 +346,36 @@ EOF
     echo "   [3/4] NOPASSWD sudoers 설정 중..."
     scp -o BatchMode=yes -o StrictHostKeyChecking=no "$SUDOERS_TMP" "$user_ip:/tmp/cluster-sudoers" > /dev/null 2>&1
 
-    # sudoers 설치 명령어 (sudo bash -c 안에서 실행되므로 내부에서 sudo 불필요)
+    # sudoers 설치 명령어
     # 소유권: root:root, 권한: 440 필수
     SUDOERS_INSTALL_CMD='visudo -c -f /tmp/cluster-sudoers && cp /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chown root:root /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation && rm -f /tmp/cluster-sudoers'
 
-    # sshpass가 있으면 사용, 없으면 일반 ssh 사용
     SUDOERS_OK=false
-    if [ "$USE_SSHPASS" = true ]; then
-        # sshpass로 SSH 접속 후 sudo -S로 비밀번호 파이프
-        if sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-            "echo '${PASSWORD}' | sudo -S bash -c '${SUDOERS_INSTALL_CMD}'" 2>&1 | grep -qv "password"; then
-            SUDOERS_OK=true
-        fi
-        # 실패 시 다른 방법 시도
-        if [ "$SUDOERS_OK" = false ]; then
-            sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-                "sudo -S bash -c '${SUDOERS_INSTALL_CMD}'" <<< "$PASSWORD" 2>/dev/null && SUDOERS_OK=true
-        fi
-    else
-        # 이미 sudoers가 설정되어 있을 수 있으므로 BatchMode로 먼저 시도
-        if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
-            "sudo bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null; then
-            SUDOERS_OK=true
-        else
-            # 실패하면 interactive로 재시도
-            if ssh -t -o StrictHostKeyChecking=no "$user_ip" \
-                "sudo bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null; then
-                SUDOERS_OK=true
-            fi
-        fi
+
+    # 방법 1: 이미 NOPASSWD sudoers가 설정되어 있으면 BatchMode로 성공
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$user_ip" \
+        "sudo -n bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null; then
+        SUDOERS_OK=true
+    fi
+
+    # 방법 2: sshpass + SUDO_ASKPASS 사용 (가장 안정적)
+    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+        # 원격에 askpass 스크립트 생성 - 비밀번호를 base64로 인코딩하여 전달
+        ENCODED_PW=$(echo -n "$PASSWORD" | base64)
+        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '#!/bin/bash' > /tmp/askpass.sh && echo 'echo $ENCODED_PW | base64 -d' >> /tmp/askpass.sh && chmod +x /tmp/askpass.sh && export SUDO_ASKPASS=/tmp/askpass.sh && sudo -A bash -c '$SUDOERS_INSTALL_CMD'; EXIT_CODE=\$?; rm -f /tmp/askpass.sh; exit \$EXIT_CODE" 2>/dev/null && SUDOERS_OK=true
+    fi
+
+    # 방법 3: sshpass + sudo -S (대체)
+    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+        sshpass -p "$PASSWORD" ssh -tt -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null && SUDOERS_OK=true
+    fi
+
+    # 방법 4: interactive (마지막 수단)
+    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = false ]; then
+        ssh -t -o StrictHostKeyChecking=no "$user_ip" \
+            "sudo bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null && SUDOERS_OK=true
     fi
 
     if [ "$SUDOERS_OK" = true ]; then
@@ -393,23 +394,31 @@ EOF
     HOSTS_OK=false
     HOSTS_INSTALL_CMD='cp /tmp/hosts.tmp /etc/hosts && rm -f /tmp/hosts.tmp'
 
-    # sudoers가 성공적으로 설정되었으면 BatchMode로 시도 (비밀번호 불필요)
+    # 방법 1: sudoers가 성공적으로 설정되었으면 NOPASSWD로 시도
     if [ "$SUDOERS_OK" = true ]; then
         if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
-            "sudo bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null; then
+            "sudo -n bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null; then
             HOSTS_OK=true
         fi
     fi
 
-    # 아직 안 됐으면 sshpass 사용
+    # 방법 2: sshpass + SUDO_ASKPASS (가장 안정적)
     if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+        ENCODED_PW=$(echo -n "$PASSWORD" | base64)
         sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-            "echo '${PASSWORD}' | sudo -S bash -c '${HOSTS_INSTALL_CMD}'" 2>/dev/null && HOSTS_OK=true
-        # 실패 시 heredoc 방식 시도
-        if [ "$HOSTS_OK" = false ]; then
-            sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
-                "sudo -S bash -c '${HOSTS_INSTALL_CMD}'" <<< "$PASSWORD" 2>/dev/null && HOSTS_OK=true
-        fi
+            "echo '#!/bin/bash' > /tmp/askpass.sh && echo 'echo $ENCODED_PW | base64 -d' >> /tmp/askpass.sh && chmod +x /tmp/askpass.sh && export SUDO_ASKPASS=/tmp/askpass.sh && sudo -A bash -c '$HOSTS_INSTALL_CMD'; EXIT_CODE=\$?; rm -f /tmp/askpass.sh; exit \$EXIT_CODE" 2>/dev/null && HOSTS_OK=true
+    fi
+
+    # 방법 3: sshpass + sudo -S with echo (대체)
+    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+        sshpass -p "$PASSWORD" ssh -tt -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null && HOSTS_OK=true
+    fi
+
+    # 방법 4: interactive (마지막 수단)
+    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = false ]; then
+        ssh -t -o StrictHostKeyChecking=no "$user_ip" \
+            "sudo bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null && HOSTS_OK=true
     fi
 
     if [ "$HOSTS_OK" = true ]; then
@@ -487,4 +496,67 @@ echo ""
 echo "  2. 또는 개별 노드 접속 테스트"
 echo "     ssh <hostname>"
 echo ""
+echo "================================================================================"
+
+################################################################################
+# 시간 동기화 설정 (Munge 인증에 필수)
+################################################################################
+
+echo ""
+read -p "🕐 모든 노드에 시간 동기화를 설정하시겠습니까? (Munge 필수) (Y/n): " -n 1 -r
+echo
+
+if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+    echo ""
+    echo "================================================================================"
+    echo "🕐 시간 동기화 설정 중..."
+    echo "================================================================================"
+    echo ""
+
+    # 먼저 로컬에서 설정
+    if [ -f "setup_time_sync.sh" ]; then
+        echo "📍 로컬 시간 동기화 설정..."
+        sudo bash setup_time_sync.sh "$CONFIG_FILE"
+        echo ""
+
+        # 원격 노드에 배포
+        echo "📤 원격 노드에 시간 동기화 설정 배포 중..."
+        echo ""
+
+        while IFS='#' read -r user_ip hostname <&4; do
+            echo -n "  $hostname: "
+
+            # 스크립트와 설정 파일 복사
+            if scp -o BatchMode=yes -o ConnectTimeout=5 setup_time_sync.sh "$CONFIG_FILE" "$user_ip:/tmp/" 2>/dev/null; then
+                # 원격 실행
+                if ssh -o BatchMode=yes -o ConnectTimeout=10 "$user_ip" \
+                    "cd /tmp && sudo bash setup_time_sync.sh $CONFIG_FILE" > /dev/null 2>&1; then
+                    echo "✅ 완료"
+                else
+                    echo "⚠️  설정 실패 (수동 확인 필요)"
+                fi
+            else
+                echo "⚠️  파일 복사 실패"
+            fi
+        done 4< <(echo "$NODES")
+
+        echo ""
+        echo "🔍 시간 동기화 상태 확인:"
+        echo ""
+
+        while IFS='#' read -r user_ip hostname <&4; do
+            time_result=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$user_ip" "date '+%Y-%m-%d %H:%M:%S'" 2>/dev/null || echo "연결 실패")
+            echo "  $hostname: $time_result"
+        done 4< <(echo "$NODES")
+
+        echo ""
+    else
+        echo "⚠️  setup_time_sync.sh를 찾을 수 없습니다"
+        echo "   수동 설정이 필요합니다."
+    fi
+fi
+
+echo ""
+echo "================================================================================"
+echo "🎉 모든 설정 완료!"
 echo "================================================================================"

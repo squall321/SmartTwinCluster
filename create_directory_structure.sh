@@ -6,7 +6,8 @@
 echo "📁 디렉토리 구조 생성 중..."
 echo ""
 
-cd /home/koopark/claude/KooSlurmInstallAutomationRefactory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 # 1. 메인 디렉토리 생성
 echo "1️⃣ 메인 디렉토리 생성..."

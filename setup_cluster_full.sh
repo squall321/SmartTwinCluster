@@ -81,8 +81,8 @@ if [ -f "test_connection.py" ]; then
                     echo "❌ SSH 연결 여전히 실패"
                     echo "💡 수동으로 확인이 필요합니다:"
                     echo "   1. SSH 키 생성: ssh-keygen -t rsa -b 4096"
-                    echo "   2. 공개키 복사: ssh-copy-id koopark@192.168.122.90"
-                    echo "   3. 연결 테스트: ssh 192.168.122.90 'hostname'"
+                    echo "   2. 공개키 복사: ssh-copy-id <user>@<node_ip>"
+                    echo "   3. 연결 테스트: ssh <node_ip> 'hostname'"
                     exit 1
                 fi
             else
@@ -94,7 +94,7 @@ if [ -f "test_connection.py" ]; then
             echo "❌ setup_ssh_passwordless.sh를 찾을 수 없습니다."
             echo "💡 수동으로 SSH 키를 설정하세요:"
             echo "   1. SSH 키 생성: ssh-keygen -t rsa -b 4096"
-            echo "   2. 공개키 복사: ssh-copy-id koopark@192.168.122.90"
+            echo "   2. 공개키 복사: ssh-copy-id <user>@<node_ip>"
             exit 1
         fi
     else
@@ -174,7 +174,7 @@ EOFPY
         echo "❌ /etc/hosts 설정 실패"
         echo "💡 수동으로 확인하세요:"
         echo "   - /etc/hosts 파일에 노드 IP/호스트명 추가"
-        echo "   - SSH 키 설정: ssh-copy-id koopark@노드IP"
+        echo "   - SSH 키 설정: ssh-copy-id <user>@<node_ip>"
         echo ""
         echo "🔧 또는 수동으로 실행:"
         echo "   python3 complete_slurm_setup.py --only-hosts"
@@ -182,7 +182,7 @@ EOFPY
 else
     echo "⚠️  complete_slurm_setup.py를 찾을 수 없습니다."
     echo "💡 수동으로 /etc/hosts를 설정하세요:"
-    echo "   예: sudo bash -c 'echo \"192.168.122.252 viz-node001\" >> /etc/hosts'"
+    echo "   예: sudo bash -c 'echo \"<node_ip> <hostname>\" >> /etc/hosts'"
 fi
 
 echo ""
@@ -402,40 +402,44 @@ echo "📦 Step 7/14: 계산 노드에 Slurm 23.11.x 설치..."
 echo "--------------------------------------------------------------------------------"
 
 # my_cluster.yaml에서 모든 compute_nodes 읽기 (viz 노드 포함)
-mapfile -t COMPUTE_NODES < <(python3 << 'EOFPY'
+# 형식: ip|ssh_user|hostname
+mapfile -t COMPUTE_NODE_INFO < <(python3 << 'EOFPY'
 import yaml
 with open('my_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
-    print(node['ip_address'])
+    ip = node.get('ip_address', '')
+    user = node.get('ssh_user', 'root')
+    hostname = node.get('hostname', '')
+    print(f"{ip}|{user}|{hostname}")
 EOFPY
 )
 
-SSH_USER="koopark"
-
 echo "📋 검색된 계산 노드 (viz 노드 포함):"
-for node in "${COMPUTE_NODES[@]}"; do
-    echo "  - $node"
+for info in "${COMPUTE_NODE_INFO[@]}"; do
+    IFS='|' read -r node_ip ssh_user hostname <<< "$info"
+    echo "  - $hostname ($node_ip) - user: $ssh_user"
 done
 echo ""
 
 read -p "계산 노드에 Slurm을 설치하시겠습니까? (Y/n): " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    for node in "${COMPUTE_NODES[@]}"; do
+    for info in "${COMPUTE_NODE_INFO[@]}"; do
+        IFS='|' read -r node_ip ssh_user hostname <<< "$info"
         echo ""
-        echo "📦 $node: Slurm 설치 중..."
-        
+        echo "📦 $hostname ($node_ip): Slurm 설치 중..."
+
         # 스크립트 복사
-        scp install_slurm_cgroup_v2.sh ${SSH_USER}@${node}:/tmp/
-        
+        scp install_slurm_cgroup_v2.sh ${ssh_user}@${node_ip}:/tmp/
+
         # 원격 실행
-        ssh ${SSH_USER}@${node} "cd /tmp && sudo bash install_slurm_cgroup_v2.sh"
-        
+        ssh ${ssh_user}@${node_ip} "cd /tmp && sudo bash install_slurm_cgroup_v2.sh"
+
         if [ $? -eq 0 ]; then
-            echo "✅ $node: Slurm 설치 완료"
+            echo "✅ $hostname: Slurm 설치 완료"
         else
-            echo "⚠️  $node: Slurm 설치 실패 (계속 진행)"
+            echo "⚠️  $hostname: Slurm 설치 실패 (계속 진행)"
         fi
     done
     
@@ -452,22 +456,23 @@ echo "--------------------------------------------------------------------------
 read -p "원격 노드에 systemd 서비스를 설정하시겠습니까? (Y/n): " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    for node in "${COMPUTE_NODES[@]}"; do
+    for info in "${COMPUTE_NODE_INFO[@]}"; do
+        IFS='|' read -r node_ip ssh_user hostname <<< "$info"
         echo ""
-        echo "📤 $node: systemd 서비스 설정 중..."
+        echo "📤 $hostname ($node_ip): systemd 서비스 설정 중..."
 
         # setup_slurmd_service_remote.sh 복사 및 실행
         if [ -f "setup_slurmd_service_remote.sh" ]; then
-            scp setup_slurmd_service_remote.sh ${SSH_USER}@${node}:/tmp/
+            scp setup_slurmd_service_remote.sh ${ssh_user}@${node_ip}:/tmp/
             # Run without TTY allocation (non-interactive mode)
-            timeout 60 ssh -o ConnectTimeout=10 ${SSH_USER}@${node} "cd /tmp && sudo bash setup_slurmd_service_remote.sh" || {
-                echo "⚠️  $node: 타임아웃 - 수동 확인 필요"
+            timeout 60 ssh -o ConnectTimeout=10 ${ssh_user}@${node_ip} "cd /tmp && sudo bash setup_slurmd_service_remote.sh" || {
+                echo "⚠️  $hostname: 타임아웃 - 수동 확인 필요"
             }
 
             if [ $? -eq 0 ]; then
-                echo "✅ $node: systemd 서비스 설정 완료"
+                echo "✅ $hostname: systemd 서비스 설정 완료"
             else
-                echo "⚠️  $node: systemd 서비스 설정 실패"
+                echo "⚠️  $hostname: systemd 서비스 설정 실패"
             fi
         else
             echo "⚠️  setup_slurmd_service_remote.sh 파일이 없습니다"
@@ -528,23 +533,24 @@ echo "--------------------------------------------------------------------------
 read -p "설정 파일을 계산 노드에 배포하시겠습니까? (Y/n): " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    for node in "${COMPUTE_NODES[@]}"; do
+    for info in "${COMPUTE_NODE_INFO[@]}"; do
+        IFS='|' read -r node_ip ssh_user hostname <<< "$info"
         echo ""
-        echo "📤 $node: 설정 파일 복사 중..."
-        
+        echo "📤 $hostname ($node_ip): 설정 파일 복사 중..."
+
         # slurm.conf 복사
-        scp /usr/local/slurm/etc/slurm.conf ${SSH_USER}@${node}:/tmp/
-        ssh ${SSH_USER}@${node} "sudo mv /tmp/slurm.conf /usr/local/slurm/etc/ && sudo chown slurm:slurm /usr/local/slurm/etc/slurm.conf"
-        
+        scp /usr/local/slurm/etc/slurm.conf ${ssh_user}@${node_ip}:/tmp/
+        ssh ${ssh_user}@${node_ip} "sudo mv /tmp/slurm.conf /usr/local/slurm/etc/ && sudo chown slurm:slurm /usr/local/slurm/etc/slurm.conf"
+
         # cgroup.conf 복사
-        scp /usr/local/slurm/etc/cgroup.conf ${SSH_USER}@${node}:/tmp/
-        ssh ${SSH_USER}@${node} "sudo mv /tmp/cgroup.conf /usr/local/slurm/etc/ && sudo chown slurm:slurm /usr/local/slurm/etc/cgroup.conf"
-        
+        scp /usr/local/slurm/etc/cgroup.conf ${ssh_user}@${node_ip}:/tmp/
+        ssh ${ssh_user}@${node_ip} "sudo mv /tmp/cgroup.conf /usr/local/slurm/etc/ && sudo chown slurm:slurm /usr/local/slurm/etc/cgroup.conf"
+
         # systemd 서비스 파일 복사
-        scp /etc/systemd/system/slurmd.service ${SSH_USER}@${node}:/tmp/
-        ssh ${SSH_USER}@${node} "sudo mv /tmp/slurmd.service /etc/systemd/system/ && sudo systemctl daemon-reload"
-        
-        echo "✅ $node: 설정 파일 배포 완료"
+        scp /etc/systemd/system/slurmd.service ${ssh_user}@${node_ip}:/tmp/
+        ssh ${ssh_user}@${node_ip} "sudo mv /tmp/slurmd.service /etc/systemd/system/ && sudo systemctl daemon-reload"
+
+        echo "✅ $hostname: 설정 파일 배포 완료"
     done
     
     echo ""
@@ -585,20 +591,21 @@ if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     fi
     
     # 계산 노드
-    for node in "${COMPUTE_NODES[@]}"; do
+    for info in "${COMPUTE_NODE_INFO[@]}"; do
+        IFS='|' read -r node_ip ssh_user hostname <<< "$info"
         echo ""
-        echo "🔧 $node: slurmd 시작 중..."
+        echo "🔧 $hostname ($node_ip): slurmd 시작 중..."
 
         # Stop first, then start (avoid restart timeout issues)
-        timeout 60 ssh -o ConnectTimeout=10 ${SSH_USER}@${node} "sudo systemctl enable slurmd && sudo systemctl stop slurmd 2>/dev/null || true && sleep 1 && sudo systemctl start slurmd" || { echo "⚠️  $node: 타임아웃 - 수동 확인 필요"; }
+        timeout 60 ssh -o ConnectTimeout=10 ${ssh_user}@${node_ip} "sudo systemctl enable slurmd && sudo systemctl stop slurmd 2>/dev/null || true && sleep 1 && sudo systemctl start slurmd" || { echo "⚠️  $hostname: 타임아웃 - 수동 확인 필요"; }
 
         sleep 2
 
-        if ssh ${SSH_USER}@${node} "sudo systemctl is-active --quiet slurmd"; then
-            echo "✅ $node: slurmd 시작 성공"
+        if ssh ${ssh_user}@${node_ip} "sudo systemctl is-active --quiet slurmd"; then
+            echo "✅ $hostname: slurmd 시작 성공"
         else
-            echo "⚠️  $node: slurmd 시작 실패"
-            ssh ${SSH_USER}@${node} "sudo systemctl status slurmd --no-pager"
+            echo "⚠️  $hostname: slurmd 시작 실패"
+            ssh ${ssh_user}@${node_ip} "sudo systemctl status slurmd --no-pager"
         fi
     done
     

@@ -5,7 +5,8 @@ echo "🔍 setup_cluster_full.sh 준비 상태 점검"
 echo "=========================================="
 echo ""
 
-cd /home/koopark/claude/KooSlurmInstallAutomationRefactory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 ISSUES=()
 
@@ -166,22 +167,32 @@ else
     echo "   ℹ️  slurmdbd 미실행"
 fi
 
-# slurmd (원격)
-NODES=("192.168.122.90" "192.168.122.103")
-for node in "${NODES[@]}"; do
-    if timeout 5 ssh -o ConnectTimeout=5 koopark@${node} "sudo systemctl is-active --quiet slurmd" 2>/dev/null; then
-        echo "   ✅ $node: slurmd 실행 중"
-        
-        TYPE=$(timeout 5 ssh koopark@${node} "sudo systemctl show slurmd -p Type --value" 2>/dev/null)
-        if [ "$TYPE" = "notify" ]; then
-            echo "      ✅ Type=notify"
+# slurmd (원격) - YAML에서 노드 정보 읽기
+CONFIG_FILE="${1:-my_cluster.yaml}"
+if [ -f "$CONFIG_FILE" ] && python3 -c "import yaml" 2>/dev/null; then
+    while IFS='|' read -r node_ip ssh_user hostname; do
+        if timeout 5 ssh -o ConnectTimeout=5 -o BatchMode=yes ${ssh_user}@${node_ip} "sudo systemctl is-active --quiet slurmd" 2>/dev/null; then
+            echo "   ✅ $hostname ($node_ip): slurmd 실행 중"
+
+            TYPE=$(timeout 5 ssh -o BatchMode=yes ${ssh_user}@${node_ip} "sudo systemctl show slurmd -p Type --value" 2>/dev/null)
+            if [ "$TYPE" = "notify" ]; then
+                echo "      ✅ Type=notify"
+            else
+                echo "      ⚠️  Type=$TYPE (notify 권장)"
+            fi
         else
-            echo "      ⚠️  Type=$TYPE (notify 권장)"
+            echo "   ℹ️  $hostname ($node_ip): slurmd 미실행 또는 연결 불가"
         fi
-    else
-        echo "   ℹ️  $node: slurmd 미실행 또는 연결 불가"
-    fi
-done
+    done < <(python3 -c "
+import yaml
+with open('$CONFIG_FILE') as f:
+    c = yaml.safe_load(f)
+for n in c.get('nodes',{}).get('compute_nodes',[]):
+    print(f\"{n.get('ip_address')}|{n.get('ssh_user','root')}|{n.get('hostname')}\")
+")
+else
+    echo "   ⚠️  YAML 설정 파일 없음 - 원격 노드 점검 건너뜀"
+fi
 
 echo ""
 

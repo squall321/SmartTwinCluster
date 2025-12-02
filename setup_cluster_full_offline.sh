@@ -14,6 +14,25 @@ DEB_DIR="$PACKAGES_DIR/deb"
 SOURCE_DIR="$PACKAGES_DIR/source"
 PYTHON_DIR="$PACKAGES_DIR/python"
 
+################################################################################
+# YAML 설정에서 UID/GID 읽기 (일관성 유지)
+################################################################################
+CONFIG_FILE="${1:-my_cluster.yaml}"
+
+# 기본값
+SLURM_UID=1001
+SLURM_GID=1001
+MUNGE_UID=1002
+MUNGE_GID=1002
+
+# YAML에서 UID/GID 읽기
+if [ -f "$CONFIG_FILE" ] && python3 -c "import yaml" 2>/dev/null; then
+    SLURM_UID=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm',{}).get('slurm_uid',1001))" 2>/dev/null || echo 1001)
+    SLURM_GID=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm',{}).get('slurm_gid',1001))" 2>/dev/null || echo 1001)
+    MUNGE_UID=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm',{}).get('munge_uid',1002))" 2>/dev/null || echo 1002)
+    MUNGE_GID=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm',{}).get('munge_gid',1002))" 2>/dev/null || echo 1002)
+fi
+
 echo ""
 
 ################################################################################
@@ -115,21 +134,32 @@ echo ""
 
 echo "👤 Step 5/14: Slurm 사용자 생성..."
 echo "--------------------------------------------------------------------------------"
+echo "   사용할 UID/GID: slurm=$SLURM_UID:$SLURM_GID, munge=$MUNGE_UID:$MUNGE_GID"
 
 if ! id slurm &>/dev/null; then
-    sudo groupadd -g 1001 slurm 2>/dev/null || true
-    sudo useradd -u 1001 -g 1001 -m -s /bin/bash slurm 2>/dev/null || true
-    echo "✅ slurm 사용자 생성 완료"
+    sudo groupadd -g "$SLURM_GID" slurm 2>/dev/null || true
+    sudo useradd -u "$SLURM_UID" -g "$SLURM_GID" -m -s /bin/bash slurm 2>/dev/null || true
+    echo "✅ slurm 사용자 생성 완료 (UID=$SLURM_UID)"
 else
-    echo "ℹ️  slurm 사용자가 이미 존재합니다"
+    existing_uid=$(id -u slurm)
+    if [ "$existing_uid" != "$SLURM_UID" ]; then
+        echo "⚠️  slurm 사용자가 다른 UID($existing_uid)로 존재 (설정값: $SLURM_UID)"
+    else
+        echo "ℹ️  slurm 사용자가 이미 존재합니다 (UID=$existing_uid)"
+    fi
 fi
 
 if ! id munge &>/dev/null; then
-    sudo groupadd -g 1002 munge 2>/dev/null || true
-    sudo useradd -u 1002 -g 1002 -m -s /bin/bash munge 2>/dev/null || true
-    echo "✅ munge 사용자 생성 완료"
+    sudo groupadd -g "$MUNGE_GID" munge 2>/dev/null || true
+    sudo useradd -u "$MUNGE_UID" -g "$MUNGE_GID" -m -s /bin/bash munge 2>/dev/null || true
+    echo "✅ munge 사용자 생성 완료 (UID=$MUNGE_UID)"
 else
-    echo "ℹ️  munge 사용자가 이미 존재합니다"
+    existing_uid=$(id -u munge)
+    if [ "$existing_uid" != "$MUNGE_UID" ]; then
+        echo "⚠️  munge 사용자가 다른 UID($existing_uid)로 존재 (설정값: $MUNGE_UID)"
+    else
+        echo "ℹ️  munge 사용자가 이미 존재합니다 (UID=$existing_uid)"
+    fi
 fi
 
 echo ""
@@ -195,6 +225,11 @@ if [ $? -ne 0 ]; then
     echo "❌ 설치 실패"
     exit 1
 fi
+
+# ldconfig 설정 (동적 라이브러리 캐시 갱신)
+echo "🔗 라이브러리 캐시 갱신 중..."
+echo "/usr/local/slurm/lib" | sudo tee /etc/ld.so.conf.d/slurm.conf > /dev/null
+sudo ldconfig
 
 echo "✅ Slurm ${SLURM_VERSION} 빌드 및 설치 완료"
 echo ""
