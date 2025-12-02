@@ -148,6 +148,11 @@ while [[ $# -gt 0 ]]; do
         --help)
             usage
             ;;
+        *.yaml|*.yml)
+            # positional argument로 YAML 파일 지원
+            CONFIG_FILE="$1"
+            shift
+            ;;
         *)
             log_error "알 수 없는 옵션: $1"
             usage
