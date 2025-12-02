@@ -63,6 +63,7 @@ SKIP_MULTIHEAD_SETUP=false
 AUTO_CONFIRM=false
 OFFLINE_PACKAGES_DIR="${SCRIPT_DIR}/offline_packages"
 USE_APT_MIRROR=false
+INSTALL_APT_PACKAGES=false  # 기본: APT 패키지 설치 안함 (옵션으로 활성화)
 
 # 로그 파일
 LOG_FILE="/tmp/setup_cluster_full_multihead_offline_$(date +%Y%m%d_%H%M%S).log"
@@ -83,6 +84,7 @@ usage() {
 옵션:
     --config FILE           설정 파일 경로 (기본: my_multihead_cluster.yaml)
     --offline-packages DIR  오프라인 패키지 디렉토리 (기본: ./offline_packages)
+    --install-apt           오프라인 APT 패키지 설치 (기본: 설치 안함)
     --use-apt-mirror        로컬 APT 미러 사용
     --dry-run               실제 실행 없이 계획만 표시
     --skip-base             기본 시스템 설정 건너뛰기
@@ -134,6 +136,10 @@ while [[ $# -gt 0 ]]; do
             OFFLINE_PACKAGES_DIR="$2"
             shift 2
             ;;
+        --install-apt)
+            INSTALL_APT_PACKAGES=true
+            shift
+            ;;
         --use-apt-mirror)
             USE_APT_MIRROR=true
             shift
@@ -156,6 +162,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --help)
             usage
+            ;;
+        *.yaml|*.yml)
+            # positional argument로 YAML 파일 지원
+            CONFIG_FILE="$1"
+            shift
             ;;
         *)
             log_error "알 수 없는 옵션: $1"
@@ -269,7 +280,11 @@ if [ "$SKIP_BASE_SETUP" = false ]; then
     echo "【Part 1】 기본 시스템 설정 (오프라인)"
     echo "  ✓ Python 가상환경"
     echo "  ✓ YAML 검증"
-    echo "  ✓ 오프라인 패키지 설치 (APT)"
+    if [ "$INSTALL_APT_PACKAGES" = true ]; then
+        echo "  ✓ 오프라인 패키지 설치 (APT) ← --install-apt"
+    else
+        echo "  ○ 오프라인 패키지 설치 (APT) [건너뜀]"
+    fi
     echo "  ✓ Slurm 프리빌드 배포"
     echo "  ✓ Munge 인증"
     echo "  ✓ SSH 키 설정"
@@ -345,27 +360,32 @@ else
     fi
 
     ################################################################################
-    # Step 2: APT 패키지 설치
+    # Step 2: APT 패키지 설치 (옵션)
     ################################################################################
 
-    log_info "Step 2/9: APT 패키지 설치 (오프라인)..."
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if [ "$INSTALL_APT_PACKAGES" = true ]; then
+        log_info "Step 2/9: APT 패키지 설치 (오프라인)..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    if [ -f "${OFFLINE_PACKAGES_DIR}/apt_packages/install_offline_packages.sh" ]; then
-        cd "${OFFLINE_PACKAGES_DIR}/apt_packages"
-        bash install_offline_packages.sh
+        if [ -f "${OFFLINE_PACKAGES_DIR}/apt_packages/install_offline_packages.sh" ]; then
+            cd "${OFFLINE_PACKAGES_DIR}/apt_packages"
+            bash install_offline_packages.sh
 
-        if [ $? -eq 0 ]; then
-            log_success "APT 패키지 설치 완료"
+            if [ $? -eq 0 ]; then
+                log_success "APT 패키지 설치 완료"
+            else
+                log_error "APT 패키지 설치 실패"
+                exit 1
+            fi
         else
-            log_error "APT 패키지 설치 실패"
-            exit 1
+            log_warning "오프라인 APT 패키지를 찾을 수 없습니다"
         fi
+        cd "$SCRIPT_DIR"
+        echo ""
     else
-        log_warning "오프라인 APT 패키지를 찾을 수 없습니다"
+        log_info "Step 2/9: APT 패키지 설치 건너뜀 (--install-apt 옵션 없음)"
+        echo ""
     fi
-    cd "$SCRIPT_DIR"
-    echo ""
 
     ################################################################################
     # Step 3: Slurm 프리빌드 배포
