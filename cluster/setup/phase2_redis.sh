@@ -46,6 +46,7 @@ LOG_FILE="/var/log/cluster_redis_setup.log"
 MODE="auto"
 DRY_RUN=false
 REDIS_PORT=6379
+SKIP_CLUSTER=false
 
 # Color codes
 RED='\033[0;31m'
@@ -394,6 +395,68 @@ start_redis() {
     fi
 }
 
+deploy_to_other_controllers() {
+    log INFO "Deploying Redis to other controllers..."
+
+    # Get SSH user from config
+    local ssh_user=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get nodes.controllers[0].ssh_user 2>/dev/null || echo "root")
+
+    # Get first controller IP
+    local first_node_ip=$(echo "$REDIS_CONTROLLERS" | jq -r '.[0].ip_address')
+
+    # Only run on first controller
+    if [[ "$CURRENT_IP" != "$first_node_ip" ]]; then
+        log INFO "This is not the first controller, skipping deployment to other nodes"
+        return 0
+    fi
+
+    log INFO "This is the first controller, deploying to other nodes..."
+
+    # Deploy to each other controller
+    local node_count=0
+    while IFS= read -r controller; do
+        local ip=$(echo "$controller" | jq -r '.ip_address')
+        local hostname=$(echo "$controller" | jq -r '.hostname')
+
+        # Skip current node
+        if [[ "$ip" == "$CURRENT_IP" ]]; then
+            continue
+        fi
+
+        node_count=$((node_count + 1))
+        log INFO "Deploying to $hostname ($ip)..."
+
+        # Test SSH connection
+        if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
+            log WARNING "Cannot connect to $hostname ($ip) via SSH"
+            continue
+        fi
+
+        # Copy phase2_redis.sh to remote node
+        if ! scp -o StrictHostKeyChecking=no "$0" "$ssh_user@$ip:/tmp/phase2_redis.sh" > /dev/null 2>&1; then
+            log WARNING "Failed to copy script to $hostname"
+            continue
+        fi
+
+        # Execute on remote node (without cluster creation)
+        log INFO "Installing Redis on $hostname..."
+        if ssh -o StrictHostKeyChecking=no "$ssh_user@$ip" \
+            "cd '$SCRIPT_DIR' && sudo bash /tmp/phase2_redis.sh --config '$CONFIG_FILE' --skip-cluster" > /dev/null 2>&1; then
+            log SUCCESS "$hostname: Redis installed"
+        else
+            log WARNING "$hostname: Redis installation failed"
+        fi
+
+    done < <(echo "$REDIS_CONTROLLERS" | jq -c '.[]')
+
+    if [[ $node_count -gt 0 ]]; then
+        log SUCCESS "Deployed to $node_count other controller(s)"
+        # Wait for all nodes to be ready
+        log INFO "Waiting 10 seconds for all Redis nodes to start..."
+        sleep 10
+    fi
+}
+
 create_cluster() {
     log INFO "Creating Redis Cluster..."
 
@@ -583,11 +646,20 @@ main() {
     # Step 10: Start Redis with new configuration
     start_redis
 
+    # Step 10.5: Deploy to other controllers (only if not skipping cluster)
+    if [[ "$SKIP_CLUSTER" == "false" ]] && [[ "$MODE" == "cluster" ]]; then
+        deploy_to_other_controllers
+    fi
+
     # Step 11: Create cluster or setup sentinel
-    if [[ "$MODE" == "cluster" ]]; then
-        create_cluster
+    if [[ "$SKIP_CLUSTER" == "false" ]]; then
+        if [[ "$MODE" == "cluster" ]]; then
+            create_cluster
+        else
+            setup_sentinel
+        fi
     else
-        setup_sentinel
+        log INFO "Skipping cluster/sentinel creation (--skip-cluster flag)"
     fi
 
     # Step 12: Enable service for auto-start
@@ -632,6 +704,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --skip-cluster)
+            SKIP_CLUSTER=true
             shift
             ;;
         --help)
