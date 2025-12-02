@@ -260,9 +260,21 @@ for i in "${!NODES[@]}"; do
     echo "  ✅ 연결 성공"
     
     # 스크립트 복사
-    echo "  [2/5] 설치 스크립트 복사..."
+    echo "  [2/5] 설치 스크립트 및 오프라인 패키지 복사..."
     scp_cmd install_munge_manual.sh $USER_NAME@$node:/tmp/ > /dev/null 2>&1
-    
+
+    # 오프라인 패키지가 있으면 함께 복사
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    OFFLINE_PKGS="$SCRIPT_DIR/offline_packages/apt_packages"
+    if [ -d "$OFFLINE_PKGS" ] && [ -f "$OFFLINE_PKGS/munge_0.5.14-6_amd64.deb" ]; then
+        ssh_cmd $USER_NAME@$node "mkdir -p /tmp/offline_packages/apt_packages" > /dev/null 2>&1
+        scp_cmd "$OFFLINE_PKGS/libmunge2_0.5.14-6_amd64.deb" \
+                "$OFFLINE_PKGS/munge_0.5.14-6_amd64.deb" \
+                "$OFFLINE_PKGS/libmunge-dev_0.5.14-6_amd64.deb" \
+                $USER_NAME@$node:/tmp/offline_packages/apt_packages/ > /dev/null 2>&1
+        echo "  ✓ 오프라인 패키지 복사 완료"
+    fi
+
     # Munge 설치
     echo "  [3/5] Munge 설치 중..."
     if [ "$USE_SSHPASS" = true ]; then
