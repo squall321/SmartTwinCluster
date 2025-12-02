@@ -458,7 +458,7 @@ EOF
     fi
 
     # 방법 2: sshpass + SUDO_ASKPASS 사용 (가장 안정적)
-    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = true ] && [ -n "$PASSWORD" ]; then
         # 원격에 askpass 스크립트 생성 - 비밀번호를 base64로 인코딩하여 전달
         ENCODED_PW=$(echo -n "$PASSWORD" | base64)
         sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
@@ -466,13 +466,40 @@ EOF
     fi
 
     # 방법 3: sshpass + sudo -S (대체)
-    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = true ] && [ -n "$PASSWORD" ]; then
         sshpass -p "$PASSWORD" ssh -tt -o StrictHostKeyChecking=no "$user_ip" \
             "echo '$PASSWORD' | sudo -S bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null && SUDOERS_OK=true
     fi
 
-    # 방법 4: interactive (마지막 수단)
-    if [ "$SUDOERS_OK" = false ] && [ "$USE_SSHPASS" = false ]; then
+    # 방법 4: 비밀번호가 있으면 sudo -S로 파이프 (sshpass 없이도 동작)
+    if [ "$SUDOERS_OK" = false ] && [ -n "$PASSWORD" ]; then
+        ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null && SUDOERS_OK=true
+    fi
+
+    # 방법 5: 비밀번호가 없으면 한 번만 요청하고 저장
+    if [ "$SUDOERS_OK" = false ] && [ -z "$PASSWORD" ]; then
+        echo ""
+        echo "   ⚠️  sudo 비밀번호가 필요합니다 (모든 노드에 동일하게 적용됨)"
+        read -s -p "   sudo 비밀번호: " PASSWORD
+        echo ""
+        if [ -n "$PASSWORD" ]; then
+            # sshpass 설치 시도
+            if ! command -v sshpass &> /dev/null; then
+                sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y sshpass > /dev/null 2>&1
+            fi
+            if command -v sshpass &> /dev/null; then
+                USE_SSHPASS=true
+            fi
+            # 다시 시도
+            ssh -o StrictHostKeyChecking=no "$user_ip" \
+                "echo '$PASSWORD' | sudo -S bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null && SUDOERS_OK=true
+        fi
+    fi
+
+    # 방법 6: interactive (최후의 수단 - 이 노드만)
+    if [ "$SUDOERS_OK" = false ]; then
+        echo "   ⚠️  자동화 실패. 이 노드만 수동 입력 필요."
         ssh -t -o StrictHostKeyChecking=no "$user_ip" \
             "sudo bash -c '$SUDOERS_INSTALL_CMD'" 2>/dev/null && SUDOERS_OK=true
     fi
@@ -502,20 +529,26 @@ EOF
     fi
 
     # 방법 2: sshpass + SUDO_ASKPASS (가장 안정적)
-    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = true ] && [ -n "$PASSWORD" ]; then
         ENCODED_PW=$(echo -n "$PASSWORD" | base64)
         sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
             "echo '#!/bin/bash' > /tmp/askpass.sh && echo 'echo $ENCODED_PW | base64 -d' >> /tmp/askpass.sh && chmod +x /tmp/askpass.sh && export SUDO_ASKPASS=/tmp/askpass.sh && sudo -A bash -c '$HOSTS_INSTALL_CMD'; EXIT_CODE=\$?; rm -f /tmp/askpass.sh; exit \$EXIT_CODE" 2>/dev/null && HOSTS_OK=true
     fi
 
     # 방법 3: sshpass + sudo -S with echo (대체)
-    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = true ]; then
+    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = true ] && [ -n "$PASSWORD" ]; then
         sshpass -p "$PASSWORD" ssh -tt -o StrictHostKeyChecking=no "$user_ip" \
             "echo '$PASSWORD' | sudo -S bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null && HOSTS_OK=true
     fi
 
-    # 방법 4: interactive (마지막 수단)
-    if [ "$HOSTS_OK" = false ] && [ "$USE_SSHPASS" = false ]; then
+    # 방법 4: 비밀번호가 있으면 sudo -S로 파이프 (sshpass 없이도 동작)
+    if [ "$HOSTS_OK" = false ] && [ -n "$PASSWORD" ]; then
+        ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null && HOSTS_OK=true
+    fi
+
+    # 방법 5: interactive (최후의 수단)
+    if [ "$HOSTS_OK" = false ]; then
         ssh -t -o StrictHostKeyChecking=no "$user_ip" \
             "sudo bash -c '$HOSTS_INSTALL_CMD'" 2>/dev/null && HOSTS_OK=true
     fi
