@@ -2,7 +2,13 @@
 ################################################################################
 # SSH 키 기반 인증 자동 설정
 # 한 번만 설정하면 비밀번호 입력 없이 SSH 접속 가능
+#
+# Usage: ./setup_ssh_passwordless.sh [CONFIG_FILE]
+#   CONFIG_FILE: Path to YAML config file (default: my_cluster.yaml)
 ################################################################################
+
+# 설정 파일 파라미터 (기본값: my_cluster.yaml)
+CONFIG_FILE="${1:-my_cluster.yaml}"
 
 echo "================================================================================"
 echo "🔑 SSH 키 기반 인증 자동 설정"
@@ -13,32 +19,48 @@ echo "   - SSH 키 생성 (없는 경우)"
 echo "   - 모든 노드에 공개키 복사"
 echo "   - 이후 비밀번호 입력 없이 SSH 접속 가능"
 echo ""
+echo "📋 설정 파일: $CONFIG_FILE"
+echo ""
 
 # YAML에서 노드 정보 읽기
-if [ ! -f "my_cluster.yaml" ]; then
-    echo "❌ my_cluster.yaml 파일을 찾을 수 없습니다!"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "❌ 설정 파일을 찾을 수 없습니다: $CONFIG_FILE"
     exit 1
 fi
 
-echo "📝 my_cluster.yaml에서 노드 정보 읽는 중..."
+echo "📝 $CONFIG_FILE에서 노드 정보 읽는 중..."
 echo ""
 
-# Python으로 노드 목록 추출
-NODES=$(python3 << 'EOFPY'
+# Python으로 노드 목록 추출 (multi-head와 single-head 모두 지원)
+NODES=$(CONFIG_FILE="$CONFIG_FILE" python3 << 'EOFPY'
 import yaml
+import os
 
-with open('my_cluster.yaml', 'r') as f:
+config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+
+with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 
-# 모든 노드 정보 수집
-nodes = []
+nodes_config = config['nodes']
 
-# 컨트롤러 (필요시)
-controller = config['nodes']['controller']
-# nodes.append(f"{controller['ssh_user']}@{controller['ip_address']}")
+# Support both single-head (controller) and multi-head (controllers) formats
+if 'controllers' in nodes_config and isinstance(nodes_config['controllers'], list):
+    # Multi-head format: all controllers
+    for node in nodes_config['controllers']:
+        ssh_user = node['ssh_user']
+        ip = node['ip_address']
+        hostname = node['hostname']
+        print(f"{ssh_user}@{ip}#{hostname}")
+elif 'controller' in nodes_config:
+    # Single-head format: single controller
+    controller = nodes_config['controller']
+    ssh_user = controller['ssh_user']
+    ip = controller['ip_address']
+    hostname = controller['hostname']
+    print(f"{ssh_user}@{ip}#{hostname}")
 
 # 계산 노드
-for node in config['nodes']['compute_nodes']:
+for node in nodes_config['compute_nodes']:
     ssh_user = node['ssh_user']
     ip = node['ip_address']
     hostname = node['hostname']
@@ -180,10 +202,11 @@ fi
 echo "================================================================================"
 echo "📋 다음 단계:"
 echo ""
-echo "  1. setup_cluster_full.sh 실행 (비밀번호 입력 없음!)"
+echo "  1. setup_cluster_full.sh 또는 setup_cluster_full_multihead.sh 실행 (비밀번호 입력 없음!)"
 echo "     ./setup_cluster_full.sh"
+echo "     ./setup_cluster_full_multihead.sh $CONFIG_FILE"
 echo ""
 echo "  2. 또는 개별 노드 접속 테스트"
-echo "     ssh node001"
+echo "     ssh <hostname>"
 echo ""
 echo "================================================================================"
