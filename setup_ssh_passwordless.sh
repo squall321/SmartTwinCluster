@@ -276,23 +276,52 @@ while IFS='#' read -r user_ip hostname <&3; do
         echo "   [1/4] SSH 공개키 복사 중..."
 
         # USE_SSHPASS가 false인데 SSH 키가 없는 경우 -> 비밀번호 필요
-        if [ "$USE_SSHPASS" = false ]; then
-            # 이 시점에서 비밀번호가 필요함 - 사용자에게 요청
-            if [ -z "$PASSWORD" ]; then
-                echo ""
-                echo "   ⚠️  이 노드에 SSH 키가 없습니다. 비밀번호가 필요합니다."
-                read -s -p "   SSH 비밀번호: " PASSWORD
-                echo ""
-                if [ -n "$PASSWORD" ] && command -v sshpass &> /dev/null; then
+        if [ "$USE_SSHPASS" = false ] && [ -z "$PASSWORD" ]; then
+            # 이 시점에서 비밀번호가 필요함 - 한 번만 요청
+            echo ""
+            echo "   ⚠️  이 노드에 SSH 키가 없습니다. 비밀번호가 필요합니다."
+            read -s -p "   SSH 비밀번호 (모든 노드에 동일하게 적용됨): " PASSWORD
+            echo ""
+            if [ -n "$PASSWORD" ] && command -v sshpass &> /dev/null; then
+                USE_SSHPASS=true
+            elif [ -n "$PASSWORD" ]; then
+                # sshpass가 없어도 비밀번호가 있으면 설치 시도
+                echo "   📦 sshpass 설치 중..."
+                if command -v apt-get &> /dev/null; then
+                    sudo apt-get update > /dev/null 2>&1
+                    sudo apt-get install -y sshpass > /dev/null 2>&1
+                elif command -v yum &> /dev/null; then
+                    sudo yum install -y sshpass > /dev/null 2>&1
+                fi
+                if command -v sshpass &> /dev/null; then
                     USE_SSHPASS=true
+                    echo "   ✅ sshpass 설치 완료"
                 fi
             fi
         fi
 
         COPY_OK=false
-        if [ "$USE_SSHPASS" = true ]; then
+        if [ "$USE_SSHPASS" = true ] && [ -n "$PASSWORD" ]; then
+            # sshpass로 자동 처리 (비밀번호 묻지 않음)
             sshpass -p "$PASSWORD" ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" > /dev/null 2>&1 && COPY_OK=true
+        elif [ -n "$PASSWORD" ]; then
+            # sshpass 없이 expect 스크립트로 자동화 시도
+            if command -v expect &> /dev/null; then
+                expect << EXPECT_EOF > /dev/null 2>&1 && COPY_OK=true
+spawn ssh-copy-id -o StrictHostKeyChecking=no $user_ip
+expect {
+    "password:" { send "$PASSWORD\r"; exp_continue }
+    "Password:" { send "$PASSWORD\r"; exp_continue }
+    eof
+}
+EXPECT_EOF
+            else
+                # expect도 없으면 수동으로 한 번만 진행 (최후의 수단)
+                echo "   ⚠️  자동화 도구 없음. 이 노드만 수동 입력 필요."
+                ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null && COPY_OK=true
+            fi
         else
+            # 비밀번호 없이 ssh-copy-id 시도 (이미 인증 방법이 있을 수 있음)
             ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null && COPY_OK=true
         fi
 
