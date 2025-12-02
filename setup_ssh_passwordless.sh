@@ -84,9 +84,13 @@ if [ -z "$NODES" ]; then
 fi
 
 echo "📋 설정할 노드 목록:"
+NODE_COUNT=0
 echo "$NODES" | while IFS='#' read -r user_ip hostname; do
     echo "  - $hostname ($user_ip)"
 done
+NODE_COUNT=$(echo "$NODES" | wc -l)
+echo ""
+echo "총 ${NODE_COUNT}개 노드"
 echo ""
 
 # SSH 키 확인 및 생성 (먼저!)
@@ -113,6 +117,82 @@ if [ ! -f "$SSH_KEY" ]; then
     fi
 else
     echo "✅ 기존 SSH 키 사용: $SSH_KEY"
+fi
+
+echo ""
+
+################################################################################
+# sshpass 설정 - 비밀번호 한 번만 입력
+################################################################################
+
+# sshpass 설치 확인
+USE_SSHPASS=false
+
+# SSH 키가 이미 모든 노드에 배포되어 있는지 확인
+echo "🔍 기존 SSH 키 배포 상태 확인 중..."
+NEEDS_PASSWORD=false
+
+# 첫 번째 노드로 테스트
+FIRST_NODE=$(echo "$NODES" | head -1 | cut -d'#' -f1)
+if ! ssh -o BatchMode=yes -o ConnectTimeout=3 "$FIRST_NODE" "echo OK" > /dev/null 2>&1; then
+    NEEDS_PASSWORD=true
+    echo "   → 비밀번호 기반 설정이 필요합니다."
+else
+    echo "   → SSH 키가 이미 배포되어 있습니다."
+fi
+
+if [ "$NEEDS_PASSWORD" = true ]; then
+    echo ""
+    echo "================================================================================"
+    echo "🔐 비밀번호 입력 (한 번만)"
+    echo "================================================================================"
+    echo ""
+    echo "⚠️  모든 노드에 동일한 비밀번호를 사용한다고 가정합니다."
+    echo "   (다른 경우 수동으로 ssh-copy-id를 실행하세요)"
+    echo ""
+
+    # 설정 파일에서 비밀번호 읽기 시도
+    PASSWORD=$(CONFIG_FILE="$CONFIG_FILE" python3 << 'EOFPY' 2>/dev/null || echo ""
+import yaml
+import os
+config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+with open(config_file, 'r') as f:
+    config = yaml.safe_load(f)
+password = config.get('cluster_info', {}).get('ssh_password', '')
+if password and password != 'your_password_here':
+    print(password)
+EOFPY
+)
+
+    if [ -n "$PASSWORD" ]; then
+        echo "✅ 설정 파일에서 SSH 비밀번호를 읽었습니다."
+    else
+        read -s -p "SSH 비밀번호: " PASSWORD
+        echo ""
+        if [ -z "$PASSWORD" ]; then
+            echo "❌ 비밀번호가 입력되지 않았습니다."
+            exit 1
+        fi
+    fi
+
+    # sshpass 설치 확인/설치
+    if ! command -v sshpass &> /dev/null; then
+        echo ""
+        echo "📦 sshpass 설치 중..."
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update > /dev/null 2>&1
+            sudo apt-get install -y sshpass > /dev/null 2>&1
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y sshpass > /dev/null 2>&1
+        fi
+    fi
+
+    if command -v sshpass &> /dev/null; then
+        USE_SSHPASS=true
+        echo "✅ sshpass 사용 가능"
+    else
+        echo "⚠️  sshpass를 설치할 수 없습니다. 수동으로 비밀번호를 입력해야 합니다."
+    fi
 fi
 
 echo ""
@@ -150,11 +230,15 @@ echo "✅ /etc/hosts 업데이트 완료 (백업: /etc/hosts.backup.*)"
 echo ""
 
 echo "================================================================================"
-echo "📤 각 노드에 공개키 복사 중..."
+echo "📤 각 노드에 공개키 복사 및 설정 중..."
 echo "================================================================================"
 echo ""
-echo "⚠️  각 노드의 비밀번호를 한 번씩만 입력하면 됩니다."
-echo "   이후에는 비밀번호 없이 자동으로 접속됩니다!"
+
+if [ "$USE_SSHPASS" = true ]; then
+    echo "✅ sshpass를 사용하여 자동으로 진행합니다."
+else
+    echo "⚠️  SSH 키가 이미 배포된 노드는 자동으로 진행됩니다."
+fi
 echo ""
 
 SUCCESS_COUNT=0
@@ -169,29 +253,49 @@ while IFS='#' read -r user_ip hostname <&3; do
     echo "📤 $hostname ($user_ip)"
     echo "----------------------------------------"
 
-    # ssh-copy-id로 공개키 복사 (stdin은 이제 자유로움)
-    ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null
+    USER_NAME=$(echo "$user_ip" | cut -d'@' -f1)
 
-    if [ $? -eq 0 ]; then
-        echo "✅ $hostname: 공개키 복사 완료"
-        ((SUCCESS_COUNT++))
+    # 이미 SSH 키가 배포되어 있는지 확인
+    ALREADY_SETUP=false
+    if ssh -o BatchMode=yes -o ConnectTimeout=3 "$user_ip" "echo OK" > /dev/null 2>&1; then
+        ALREADY_SETUP=true
+        echo "   ✅ SSH 키 이미 배포됨"
+    fi
 
-        # 접속 테스트
-        echo "🔍 접속 테스트 중..."
-        ssh -o BatchMode=yes -o ConnectTimeout=5 "$user_ip" "echo '   ✅ 비밀번호 없이 접속 성공!'" 2>/dev/null
-
-        if [ $? -ne 0 ]; then
-            echo "   ⚠️  접속 테스트 실패. 다시 시도해보세요."
+    # SSH 키 복사 (필요한 경우만)
+    if [ "$ALREADY_SETUP" = false ]; then
+        echo "   [1/4] SSH 공개키 복사 중..."
+        if [ "$USE_SSHPASS" = true ]; then
+            sshpass -p "$PASSWORD" ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" > /dev/null 2>&1
         else
-            # NOPASSWD sudoers 설정 추가
-            echo "🔧 NOPASSWD sudoers 설정 중..."
-            echo "   (비밀번호를 한 번 더 입력해야 합니다)"
-            USER_NAME=$(echo "$user_ip" | cut -d'@' -f1)
+            ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null
+        fi
 
-            # sudoers 파일 생성 (로컬에 임시 파일로)
-            # Ubuntu 22.04+: /bin -> /usr/bin 심볼릭 링크이므로 둘 다 허용
-            SUDOERS_TMP="/tmp/cluster-sudoers.$$"
-            cat > "$SUDOERS_TMP" << EOF
+        if [ $? -eq 0 ]; then
+            echo "   ✅ 공개키 복사 완료"
+        else
+            echo "   ❌ 공개키 복사 실패"
+            ((FAIL_COUNT++))
+            FAILED_NODES="$FAILED_NODES\n  - $hostname ($user_ip)"
+            echo ""
+            continue
+        fi
+    fi
+
+    ((SUCCESS_COUNT++))
+
+    # 접속 테스트
+    echo "   [2/4] 접속 테스트..."
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$user_ip" "echo OK" > /dev/null 2>&1; then
+        echo "   ⚠️  접속 테스트 실패"
+        echo ""
+        continue
+    fi
+    echo "   ✅ 접속 성공"
+
+    # sudoers 파일 생성 (로컬에 임시 파일로)
+    SUDOERS_TMP="/tmp/cluster-sudoers.$$"
+    cat > "$SUDOERS_TMP" << EOF
 # Allow $USER_NAME to run cluster management commands without password
 # Generated by setup_ssh_passwordless.sh
 # File operations (both /bin and /usr/bin paths for compatibility)
@@ -201,6 +305,7 @@ $USER_NAME ALL=(ALL) NOPASSWD: /bin/mv *, /usr/bin/mv *
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/chown *, /usr/bin/chown *
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/chmod *, /usr/bin/chmod *
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/mkdir *, /usr/bin/mkdir *
+$USER_NAME ALL=(ALL) NOPASSWD: /bin/tee *, /usr/bin/tee *
 # Systemctl
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl *
 $USER_NAME ALL=(ALL) NOPASSWD: /bin/systemctl *
@@ -212,39 +317,49 @@ $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/apt *
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/sbin/gluster *
 EOF
 
-            # sudoers 파일을 원격 노드에 복사
-            if scp -o BatchMode=yes -o StrictHostKeyChecking=no "$SUDOERS_TMP" "$user_ip:/tmp/cluster-sudoers" 2>/dev/null; then
-                # 원격 노드에서 sudoers 파일 설치 (stdin은 이제 자유로움)
-                ssh -t -o StrictHostKeyChecking=no "$user_ip" "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'"
+    # sudoers 파일을 원격 노드에 복사 및 설치
+    echo "   [3/4] NOPASSWD sudoers 설정 중..."
+    scp -o BatchMode=yes -o StrictHostKeyChecking=no "$SUDOERS_TMP" "$user_ip:/tmp/cluster-sudoers" > /dev/null 2>&1
 
-                if [ $? -eq 0 ]; then
-                    echo "   ✅ NOPASSWD sudoers 설정 완료"
-                else
-                    echo "   ⚠️  sudoers 설정 실패 - sudo 실행 실패"
-                fi
-            else
-                echo "   ⚠️  sudoers 설정 실패 - scp 실패 (SSH 연결 확인 필요)"
-            fi
-
-            # 로컬 임시 파일 삭제
-            rm -f "$SUDOERS_TMP"
-
-            # /etc/hosts 파일 복사 (이제 NOPASSWD로 작동)
-            echo "🔧 /etc/hosts 파일 배포 중..."
-            if scp -o BatchMode=yes -o StrictHostKeyChecking=no /etc/hosts "$user_ip:/tmp/hosts.tmp" 2>/dev/null; then
-                if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" "sudo cp /tmp/hosts.tmp /etc/hosts && sudo rm /tmp/hosts.tmp" 2>/dev/null; then
-                    echo "   ✅ /etc/hosts 배포 완료"
-                else
-                    echo "   ⚠️  /etc/hosts 배포 실패 - sudo cp 실패 (sudoers 설정 확인 필요)"
-                fi
-            else
-                echo "   ⚠️  /etc/hosts 배포 실패 - scp 실패 (SSH 연결 확인 필요)"
-            fi
-        fi
+    # sshpass가 있으면 사용, 없으면 일반 ssh 사용
+    if [ "$USE_SSHPASS" = true ]; then
+        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'" > /dev/null 2>&1
     else
-        echo "❌ $hostname: 공개키 복사 실패"
-        ((FAIL_COUNT++))
-        FAILED_NODES="$FAILED_NODES\n  - $hostname ($user_ip)"
+        # 이미 sudoers가 설정되어 있을 수 있으므로 BatchMode로 먼저 시도
+        if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
+            "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'" > /dev/null 2>&1; then
+            # 실패하면 interactive로 재시도
+            ssh -t -o StrictHostKeyChecking=no "$user_ip" \
+                "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'" 2>/dev/null
+        fi
+    fi
+
+    if [ $? -eq 0 ]; then
+        echo "   ✅ NOPASSWD sudoers 설정 완료"
+    else
+        echo "   ⚠️  sudoers 설정 실패"
+    fi
+
+    # 로컬 임시 파일 삭제
+    rm -f "$SUDOERS_TMP"
+
+    # /etc/hosts 파일 복사
+    echo "   [4/4] /etc/hosts 파일 배포 중..."
+    scp -o BatchMode=yes -o StrictHostKeyChecking=no /etc/hosts "$user_ip:/tmp/hosts.tmp" > /dev/null 2>&1
+
+    if [ "$USE_SSHPASS" = true ]; then
+        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no "$user_ip" \
+            "echo '$PASSWORD' | sudo -S cp /tmp/hosts.tmp /etc/hosts && rm /tmp/hosts.tmp" > /dev/null 2>&1
+    else
+        ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$user_ip" \
+            "sudo cp /tmp/hosts.tmp /etc/hosts && rm /tmp/hosts.tmp" > /dev/null 2>&1
+    fi
+
+    if [ $? -eq 0 ]; then
+        echo "   ✅ /etc/hosts 배포 완료"
+    else
+        echo "   ⚠️  /etc/hosts 배포 실패"
     fi
 
     echo ""
