@@ -509,21 +509,22 @@ deploy_to_other_controllers() {
         node_count=$((node_count + 1))
         log INFO "Deploying to $hostname ($ip)..."
 
-        # Test SSH connection
-        if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
-            log WARNING "Cannot connect to $hostname ($ip) via SSH"
+        # Test SSH connection (BatchMode prevents password prompts)
+        if ! ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
+            log WARNING "Cannot connect to $hostname ($ip) via SSH key authentication"
+            log WARNING "Please run: ./setup_ssh_passwordless.sh to configure SSH keys"
             continue
         fi
 
         # Copy phase1_database.sh to remote node
-        if ! scp -o StrictHostKeyChecking=no "$0" "$ssh_user@$ip:/tmp/phase1_database.sh" > /dev/null 2>&1; then
+        if ! scp -o BatchMode=yes -o StrictHostKeyChecking=no "$0" "$ssh_user@$ip:/tmp/phase1_database.sh" > /dev/null 2>&1; then
             log WARNING "Failed to copy script to $hostname"
             continue
         fi
 
         # Execute on remote node (without bootstrap)
         log INFO "Installing MariaDB on $hostname..."
-        if ssh -o StrictHostKeyChecking=no "$ssh_user@$ip" \
+        if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$ssh_user@$ip" \
             "cd '$SCRIPT_DIR' && sudo bash /tmp/phase1_database.sh --config '$CONFIG_FILE' --skip-bootstrap --join" > /dev/null 2>&1; then
             log SUCCESS "$hostname: MariaDB installed and joined cluster"
         else

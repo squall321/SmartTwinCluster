@@ -449,21 +449,22 @@ deploy_to_other_controllers() {
         node_count=$((node_count + 1))
         log INFO "Deploying to $hostname ($ip)..."
 
-        # Test SSH connection
-        if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
-            log WARNING "Cannot connect to $hostname ($ip) via SSH"
+        # Test SSH connection (BatchMode prevents password prompts)
+        if ! ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
+            log WARNING "Cannot connect to $hostname ($ip) via SSH key authentication"
+            log WARNING "Please run: ./setup_ssh_passwordless.sh to configure SSH keys"
             continue
         fi
 
         # Copy phase2_redis.sh to remote node
-        if ! scp -o StrictHostKeyChecking=no "$0" "$ssh_user@$ip:/tmp/phase2_redis.sh" > /dev/null 2>&1; then
+        if ! scp -o BatchMode=yes -o StrictHostKeyChecking=no "$0" "$ssh_user@$ip:/tmp/phase2_redis.sh" > /dev/null 2>&1; then
             log WARNING "Failed to copy script to $hostname"
             continue
         fi
 
         # Execute on remote node (without cluster creation)
         log INFO "Installing Redis on $hostname..."
-        if ssh -o StrictHostKeyChecking=no "$ssh_user@$ip" \
+        if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$ssh_user@$ip" \
             "cd '$SCRIPT_DIR' && sudo bash /tmp/phase2_redis.sh --config '$CONFIG_FILE' --skip-cluster" > /dev/null 2>&1; then
             log SUCCESS "$hostname: Redis installed"
         else
