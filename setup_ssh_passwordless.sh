@@ -89,6 +89,35 @@ echo "$NODES" | while IFS='#' read -r user_ip hostname; do
 done
 echo ""
 
+# SSH 키 확인 및 생성 (먼저!)
+SSH_KEY="$HOME/.ssh/id_rsa"
+
+if [ ! -f "$SSH_KEY" ]; then
+    echo "🔑 SSH 키가 없습니다. 새로 생성합니다..."
+    echo ""
+    read -p "SSH 키 비밀번호를 설정하시겠습니까? (비밀번호 없이 하려면 그냥 Enter) (y/N): " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # 비밀번호 있는 키
+        ssh-keygen -t rsa -b 4096 -C "slurm-cluster-key"
+    else
+        # 비밀번호 없는 키 (권장)
+        ssh-keygen -t rsa -b 4096 -C "slurm-cluster-key" -N ""
+    fi
+
+    if [ $? -eq 0 ]; then
+        echo "✅ SSH 키 생성 완료: $SSH_KEY"
+    else
+        echo "❌ SSH 키 생성 실패!"
+        exit 1
+    fi
+else
+    echo "✅ 기존 SSH 키 사용: $SSH_KEY"
+fi
+
+echo ""
+
 # /etc/hosts 업데이트
 echo "🔧 /etc/hosts 파일 업데이트 중..."
 echo ""
@@ -121,34 +150,6 @@ fi
 echo "✅ /etc/hosts 업데이트 완료 (백업: /etc/hosts.backup.*)"
 echo ""
 
-# SSH 키 확인
-SSH_KEY="$HOME/.ssh/id_rsa"
-
-if [ ! -f "$SSH_KEY" ]; then
-    echo "🔑 SSH 키가 없습니다. 새로 생성합니다..."
-    echo ""
-    read -p "SSH 키 비밀번호를 설정하시겠습니까? (비밀번호 없이 하려면 그냥 Enter) (y/N): " -n 1 -r
-    echo
-    
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        # 비밀번호 있는 키
-        ssh-keygen -t rsa -b 4096 -C "slurm-cluster-key"
-    else
-        # 비밀번호 없는 키 (권장)
-        ssh-keygen -t rsa -b 4096 -C "slurm-cluster-key" -N ""
-    fi
-    
-    if [ $? -eq 0 ]; then
-        echo "✅ SSH 키 생성 완료: $SSH_KEY"
-    else
-        echo "❌ SSH 키 생성 실패!"
-        exit 1
-    fi
-else
-    echo "✅ 기존 SSH 키 사용: $SSH_KEY"
-fi
-
-echo ""
 echo "================================================================================"
 echo "📤 각 노드에 공개키 복사 중..."
 echo "================================================================================"
