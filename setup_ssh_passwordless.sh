@@ -43,6 +43,9 @@ with open(config_file, 'r') as f:
 
 nodes_config = config['nodes']
 
+# Use dict to deduplicate by hostname (first occurrence wins)
+nodes_dict = {}
+
 # Support both single-head (controller) and multi-head (controllers) formats
 if 'controllers' in nodes_config and isinstance(nodes_config['controllers'], list):
     # Multi-head format: all controllers
@@ -50,21 +53,28 @@ if 'controllers' in nodes_config and isinstance(nodes_config['controllers'], lis
         ssh_user = node['ssh_user']
         ip = node['ip_address']
         hostname = node['hostname']
-        print(f"{ssh_user}@{ip}#{hostname}")
+        if hostname not in nodes_dict:
+            nodes_dict[hostname] = f"{ssh_user}@{ip}#{hostname}"
 elif 'controller' in nodes_config:
     # Single-head format: single controller
     controller = nodes_config['controller']
     ssh_user = controller['ssh_user']
     ip = controller['ip_address']
     hostname = controller['hostname']
-    print(f"{ssh_user}@{ip}#{hostname}")
+    if hostname not in nodes_dict:
+        nodes_dict[hostname] = f"{ssh_user}@{ip}#{hostname}"
 
 # 계산 노드
 for node in nodes_config['compute_nodes']:
     ssh_user = node['ssh_user']
     ip = node['ip_address']
     hostname = node['hostname']
-    print(f"{ssh_user}@{ip}#{hostname}")
+    if hostname not in nodes_dict:
+        nodes_dict[hostname] = f"{ssh_user}@{ip}#{hostname}"
+
+# Print all unique nodes
+for node_info in nodes_dict.values():
+    print(node_info)
 EOFPY
 )
 
