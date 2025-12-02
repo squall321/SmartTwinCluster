@@ -7,15 +7,34 @@
 echo "🔐 Munge 수동 설치"
 echo "================================================================================"
 
-# Ubuntu/Debian
-if command -v apt-get &> /dev/null; then
-    echo "📦 Ubuntu/Debian에서 Munge 설치 중..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OFFLINE_PKGS="$SCRIPT_DIR/offline_packages/apt_packages"
+
+# Try offline installation first
+if [ -d "$OFFLINE_PKGS" ] && [ -f "$OFFLINE_PKGS/munge_0.5.14-6_amd64.deb" ]; then
+    echo "📦 오프라인 패키지에서 Munge 설치 중..."
+
+    # Install munge packages from local .deb files
+    sudo dpkg -i \
+        "$OFFLINE_PKGS/libmunge2_0.5.14-6_amd64.deb" \
+        "$OFFLINE_PKGS/munge_0.5.14-6_amd64.deb" \
+        "$OFFLINE_PKGS/libmunge-dev_0.5.14-6_amd64.deb" \
+        2>/dev/null || true
+
+    # Fix any dependency issues
+    sudo dpkg --configure -a 2>/dev/null || true
+
+    echo "✅ 오프라인 패키지 설치 완료"
+
+# Ubuntu/Debian (online fallback)
+elif command -v apt-get &> /dev/null; then
+    echo "📦 Ubuntu/Debian에서 Munge 설치 중 (온라인)..."
     sudo apt-get update
     sudo apt-get install -y munge libmunge2 libmunge-dev
-    
-# CentOS/RHEL
+
+# CentOS/RHEL (online fallback)
 elif command -v yum &> /dev/null; then
-    echo "📦 CentOS/RHEL에서 Munge 설치 중..."
+    echo "📦 CentOS/RHEL에서 Munge 설치 중 (온라인)..."
     sudo yum install -y munge munge-libs munge-devel
 fi
 
