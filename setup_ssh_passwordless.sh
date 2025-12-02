@@ -162,13 +162,16 @@ SUCCESS_COUNT=0
 FAIL_COUNT=0
 FAILED_NODES=""
 
-while IFS='#' read -r user_ip hostname; do
+# 파일 디스크립터 3을 루프 입력용으로 사용 (stdin을 interactive 명령에 남겨둠)
+exec 3< <(echo "$NODES")
+
+while IFS='#' read -r user_ip hostname <&3; do
     echo "----------------------------------------"
     echo "📤 $hostname ($user_ip)"
     echo "----------------------------------------"
 
-    # ssh-copy-id로 공개키 복사 (stdin을 /dev/tty로 리다이렉트하여 루프 입력 보호)
-    ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" < /dev/tty 2>/dev/null
+    # ssh-copy-id로 공개키 복사 (stdin은 이제 자유로움)
+    ssh-copy-id -o StrictHostKeyChecking=no "$user_ip" 2>/dev/null
 
     if [ $? -eq 0 ]; then
         echo "✅ $hostname: 공개키 복사 완료"
@@ -216,8 +219,8 @@ EOF
             # sudoers 파일을 원격 노드에 복사
             scp -o BatchMode=yes -o StrictHostKeyChecking=no "$SUDOERS_TMP" "$user_ip:/tmp/cluster-sudoers" 2>/dev/null
 
-            # 원격 노드에서 sudoers 파일 설치 (interactive, stdin은 tty에서)
-            ssh -t -o StrictHostKeyChecking=no "$user_ip" "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'" < /dev/tty
+            # 원격 노드에서 sudoers 파일 설치 (stdin은 이제 자유로움)
+            ssh -t -o StrictHostKeyChecking=no "$user_ip" "sudo bash -c 'visudo -c -f /tmp/cluster-sudoers && mv /tmp/cluster-sudoers /etc/sudoers.d/cluster-automation && chmod 440 /etc/sudoers.d/cluster-automation'"
 
             if [ $? -eq 0 ]; then
                 echo "   ✅ NOPASSWD sudoers 설정 완료"
@@ -246,7 +249,10 @@ EOF
     fi
 
     echo ""
-done < <(echo "$NODES")
+done
+
+# 파일 디스크립터 3 닫기
+exec 3<&-
 
 echo "================================================================================"
 echo "✅ SSH 키 설정 완료!"
