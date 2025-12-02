@@ -2,13 +2,83 @@
 ################################################################################
 # SSH 키 기반 인증 자동 설정
 # 한 번만 설정하면 비밀번호 입력 없이 SSH 접속 가능
-#
-# Usage: ./setup_ssh_passwordless.sh [CONFIG_FILE]
-#   CONFIG_FILE: Path to YAML config file (default: my_cluster.yaml)
 ################################################################################
 
-# 설정 파일 파라미터 (기본값: my_cluster.yaml)
-CONFIG_FILE="${1:-my_cluster.yaml}"
+show_help() {
+    cat << 'EOF'
+================================================================================
+🔑 SSH 키 기반 인증 자동 설정 스크립트
+================================================================================
+
+사용법:
+    ./setup_ssh_passwordless.sh [옵션] [CONFIG_FILE]
+
+옵션:
+    -h, --help      이 도움말 표시
+    -c, --config    설정 파일 경로 지정 (기본값: my_cluster.yaml)
+
+예제:
+    # 기본 설정 파일 사용
+    ./setup_ssh_passwordless.sh
+
+    # 커스텀 설정 파일 사용
+    ./setup_ssh_passwordless.sh my_custom_cluster.yaml
+    ./setup_ssh_passwordless.sh -c /path/to/cluster.yaml
+
+기능:
+    1. SSH 키 생성 (없는 경우 자동 생성)
+    2. 모든 노드에 공개키 복사 (ssh-copy-id)
+    3. /etc/hosts 파일 업데이트 (모든 노드에 배포)
+    4. NOPASSWD sudoers 설정 (클러스터 관리 명령용)
+
+필수 조건:
+    - my_cluster.yaml (또는 지정된 설정 파일)
+    - Python3 + PyYAML
+    - 모든 노드에 동일한 SSH 비밀번호 (최초 1회만 입력)
+
+설정 파일 예시 (my_cluster.yaml):
+    nodes:
+      controller:
+        hostname: controller
+        ip_address: 192.168.1.10
+        ssh_user: admin
+      compute_nodes:
+        - hostname: node001
+          ip_address: 192.168.1.11
+          ssh_user: admin
+
+    # 선택적: SSH 비밀번호 (입력 생략 가능)
+    cluster_info:
+      ssh_password: your_password_here
+
+EOF
+    exit 0
+}
+
+# 옵션 파싱
+CONFIG_FILE="my_cluster.yaml"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            ;;
+        -c|--config)
+            CONFIG_FILE="$2"
+            shift 2
+            ;;
+        -*)
+            echo "❌ 알 수 없는 옵션: $1"
+            echo "   사용법: ./setup_ssh_passwordless.sh --help"
+            exit 1
+            ;;
+        *)
+            # 위치 인자로 설정 파일 지정
+            CONFIG_FILE="$1"
+            shift
+            ;;
+    esac
+done
 
 echo "================================================================================"
 echo "🔑 SSH 키 기반 인증 자동 설정"

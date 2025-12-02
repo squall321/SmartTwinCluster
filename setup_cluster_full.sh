@@ -9,6 +9,100 @@ set -e  # 에러 발생시 중단
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+show_help() {
+    cat << 'EOF'
+================================================================================
+🚀 Slurm 클러스터 통합 설치 스크립트 (온라인 버전)
+================================================================================
+
+사용법:
+    ./setup_cluster_full.sh [옵션]
+
+옵션:
+    -h, --help      이 도움말 표시
+    -c, --config    설정 파일 경로 지정 (기본값: my_cluster.yaml)
+    -y, --yes       모든 확인 프롬프트에 자동 yes
+
+설치 단계:
+    Step 1:  사전 준비 (SSH 키, /etc/hosts)
+    Step 2:  Python 가상환경 설정
+    Step 3:  설정 파일 검증
+    Step 4:  Munge 인증 설치 (컨트롤러)
+    Step 5:  Slurm 23.11.x 컴파일 및 설치 (컨트롤러)
+    Step 6:  Slurm 설정 파일 생성
+    Step 7:  계산 노드에 Slurm 설치
+    Step 8:  MPI 설치 (선택)
+    Step 9:  설정 파일 배포
+    Step 10: Slurm 서비스 시작
+    Step 11: PATH 설정
+    Step 12: cgroup v2 검증
+    Step 13: 최종 검증
+
+필수 조건:
+    - Ubuntu 22.04 LTS
+    - my_cluster.yaml 설정 파일
+    - 인터넷 연결 (패키지 다운로드)
+    - root 권한 (sudo)
+
+설정 파일 필수 항목:
+    nodes:
+      controller:
+        hostname: controller
+        ip_address: 192.168.1.10
+        ssh_user: admin
+      compute_nodes:
+        - hostname: node001
+          ip_address: 192.168.1.11
+          ssh_user: admin
+
+    slurm:
+      slurm_uid: 1001
+      slurm_gid: 1001
+      munge_uid: 1002
+      munge_gid: 1002
+
+예제:
+    # 기본 실행 (대화형)
+    ./setup_cluster_full.sh
+
+    # 커스텀 설정 파일
+    ./setup_cluster_full.sh -c /path/to/cluster.yaml
+
+관련 스크립트:
+    - setup_ssh_passwordless.sh  : SSH 키 설정 (Step 1 자동 호출)
+    - setup_cluster_full_offline.sh : 오프라인 설치 버전
+
+EOF
+    exit 0
+}
+
+# 옵션 파싱
+CONFIG_FILE="my_cluster.yaml"
+AUTO_YES=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            ;;
+        -c|--config)
+            CONFIG_FILE="$2"
+            shift 2
+            ;;
+        -y|--yes)
+            AUTO_YES=true
+            shift
+            ;;
+        -*)
+            echo "❌ 알 수 없는 옵션: $1"
+            echo "   사용법: ./setup_cluster_full.sh --help"
+            exit 1
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 echo ""
 
