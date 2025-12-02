@@ -49,7 +49,17 @@ import os
 config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
-print(config['nodes']['controller']['ssh_user'])
+
+# Support both single-head (controller) and multi-head (controllers) formats
+nodes = config['nodes']
+if 'controllers' in nodes and isinstance(nodes['controllers'], list):
+    # Multi-head format: use first controller
+    print(nodes['controllers'][0]['ssh_user'])
+elif 'controller' in nodes:
+    # Single-head format
+    print(nodes['controller']['ssh_user'])
+else:
+    raise KeyError('No controller or controllers found in nodes')
 EOFPY
 )
 
