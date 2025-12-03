@@ -217,7 +217,9 @@ shared_storage:
     replica_count: auto        # 'auto' = controller 수만큼 (4)
 
     # Brick 경로 (각 controller의 로컬 디스크)
-    brick_path: /data/glusterfs/shared
+    # 주의: /data는 공유 스토리지 마운트 위치이므로 사용 불가
+    # 로컬 디스크 경로를 사용해야 함
+    brick_path: /srv/glusterfs/brick
 
     # 마운트 포인트 (모든 controller에서 동일)
     mount_point: /mnt/gluster
@@ -240,7 +242,7 @@ shared_storage:
   # 백업 저장소 (로컬 디스크, GlusterFS 아님!)
   backup:
     enabled: true
-    path: /data/system_backup  # 각 controller의 로컬 디스크
+    path: /var/backups/cluster  # 각 controller의 로컬 디스크 (공유 스토리지 아님)
 
     # 백업 스케줄
     schedule:
@@ -269,6 +271,14 @@ database:
 
   mariadb:
     version: "10.6"
+
+    # MariaDB 관리자 비밀번호
+    root_password: "${DB_ROOT_PASSWORD}"  # 환경변수 또는 직접 설정
+
+    # SST (State Snapshot Transfer) 비밀번호
+    # Galera 클러스터 노드 간 데이터 동기화에 사용
+    sst_user: sst_sync
+    sst_password: "${DB_SST_PASSWORD}"  # 환경변수 또는 직접 설정
 
     # Galera Cluster 설정
     galera:

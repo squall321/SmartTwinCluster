@@ -214,6 +214,19 @@ load_config() {
     SST_USER=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get database.mariadb.sst_user 2>/dev/null || echo "sstuser")
     SST_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get database.mariadb.sst_password 2>/dev/null)
 
+    # Expand environment variables if value is in ${VAR} format
+    # This allows YAML to use: root_password: "${DB_ROOT_PASSWORD}"
+    if [[ "$DB_ROOT_PASSWORD" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$ ]]; then
+        local env_var="${BASH_REMATCH[1]}"
+        DB_ROOT_PASSWORD="${!env_var:-}"
+        [[ -n "$DB_ROOT_PASSWORD" ]] && log INFO "root_password loaded from environment variable: $env_var"
+    fi
+    if [[ "$SST_PASSWORD" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$ ]]; then
+        local env_var="${BASH_REMATCH[1]}"
+        SST_PASSWORD="${!env_var:-}"
+        [[ -n "$SST_PASSWORD" ]] && log INFO "sst_password loaded from environment variable: $env_var"
+    fi
+
     # Validate passwords - warn if using insecure defaults
     local config_warnings=false
     if [[ -z "$DB_ROOT_PASSWORD" || "$DB_ROOT_PASSWORD" == "changeme" ]]; then

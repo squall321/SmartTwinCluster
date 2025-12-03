@@ -205,6 +205,27 @@ class ClusterConfigParser:
             cluster_info = self.config.get('cluster_info', {})
         return cluster_info
 
+    def get_value(self, key_path: str) -> Any:
+        """
+        Get value by dot-notation key path (e.g., 'database.mariadb.root_password')
+
+        Args:
+            key_path: Dot-separated path to the value
+
+        Returns:
+            Value at the specified path, or None if not found
+        """
+        keys = key_path.split('.')
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key)
+                if value is None:
+                    return None
+            else:
+                return None
+        return value
+
     def validate(self) -> tuple[bool, List[str]]:
         """
         Validate configuration
@@ -380,6 +401,13 @@ Examples:
     )
 
     parser.add_argument(
+        '--get',
+        type=str,
+        metavar='KEY_PATH',
+        help='Get value by dot-notation path (e.g., database.mariadb.root_password)'
+    )
+
+    parser.add_argument(
         '--get-vip',
         action='store_true',
         help='Get VIP configuration'
@@ -455,6 +483,13 @@ Examples:
 
     elif args.service:
         output = config_parser.get_active_controllers(args.service)
+
+    elif args.get:
+        output = config_parser.get_value(args.get)
+        # Print raw value for simple types (string, number, bool)
+        if output is not None and not isinstance(output, (dict, list)):
+            print(output)
+            sys.exit(0)
 
     elif args.get_vip:
         output = config_parser.get_vip_config()

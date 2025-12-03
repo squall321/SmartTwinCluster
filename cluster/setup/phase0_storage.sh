@@ -162,12 +162,30 @@ fi
 STORAGE_CONFIG=$(python3 "$PARSER_PY" --config "$CONFIG_PATH" --get-storage 2>/dev/null)
 VOLUME_NAME=$(echo "$STORAGE_CONFIG" | jq -r '.glusterfs.volume_name // "shared_data"')
 REPLICA_COUNT=$(echo "$STORAGE_CONFIG" | jq -r '.glusterfs.replica_count // "auto"')
-BRICK_PATH=$(echo "$STORAGE_CONFIG" | jq -r '.glusterfs.brick_path // "/data/glusterfs/shared"')
+BRICK_PATH=$(echo "$STORAGE_CONFIG" | jq -r '.glusterfs.brick_path // "/srv/glusterfs/brick"')
 MOUNT_POINT=$(echo "$STORAGE_CONFIG" | jq -r '.glusterfs.mount_point // "/mnt/gluster"')
 
 log "INFO" "Volume name: $VOLUME_NAME"
 log "INFO" "Brick path: $BRICK_PATH"
 log "INFO" "Mount point: $MOUNT_POINT"
+
+# Validate brick path - must be on local disk, not shared storage
+if [[ "$BRICK_PATH" == /data/* ]]; then
+    log "ERROR" "Brick path '$BRICK_PATH' is under /data which is typically a shared storage mount"
+    log "ERROR" "GlusterFS bricks must be on LOCAL disk, not shared storage"
+    log "INFO" "Recommended paths: /srv/glusterfs/brick, /var/lib/glusterfs/brick"
+    log "INFO" "Please update 'brick_path' in your YAML config file"
+    exit 1
+fi
+
+# Check if brick path is on a mounted filesystem (potential conflict)
+if mountpoint -q "$(dirname "$BRICK_PATH")" 2>/dev/null; then
+    PARENT_MOUNT=$(df "$(dirname "$BRICK_PATH")" 2>/dev/null | tail -1 | awk '{print $1}')
+    if [[ "$PARENT_MOUNT" == *"nfs"* ]] || [[ "$PARENT_MOUNT" == *"gluster"* ]] || [[ "$PARENT_MOUNT" == *"ceph"* ]]; then
+        log "WARNING" "Brick path parent appears to be network storage: $PARENT_MOUNT"
+        log "WARNING" "GlusterFS bricks should be on local disk for proper operation"
+    fi
+fi
 log "INFO" "Replica count: $REPLICA_COUNT"
 
 # Get all GlusterFS-enabled controllers
