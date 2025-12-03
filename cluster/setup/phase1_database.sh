@@ -48,6 +48,7 @@ LOG_FILE="/var/log/cluster_database_setup.log"
 MODE="auto"
 DRY_RUN=false
 SKIP_BOOTSTRAP=false
+FORCE_FRESH=false
 
 # Color codes
 RED='\033[0;31m'
@@ -92,6 +93,7 @@ Options:
   --config PATH     Path to my_multihead_cluster.yaml (default: $CONFIG_FILE)
   --bootstrap       Force bootstrap mode (create new cluster)
   --join            Force join mode (join existing cluster)
+  --force-fresh     Clear existing Galera state and start completely fresh
   --dry-run         Show what would be done without executing
   --help            Show this help message
 
@@ -104,6 +106,9 @@ Examples:
 
   # Join existing cluster
   sudo $0 --join
+
+  # Force fresh start (clear existing state)
+  sudo $0 --bootstrap --force-fresh
 
   # Dry-run to preview changes
   $0 --dry-run
@@ -522,8 +527,132 @@ stop_mariadb() {
     log SUCCESS "MariaDB stopped"
 }
 
+check_existing_galera_state() {
+    # Check for existing Galera state files
+    local grastate="/var/lib/mysql/grastate.dat"
+    local gvwstate="/var/lib/mysql/gvwstate.dat"
+
+    if [[ ! -f "$grastate" ]]; then
+        log INFO "No existing Galera state found - fresh bootstrap"
+        return 1  # No existing state
+    fi
+
+    log INFO "Found existing Galera state file: $grastate"
+
+    # Read existing cluster UUID from grastate.dat
+    local existing_uuid=$(grep "^uuid:" "$grastate" 2>/dev/null | awk '{print $2}')
+    local existing_seqno=$(grep "^seqno:" "$grastate" 2>/dev/null | awk '{print $2}')
+    local safe_to_bootstrap=$(grep "^safe_to_bootstrap:" "$grastate" 2>/dev/null | awk '{print $2}')
+
+    log INFO "Existing state:"
+    log INFO "  - UUID: ${existing_uuid:-unknown}"
+    log INFO "  - Sequence number: ${existing_seqno:-unknown}"
+    log INFO "  - Safe to bootstrap: ${safe_to_bootstrap:-unknown}"
+
+    # If safe_to_bootstrap is 1 and seqno is valid (not -1), we can recover
+    if [[ "$safe_to_bootstrap" == "1" && "$existing_seqno" != "-1" ]]; then
+        log INFO "Existing state is safe to bootstrap - will recover existing cluster"
+        return 0  # Can use existing state
+    fi
+
+    # Check if seqno is -1 (crash recovery needed)
+    if [[ "$existing_seqno" == "-1" ]]; then
+        log WARNING "Previous shutdown was unclean (seqno=-1)"
+        log INFO "Running wsrep_recover to find last committed position..."
+
+        if [[ "$DRY_RUN" == "false" ]]; then
+            # Run wsrep_recover to get the correct position
+            local recover_output
+            recover_output=$(mysqld --wsrep-recover 2>&1 || true)
+            local recovered_pos=$(echo "$recover_output" | grep -oP 'Recovered position.*:\K[0-9]+' | tail -1)
+
+            if [[ -n "$recovered_pos" && "$recovered_pos" != "-1" ]]; then
+                log SUCCESS "Recovered position: $recovered_pos"
+
+                # Update grastate.dat with recovered position
+                sed -i "s/^seqno:.*/seqno: $recovered_pos/" "$grastate"
+                sed -i "s/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/" "$grastate"
+
+                log SUCCESS "Updated grastate.dat for safe recovery"
+                return 0  # Can now use existing state
+            else
+                log WARNING "Could not recover valid position"
+            fi
+        fi
+    fi
+
+    # State exists but not safe - need user decision
+    log WARNING "Existing Galera state found but may not be safe to use"
+    return 2  # Existing state but needs attention
+}
+
+handle_existing_galera_state() {
+    local state_check=$1
+
+    case $state_check in
+        0)
+            # Existing state is usable - recover existing cluster
+            log SUCCESS "Recovering existing Galera cluster..."
+            return 0
+            ;;
+        1)
+            # No existing state - fresh bootstrap
+            log INFO "Starting fresh Galera cluster..."
+            return 0
+            ;;
+        2)
+            # Existing state but unclear - ask user
+            log WARNING "Existing Galera cluster state detected"
+            log WARNING "Options:"
+            log WARNING "  1. Keep existing state and try to recover"
+            log WARNING "  2. Clear state and start fresh cluster"
+
+            if [[ "$DRY_RUN" == "false" ]] && [[ -t 0 ]]; then
+                read -p "Clear existing state and start fresh? (y/N): " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    log INFO "Clearing existing Galera state..."
+                    rm -f /var/lib/mysql/grastate.dat
+                    rm -f /var/lib/mysql/gvwstate.dat
+                    log SUCCESS "Galera state cleared"
+                else
+                    log INFO "Keeping existing state - attempting recovery"
+                    # Set safe_to_bootstrap to 1 for recovery attempt
+                    if [[ -f /var/lib/mysql/grastate.dat ]]; then
+                        sed -i "s/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/" /var/lib/mysql/grastate.dat
+                    fi
+                fi
+            else
+                # Non-interactive: try to recover existing state
+                log WARNING "Non-interactive mode: attempting to recover existing state"
+                if [[ -f /var/lib/mysql/grastate.dat ]]; then
+                    sed -i "s/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/" /var/lib/mysql/grastate.dat
+                fi
+            fi
+            return 0
+            ;;
+    esac
+}
+
 bootstrap_cluster() {
-    log INFO "Bootstrapping new Galera cluster..."
+    log INFO "Bootstrapping Galera cluster..."
+
+    if [[ "$DRY_RUN" == "false" ]]; then
+        # Force fresh start if requested
+        if [[ "$FORCE_FRESH" == "true" ]]; then
+            log WARNING "Force fresh mode: clearing existing Galera state..."
+            rm -f /var/lib/mysql/grastate.dat
+            rm -f /var/lib/mysql/gvwstate.dat
+            log SUCCESS "Galera state cleared"
+        else
+            # Check for existing Galera state
+            check_existing_galera_state
+            local state_result=$?
+
+            # Handle existing state appropriately
+            handle_existing_galera_state $state_result
+        fi
+    fi
 
     # Use galera_new_cluster command for bootstrap
     run_command "galera_new_cluster"
@@ -535,8 +664,15 @@ bootstrap_cluster() {
         # Check if MariaDB is running
         if systemctl is-active --quiet mariadb; then
             log SUCCESS "Galera cluster bootstrapped successfully"
+
+            # Show cluster info
+            local cluster_uuid=$(mysql -N -e "SHOW STATUS LIKE 'wsrep_cluster_state_uuid';" 2>/dev/null | awk '{print $2}')
+            local cluster_size=$(mysql -N -e "SHOW STATUS LIKE 'wsrep_cluster_size';" 2>/dev/null | awk '{print $2}')
+            log INFO "Cluster UUID: ${cluster_uuid:-unknown}"
+            log INFO "Cluster size: ${cluster_size:-1}"
         else
             log ERROR "Failed to bootstrap Galera cluster"
+            log ERROR "Check logs: journalctl -u mariadb -n 50"
             exit 1
         fi
     fi
@@ -830,6 +966,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-bootstrap)
             SKIP_BOOTSTRAP=true
+            shift
+            ;;
+        --force-fresh)
+            FORCE_FRESH=true
             shift
             ;;
         --help)
