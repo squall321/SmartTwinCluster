@@ -486,6 +486,120 @@ services:
       이 서비스는 VNC 세션 관리 UI만 제공.
 
   # --------------------------------------------------------------------------
+  # Moonlight/Sunshine - 게임 스트리밍 프로토콜 원격 데스크톱
+  # --------------------------------------------------------------------------
+  moonlight_backend:
+    name: "Moonlight Backend"
+    description: "Moonlight/Sunshine 게임 스트리밍 세션 관리"
+    directory: "dashboard/MoonlightSunshine_8004/backend_moonlight_8004"
+    port: 8004
+    protocol: "http"
+    type: "flask"
+
+    environment:
+      development:
+        FLASK_ENV: "development"
+        FLASK_DEBUG: "True"
+        HOST: "0.0.0.0"
+        PORT: 8004
+
+        # Redis (VNC와 동일한 설정)
+        REDIS_HOST: "localhost"
+        REDIS_PORT: 6379
+        REDIS_DB: 0
+        REDIS_PASSWORD: "changeme"
+
+        # JWT (다른 서비스와 동일)
+        JWT_SECRET_KEY: "dev-jwt-secret-please-change"
+        JWT_ALGORITHM: "HS256"
+
+        # Moonlight 특화 설정
+        SUNSHINE_SESSIONS_DIR: "/scratch/sunshine_sessions"
+        SUNSHINE_SANDBOXES_DIR: "/scratch/sunshine_sandboxes"
+        SUNSHINE_LOG_DIR: "/scratch/sunshine_logs"
+        SUNSHINE_PORT_START: 47989
+        SUNSHINE_PORT_END: 48010
+
+      production:
+        FLASK_ENV: "production"
+        FLASK_DEBUG: "False"
+        HOST: "0.0.0.0"
+        PORT: 8004
+
+        # Redis
+        REDIS_HOST: "localhost"
+        REDIS_PORT: 6379
+        REDIS_DB: 0
+        REDIS_PASSWORD: "${REDIS_PASSWORD}"
+
+        # JWT
+        JWT_SECRET_KEY: "${JWT_SECRET_KEY}"
+        JWT_ALGORITHM: "HS256"
+
+        # Moonlight 특화 설정
+        SUNSHINE_SESSIONS_DIR: "/scratch/sunshine_sessions"
+        SUNSHINE_SANDBOXES_DIR: "/scratch/sunshine_sandboxes"
+        SUNSHINE_LOG_DIR: "/scratch/sunshine_logs"
+        SUNSHINE_PORT_START: 47989
+        SUNSHINE_PORT_END: 48010
+
+    dependencies:
+      python_packages:
+        - flask
+        - flask-cors
+        - PyJWT
+        - redis
+        - python-dotenv
+      system_packages:
+        - python3
+        - slurm-client
+        - apptainer
+
+    health_check:
+      endpoint: "/health"
+      expected_status: 200
+
+    notes: |
+      Moonlight는 NVIDIA GameStream 프로토콜을 사용하는 오픈소스 클라이언트입니다.
+      Sunshine은 서버 측 GameStream 구현으로 VNC보다 낮은 지연시간을 제공합니다.
+      Slurm 파티션: viz (VNC와 동일)
+      Display 번호: :10-:99 (VNC는 :1-:9 사용)
+
+  # --------------------------------------------------------------------------
+  moonlight_frontend:
+    name: "Moonlight Frontend"
+    description: "Moonlight/Sunshine 세션 관리 UI"
+    directory: "dashboard/moonlight_frontend_8003"
+    port: 8003
+    protocol: "http"
+    type: "vite"
+
+    environment:
+      development:
+        VITE_API_URL: "http://localhost:8004"
+        VITE_AUTH_URL: "http://localhost:4430"
+        VITE_ENVIRONMENT: "development"
+
+      production:
+        VITE_API_URL: "https://hpc.example.com/api/moonlight"
+        VITE_AUTH_URL: "https://hpc.example.com/auth"
+        VITE_ENVIRONMENT: "production"
+
+    dependencies:
+      node_packages:
+        - vite
+        - react
+        - typescript
+        - "@mui/material"
+      system_packages:
+        - nodejs
+        - npm
+
+    build:
+      command: "npm run build"
+      output_dir: "dist"
+
+  # --------------------------------------------------------------------------
   # Monitoring - 시스템 모니터링
   # --------------------------------------------------------------------------
   prometheus:
@@ -592,6 +706,14 @@ nginx:
         websocket: true
         description: "noVNC WebSocket Proxy"
 
+      - path: "/moonlight"
+        backend: "http://localhost:8003"
+        description: "Moonlight Service Frontend"
+
+      - path: "/api/moonlight"
+        backend: "http://localhost:8004"
+        description: "Moonlight Backend API"
+
       - path: "/prometheus"
         backend: "http://localhost:9090"
         auth_required: true
@@ -649,10 +771,12 @@ deployment:
     - dashboard_websocket
     - cae_backend
     - cae_automation
+    - moonlight_backend
     - auth_portal_frontend
     - dashboard_frontend
     - cae_frontend
     - vnc_service
+    - moonlight_frontend
     - nginx  # 마지막에 시작
 
   # 헬스 체크 설정
