@@ -1065,23 +1065,29 @@ EOPY
             continue
         fi
 
-        # Check if Slurm is already installed
-        if ssh $SSH_OPTS "$ssh_user@$ip_address" "test -x /usr/local/slurm/bin/slurmd" 2>/dev/null; then
+        # Check if Slurm is already installed (check both package and source install paths)
+        if ssh $SSH_OPTS "$ssh_user@$ip_address" "test -x /usr/bin/slurmd || test -x /usr/local/slurm/bin/slurmd" 2>/dev/null; then
             log INFO "Slurm already installed on $hostname, syncing config..."
 
-            # Sync slurm.conf
+            # Detect remote slurm.conf path
+            local remote_slurm_conf
+            remote_slurm_conf=$(ssh $SSH_OPTS "$ssh_user@$ip_address" \
+                "if [ -d /etc/slurm ]; then echo /etc/slurm/slurm.conf; elif [ -d /usr/local/slurm/etc ]; then echo /usr/local/slurm/etc/slurm.conf; else echo /etc/slurm/slurm.conf; fi" 2>/dev/null)
+
+            # Sync slurm.conf (use local SLURM_CONFIG which is /etc/slurm/slurm.conf)
             scp $SCP_OPTS \
-                /usr/local/slurm/etc/slurm.conf \
+                "$SLURM_CONFIG" \
                 "$ssh_user@$ip_address:/tmp/slurm.conf" &>/dev/null
 
             ssh $SSH_OPTS "$ssh_user@$ip_address" \
-                "sudo mv /tmp/slurm.conf /usr/local/slurm/etc/slurm.conf && \
-                 sudo chown slurm:slurm /usr/local/slurm/etc/slurm.conf && \
-                 sudo chmod 644 /usr/local/slurm/etc/slurm.conf" &>/dev/null
+                "sudo mkdir -p \$(dirname $remote_slurm_conf) && \
+                 sudo mv /tmp/slurm.conf $remote_slurm_conf && \
+                 sudo chown slurm:slurm $remote_slurm_conf && \
+                 sudo chmod 644 $remote_slurm_conf" &>/dev/null
 
             # Restart slurmd
             ssh $SSH_OPTS "$ssh_user@$ip_address" \
-                "sudo systemctl restart slurmd 2>/dev/null || sudo /usr/local/slurm/sbin/slurmd" &>/dev/null
+                "sudo systemctl restart slurmd" &>/dev/null
 
             log SUCCESS "Config synced and slurmd restarted on $hostname"
             setup_count=$((setup_count + 1))
@@ -1109,15 +1115,20 @@ EOPY
             continue
         fi
 
-        # Copy slurm.conf
+        # Copy slurm.conf - detect remote path
+        local remote_slurm_conf
+        remote_slurm_conf=$(ssh $SSH_OPTS "$ssh_user@$ip_address" \
+            "if [ -d /etc/slurm ]; then echo /etc/slurm/slurm.conf; elif [ -d /usr/local/slurm/etc ]; then echo /usr/local/slurm/etc/slurm.conf; else echo /etc/slurm/slurm.conf; fi" 2>/dev/null)
+
         if scp $SCP_OPTS \
-            /usr/local/slurm/etc/slurm.conf \
+            "$SLURM_CONFIG" \
             "$ssh_user@$ip_address:/tmp/slurm.conf" &>/dev/null; then
             ssh $SSH_OPTS "$ssh_user@$ip_address" \
-                "sudo mv /tmp/slurm.conf /usr/local/slurm/etc/slurm.conf && \
-                 sudo chown slurm:slurm /usr/local/slurm/etc/slurm.conf && \
-                 sudo chmod 644 /usr/local/slurm/etc/slurm.conf" &>/dev/null
-            log SUCCESS "Config copied to $hostname"
+                "sudo mkdir -p \$(dirname $remote_slurm_conf) && \
+                 sudo mv /tmp/slurm.conf $remote_slurm_conf && \
+                 sudo chown slurm:slurm $remote_slurm_conf && \
+                 sudo chmod 644 $remote_slurm_conf" &>/dev/null
+            log SUCCESS "Config copied to $hostname ($remote_slurm_conf)"
         else
             log WARNING "Failed to copy config to $hostname"
         fi
