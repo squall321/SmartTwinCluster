@@ -31,11 +31,18 @@
 #   --auto-confirm      Skip confirmation prompts
 #   --help              Show this help message
 #
+# Phase-specific options (passed through to individual phase scripts):
+#   --reset-db          [Phase 2: database] Reset MariaDB completely before setup
+#   --reset-redis       [Phase 3: redis] Reset Redis cluster completely before setup
+#   --reset-gluster     [Phase 1: storage] Reset GlusterFS volumes before setup
+#
 # Examples:
 #   sudo ./start_multihead.sh --config ../my_multihead_cluster.yaml
 #   sudo ./start_multihead.sh --phase 1 --dry-run
 #   sudo ./start_multihead.sh --skip-phase 6 --skip-phase 7
 #   sudo ./start_multihead.sh --phase storage
+#   sudo ./start_multihead.sh --phase database --reset-db
+#   sudo ./start_multihead.sh --phase redis --reset-redis
 ################################################################################
 
 set -euo pipefail
@@ -62,6 +69,11 @@ FORCE=false
 SKIP_SSL=false
 AUTO_CONFIRM=false
 LOG_FILE="/var/log/cluster_multihead_setup.log"
+
+# Phase-specific options (passed through to phase scripts)
+RESET_DB=false        # Phase 2: database
+RESET_REDIS=false     # Phase 3: redis
+RESET_GLUSTER=false   # Phase 1: storage
 
 # Phase mapping
 declare -A PHASE_NAMES=(
@@ -159,6 +171,18 @@ parse_args() {
                 ;;
             --auto-confirm)
                 AUTO_CONFIRM=true
+                shift
+                ;;
+            --reset-db)
+                RESET_DB=true
+                shift
+                ;;
+            --reset-redis)
+                RESET_REDIS=true
+                shift
+                ;;
+            --reset-gluster)
+                RESET_GLUSTER=true
                 shift
                 ;;
             --help)
@@ -330,6 +354,19 @@ show_execution_plan() {
 
     if [[ "$FORCE" == true ]]; then
         log_warning "FORCE MODE: Will overwrite existing configurations"
+    fi
+
+    # Show phase-specific options
+    if [[ "$RESET_GLUSTER" == true ]]; then
+        log_warning "RESET-GLUSTER: Will remove and recreate GlusterFS volumes"
+    fi
+
+    if [[ "$RESET_DB" == true ]]; then
+        log_warning "RESET-DB: Will remove and recreate MariaDB data"
+    fi
+
+    if [[ "$RESET_REDIS" == true ]]; then
+        log_warning "RESET-REDIS: Will remove and recreate Redis cluster"
     fi
 
     echo ""
@@ -596,6 +633,22 @@ execute_phase() {
     # Phase 4 (Slurm): Auto-deploy to compute nodes
     if [[ "$phase_num" == "4" ]]; then
         cmd="$cmd --auto-deploy-compute"
+    fi
+
+    # Phase-specific reset options
+    # Phase 1 (storage/GlusterFS): --reset-gluster
+    if [[ "$phase_num" == "1" && "$RESET_GLUSTER" == true ]]; then
+        cmd="$cmd --reset-gluster"
+    fi
+
+    # Phase 2 (database/MariaDB): --reset-db
+    if [[ "$phase_num" == "2" && "$RESET_DB" == true ]]; then
+        cmd="$cmd --reset-db"
+    fi
+
+    # Phase 3 (redis): --reset-redis
+    if [[ "$phase_num" == "3" && "$RESET_REDIS" == true ]]; then
+        cmd="$cmd --reset-redis"
     fi
 
     # Execute phase script

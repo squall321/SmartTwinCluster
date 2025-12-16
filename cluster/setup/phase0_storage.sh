@@ -18,6 +18,7 @@ set -euo pipefail
 CONFIG_PATH="../my_multihead_cluster.yaml"
 MODE="auto"  # auto, bootstrap, join
 DRY_RUN=false
+RESET_GLUSTER=false  # Complete GlusterFS reset (USE WITH CAUTION)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARSER_PY="${SCRIPT_DIR}/../config/parser.py"
 DISCOVERY_SH="${SCRIPT_DIR}/../discovery/auto_discovery.sh"
@@ -57,6 +58,40 @@ log() {
     esac
 }
 
+# Reset GlusterFS completely function
+reset_gluster_completely() {
+    log "WARNING" "=== RESET GLUSTERFS: Completely removing GlusterFS data ==="
+    log "WARNING" "This will DELETE ALL GlusterFS volumes and data on this node!"
+
+    # Stop glusterd
+    log "INFO" "Stopping glusterd service..."
+    systemctl stop glusterd 2>/dev/null || true
+
+    # Unmount any GlusterFS mounts
+    log "INFO" "Unmounting GlusterFS volumes..."
+    for mount in $(grep -E '^[^#].*(gluster|gv0)' /proc/mounts 2>/dev/null | awk '{print $2}'); do
+        umount -f "$mount" 2>/dev/null || umount -l "$mount" 2>/dev/null || true
+    done
+
+    # Remove volume metadata
+    log "INFO" "Removing GlusterFS volume metadata..."
+    rm -rf /var/lib/glusterd/vols/* 2>/dev/null || true
+    rm -rf /var/lib/glusterd/peers/* 2>/dev/null || true
+    rm -f /var/lib/glusterd/glusterd.info 2>/dev/null || true
+
+    # Remove brick data (be careful with the path)
+    if [[ -n "${BRICK_PATH:-}" ]]; then
+        log "INFO" "Removing brick data: $BRICK_PATH"
+        rm -rf "${BRICK_PATH}"/* 2>/dev/null || true
+        rm -rf "${BRICK_PATH}/.glusterfs" 2>/dev/null || true
+    fi
+
+    # Remove default brick locations
+    rm -rf /srv/glusterfs/brick/.glusterfs 2>/dev/null || true
+
+    log "SUCCESS" "GlusterFS data has been completely reset"
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -76,6 +111,10 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        --reset-gluster)
+            RESET_GLUSTER=true
+            shift
+            ;;
         --help)
             cat << EOF
 Usage: $0 [OPTIONS]
@@ -85,6 +124,7 @@ Options:
   --bootstrap       Force bootstrap mode (create new cluster)
   --join            Force join mode (join existing cluster)
   --dry-run         Show what would be done without executing
+  --reset-gluster   ⚠️  DANGER: Completely reset GlusterFS (destroys ALL data!)
   --help            Show this help message
 
 Examples:
@@ -96,6 +136,9 @@ Examples:
 
   # Join existing cluster
   $0 --join
+
+  # Reset GlusterFS completely before setup
+  $0 --reset-gluster --bootstrap
 EOF
             exit 0
             ;;
@@ -201,6 +244,18 @@ if [[ "$REPLICA_COUNT" == "auto" ]]; then
 fi
 
 echo ""
+
+###############################################################################
+# Step 1.5: Reset GlusterFS if requested
+###############################################################################
+
+if [[ "$RESET_GLUSTER" == "true" ]]; then
+    if [[ $DRY_RUN == true ]]; then
+        log "INFO" "[DRY-RUN] Would reset GlusterFS completely"
+    else
+        reset_gluster_completely
+    fi
+fi
 
 ###############################################################################
 # Step 2: Check and install GlusterFS

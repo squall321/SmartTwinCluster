@@ -21,6 +21,7 @@
 #   --config PATH     Path to my_multihead_cluster.yaml
 #   --mode MODE       Force mode: cluster, sentinel (auto-detect by default)
 #   --dry-run         Show what would be done without executing
+#   --reset-redis     ⚠️  DANGER: Completely reset Redis (destroys ALL data!)
 #   --help            Show this help message
 #
 # Author: Claude Code
@@ -48,6 +49,7 @@ MODE="auto"
 DRY_RUN=false
 REDIS_PORT=6379
 SKIP_CLUSTER=false
+RESET_REDIS=false  # Complete Redis reset (USE WITH CAUTION)
 
 # Color codes
 RED='\033[0;31m'
@@ -760,6 +762,33 @@ show_cluster_status() {
 # Main
 #############################################################################
 
+reset_redis_completely() {
+    log WARNING "=== RESET REDIS: Completely removing Redis data ==="
+    log WARNING "This will DELETE ALL Redis data on this node!"
+
+    # Stop Redis
+    log INFO "Stopping Redis service..."
+    systemctl stop redis-server 2>/dev/null || systemctl stop redis 2>/dev/null || true
+
+    # Remove Redis data directories
+    log INFO "Removing Redis data..."
+    rm -rf /var/lib/redis/* 2>/dev/null || true
+    rm -f /var/lib/redis/dump.rdb 2>/dev/null || true
+    rm -f /var/lib/redis/nodes.conf 2>/dev/null || true
+    rm -f /var/lib/redis/appendonly.aof 2>/dev/null || true
+
+    # Remove cluster state
+    log INFO "Removing Redis cluster state..."
+    rm -f /etc/redis/nodes*.conf 2>/dev/null || true
+
+    # Reset ownership
+    if id redis &>/dev/null; then
+        chown -R redis:redis /var/lib/redis 2>/dev/null || true
+    fi
+
+    log SUCCESS "Redis data has been completely reset"
+}
+
 main() {
     log INFO "=== Phase 2: Redis Cluster Setup ==="
     log INFO "Starting at $(date)"
@@ -782,6 +811,11 @@ main() {
     # Step 5: Install Redis if needed
     if [[ "$REDIS_INSTALLED" == "false" ]]; then
         install_redis
+    fi
+
+    # Step 5.5: Reset Redis completely if --reset-redis flag is set
+    if [[ "$RESET_REDIS" == "true" ]]; then
+        reset_redis_completely
     fi
 
     # Step 6: Discover active Redis nodes
@@ -869,6 +903,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-cluster)
             SKIP_CLUSTER=true
+            shift
+            ;;
+        --reset-redis)
+            RESET_REDIS=true
             shift
             ;;
         --help)
