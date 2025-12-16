@@ -319,11 +319,20 @@ check_web() {
     local ip=$1
     local port=4430  # Auth backend port
 
-    local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout $SSH_TIMEOUT "http://${ip}:${port}/health" 2>/dev/null || echo "000")
+    debug_log "check_web: Starting Web check for ${ip}:${port}"
+    local check_start=$(date +%s.%N)
+
+    local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout $SSH_TIMEOUT --max-time $SSH_TIMEOUT "http://${ip}:${port}/health" 2>/dev/null || echo "000")
+
+    local check_end=$(date +%s.%N)
+    local elapsed=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+    debug_log "check_web: http_code='$http_code', took ${elapsed}s"
 
     if [[ "$http_code" == "200" ]]; then
+        verbose_log "    Web OK: http_code=$http_code"
         echo "{\"status\": \"ok\", \"http_code\": $http_code}"
     else
+        verbose_log "    Web: not running or unhealthy (http_code=$http_code)"
         echo "{\"status\": \"error\", \"http_code\": $http_code}"
     fi
 }
@@ -335,9 +344,14 @@ check_keepalived() {
     local port=${3:-22}
     local vip=$4
 
-    local has_vip=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    debug_log "check_keepalived: Starting Keepalived check for ${user}@${ip}:${port}, vip=$vip"
+    local check_start=$(date +%s.%N)
+
+    local has_vip=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
                                               -o StrictHostKeyChecking=no \
                                               -o BatchMode=yes \
+                                              -o UserKnownHostsFile=/dev/null \
+                                              -o LogLevel=ERROR \
                                               -p $port \
                                               "${user}@${ip}" \
                                               "ip addr show | grep -q '$vip' && echo 'true' || echo 'false'" 2>/dev/null)
@@ -346,9 +360,11 @@ check_keepalived() {
     if [[ "$has_vip" == "true" ]]; then
         state="MASTER"
     else
-        local keepalived_state=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+        local keepalived_state=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
                                                           -o StrictHostKeyChecking=no \
                                                           -o BatchMode=yes \
+                                                          -o UserKnownHostsFile=/dev/null \
+                                                          -o LogLevel=ERROR \
                                                           -p $port \
                                                           "${user}@${ip}" \
                                                           "systemctl is-active keepalived 2>/dev/null || echo 'inactive'" 2>/dev/null)
@@ -360,6 +376,11 @@ check_keepalived() {
         fi
     fi
 
+    local check_end=$(date +%s.%N)
+    local elapsed=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+    debug_log "check_keepalived: state='$state', has_vip='$has_vip', took ${elapsed}s"
+    verbose_log "    Keepalived: state=$state, vip=$has_vip"
+
     echo "{\"status\": \"ok\", \"state\": \"$state\", \"vip\": $has_vip}"
 }
 
@@ -369,9 +390,11 @@ get_system_load() {
     local user=$2
     local port=${3:-22}
 
-    local load=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    local load=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
                                           -o StrictHostKeyChecking=no \
                                           -o BatchMode=yes \
+                                          -o UserKnownHostsFile=/dev/null \
+                                          -o LogLevel=ERROR \
                                           -p $port \
                                           "${user}@${ip}" \
                                           "uptime | awk -F'load average:' '{print \$2}' | awk '{print \$1}' | tr -d ','" 2>/dev/null || echo "0.00")
@@ -385,9 +408,11 @@ get_uptime() {
     local user=$2
     local port=${3:-22}
 
-    local uptime_str=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    local uptime_str=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
                                                  -o StrictHostKeyChecking=no \
                                                  -o BatchMode=yes \
+                                                 -o UserKnownHostsFile=/dev/null \
+                                                 -o LogLevel=ERROR \
                                                  -p $port \
                                                  "${user}@${ip}" \
                                                  "uptime -p 2>/dev/null || uptime | awk '{print \$3\" \"\$4}'" 2>/dev/null || echo "unknown")
