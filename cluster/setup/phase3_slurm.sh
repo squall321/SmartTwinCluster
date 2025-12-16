@@ -917,9 +917,22 @@ show_cluster_status() {
         return 0
     fi
 
-    # Use full paths to avoid version conflicts (MUST be first!)
-    local SINFO="${SINFO:-/usr/local/slurm/bin/sinfo}"
-    local SCONTROL="${SCONTROL:-/usr/local/slurm/bin/scontrol}"
+    # Auto-detect Slurm binary paths
+    # Ubuntu/Debian package: /usr/bin/
+    # Source install: /usr/local/slurm/bin/
+    local SINFO SCONTROL
+    if [[ -x "/usr/bin/sinfo" ]]; then
+        SINFO="/usr/bin/sinfo"
+        SCONTROL="/usr/bin/scontrol"
+    elif [[ -x "/usr/local/slurm/bin/sinfo" ]]; then
+        SINFO="/usr/local/slurm/bin/sinfo"
+        SCONTROL="/usr/local/slurm/bin/scontrol"
+    else
+        # Fallback to PATH
+        SINFO="sinfo"
+        SCONTROL="scontrol"
+    fi
+    log INFO "Using Slurm binaries: SINFO=$SINFO, SCONTROL=$SCONTROL"
 
     log INFO "Waiting for slurmctld to be ready..."
 
