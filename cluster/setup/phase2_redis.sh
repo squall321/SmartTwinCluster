@@ -570,8 +570,10 @@ deploy_to_other_controllers() {
     # Track failed nodes for summary
     local -a FAILED_NODES=()
 
-    # Get SSH user from config
-    local ssh_user=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get nodes.controllers[0].ssh_user 2>/dev/null || echo "root")
+    # Get SSH user from first controller in REDIS_CONTROLLERS (already parsed from config)
+    local ssh_user=$(echo "$REDIS_CONTROLLERS" | jq -r '.[0].ssh_user // "root"')
+    log INFO "[DEBUG] SSH user from config: $ssh_user"
+    log INFO "[DEBUG] SSH_OPTS: $SSH_OPTS"
 
     # Get first controller IP
     local first_node_ip=$(echo "$REDIS_CONTROLLERS" | jq -r '.[0].ip_address')
@@ -602,12 +604,19 @@ deploy_to_other_controllers() {
         populate_known_hosts "$ip"
 
         # Test SSH connection (BatchMode prevents password prompts)
-        if ! ssh $SSH_OPTS "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
+        log INFO "[DEBUG] Testing SSH: ssh $SSH_OPTS $ssh_user@$ip echo OK"
+        local ssh_test_output
+        ssh_test_output=$(ssh $SSH_OPTS "$ssh_user@$ip" "echo OK" 2>&1)
+        local ssh_exit_code=$?
+        if [[ $ssh_exit_code -ne 0 ]]; then
             log WARNING "Cannot connect to $hostname ($ip) via SSH key authentication"
+            log WARNING "[DEBUG] SSH exit code: $ssh_exit_code"
+            log WARNING "[DEBUG] SSH output: $ssh_test_output"
             log WARNING "Please run: ./setup_ssh_passwordless.sh to configure SSH keys"
             FAILED_NODES+=("$hostname ($ip): SSH connection failed")
             continue
         fi
+        log INFO "[DEBUG] SSH test successful: $ssh_test_output"
 
         # Install jq on remote node if not present (required dependency)
         log INFO "Checking/installing jq on $hostname..."
