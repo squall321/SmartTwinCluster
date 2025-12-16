@@ -280,40 +280,77 @@ check_slurm_installed() {
 }
 
 install_slurm() {
-    if [[ "$SLURM_INSTALLED" == "true" ]]; then
-        log INFO "Skipping Slurm installation (already installed)"
-        return 0
-    fi
-
-    log INFO "Installing Slurm..."
+    log INFO "Installing/checking Slurm packages..."
 
     case $OS in
         ubuntu|debian)
+            # Always update package list
             run_command "apt-get update"
+
+            # Install controller packages if needed
             if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
-                run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurm-wlm slurmctld"
+                if ! command -v slurmctld &> /dev/null; then
+                    log INFO "Installing slurmctld..."
+                    run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurm-wlm slurmctld"
+                else
+                    log INFO "slurmctld already installed"
+                fi
             fi
+
+            # Install slurmdbd if needed (check separately - may not be installed even if slurmctld is)
             if [[ "$SETUP_DBD" == "true" ]]; then
-                run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurmdbd"
+                if ! command -v slurmdbd &> /dev/null; then
+                    log INFO "Installing slurmdbd..."
+                    run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurmdbd"
+                else
+                    log INFO "slurmdbd already installed"
+                fi
             fi
+
+            # Install compute node packages if needed
             if [[ "$SETUP_COMPUTE" == "true" ]]; then
-                run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurmd"
+                if ! command -v slurmd &> /dev/null; then
+                    log INFO "Installing slurmd..."
+                    run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurmd"
+                else
+                    log INFO "slurmd already installed"
+                fi
             fi
             ;;
         centos|rhel|rocky|almalinux)
+            # Install controller packages if needed
             if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
-                run_command "yum install -y slurm slurm-slurmctld"
+                if ! command -v slurmctld &> /dev/null; then
+                    log INFO "Installing slurmctld..."
+                    run_command "yum install -y slurm slurm-slurmctld"
+                else
+                    log INFO "slurmctld already installed"
+                fi
             fi
+
+            # Install slurmdbd if needed
             if [[ "$SETUP_DBD" == "true" ]]; then
-                run_command "yum install -y slurm-slurmdbd"
+                if ! command -v slurmdbd &> /dev/null; then
+                    log INFO "Installing slurmdbd..."
+                    run_command "yum install -y slurm-slurmdbd"
+                else
+                    log INFO "slurmdbd already installed"
+                fi
             fi
+
+            # Install compute node packages if needed
             if [[ "$SETUP_COMPUTE" == "true" ]]; then
-                run_command "yum install -y slurm-slurmd"
+                if ! command -v slurmd &> /dev/null; then
+                    log INFO "Installing slurmd..."
+                    run_command "yum install -y slurm-slurmd"
+                else
+                    log INFO "slurmd already installed"
+                fi
             fi
             ;;
     esac
 
-    log SUCCESS "Slurm installed successfully"
+    log SUCCESS "Slurm packages ready"
 
     # Disable slurmd on controller nodes (only run slurmctld)
     if [[ "$SETUP_CONTROLLER" == "true" ]] && [[ "$SETUP_COMPUTE" == "false" ]]; then
@@ -690,11 +727,47 @@ EOSQL
         log SUCCESS "SlurmDBD database created"
     fi
 
+    # Check if slurmdbd service exists before enabling
+    if [[ "$DRY_RUN" == "false" ]]; then
+        if ! systemctl list-unit-files slurmdbd.service &>/dev/null; then
+            log ERROR "slurmdbd.service not found!"
+            log ERROR "slurmdbd package may not be installed properly"
+            log INFO "Attempting to install slurmdbd package..."
+
+            case $OS in
+                ubuntu|debian)
+                    apt-get update && apt-get install -y slurmdbd
+                    ;;
+                centos|rhel|rocky|almalinux)
+                    yum install -y slurm-slurmdbd
+                    ;;
+            esac
+
+            # Check again
+            if ! systemctl list-unit-files slurmdbd.service &>/dev/null; then
+                log ERROR "Failed to install slurmdbd - service file still not found"
+                log WARNING "Skipping SlurmDBD setup - accounting will not be available"
+                return 1
+            fi
+        fi
+    fi
+
     # Enable and start slurmdbd
     run_command "systemctl enable slurmdbd"
     run_command "systemctl restart slurmdbd"
 
-    log SUCCESS "SlurmDBD started"
+    # Verify service started
+    if [[ "$DRY_RUN" == "false" ]]; then
+        sleep 3
+        if systemctl is-active --quiet slurmdbd; then
+            log SUCCESS "SlurmDBD started successfully"
+        else
+            log WARNING "SlurmDBD may not have started properly"
+            log WARNING "Check: journalctl -u slurmdbd -n 30"
+        fi
+    else
+        log SUCCESS "SlurmDBD setup completed (dry-run)"
+    fi
 }
 
 start_slurmctld() {
@@ -982,10 +1055,9 @@ main() {
     # Step 4: Check if Slurm is installed
     check_slurm_installed
 
-    # Step 5: Install Slurm if needed
-    if [[ "$SLURM_INSTALLED" == "false" ]]; then
-        install_slurm
-    fi
+    # Step 5: Install Slurm packages (checks each package individually)
+    # This ensures slurmdbd is installed even if slurmctld was already present
+    install_slurm
 
     # Step 6: Create slurm user
     create_slurm_user
