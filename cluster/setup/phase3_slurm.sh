@@ -284,10 +284,6 @@ install_slurm() {
 
     case $OS in
         ubuntu|debian)
-            # Update package list (ignore errors - DEP-11 icon failures are harmless)
-            log INFO "Updating package list..."
-            apt-get update 2>&1 || log WARNING "apt-get update had errors (likely harmless DEP-11 icon issues)"
-
             # Install controller packages if needed
             if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
                 if ! command -v slurmctld &> /dev/null; then
