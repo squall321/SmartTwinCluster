@@ -215,8 +215,14 @@ load_config() {
 
     log INFO "Total Slurm-enabled controllers: $TOTAL_SLURM_NODES"
 
-    # Get cluster name
-    CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster.name 2>/dev/null || echo "multihead_cluster")
+    # Get cluster name - try cluster_info.cluster_name first (multi-head config), then cluster.name as fallback
+    CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster_info.cluster_name 2>/dev/null)
+    if [[ -z "$CLUSTER_NAME" ]]; then
+        CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster.name 2>/dev/null || echo "multihead_cluster")
+    fi
+    # Slurm ClusterName doesn't allow hyphens - replace with underscores
+    CLUSTER_NAME="${CLUSTER_NAME//-/_}"
+    log INFO "Cluster name: $CLUSTER_NAME"
 
     # Get VIP configuration
     VIP_ADDRESS=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get network.vip.address 2>/dev/null || echo "")
