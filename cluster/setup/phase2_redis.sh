@@ -567,6 +567,14 @@ deploy_to_other_controllers() {
             continue
         fi
 
+        # Install jq on remote node if not present (required dependency)
+        log INFO "Checking/installing jq on $hostname..."
+        if ! ssh $SSH_OPTS "$ssh_user@$ip" "which jq > /dev/null 2>&1 || sudo yum install -y jq > /dev/null 2>&1 || sudo apt-get install -y jq > /dev/null 2>&1" 2>&1; then
+            log WARNING "Failed to install jq on $hostname"
+            FAILED_NODES+=("$hostname ($ip): jq installation failed")
+            continue
+        fi
+
         # Copy phase2_redis.sh and config file to remote node
         if ! scp $SCP_OPTS "$0" "$ssh_user@$ip:/tmp/phase2_redis.sh" > /dev/null 2>&1; then
             log WARNING "Failed to copy script to $hostname"
