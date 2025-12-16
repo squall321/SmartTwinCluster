@@ -435,6 +435,17 @@ install_mariadb() {
 
 discover_active_nodes() {
     log INFO "Discovering active MariaDB nodes..."
+
+    # In remote mode, discovery is not available - skip it
+    # Remote nodes always join the cluster (they don't bootstrap)
+    if [[ -z "$DISCOVERY_SCRIPT" ]]; then
+        log INFO "  Remote mode detected - skipping discovery"
+        log INFO "  Remote nodes always operate in JOIN mode"
+        ACTIVE_CONTROLLERS=""
+        ACTIVE_COUNT=0
+        return 0
+    fi
+
     log INFO "  Discovery script: $DISCOVERY_SCRIPT"
     log INFO "  Config file: $CONFIG_FILE"
 

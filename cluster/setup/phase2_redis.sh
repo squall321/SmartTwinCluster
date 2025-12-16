@@ -380,6 +380,16 @@ install_redis() {
 discover_active_nodes() {
     log INFO "Discovering active Redis nodes..."
 
+    # In remote mode, discovery is not available - skip it
+    # Remote nodes don't need to discover - they just start Redis service
+    if [[ -z "$DISCOVERY_SCRIPT" ]]; then
+        log INFO "  Remote mode detected - skipping discovery"
+        log INFO "  Remote nodes will start Redis and wait for cluster join"
+        ACTIVE_CONTROLLERS=""
+        ACTIVE_COUNT=0
+        return 0
+    fi
+
     # Run auto-discovery script
     if [[ ! -f "$DISCOVERY_SCRIPT" ]]; then
         log ERROR "Discovery script not found: $DISCOVERY_SCRIPT"
