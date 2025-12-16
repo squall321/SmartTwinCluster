@@ -49,6 +49,7 @@ MODE="auto"
 DRY_RUN=false
 SKIP_BOOTSTRAP=false
 FORCE_FRESH=false
+RESET_DB=false  # Complete MariaDB reset (USE WITH CAUTION)
 
 # Color codes
 RED='\033[0;31m'
@@ -94,6 +95,8 @@ Options:
   --bootstrap       Force bootstrap mode (create new cluster)
   --join            Force join mode (join existing cluster)
   --force-fresh     Clear existing Galera state and start completely fresh
+  --reset-db        ⚠️  DANGER: Completely reset MariaDB (destroys ALL data!)
+                    Use when you need to change passwords or start from scratch
   --dry-run         Show what would be done without executing
   --help            Show this help message
 
@@ -109,6 +112,9 @@ Examples:
 
   # Force fresh start (clear existing state)
   sudo $0 --bootstrap --force-fresh
+
+  # Complete reset (new passwords from YAML)
+  sudo $0 --bootstrap --reset-db
 
   # Dry-run to preview changes
   $0 --dry-run
@@ -708,8 +714,30 @@ bootstrap_cluster() {
     log INFO "Bootstrapping Galera cluster..."
 
     if [[ "$DRY_RUN" == "false" ]]; then
+        # Complete MariaDB reset if requested (USE WITH CAUTION - destroys all data)
+        if [[ "$RESET_DB" == "true" ]]; then
+            log WARNING "=============================================="
+            log WARNING "⚠️  RESET MODE: Completely resetting MariaDB!"
+            log WARNING "⚠️  ALL DATA WILL BE DESTROYED!"
+            log WARNING "=============================================="
+
+            # Stop MariaDB
+            systemctl stop mariadb 2>/dev/null || true
+
+            # Remove all MySQL data
+            log INFO "Removing MariaDB data directory..."
+            rm -rf /var/lib/mysql/*
+
+            # Reinitialize database
+            log INFO "Reinitializing MariaDB..."
+            mysql_install_db --user=mysql 2>/dev/null || mariadb-install-db --user=mysql 2>/dev/null || true
+
+            # Fix permissions
+            chown -R mysql:mysql /var/lib/mysql
+
+            log SUCCESS "MariaDB completely reset - fresh installation"
         # Force fresh start if requested
-        if [[ "$FORCE_FRESH" == "true" ]]; then
+        elif [[ "$FORCE_FRESH" == "true" ]]; then
             log WARNING "Force fresh mode: clearing existing Galera state..."
             rm -f /var/lib/mysql/grastate.dat
             rm -f /var/lib/mysql/gvwstate.dat
@@ -1068,6 +1096,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --force-fresh)
             FORCE_FRESH=true
+            shift
+            ;;
+        --reset-db)
+            RESET_DB=true
+            FORCE_FRESH=true  # Also enable force-fresh when resetting
             shift
             ;;
         --help)
