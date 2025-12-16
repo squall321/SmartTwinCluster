@@ -408,10 +408,14 @@ EOPY
     total_count=$(echo "$all_nodes" | jq 'length')
     log_info "  Total nodes to configure: $total_count"
 
+    local node_index=0
     while IFS= read -r node_json; do
+        node_index=$((node_index + 1))
         local hostname=$(echo "$node_json" | jq -r '.hostname')
         local ip=$(echo "$node_json" | jq -r '.ip')
         local user=$(echo "$node_json" | jq -r '.user')
+
+        log_info "  [$node_index/$total_count] Processing: $hostname ($ip)"
 
         # Skip current node (check against all local IPs)
         local is_local=false
@@ -480,7 +484,11 @@ EOPY
             fi
         fi
 
+        log_info "  [$node_index/$total_count] Done: $hostname"
+
     done < <(echo "$all_nodes" | jq -c '.[]')
+
+    log_info "  Loop completed. Processed $node_index nodes."
 
     log_info "Passwordless sudo setup summary:"
     log_info "  - Successful: $success_count nodes"
