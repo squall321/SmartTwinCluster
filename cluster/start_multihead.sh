@@ -433,16 +433,16 @@ EOPY
 
         log_info "  Configuring passwordless sudo on $hostname ($ip)..."
 
-        # Check if already configured
-        if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$user@$ip" \
+        # Check if already configured (use -n to prevent stdin consumption)
+        if ssh -n -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$user@$ip" \
             "sudo -n true" 2>/dev/null; then
             log_success "  $hostname: Already configured"
             success_count=$((success_count + 1))
             continue
         fi
 
-        # Setup passwordless sudo remotely - try without password first
-        if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" \
+        # Setup passwordless sudo remotely - try without password first (use -n to prevent stdin consumption)
+        if ssh -n -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" \
             "echo '$user ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/$user > /dev/null && \
              sudo chmod 440 /etc/sudoers.d/$user" 2>/dev/null; then
             log_success "  $hostname: Configured successfully"
@@ -451,7 +451,7 @@ EOPY
             # Try with sshpass if password is configured in YAML
             if [[ -n "$ssh_password" && "$has_sshpass" == "true" ]]; then
                 log_info "  $hostname: Using ssh_password from YAML config..."
-                if sshpass -p "$ssh_password" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" \
+                if sshpass -p "$ssh_password" ssh -n -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" \
                     "echo '$ssh_password' | sudo -S sh -c \"echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user && chmod 440 /etc/sudoers.d/$user\"" 2>/dev/null; then
                     log_success "  $hostname: Configured successfully (with YAML password)"
                     success_count=$((success_count + 1))
@@ -462,7 +462,7 @@ EOPY
                 apt-get install -y sshpass > /dev/null 2>&1 || yum install -y sshpass > /dev/null 2>&1 || true
                 if command -v sshpass &> /dev/null; then
                     has_sshpass=true
-                    if sshpass -p "$ssh_password" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" \
+                    if sshpass -p "$ssh_password" ssh -n -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" \
                         "echo '$ssh_password' | sudo -S sh -c \"echo '$user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/$user && chmod 440 /etc/sudoers.d/$user\"" 2>/dev/null; then
                         log_success "  $hostname: Configured successfully (with YAML password)"
                         success_count=$((success_count + 1))
@@ -471,17 +471,10 @@ EOPY
                 fi
             fi
 
-            # Fallback: Try with TTY allocation for interactive password input
-            log_warning "  $hostname: Needs sudo password. Please enter password for $user@$ip:"
-            if ssh -t -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$user@$ip" \
-                "echo '$user ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/$user > /dev/null && \
-                 sudo chmod 440 /etc/sudoers.d/$user" 2>&1; then
-                log_success "  $hostname: Configured successfully (with password)"
-                success_count=$((success_count + 1))
-            else
-                log_warning "  $hostname: Failed (may need manual setup)"
-                failed_count=$((failed_count + 1))
-            fi
+            # Fallback: Skip interactive - just mark as failed (interactive mode breaks the loop)
+            log_warning "  $hostname: Passwordless sudo not configured and auto-setup failed"
+            log_warning "  $hostname: Manual setup required: ssh $user@$ip 'echo \"$user ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/$user'"
+            failed_count=$((failed_count + 1))
         fi
 
         log_info "  [$node_index/$total_count] Done: $hostname"
