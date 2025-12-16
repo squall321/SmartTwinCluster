@@ -687,6 +687,8 @@ installation:
     phase4_keepalived: true   # Keepalived VIP 설정
     phase5_web: true          # 웹 서비스 배포
     phase6_monitoring: true   # 모니터링 설정
+    phase8_containers: true   # Apptainer 이미지 배포
+    phase9_software: true     # MPI & Apptainer 설치
 
 # ============================================================================
 # Time Synchronization

@@ -212,7 +212,12 @@ load_config() {
     log INFO "Total MariaDB-enabled controllers: $TOTAL_MARIADB_NODES"
 
     # Get database configuration from YAML
-    CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster.name 2>/dev/null || echo "multihead_cluster")
+    # Try cluster_info.cluster_name first (multi-head config), then cluster.name as fallback
+    CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster_info.cluster_name 2>/dev/null)
+    if [[ -z "$CLUSTER_NAME" ]]; then
+        CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster.name 2>/dev/null || echo "multihead_cluster")
+    fi
+    log INFO "Cluster name: $CLUSTER_NAME"
 
     # Get database-specific config with validation
     DB_ROOT_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get database.mariadb.root_password 2>/dev/null)
@@ -495,6 +500,29 @@ generate_cluster_address() {
 
 generate_galera_config() {
     log INFO "Generating Galera configuration from template..."
+
+    # Validate required variables before generating config
+    if [[ -z "$CLUSTER_NAME" ]]; then
+        log ERROR "CLUSTER_NAME is empty! Check cluster_info.cluster_name in YAML config"
+        log ERROR "Current value: '$CLUSTER_NAME'"
+        exit 1
+    fi
+
+    if [[ -z "$CLUSTER_ADDRESS" ]]; then
+        log ERROR "CLUSTER_ADDRESS is empty! This should be set by generate_cluster_address()"
+        exit 1
+    fi
+
+    if [[ -z "$CURRENT_IP" ]]; then
+        log ERROR "CURRENT_IP is empty! Could not detect current node IP"
+        exit 1
+    fi
+
+    log INFO "Galera config variables:"
+    log INFO "  - CLUSTER_NAME: $CLUSTER_NAME"
+    log INFO "  - CLUSTER_ADDRESS: $CLUSTER_ADDRESS"
+    log INFO "  - CURRENT_IP: $CURRENT_IP"
+    log INFO "  - CURRENT_HOSTNAME: $CURRENT_HOSTNAME"
 
     # Calculate optimal settings based on system resources
     TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
