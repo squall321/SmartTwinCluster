@@ -395,6 +395,8 @@ install_mariadb() {
 
 discover_active_nodes() {
     log INFO "Discovering active MariaDB nodes..."
+    log INFO "  Discovery script: $DISCOVERY_SCRIPT"
+    log INFO "  Config file: $CONFIG_FILE"
 
     # Run auto-discovery script
     if [[ ! -f "$DISCOVERY_SCRIPT" ]]; then
@@ -402,9 +404,31 @@ discover_active_nodes() {
         exit 1
     fi
 
-    DISCOVERY_OUTPUT=$("$DISCOVERY_SCRIPT" --config "$CONFIG_FILE" 2>/dev/null || echo "{}")
+    log INFO "  Starting discovery (this may take a while)..."
+    local discovery_start=$(date +%s)
+
+    # Run discovery with --verbose to see detailed progress
+    # stderr goes to console (verbose logs), stdout captures JSON
+    DISCOVERY_OUTPUT=$("$DISCOVERY_SCRIPT" --config "$CONFIG_FILE" --verbose || echo "{}")
+
+    local discovery_end=$(date +%s)
+    local discovery_duration=$((discovery_end - discovery_start))
+    log INFO "  Discovery completed in ${discovery_duration} seconds"
+
+    # Validate JSON output
+    if ! echo "$DISCOVERY_OUTPUT" | jq -e '.' >/dev/null 2>&1; then
+        log WARNING "  Discovery returned invalid JSON, using empty result"
+        log WARNING "  Raw output (first 500 chars): ${DISCOVERY_OUTPUT:0:500}"
+        DISCOVERY_OUTPUT="{}"
+    else
+        log INFO "  Discovery returned valid JSON"
+        # Show controller count
+        local ctrl_count=$(echo "$DISCOVERY_OUTPUT" | jq '.controllers | length' 2>/dev/null || echo "0")
+        log INFO "  Total controllers in result: $ctrl_count"
+    fi
 
     # Extract active MariaDB nodes (check for status == "ok")
+    log INFO "  Extracting active MariaDB nodes..."
     ACTIVE_CONTROLLERS=$(echo "$DISCOVERY_OUTPUT" | jq -r '.controllers[] | select(.services.mariadb.status == "ok") | .ip' 2>/dev/null || echo "")
 
     # Count active nodes (handle empty result from grep)
@@ -421,6 +445,8 @@ discover_active_nodes() {
         echo "$ACTIVE_CONTROLLERS" | while read -r ip; do
             log INFO "  - $ip"
         done
+    else
+        log INFO "  No active MariaDB nodes found (will bootstrap new cluster)"
     fi
 }
 

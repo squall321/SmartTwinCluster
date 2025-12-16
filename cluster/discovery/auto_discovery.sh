@@ -155,16 +155,28 @@ check_glusterfs() {
     local user=$2
     local port=${3:-22}
 
+    debug_log "check_glusterfs: Starting GlusterFS check for ${user}@${ip}:${port}"
+    local check_start=$(date +%s.%N)
+
     local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
+                                             -o UserKnownHostsFile=/dev/null \
+                                             -o LogLevel=ERROR \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "gluster peer status 2>/dev/null | grep -c 'Peer in Cluster' || echo 0" 2>/dev/null)
+    local exit_code=$?
+
+    local check_end=$(date +%s.%N)
+    local elapsed=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+    debug_log "check_glusterfs: result='$result', exit=$exit_code, took ${elapsed}s"
 
     if [[ -n "$result" && "$result" =~ ^[0-9]+$ ]]; then
+        verbose_log "    GlusterFS OK: peers=$result"
         echo "{\"status\": \"ok\", \"peers\": $result}"
     else
+        verbose_log "    GlusterFS: not running or not installed"
         echo "{\"status\": \"error\", \"message\": \"glusterd not running or not installed\"}"
     fi
 }
@@ -175,23 +187,47 @@ check_mariadb() {
     local user=$2
     local port=${3:-22}
 
+    debug_log "check_mariadb: Starting MariaDB check for ${user}@${ip}:${port}"
+    local check_start=$(date +%s.%N)
+
+    debug_log "check_mariadb: Executing cluster_size query..."
     local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
+                                             -o UserKnownHostsFile=/dev/null \
+                                             -o LogLevel=ERROR \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "mysql -e \"SHOW STATUS LIKE 'wsrep_cluster_size'\" 2>/dev/null | tail -1 | awk '{print \$2}' || echo 0" 2>/dev/null)
+    local query_exit=$?
+
+    local check_mid=$(date +%s.%N)
+    local query_time=$(echo "$check_mid - $check_start" | bc 2>/dev/null || echo "?")
+    debug_log "check_mariadb: cluster_size query returned: '$result' (exit: $query_exit, took ${query_time}s)"
 
     if [[ -n "$result" && "$result" =~ ^[0-9]+$ && "$result" -gt 0 ]]; then
+        debug_log "check_mariadb: Cluster size is $result, fetching state..."
         local state=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                                                 -o StrictHostKeyChecking=no \
                                                 -o BatchMode=yes \
+                                                -o UserKnownHostsFile=/dev/null \
+                                                -o LogLevel=ERROR \
                                                 -p $port \
                                                 "${user}@${ip}" \
                                                 "mysql -e \"SHOW STATUS LIKE 'wsrep_local_state_comment'\" 2>/dev/null | tail -1 | awk '{print \$2}'" 2>/dev/null)
 
+        local check_end=$(date +%s.%N)
+        local total_time=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+        debug_log "check_mariadb: state='$state', total time: ${total_time}s"
+        verbose_log "    MariaDB OK: cluster_size=$result, state=$state"
+
         echo "{\"status\": \"ok\", \"cluster_size\": $result, \"state\": \"$state\"}"
     else
+        local check_end=$(date +%s.%N)
+        local total_time=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+        debug_log "check_mariadb: Failed - result='$result', total time: ${total_time}s"
+        verbose_log "    MariaDB: not running or Galera not configured"
+
         echo "{\"status\": \"error\", \"message\": \"MariaDB not running or Galera not configured\"}"
     fi
 }
@@ -202,23 +238,46 @@ check_redis() {
     local user=$2
     local port=${3:-22}
 
+    debug_log "check_redis: Starting Redis check for ${user}@${ip}:${port}"
+    local check_start=$(date +%s.%N)
+
     local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
+                                             -o UserKnownHostsFile=/dev/null \
+                                             -o LogLevel=ERROR \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "redis-cli cluster info 2>/dev/null | grep cluster_state | cut -d: -f2 | tr -d '\r\n' || echo 'fail'" 2>/dev/null)
+    local exit_code=$?
+
+    local check_mid=$(date +%s.%N)
+    local query_time=$(echo "$check_mid - $check_start" | bc 2>/dev/null || echo "?")
+    debug_log "check_redis: cluster_state='$result', exit=$exit_code, took ${query_time}s"
 
     if [[ "$result" == "ok" ]]; then
+        debug_log "check_redis: Cluster state OK, fetching node count..."
         local nodes=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                                                 -o StrictHostKeyChecking=no \
                                                 -o BatchMode=yes \
+                                                -o UserKnownHostsFile=/dev/null \
+                                                -o LogLevel=ERROR \
                                                 -p $port \
                                                 "${user}@${ip}" \
                                                 "redis-cli cluster info 2>/dev/null | grep cluster_known_nodes | cut -d: -f2 | tr -d '\r\n' || echo 0" 2>/dev/null)
 
+        local check_end=$(date +%s.%N)
+        local total_time=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+        debug_log "check_redis: nodes=$nodes, total time: ${total_time}s"
+        verbose_log "    Redis OK: cluster_state=$result, nodes=$nodes"
+
         echo "{\"status\": \"ok\", \"cluster_state\": \"$result\", \"nodes\": $nodes}"
     else
+        local check_end=$(date +%s.%N)
+        local total_time=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+        debug_log "check_redis: Failed - result='$result', total time: ${total_time}s"
+        verbose_log "    Redis: not running or cluster not configured"
+
         echo "{\"status\": \"error\", \"message\": \"Redis not running or cluster not configured\"}"
     fi
 }
@@ -229,16 +288,28 @@ check_slurm() {
     local user=$2
     local port=${3:-22}
 
+    debug_log "check_slurm: Starting Slurm check for ${user}@${ip}:${port}"
+    local check_start=$(date +%s.%N)
+
     local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
+                                             -o UserKnownHostsFile=/dev/null \
+                                             -o LogLevel=ERROR \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "scontrol ping 2>/dev/null | grep -q 'is UP' && echo 'primary' || scontrol ping 2>/dev/null | grep -q 'Backup controller' && echo 'backup' || echo 'down'" 2>/dev/null)
+    local exit_code=$?
+
+    local check_end=$(date +%s.%N)
+    local elapsed=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
+    debug_log "check_slurm: result='$result', exit=$exit_code, took ${elapsed}s"
 
     if [[ "$result" == "primary" || "$result" == "backup" ]]; then
+        verbose_log "    Slurm OK: role=$result"
         echo "{\"status\": \"ok\", \"role\": \"$result\"}"
     else
+        verbose_log "    Slurm: not running"
         echo "{\"status\": \"error\", \"message\": \"slurmctld not running\"}"
     fi
 }
