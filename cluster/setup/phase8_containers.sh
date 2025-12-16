@@ -54,7 +54,17 @@ VIZ_TARGET_PATH="/opt/apptainers"
 COMPUTE_TARGET_PATH="/opt/apptainers"
 
 # SSH options (includes GSSAPIAuthentication=no to prevent Kerberos delays)
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+#
+# IMPORTANT: When running with sudo, we need to use the original user's SSH key
+ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
+ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
+SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
+
+if [[ -f "$SSH_KEY_FILE" ]]; then
+    SSH_OPTS="-i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+else
+    SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+fi
 
 # Function to print colored output
 log_info() {

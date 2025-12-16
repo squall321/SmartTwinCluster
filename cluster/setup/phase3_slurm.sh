@@ -56,8 +56,19 @@ DRY_RUN=false
 # SSH options for secure remote connections
 # GSSAPIAuthentication=no: Disable Kerberos to prevent delays
 # PreferredAuthentications=publickey: Only try publickey auth
-SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
+#
+# IMPORTANT: When running with sudo, we need to use the original user's SSH key
+ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
+ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
+SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
+
+if [[ -f "$SSH_KEY_FILE" ]]; then
+    SSH_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SCP_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
+else
+    SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
+fi
 
 # Color codes
 RED='\033[0;31m'
