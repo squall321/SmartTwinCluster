@@ -65,6 +65,11 @@ OFFLINE_PACKAGES_DIR="${SCRIPT_DIR}/offline_packages"
 USE_APT_MIRROR=false
 INSTALL_APT_PACKAGES=false  # 기본: APT 패키지 설치 안함 (옵션으로 활성화)
 
+# Phase별 reset 옵션 (start_multihead.sh로 전달됨)
+RESET_DB=false
+RESET_REDIS=false
+RESET_GLUSTER=false
+
 # 로그 파일
 LOG_FILE="/tmp/setup_cluster_full_multihead_offline_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOG_FILE")
@@ -91,6 +96,12 @@ usage() {
     --skip-multihead        멀티헤드 서비스 설정 건너뛰기
     --auto-confirm          사용자 확인 없이 자동으로 진행
     --help                  이 도움말 표시
+
+  Phase별 Reset 옵션 (비밀번호 충돌 시 사용):
+    --reset-all             ⚠️  모든 서비스 완전 초기화 (DB, Redis, GlusterFS)
+    --reset-db              ⚠️  MariaDB 완전 초기화 (YAML 비밀번호로 재설정)
+    --reset-redis           ⚠️  Redis 클러스터 완전 초기화
+    --reset-gluster         ⚠️  GlusterFS 볼륨 완전 초기화
 
 오프라인 설치 준비:
     1. 인터넷이 되는 환경에서:
@@ -158,6 +169,24 @@ while [[ $# -gt 0 ]]; do
             ;;
         --auto-confirm)
             AUTO_CONFIRM=true
+            shift
+            ;;
+        --reset-all)
+            RESET_DB=true
+            RESET_REDIS=true
+            RESET_GLUSTER=true
+            shift
+            ;;
+        --reset-db)
+            RESET_DB=true
+            shift
+            ;;
+        --reset-redis)
+            RESET_REDIS=true
+            shift
+            ;;
+        --reset-gluster)
+            RESET_GLUSTER=true
             shift
             ;;
         --help)
@@ -484,8 +513,28 @@ if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
 
         chmod +x "$MULTIHEAD_SCRIPT"
 
+        # start_multihead.sh 옵션 구성
+        MULTIHEAD_OPTS="--config $CONFIG_FILE --auto-confirm"
+
+        # Phase별 reset 옵션 전달
+        if [ "$RESET_DB" = true ]; then
+            MULTIHEAD_OPTS="$MULTIHEAD_OPTS --reset-db"
+            log_warning "⚠️  MariaDB 완전 초기화 옵션 활성화"
+        fi
+        if [ "$RESET_REDIS" = true ]; then
+            MULTIHEAD_OPTS="$MULTIHEAD_OPTS --reset-redis"
+            log_warning "⚠️  Redis 클러스터 완전 초기화 옵션 활성화"
+        fi
+        if [ "$RESET_GLUSTER" = true ]; then
+            MULTIHEAD_OPTS="$MULTIHEAD_OPTS --reset-gluster"
+            log_warning "⚠️  GlusterFS 볼륨 완전 초기화 옵션 활성화"
+        fi
+
+        log_info "실행 명령: bash $MULTIHEAD_SCRIPT $MULTIHEAD_OPTS"
+        echo ""
+
         # 환경변수 전달하여 실행
-        if bash "$MULTIHEAD_SCRIPT" --config "$CONFIG_FILE" --auto-confirm; then
+        if bash "$MULTIHEAD_SCRIPT" $MULTIHEAD_OPTS; then
             log_success "멀티헤드 클러스터 서비스 설치 완료!"
         else
             log_error "멀티헤드 클러스터 서비스 설치 실패"

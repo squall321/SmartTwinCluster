@@ -32,6 +32,7 @@
 #   --help              Show this help message
 #
 # Phase-specific options (passed through to individual phase scripts):
+#   --reset-all         Reset all services (DB, Redis, GlusterFS) - for password conflicts
 #   --reset-db          [Phase 2: database] Reset MariaDB completely before setup
 #   --reset-redis       [Phase 3: redis] Reset Redis cluster completely before setup
 #   --reset-gluster     [Phase 1: storage] Reset GlusterFS volumes before setup
@@ -43,6 +44,7 @@
 #   sudo ./start_multihead.sh --phase storage
 #   sudo ./start_multihead.sh --phase database --reset-db
 #   sudo ./start_multihead.sh --phase redis --reset-redis
+#   sudo ./start_multihead.sh --reset-all  # Reset all services for fresh install
 ################################################################################
 
 set -euo pipefail
@@ -182,6 +184,12 @@ parse_args() {
                 shift
                 ;;
             --reset-gluster)
+                RESET_GLUSTER=true
+                shift
+                ;;
+            --reset-all)
+                RESET_DB=true
+                RESET_REDIS=true
                 RESET_GLUSTER=true
                 shift
                 ;;
