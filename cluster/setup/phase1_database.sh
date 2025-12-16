@@ -413,8 +413,9 @@ discover_active_nodes() {
     local discovery_start=$(date +%s)
 
     # Run discovery with --verbose to see detailed progress
+    # --phase 1: Only check GlusterFS and MariaDB services (skip Redis, Slurm, Web, Keepalived)
     # stderr goes to console (verbose logs), stdout captures JSON
-    DISCOVERY_OUTPUT=$("$DISCOVERY_SCRIPT" --config "$CONFIG_FILE" --verbose || echo "{}")
+    DISCOVERY_OUTPUT=$("$DISCOVERY_SCRIPT" --config "$CONFIG_FILE" --phase 1 --verbose || echo "{}")
 
     local discovery_end=$(date +%s)
     local discovery_duration=$((discovery_end - discovery_start))

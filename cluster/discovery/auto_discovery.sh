@@ -18,6 +18,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARSER_PY="${SCRIPT_DIR}/../config/parser.py"
 DEBUG=false
 VERBOSE=false
+PHASE=""  # Empty means check all services based on config
+
+# Phase to service mapping
+# Each phase only checks services that should be installed by that phase
+declare -A PHASE_SERVICES=(
+    ["0"]="glusterfs"                           # Phase 0: Storage (GlusterFS only)
+    ["1"]="glusterfs mariadb"                   # Phase 1: Database (needs storage)
+    ["2"]="glusterfs mariadb redis"             # Phase 2: Redis (needs DB)
+    ["3"]="glusterfs mariadb redis"             # Phase 3: Munge (same deps)
+    ["4"]="glusterfs mariadb redis slurm"       # Phase 4: Slurm
+    ["5"]="glusterfs mariadb redis slurm keepalived"  # Phase 5: HA
+    ["6"]="glusterfs mariadb redis slurm keepalived"  # Phase 6: Monitoring
+    ["7"]="glusterfs mariadb redis slurm keepalived web"  # Phase 7: Web (all services)
+    ["8"]="glusterfs mariadb redis slurm keepalived web"  # Phase 8: Finalize
+    ["9"]="glusterfs mariadb redis slurm keepalived web"  # Phase 9: Software
+)
 
 # Colors for output
 RED='\033[0;31m'
@@ -60,12 +76,23 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
+        --phase)
+            PHASE="$2"
+            shift 2
+            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --config PATH     Path to my_multihead_cluster.yaml (default: ../my_multihead_cluster.yaml)"
             echo "  --timeout SECONDS SSH timeout in seconds (default: 5)"
+            echo "  --phase NUMBER    Only check services relevant to this installation phase (0-9)"
+            echo "                    Phase 0: GlusterFS only"
+            echo "                    Phase 1: GlusterFS, MariaDB"
+            echo "                    Phase 2-3: GlusterFS, MariaDB, Redis"
+            echo "                    Phase 4: + Slurm"
+            echo "                    Phase 5-6: + Keepalived"
+            echo "                    Phase 7-9: All services (+ Web)"
             echo "  --debug           Enable debug logging (very verbose)"
             echo "  --verbose, -v     Enable verbose logging"
             echo "  --help            Show this help message"
@@ -82,6 +109,50 @@ debug_log "Script started"
 debug_log "CONFIG_PATH=$CONFIG_PATH"
 debug_log "SSH_TIMEOUT=$SSH_TIMEOUT"
 debug_log "SCRIPT_DIR=$SCRIPT_DIR"
+debug_log "PHASE=$PHASE"
+
+# Helper function to check if a service should be checked for the current phase
+should_check_service() {
+    local service=$1
+    local service_enabled=$2  # from YAML config
+
+    # If service is not enabled in config, skip it
+    if [[ "$service_enabled" != "true" ]]; then
+        debug_log "should_check_service: $service disabled in config"
+        return 1
+    fi
+
+    # If no phase specified (monitoring mode), check all enabled services
+    if [[ -z "$PHASE" ]]; then
+        debug_log "should_check_service: $service - monitoring mode, checking"
+        return 0
+    fi
+
+    # Phase specified - only check services relevant to this phase
+    local phase_services="${PHASE_SERVICES[$PHASE]:-}"
+    if [[ -z "$phase_services" ]]; then
+        # Unknown phase, default to monitoring mode
+        debug_log "should_check_service: Unknown phase $PHASE, checking all"
+        return 0
+    fi
+
+    # Check if this service is in the phase's service list
+    if [[ " $phase_services " == *" $service "* ]]; then
+        debug_log "should_check_service: $service relevant for phase $PHASE"
+        return 0
+    else
+        debug_log "should_check_service: $service NOT relevant for phase $PHASE (phase services: $phase_services)"
+        return 1
+    fi
+}
+
+# Log mode
+if [[ -n "$PHASE" ]]; then
+    verbose_log "Phase mode: Checking services for Phase $PHASE"
+    verbose_log "Services to check: ${PHASE_SERVICES[$PHASE]:-all}"
+else
+    verbose_log "Monitoring mode: Checking all enabled services"
+fi
 
 # Check if parser.py exists
 debug_log "Checking parser.py at: $PARSER_PY"
@@ -505,43 +576,49 @@ for i in $(seq 0 $(($TOTAL_CONTROLLERS - 1))); do
         # Initialize services status
         SERVICES_STATUS='{}'
 
-        # Check each service if enabled
-        if [[ $(echo "$SERVICES" | jq -r '.glusterfs // false') == "true" ]]; then
+        # Check each service if enabled (and relevant to current phase)
+        GLUSTERFS_ENABLED=$(echo "$SERVICES" | jq -r '.glusterfs // false')
+        if should_check_service "glusterfs" "$GLUSTERFS_ENABLED"; then
             verbose_log "  Checking GlusterFS..."
             GLUSTERFS_STATUS=$(check_glusterfs "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"glusterfs\": $GLUSTERFS_STATUS}")
             debug_log "  GlusterFS: $GLUSTERFS_STATUS"
         fi
 
-        if [[ $(echo "$SERVICES" | jq -r '.mariadb // false') == "true" ]]; then
+        MARIADB_ENABLED=$(echo "$SERVICES" | jq -r '.mariadb // false')
+        if should_check_service "mariadb" "$MARIADB_ENABLED"; then
             verbose_log "  Checking MariaDB..."
             MARIADB_STATUS=$(check_mariadb "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"mariadb\": $MARIADB_STATUS}")
             debug_log "  MariaDB: $MARIADB_STATUS"
         fi
 
-        if [[ $(echo "$SERVICES" | jq -r '.redis // false') == "true" ]]; then
+        REDIS_ENABLED=$(echo "$SERVICES" | jq -r '.redis // false')
+        if should_check_service "redis" "$REDIS_ENABLED"; then
             verbose_log "  Checking Redis..."
             REDIS_STATUS=$(check_redis "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"redis\": $REDIS_STATUS}")
             debug_log "  Redis: $REDIS_STATUS"
         fi
 
-        if [[ $(echo "$SERVICES" | jq -r '.slurm // false') == "true" ]]; then
+        SLURM_ENABLED=$(echo "$SERVICES" | jq -r '.slurm // false')
+        if should_check_service "slurm" "$SLURM_ENABLED"; then
             verbose_log "  Checking Slurm..."
             SLURM_STATUS=$(check_slurm "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"slurm\": $SLURM_STATUS}")
             debug_log "  Slurm: $SLURM_STATUS"
         fi
 
-        if [[ $(echo "$SERVICES" | jq -r '.web // false') == "true" ]]; then
+        WEB_ENABLED=$(echo "$SERVICES" | jq -r '.web // false')
+        if should_check_service "web" "$WEB_ENABLED"; then
             verbose_log "  Checking Web services..."
             WEB_STATUS=$(check_web "$IP")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"web\": $WEB_STATUS}")
             debug_log "  Web: $WEB_STATUS"
         fi
 
-        if [[ $(echo "$SERVICES" | jq -r '.keepalived // false') == "true" ]]; then
+        KEEPALIVED_ENABLED=$(echo "$SERVICES" | jq -r '.keepalived // false')
+        if should_check_service "keepalived" "$KEEPALIVED_ENABLED"; then
             verbose_log "  Checking Keepalived..."
             KEEPALIVED_STATUS=$(check_keepalived "$IP" "$SSH_USER" "$SSH_PORT" "$VIP")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"keepalived\": $KEEPALIVED_STATUS}")

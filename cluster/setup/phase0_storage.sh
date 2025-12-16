@@ -336,9 +336,10 @@ log "INFO" "[Step 4/8] Discovering active GlusterFS nodes..."
 log "INFO" "  Running auto-discovery script (timeout: 2s per node)..."
 
 # Run discovery with verbose logging to help diagnose issues
+# --phase 0: Only check GlusterFS service (skip MariaDB, Redis, Slurm, Web, Keepalived)
 # stderr (verbose logs) goes to console, stdout (JSON) is captured
 # Don't use 2>&1 - keep streams separate so JSON isn't polluted with logs
-DISCOVERY_JSON=$(bash "$DISCOVERY_SH" --config "$CONFIG_PATH" --timeout 2 --verbose || echo '{"controllers":[]}')
+DISCOVERY_JSON=$(bash "$DISCOVERY_SH" --config "$CONFIG_PATH" --timeout 2 --phase 0 --verbose || echo '{"controllers":[]}')
 
 # Validate JSON output
 if ! echo "$DISCOVERY_JSON" | jq empty 2>/dev/null; then

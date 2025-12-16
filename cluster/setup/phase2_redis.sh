@@ -349,7 +349,8 @@ discover_active_nodes() {
         exit 1
     fi
 
-    DISCOVERY_OUTPUT=$("$DISCOVERY_SCRIPT" --config "$CONFIG_FILE" 2>/dev/null || echo "{}")
+    # --phase 2: Only check GlusterFS, MariaDB, and Redis services (skip Slurm, Web, Keepalived)
+    DISCOVERY_OUTPUT=$("$DISCOVERY_SCRIPT" --config "$CONFIG_FILE" --phase 2 --verbose || echo "{}")
 
     # Extract active Redis nodes (check for status == "ok")
     ACTIVE_CONTROLLERS=$(echo "$DISCOVERY_OUTPUT" | jq -r '.controllers[] | select(.services.redis.status == "ok") | .ip' 2>/dev/null || echo "")
