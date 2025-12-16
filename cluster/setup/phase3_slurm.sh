@@ -298,7 +298,31 @@ install_slurm() {
             if [[ "$SETUP_DBD" == "true" ]]; then
                 if ! command -v slurmdbd &> /dev/null; then
                     log INFO "Installing slurmdbd..."
-                    run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurmdbd"
+
+                    # Try offline package first (useful when apt has broken dependencies)
+                    local offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages/slurmdbd_21.08.5-2ubuntu1_amd64.deb"
+                    if [[ -f "$offline_pkg" ]]; then
+                        log INFO "Found offline slurmdbd package, trying dpkg install..."
+                        if dpkg -i "$offline_pkg" 2>&1; then
+                            log SUCCESS "slurmdbd installed from offline package"
+                        else
+                            log WARNING "Offline package install failed, trying apt..."
+                            if ! DEBIAN_FRONTEND=noninteractive apt-get install -y slurmdbd 2>&1; then
+                                log WARNING "Failed to install slurmdbd package"
+                                log WARNING "System may have broken package dependencies"
+                                log WARNING "Try running: sudo apt --fix-broken install"
+                                log WARNING "SlurmDBD will be skipped - accounting will not be available"
+                            fi
+                        fi
+                    else
+                        # No offline package, try apt directly
+                        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y slurmdbd 2>&1; then
+                            log WARNING "Failed to install slurmdbd package"
+                            log WARNING "System may have broken package dependencies"
+                            log WARNING "Try running: sudo apt --fix-broken install"
+                            log WARNING "SlurmDBD will be skipped - accounting will not be available"
+                        fi
+                    fi
                 else
                     log INFO "slurmdbd already installed"
                 fi
