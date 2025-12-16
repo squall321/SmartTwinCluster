@@ -36,11 +36,23 @@ set -uo pipefail
 #############################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CONFIG_FILE="${PROJECT_ROOT}/my_multihead_cluster.yaml"
-PARSER_SCRIPT="${PROJECT_ROOT}/cluster/config/parser.py"
-DISCOVERY_SCRIPT="${PROJECT_ROOT}/cluster/discovery/auto_discovery.sh"
-GALERA_TEMPLATE="${PROJECT_ROOT}/cluster/config/galera_template.cnf"
+
+# Detect if running from /tmp (remote deployment mode)
+if [[ "$SCRIPT_DIR" == "/tmp" ]]; then
+    # Remote mode: use /tmp paths
+    PROJECT_ROOT="/tmp"
+    CONFIG_FILE="/tmp/cluster_config.yaml"
+    PARSER_SCRIPT="/tmp/parser.py"
+    DISCOVERY_SCRIPT=""  # Not available in remote mode
+    GALERA_TEMPLATE="/tmp/galera_template.cnf"
+else
+    # Normal mode: use project structure
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    CONFIG_FILE="${PROJECT_ROOT}/my_multihead_cluster.yaml"
+    PARSER_SCRIPT="${PROJECT_ROOT}/cluster/config/parser.py"
+    DISCOVERY_SCRIPT="${PROJECT_ROOT}/cluster/discovery/auto_discovery.sh"
+    GALERA_TEMPLATE="${PROJECT_ROOT}/cluster/config/galera_template.cnf"
+fi
 GALERA_CONFIG="/etc/mysql/mariadb.conf.d/60-galera.cnf"
 LOG_FILE="/var/log/cluster_database_setup.log"
 
@@ -896,7 +908,7 @@ deploy_to_other_controllers() {
             continue
         fi
 
-        # Copy phase1_database.sh and config file to remote node
+        # Copy phase1_database.sh to remote node
         if ! scp $SCP_OPTS "$0" "$ssh_user@$ip:/tmp/phase1_database.sh" > /dev/null 2>&1; then
             log WARNING "Failed to copy script to $hostname"
             FAILED_NODES+=("$hostname ($ip): Script copy failed")
@@ -907,6 +919,20 @@ deploy_to_other_controllers() {
         if ! scp $SCP_OPTS "$CONFIG_FILE" "$ssh_user@$ip:/tmp/cluster_config.yaml" > /dev/null 2>&1; then
             log WARNING "Failed to copy config to $hostname"
             FAILED_NODES+=("$hostname ($ip): Config copy failed")
+            continue
+        fi
+
+        # Copy parser.py to remote node (required for config parsing)
+        if ! scp $SCP_OPTS "$PARSER_SCRIPT" "$ssh_user@$ip:/tmp/parser.py" > /dev/null 2>&1; then
+            log WARNING "Failed to copy parser.py to $hostname"
+            FAILED_NODES+=("$hostname ($ip): Parser copy failed")
+            continue
+        fi
+
+        # Copy galera_template.cnf to remote node
+        if ! scp $SCP_OPTS "$GALERA_TEMPLATE" "$ssh_user@$ip:/tmp/galera_template.cnf" > /dev/null 2>&1; then
+            log WARNING "Failed to copy galera_template.cnf to $hostname"
+            FAILED_NODES+=("$hostname ($ip): Template copy failed")
             continue
         fi
 
