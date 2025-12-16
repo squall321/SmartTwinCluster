@@ -13,57 +13,7 @@
  * - Show MPI requirements
  */
 import React from 'react';
-interface CommandTemplate {
-    template_id: string;
-    display_name: string;
-    description: string;
-    category: 'solver' | 'post-processing' | 'preprocessing';
-    command: {
-        executable: string;
-        format: string;
-        requires_mpi: boolean;
-    };
-    variables: {
-        dynamic?: Record<string, {
-            source: string;
-            transform?: string;
-            description: string;
-            required: boolean;
-        }>;
-        input_files?: Record<string, {
-            description: string;
-            pattern: string;
-            required: boolean;
-            file_key: string;
-        }>;
-        output_files?: Record<string, {
-            pattern: string;
-            description: string;
-            collect: boolean;
-        }>;
-        input_dependencies?: Record<string, {
-            pattern: string;
-            auto_detect?: boolean;
-            auto_generate?: boolean;
-            source_dir?: string;
-            generate_rule?: string;
-        }>;
-        computed?: Record<string, {
-            source: string;
-            transform: string;
-            description: string;
-        }>;
-    };
-    pre_commands?: string[];
-    post_commands?: string[];
-}
-interface ApptainerImage {
-    id: string;
-    name: string;
-    path: string;
-    partition: string;
-    command_templates: CommandTemplate[];
-}
+import { CommandTemplate, ApptainerImage } from '../types/apptainer';
 interface CommandTemplateModalProps {
     open: boolean;
     onClose: () => void;

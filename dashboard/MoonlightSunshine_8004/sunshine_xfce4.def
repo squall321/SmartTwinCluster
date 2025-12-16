@@ -1,0 +1,132 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    # Set non-interactive frontend
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Asia/Seoul
+
+    # Update package lists
+    apt-get update
+
+    # Install basic utilities
+    apt-get install -y \
+        wget \
+        curl \
+        gnupg \
+        software-properties-common \
+        ca-certificates \
+        apt-transport-https \
+        tzdata
+
+    # Set timezone
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
+    echo $TZ > /etc/timezone
+
+    # Add NVIDIA CUDA repository
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+    dpkg -i cuda-keyring_1.1-1_all.deb
+    rm cuda-keyring_1.1-1_all.deb
+    apt-get update
+
+    # Install NVIDIA drivers and CUDA (for NVENC support)
+    apt-get install -y \
+        nvidia-driver-535 \
+        cuda-toolkit-12-3 \
+        libnvidia-encode-535 \
+        libnvidia-decode-535
+
+    # Install X11 and Desktop Environment (XFCE4)
+    apt-get install -y \
+        xfce4 \
+        xfce4-goodies \
+        xfce4-terminal \
+        dbus-x11 \
+        x11-xserver-utils \
+        xserver-xorg-core \
+        xserver-xorg-video-dummy \
+        xvfb \
+        mesa-utils
+
+    # Install Sunshine dependencies
+    apt-get install -y \
+        libssl3 \
+        libavcodec58 \
+        libavformat58 \
+        libavutil56 \
+        libswscale5 \
+        libboost-filesystem1.74.0 \
+        libboost-log1.74.0 \
+        libboost-program-options1.74.0 \
+        libboost-thread1.74.0 \
+        libpulse0 \
+        libopus0 \
+        libevdev2 \
+        libxtst6 \
+        libx11-6 \
+        libxrandr2 \
+        libxfixes3 \
+        libdrm2 \
+        libwayland-client0
+
+    # Install PulseAudio (for audio streaming)
+    apt-get install -y \
+        pulseaudio \
+        pulseaudio-utils \
+        alsa-utils
+
+    # Download and install Sunshine
+    wget -O /tmp/sunshine.deb https://github.com/LizardByte/Sunshine/releases/download/v0.23.1/sunshine-ubuntu-22.04-amd64.deb
+    apt-get install -y /tmp/sunshine.deb
+    rm /tmp/sunshine.deb
+
+    # Install useful applications
+    apt-get install -y \
+        firefox \
+        gedit \
+        file-roller \
+        thunar \
+        mousepad
+
+    # Clean up
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # Create sunshine config directory
+    mkdir -p /root/.config/sunshine
+
+%environment
+    # X11 Display
+    export DISPLAY=:10
+
+    # NVIDIA/CUDA environment
+    export CUDA_VISIBLE_DEVICES=0
+    export NVIDIA_VISIBLE_DEVICES=0
+    export NVIDIA_DRIVER_CAPABILITIES=all
+
+    # Force NVENC usage
+    export SUNSHINE_ENCODER=nvenc
+
+    # PulseAudio
+    export PULSE_SERVER=unix:/tmp/pulse-socket
+
+%runscript
+    # Start Sunshine server
+    exec sunshine "$@"
+
+%labels
+    Author koopark
+    Version v1.0.0
+    Description Sunshine streaming server with XFCE4 desktop and NVENC support
+
+%help
+    This container provides Sunshine streaming server with:
+    - Ubuntu 22.04 base
+    - NVIDIA drivers 535 + CUDA 12.3
+    - XFCE4 Desktop Environment
+    - Sunshine v0.23.1
+    - Hardware video encoding (NVENC)
+
+    Usage:
+        apptainer instance start --nv sunshine_xfce4.sif my-sunshine
+        apptainer exec instance://my-sunshine sunshine --port 47989

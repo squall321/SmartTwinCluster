@@ -1,0 +1,35 @@
+{
+  "id": "drop_weight_impact",
+  "name": "낙하 중량 충격",
+  "category": "impact_test",
+  "description": "중량물 낙하 충격 시험. 다양한 중량의 낙하물에 대한 충격 저항성을 평가합니다.",
+  "version": "1.0.0",
+  "created_at": "2025-12-03T00:00:00Z",
+  "parameters": {
+    "analysisType": "weightImpact",
+    "dropHeight": 2.0,
+    "mass": 100.0,
+    "impactSurface": "rigid",
+    "includeGravity": true,
+    "impactorShape": "sphere",
+    "impactorDiameter": 0.15,
+    "simulationTime": 0.2,
+    "outputInterval": 0.001
+  },
+  "angles": [
+    { "name": "수직 정면", "phi": 0.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "수직 우측", "phi": 0.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "수직 후면", "phi": 0.0, "theta": 180.0, "psi": 0.0 },
+    { "name": "수직 좌측", "phi": 0.0, "theta": 270.0, "psi": 0.0 },
+    { "name": "경사 정면 30도", "phi": 30.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "경사 우측 30도", "phi": 30.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "경사 후면 30도", "phi": 30.0, "theta": 180.0, "psi": 0.0 },
+    { "name": "경사 좌측 30도", "phi": 30.0, "theta": 270.0, "psi": 0.0 }
+  ],
+  "metadata": {
+    "standardReference": "ASTM D5628",
+    "testMethod": "Drop Weight Impact Test",
+    "requiredEquipment": ["Drop Tower", "Weight Impactor", "Impact Surface", "Force Sensors", "High-Speed Camera"],
+    "safetyRequirements": ["Protective Gear Required", "Controlled Environment", "Impact Zone Barriers", "Weight Securing Mechanism"]
+  }
+}

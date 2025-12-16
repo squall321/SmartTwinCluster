@@ -1,0 +1,39 @@
+{
+  "id": "edge_axis_rotation",
+  "name": "엣지 축 회전",
+  "category": "rotation_test",
+  "description": "엣지를 중심으로 한 축 회전 충격 시험. 회전 충격에 대한 저항성과 안정성을 평가합니다.",
+  "version": "1.0.0",
+  "created_at": "2025-12-03T00:00:00Z",
+  "parameters": {
+    "analysisType": "edgeRotation",
+    "dropHeight": 1.2,
+    "mass": 80.0,
+    "impactSurface": "rigid",
+    "includeGravity": true,
+    "rotationAxis": "edge",
+    "angularVelocity": 3.14,
+    "simulationTime": 0.2,
+    "outputInterval": 0.001
+  },
+  "angles": [
+    { "name": "전면 엣지 0도", "phi": 0.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "전면 엣지 30도", "phi": 0.0, "theta": 0.0, "psi": 30.0 },
+    { "name": "전면 엣지 60도", "phi": 0.0, "theta": 0.0, "psi": 60.0 },
+    { "name": "전면 엣지 90도", "phi": 0.0, "theta": 0.0, "psi": 90.0 },
+    { "name": "우측 엣지 0도", "phi": 0.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "우측 엣지 30도", "phi": 0.0, "theta": 90.0, "psi": 30.0 },
+    { "name": "우측 엣지 60도", "phi": 0.0, "theta": 90.0, "psi": 60.0 },
+    { "name": "우측 엣지 90도", "phi": 0.0, "theta": 90.0, "psi": 90.0 },
+    { "name": "후면 엣지 0도", "phi": 0.0, "theta": 180.0, "psi": 0.0 },
+    { "name": "후면 엣지 45도", "phi": 0.0, "theta": 180.0, "psi": 45.0 },
+    { "name": "좌측 엣지 0도", "phi": 0.0, "theta": 270.0, "psi": 0.0 },
+    { "name": "좌측 엣지 45도", "phi": 0.0, "theta": 270.0, "psi": 45.0 }
+  ],
+  "metadata": {
+    "standardReference": "SAE J211",
+    "testMethod": "Edge Axis Rotation Impact Test",
+    "requiredEquipment": ["Drop Tower", "Rotation Mechanism", "Edge Impact Surface", "Angular Velocity Sensors", "High-Speed Camera"],
+    "safetyRequirements": ["Protective Gear Required", "Controlled Environment", "Rotation Safety Guards", "Emergency Brake System"]
+  }
+}

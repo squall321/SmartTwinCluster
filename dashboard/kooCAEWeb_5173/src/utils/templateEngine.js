@@ -155,8 +155,8 @@ function buildVariableMap(template, context) {
     // 1. Add APPTAINER_IMAGE
     variables.APPTAINER_IMAGE = context.apptainerImage;
     // 2. Add dynamic variables (from Slurm config)
-    if (template.variables.dynamic) {
-        for (const [varName, varDef] of Object.entries(template.variables.dynamic)) {
+    if (template.variables?.dynamic) {
+        for (const [varName, varDef] of Object.entries(template.variables?.dynamic)) {
             try {
                 variables[varName] = resolveDynamicVariable(varDef.source, varDef.transform, context);
             }
@@ -170,8 +170,8 @@ function buildVariableMap(template, context) {
         }
     }
     // 3. Add input file variables
-    if (template.variables.input_files) {
-        for (const [varName, varDef] of Object.entries(template.variables.input_files)) {
+    if (template.variables?.input_files) {
+        for (const [varName, varDef] of Object.entries(template.variables?.input_files)) {
             const fileValue = context.inputFiles[varDef.file_key];
             if (!fileValue && varDef.required) {
                 throw new Error(`Required input file not provided: ${varName} (file_key: ${varDef.file_key})`);
@@ -182,8 +182,8 @@ function buildVariableMap(template, context) {
         }
     }
     // 4. Add computed variables (derived from other variables)
-    if (template.variables.computed) {
-        for (const [varName, varDef] of Object.entries(template.variables.computed)) {
+    if (template.variables?.computed) {
+        for (const [varName, varDef] of Object.entries(template.variables?.computed)) {
             variables[varName] = resolveComputedVariable(varDef.source, varDef.transform, variables);
         }
     }
@@ -284,8 +284,8 @@ export function validateTemplate(template, context) {
  */
 export function getRequiredInputFiles(template) {
     const required = [];
-    if (template.variables.input_files) {
-        for (const [varName, varDef] of Object.entries(template.variables.input_files)) {
+    if (template.variables?.input_files) {
+        for (const [varName, varDef] of Object.entries(template.variables?.input_files)) {
             if (varDef.required) {
                 required.push(varDef.file_key);
             }
@@ -298,8 +298,8 @@ export function getRequiredInputFiles(template) {
  */
 export function getRequiredSlurmFields(template) {
     const required = [];
-    if (template.variables.dynamic) {
-        for (const [varName, varDef] of Object.entries(template.variables.dynamic)) {
+    if (template.variables?.dynamic) {
+        for (const [varName, varDef] of Object.entries(template.variables?.dynamic)) {
             if (varDef.required && varDef.source.startsWith('slurm.')) {
                 const field = varDef.source.substring(6);
                 required.push(field);

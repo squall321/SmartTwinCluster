@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' tsc -b && NODE_OPTIONS='--max-old-space-size=8192' vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -16,6 +16,10 @@
     "@babylonjs/loaders": "^8.21.0",
     "@babylonjs/materials": "^8.21.0",
     "@dagrejs/dagre": "^1.1.5",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^5.18.0",
+    "@mui/material": "^5.18.0",
     "@react-three/drei": "^9.56.14",
     "@react-three/fiber": "^8.13.7",
     "@types/mathjs": "^9.4.1",
@@ -45,6 +49,7 @@
     "reactflow": "^11.11.4",
     "simplify-js": "^1.2.4",
     "three": "^0.177.0",
+    "vis-data": "^8.0.3",
     "vis-network": "^10.0.1",
     "zustand": "^5.0.8"
   },

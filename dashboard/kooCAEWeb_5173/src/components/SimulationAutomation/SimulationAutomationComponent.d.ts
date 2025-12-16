@@ -1,9 +1,15 @@
 import React from "react";
-export type AnalysisType = "fullAngleMBD" | "fullAngle" | "fullAngleCumulative" | "multiRepeatCumulative" | "partialImpact";
+export type AnalysisType = "fullAngleMBD" | "fullAngle" | "fullAngleCumulative" | "multiRepeatCumulative" | "dropWeightImpact" | "predefinedAttitudes" | "edgeAxisRotation";
 export type PartialImpactMode = "default" | "txt";
 export type AngleSource = "lhs" | "fromMBD" | "usePrevResult";
 export type HeightMode = "const" | "lhs";
 export type SurfaceType = "steelPlate" | "pavingBlock" | "concrete" | "wood";
+export type PredefinedMode = "faces6" | "edges12" | "corners8" | "all26";
+export type EdgeAxis = "top" | "bottom" | "left" | "right";
+export type ImpactGridMode = "1x1" | "2x1" | "1x2" | "3x1" | "1x3" | "3x3";
+export type ImpactLocationMode = "grid" | "percentage" | "random";
+export type ImpactorType = "ball" | "cylinder";
+export type CylinderDiameter = 8 | 15 | "custom";
 export type CumDirection = `F${1 | 2 | 3 | 4 | 5 | 6}` | `E${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12}` | `C${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}`;
 export type ToleranceMode = "disabled" | "enabled";
 export type ToleranceSettings = {
@@ -15,6 +21,7 @@ export type ToleranceSettings = {
 export interface ScenarioRow {
     id: string;
     name: string;
+    description?: string;
     fileName?: string;
     file?: File;
     objFileName?: string;
@@ -44,6 +51,34 @@ export interface ScenarioRow {
         piMode?: PartialImpactMode;
         piTxtName?: string;
         piTxtFile?: File;
+        impactPackagePatterns?: string[];
+        impactLocationMode?: ImpactLocationMode;
+        impactGridMode?: ImpactGridMode;
+        impactPercentageX?: number;
+        impactPercentageY?: number;
+        impactLocations?: Array<{
+            x: number;
+            y: number;
+        }>;
+        impactGridRows?: number;
+        impactGridCols?: number;
+        applyEdgeMargin?: boolean;
+        impactPackageWidth?: number;
+        impactPackageHeight?: number;
+        impactRandomCount?: number;
+        impactorType?: ImpactorType;
+        impactorBallDiameter?: number;
+        impactorCylinderDiameter?: CylinderDiameter | number;
+        impactorCylinderDiameterCustom?: number;
+        predefinedMode?: PredefinedMode;
+        predefinedAngles?: Array<{
+            name: string;
+            phi: number;
+            theta: number;
+            psi: number;
+        }>;
+        edgeAxis?: EdgeAxis;
+        edgeDivisions?: number;
         tolerance?: ToleranceSettings;
     };
 }

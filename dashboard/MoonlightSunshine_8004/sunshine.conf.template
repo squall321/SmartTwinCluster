@@ -1,0 +1,86 @@
+# Sunshine Configuration Template
+# This will be copied to ~/.config/sunshine/sunshine.conf in the container
+
+# ========== Network Settings ==========
+address_family = both
+port = 47989
+upnp = disabled
+ping_timeout = 10000
+
+# External IP (will be set dynamically by Slurm job script)
+# external_ip = <VIZ_NODE_IP>
+
+# ========== Video Encoding (NVENC) ==========
+encoder = nvenc
+sw_preset = ultrafast
+nv_preset = p1              # P1 (fastest) ~ P7 (slowest)
+nv_rc = cbr                 # CBR (Constant Bitrate)
+nv_coder = cabac           # CABAC entropy coding
+nv_h264_profile = high
+
+# Bitrate (Mbps) - will be adjusted dynamically based on network
+bitrate = 20000            # 20Mbps default
+min_bitrate = 5000         # 5Mbps minimum
+max_bitrate = 50000        # 50Mbps maximum
+
+# Frame slicing for lower latency
+slices_per_frame = 1
+min_threads = 2
+
+# ========== Video Quality ==========
+# Supported FPS
+fps = [10, 30, 60, 120]
+
+# Supported resolutions
+resolutions = [
+    "1920x1080",
+    "2560x1440",
+    "3840x2160"
+]
+
+# Channels (stereo)
+channels = 2
+
+# ========== Display Capture ==========
+capture = x11              # x11 | wayland | kms
+adapter_name = /dev/dri/renderD128
+output_name = :10
+
+# ========== Audio ==========
+audio_sink = pulse         # PulseAudio
+virtual_sink = sunshine_sink
+
+# ========== Input Devices ==========
+gamepad = disabled
+keyboard = enabled
+mouse = enabled
+controller = enabled
+
+# Key bindings (optional)
+key_bindings_enabled = true
+
+# ========== Security ==========
+# Credentials file (will be auto-generated on first run)
+credentials_file = ~/.config/sunshine/credentials.json
+
+# PIN for pairing (optional, will be auto-generated)
+# pin =
+
+# ========== Logging ==========
+min_log_level = info       # verbose | debug | info | warning | error | fatal
+log_path = ~/.config/sunshine/sunshine.log
+
+# ========== Performance Tuning ==========
+# Low latency mode
+fec_percentage = 20        # Forward Error Correction: 20%
+qp = -1                    # Automatic QP (Quality Parameter)
+
+# ========== Advanced ==========
+# Disable HEVC if clients don't support it
+hevc_mode = 0              # 0=disabled, 1=enabled
+
+# Origin web UI (optional)
+# origin_web_ui_allowed = wan
+
+# UPNP (disabled for security)
+upnp = disabled

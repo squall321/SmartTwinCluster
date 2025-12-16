@@ -8,6 +8,7 @@ from .slurm import slurm_bp
 from .rack import rack_bp
 from .job_template_routes import job_template_bp
 from .app_routes import app_bp
+from .standard_scenarios import standard_scenarios_bp
 
 def register_routes(app):
     app.register_blueprint(auth_bp)
@@ -20,4 +21,5 @@ def register_routes(app):
     app.register_blueprint(rack_bp)
     app.register_blueprint(job_template_bp)
     app.register_blueprint(app_bp)
+    app.register_blueprint(standard_scenarios_bp)
     

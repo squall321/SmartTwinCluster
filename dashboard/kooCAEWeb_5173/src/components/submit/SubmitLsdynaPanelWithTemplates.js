@@ -84,8 +84,10 @@ const SubmitLsdynaPanelWithTemplates = ({ initialConfigs, autoSubmit = false, on
     // Build input files mapping from configs
     const getInputFilesFromConfigs = () => {
         if (configs.length === 0)
-            return {};
+            return undefined;
         const firstConfig = configs[0];
+        if (!firstConfig.filename)
+            return undefined;
         return {
             k_file: firstConfig.filename,
         };

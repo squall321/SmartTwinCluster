@@ -1,0 +1,35 @@
+{
+  "id": "predefined_fall_attitudes",
+  "name": "사전 정의 낙하 자세",
+  "category": "attitude_test",
+  "description": "표준 낙하 자세 시험. 실제 사고 시나리오를 반영한 다양한 자세에서의 충격 특성을 평가합니다.",
+  "version": "1.0.0",
+  "created_at": "2025-12-03T00:00:00Z",
+  "parameters": {
+    "analysisType": "predefined",
+    "dropHeight": 1.5,
+    "mass": 80.0,
+    "impactSurface": "rigid",
+    "includeGravity": true,
+    "simulationTime": 0.15,
+    "outputInterval": 0.001
+  },
+  "angles": [
+    { "name": "정면 서기 자세", "phi": 0.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 비스듬히 서기", "phi": 15.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "측면 서기 자세", "phi": 0.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "후면 서기 자세", "phi": 0.0, "theta": 180.0, "psi": 0.0 },
+    { "name": "정면 앉기 자세", "phi": 45.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "측면 앉기 자세", "phi": 45.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "정면 엎드린 자세", "phi": 90.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "측면 엎드린 자세", "phi": 90.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "대각선 낙하 45도", "phi": 45.0, "theta": 45.0, "psi": 0.0 },
+    { "name": "대각선 낙하 135도", "phi": 45.0, "theta": 135.0, "psi": 0.0 }
+  ],
+  "metadata": {
+    "standardReference": "ISO 13232",
+    "testMethod": "Predefined Attitude Impact Test",
+    "requiredEquipment": ["Drop Tower", "Attitude Positioning System", "Impact Surface", "High-Speed Camera", "Motion Capture System"],
+    "safetyRequirements": ["Protective Gear Required", "Controlled Environment", "Attitude Stabilization System", "Safety Harness"]
+  }
+}

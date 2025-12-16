@@ -1,0 +1,49 @@
+{
+  "id": "frontal_full_angle",
+  "name": "전각도 다물체동역학 낙하",
+  "category": "fall_test",
+  "description": "정면 전각도에서 다물체 동역학을 고려한 낙하 시험. 다양한 각도에서의 충격 시뮬레이션을 수행합니다.",
+  "version": "1.0.0",
+  "created_at": "2025-12-03T00:00:00Z",
+  "parameters": {
+    "analysisType": "multibody",
+    "dropHeight": 1.5,
+    "mass": 80.0,
+    "impactSurface": "rigid",
+    "includeGravity": true,
+    "simulationTime": 0.15,
+    "outputInterval": 0.001
+  },
+  "angles": [
+    { "name": "정면 0도", "phi": 0.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 15도", "phi": 15.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 30도", "phi": 30.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 45도", "phi": 45.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 60도", "phi": 60.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 75도", "phi": 75.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 90도", "phi": 90.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 105도", "phi": 105.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 120도", "phi": 120.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 135도", "phi": 135.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 150도", "phi": 150.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 165도", "phi": 165.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 180도", "phi": 180.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 195도", "phi": 195.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 210도", "phi": 210.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 225도", "phi": 225.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 240도", "phi": 240.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 255도", "phi": 255.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 270도", "phi": 270.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 285도", "phi": 285.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 300도", "phi": 300.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 315도", "phi": 315.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 330도", "phi": 330.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 345도", "phi": 345.0, "theta": 0.0, "psi": 0.0 }
+  ],
+  "metadata": {
+    "standardReference": "KS M 3150",
+    "testMethod": "Free Drop with Multibody Dynamics",
+    "requiredEquipment": ["Drop Tower", "Impact Surface", "High-Speed Camera", "Force Sensors"],
+    "safetyRequirements": ["Protective Gear Required", "Controlled Environment", "Emergency Stop System"]
+  }
+}

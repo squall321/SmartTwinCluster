@@ -38,29 +38,7 @@ import {
 import ApptainerImageSelector from '../components/ApptainerImageSelector';
 import CommandTemplateModal from '../components/CommandTemplateModal';
 import { generateScript, validateTemplate } from '../utils/templateEngine';
-
-interface CommandTemplate {
-  template_id: string;
-  display_name: string;
-  description: string;
-  category: string;
-  command: {
-    executable: string;
-    format: string;
-    requires_mpi: boolean;
-  };
-  variables: any;
-  pre_commands?: string[];
-  post_commands?: string[];
-}
-
-interface ApptainerImage {
-  id: string;
-  name: string;
-  path: string;
-  partition: string;
-  command_templates: CommandTemplate[];
-}
+import { CommandTemplate, ApptainerImage } from '../types/apptainer';
 
 const steps = [
   'Select Apptainer Image',
@@ -272,7 +250,7 @@ const CommandTemplateExample: React.FC = () => {
                   fullWidth
                   label="Partition"
                   value={jobConfig.partition}
-                  onChange={(e) => setJobConfig({ ...jobConfig, partition: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobConfig({ ...jobConfig, partition: e.target.value })}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -280,7 +258,7 @@ const CommandTemplateExample: React.FC = () => {
                   fullWidth
                   label="QoS"
                   value={jobConfig.qos}
-                  onChange={(e) => setJobConfig({ ...jobConfig, qos: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobConfig({ ...jobConfig, qos: e.target.value })}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
@@ -289,7 +267,7 @@ const CommandTemplateExample: React.FC = () => {
                   label="Nodes"
                   type="number"
                   value={jobConfig.nodes}
-                  onChange={(e) => setJobConfig({ ...jobConfig, nodes: parseInt(e.target.value) })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobConfig({ ...jobConfig, nodes: parseInt(e.target.value) })}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
@@ -298,7 +276,7 @@ const CommandTemplateExample: React.FC = () => {
                   label="Tasks (ntasks)"
                   type="number"
                   value={jobConfig.ntasks}
-                  onChange={(e) => setJobConfig({ ...jobConfig, ntasks: parseInt(e.target.value) })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobConfig({ ...jobConfig, ntasks: parseInt(e.target.value) })}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
@@ -307,7 +285,7 @@ const CommandTemplateExample: React.FC = () => {
                   label="CPUs per Task"
                   type="number"
                   value={jobConfig['cpus-per-task']}
-                  onChange={(e) => setJobConfig({ ...jobConfig, 'cpus-per-task': parseInt(e.target.value) })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobConfig({ ...jobConfig, 'cpus-per-task': parseInt(e.target.value) })}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -315,7 +293,7 @@ const CommandTemplateExample: React.FC = () => {
                   fullWidth
                   label="Memory"
                   value={jobConfig.mem}
-                  onChange={(e) => setJobConfig({ ...jobConfig, mem: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobConfig({ ...jobConfig, mem: e.target.value })}
                   helperText="e.g., 32G, 512M"
                 />
               </Grid>
@@ -324,7 +302,7 @@ const CommandTemplateExample: React.FC = () => {
                   fullWidth
                   label="Time Limit"
                   value={jobConfig.time}
-                  onChange={(e) => setJobConfig({ ...jobConfig, time: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobConfig({ ...jobConfig, time: e.target.value })}
                   helperText="Format: HH:MM:SS"
                 />
               </Grid>
@@ -341,7 +319,7 @@ const CommandTemplateExample: React.FC = () => {
                   fullWidth
                   label="Python Script"
                   value={inputFiles.python_script}
-                  onChange={(e) => setInputFiles({ ...inputFiles, python_script: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputFiles({ ...inputFiles, python_script: e.target.value })}
                   helperText="Path to your Python simulation script"
                 />
               </Grid>

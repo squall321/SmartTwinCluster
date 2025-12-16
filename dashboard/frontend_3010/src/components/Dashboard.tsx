@@ -21,6 +21,7 @@ import HealthCheck from './HealthCheck';
 import NodeManagement from './NodeManagement';
 import VNCSessionManager from './VNCSessionManager';
 import SSHSessionManager from './SSHSessionManager';
+import MoonlightEmbedded from './MoonlightEmbedded';
 import ApptainerCatalog from '../pages/ApptainerCatalog';
 import TemplateCatalog from '../pages/TemplateCatalog';
 import FileUploadPage from '../pages/FileUploadPage';
@@ -396,6 +397,11 @@ export const Dashboard: React.FC = () => {
             {/* VNC Sessions */}
             {activeTab === 'vnc' && (
               <VNCSessionManager />
+            )}
+
+            {/* Moonlight Streaming */}
+            {activeTab === 'moonlight' && (
+              <MoonlightEmbedded />
             )}
 
             {/* SSH Sessions */}

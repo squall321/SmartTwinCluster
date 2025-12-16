@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import {
   LayoutGrid, Layout, Activity, BarChart3, FileCode,
-  Briefcase, Database, Server, Stethoscope, ChevronDown, ChevronRight, Menu, X, Monitor, Terminal, Package, Upload
+  Briefcase, Database, Server, Stethoscope, ChevronDown, ChevronRight, Menu, X, Monitor, Terminal, Package, Upload, Gamepad2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-export type TabType = 'customdash' | 'cluster' | 'monitoring' | 'prometheus' | 'health' | 'reports' | 'jobs' | 'templates' | 'nodes' | 'data' | 'vnc' | 'ssh' | 'apptainer' | 'upload';
+export type TabType = 'customdash' | 'cluster' | 'monitoring' | 'prometheus' | 'health' | 'reports' | 'jobs' | 'templates' | 'nodes' | 'data' | 'vnc' | 'ssh' | 'apptainer' | 'upload' | 'moonlight';
 
 interface MenuItem {
   id: TabType;
@@ -45,6 +45,7 @@ const menuStructure: MenuCategory[] = [
       { id: 'apptainer', label: 'Apptainer Images', icon: Package as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'dashboard' },
       { id: 'nodes', label: 'Node Management', icon: Server as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
       { id: 'vnc', label: 'VNC Sessions', icon: Monitor as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
+      { id: 'moonlight', label: 'Moonlight Streaming', icon: Gamepad2 as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'dashboard' },
       { id: 'ssh', label: 'SSH Sessions', icon: Terminal as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
     ]
   },

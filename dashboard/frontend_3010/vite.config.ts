@@ -41,5 +41,26 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            // MUI는 dashboard에 없음 - 제거
+            'vendor-chart': ['recharts', 'react-hot-toast'],
+            'vendor-dnd': ['react-dnd', 'react-dnd-html5-backend'],
+            'vendor-3d': ['three', '@react-three/fiber', '@react-three/drei'],
+            'vendor-utils': ['axios', 'zustand', 'socket.io-client'],
+            'vendor-terminal': ['xterm', 'xterm-addon-fit', 'xterm-addon-web-links']
+          }
+        }
+      },
+      chunkSizeWarningLimit: 1000,
+      sourcemap: false,  // 프로덕션에서 소스맵 비활성화
+      minify: 'esbuild',  // esbuild 사용 (더 빠름, Vite 내장)
+      esbuild: {
+        drop: mode === 'production' ? ['console', 'debugger'] : []
+      }
+    }
   }
 })

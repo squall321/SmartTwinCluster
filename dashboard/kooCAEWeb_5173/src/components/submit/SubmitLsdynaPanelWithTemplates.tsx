@@ -15,31 +15,9 @@ import type { LsdynaJobConfig } from '../uploader/LsdynaOptionTable';
 import ApptainerTemplateIntegration from '../ApptainerTemplateIntegration';
 import SaveTemplateModal, { SaveTemplateData } from '../SaveTemplateModal';
 import { api } from '../../api/axiosClient';
+import { CommandTemplate, ApptainerImage } from '../../types/apptainer';
 
 const { TabPane } = Tabs;
-
-interface CommandTemplate {
-  template_id: string;
-  display_name: string;
-  description: string;
-  category: string;
-  command: {
-    executable: string;
-    format: string;
-    requires_mpi: boolean;
-  };
-  variables: any;
-  pre_commands?: string[];
-  post_commands?: string[];
-}
-
-interface ApptainerImage {
-  id: string;
-  name: string;
-  path: string;
-  partition: string;
-  command_templates: CommandTemplate[];
-}
 
 interface SubmitLsdynaPanelWithTemplatesProps {
   initialConfigs?: LsdynaJobConfig[];
@@ -133,10 +111,12 @@ const SubmitLsdynaPanelWithTemplates: React.FC<SubmitLsdynaPanelWithTemplatesPro
   };
 
   // Build input files mapping from configs
-  const getInputFilesFromConfigs = () => {
-    if (configs.length === 0) return {};
+  const getInputFilesFromConfigs = (): Record<string, string> | undefined => {
+    if (configs.length === 0) return undefined;
 
     const firstConfig = configs[0];
+    if (!firstConfig.filename) return undefined;
+
     return {
       k_file: firstConfig.filename,
     };

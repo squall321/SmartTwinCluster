@@ -46,58 +46,7 @@ import {
   CheckCircle as CheckIcon,
 } from '@mui/icons-material';
 
-interface CommandTemplate {
-  template_id: string;
-  display_name: string;
-  description: string;
-  category: 'solver' | 'post-processing' | 'preprocessing';
-  command: {
-    executable: string;
-    format: string;
-    requires_mpi: boolean;
-  };
-  variables: {
-    dynamic?: Record<string, {
-      source: string;
-      transform?: string;
-      description: string;
-      required: boolean;
-    }>;
-    input_files?: Record<string, {
-      description: string;
-      pattern: string;
-      required: boolean;
-      file_key: string;
-    }>;
-    output_files?: Record<string, {
-      pattern: string;
-      description: string;
-      collect: boolean;
-    }>;
-    input_dependencies?: Record<string, {
-      pattern: string;
-      auto_detect?: boolean;
-      auto_generate?: boolean;
-      source_dir?: string;
-      generate_rule?: string;
-    }>;
-    computed?: Record<string, {
-      source: string;
-      transform: string;
-      description: string;
-    }>;
-  };
-  pre_commands?: string[];
-  post_commands?: string[];
-}
-
-interface ApptainerImage {
-  id: string;
-  name: string;
-  path: string;
-  partition: string;
-  command_templates: CommandTemplate[];
-}
+import { CommandTemplate, ApptainerImage } from '../types/apptainer';
 
 interface CommandTemplateModalProps {
   open: boolean;
@@ -168,11 +117,11 @@ const CommandTemplateModal: React.FC<CommandTemplateModalProps> = ({
   // Count required variables
   const countRequiredVariables = (template: CommandTemplate): number => {
     let count = 0;
-    if (template.variables.dynamic) {
-      count += Object.values(template.variables.dynamic).filter((v) => v.required).length;
+    if (template.variables?.dynamic) {
+      count += Object.values(template.variables?.dynamic).filter((v) => v.required).length;
     }
-    if (template.variables.input_files) {
-      count += Object.values(template.variables.input_files).filter((v) => v.required).length;
+    if (template.variables?.input_files) {
+      count += Object.values(template.variables?.input_files).filter((v) => v.required).length;
     }
     return count;
   };
@@ -319,12 +268,12 @@ const CommandTemplateModal: React.FC<CommandTemplateModalProps> = ({
                     <Collapse in={expandedSections.variables}>
                       <Box mt={2}>
                         {/* Dynamic Variables */}
-                        {selectedTemplate.variables.dynamic && Object.keys(selectedTemplate.variables.dynamic).length > 0 && (
+                        {selectedTemplate.variables?.dynamic && Object.keys(selectedTemplate.variables?.dynamic).length > 0 && (
                           <Box mb={2}>
                             <Typography variant="caption" color="primary" fontWeight="bold" gutterBottom>
                               Dynamic Variables (from Slurm)
                             </Typography>
-                            {Object.entries(selectedTemplate.variables.dynamic).map(([key, value]) => (
+                            {Object.entries(selectedTemplate.variables?.dynamic).map(([key, value]) => (
                               <Box key={key} mb={1}>
                                 <Typography variant="body2">
                                   <strong>{key}</strong>
@@ -342,12 +291,12 @@ const CommandTemplateModal: React.FC<CommandTemplateModalProps> = ({
                         )}
 
                         {/* Input Files */}
-                        {selectedTemplate.variables.input_files && Object.keys(selectedTemplate.variables.input_files).length > 0 && (
+                        {selectedTemplate.variables?.input_files && Object.keys(selectedTemplate.variables?.input_files).length > 0 && (
                           <Box mb={2}>
                             <Typography variant="caption" color="primary" fontWeight="bold" gutterBottom>
                               Input Files
                             </Typography>
-                            {Object.entries(selectedTemplate.variables.input_files).map(([key, value]) => (
+                            {Object.entries(selectedTemplate.variables?.input_files).map(([key, value]) => (
                               <Box key={key} mb={1}>
                                 <Box display="flex" alignItems="center" gap={1}>
                                   <InputIcon fontSize="small" color="action" />
@@ -367,12 +316,12 @@ const CommandTemplateModal: React.FC<CommandTemplateModalProps> = ({
                         )}
 
                         {/* Output Files */}
-                        {selectedTemplate.variables.output_files && Object.keys(selectedTemplate.variables.output_files).length > 0 && (
+                        {selectedTemplate.variables?.output_files && Object.keys(selectedTemplate.variables?.output_files).length > 0 && (
                           <Box mb={2}>
                             <Typography variant="caption" color="primary" fontWeight="bold" gutterBottom>
                               Output Files
                             </Typography>
-                            {Object.entries(selectedTemplate.variables.output_files).map(([key, value]) => (
+                            {Object.entries(selectedTemplate.variables?.output_files).map(([key, value]) => (
                               <Box key={key} mb={1}>
                                 <Box display="flex" alignItems="center" gap={1}>
                                   <OutputIcon fontSize="small" color="action" />

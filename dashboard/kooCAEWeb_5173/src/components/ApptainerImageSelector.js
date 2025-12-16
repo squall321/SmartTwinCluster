@@ -54,7 +54,7 @@ const ApptainerImageSelector = ({ onSelectImage, onSelectTemplate, selectedImage
         // Search filter
         const matchesSearch = searchQuery === '' ||
             image.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            image.description.toLowerCase().includes(searchQuery.toLowerCase());
+            (image.description ?? "").toLowerCase().includes(searchQuery.toLowerCase());
         // Type filter
         const matchesType = typeFilter === 'all' || image.type === typeFilter;
         return matchesSearch && matchesType;
@@ -119,7 +119,7 @@ const ApptainerImageSelector = ({ onSelectImage, onSelectTemplate, selectedImage
                                         WebkitBoxOrient: 'vertical',
                                         minHeight: '40px',
                                         mb: 1,
-                                    }, children: image.description || 'No description available' }), _jsxs(Box, { display: "flex", justifyContent: "space-between", alignItems: "center", mt: 2, children: [_jsx(Typography, { variant: "caption", color: "text.secondary", children: formatSize(image.size) }), _jsx(Tooltip, { title: "View details", children: _jsx(IconButton, { size: "small", onClick: (e) => {
+                                    }, children: image.description || 'No description available' }), _jsxs(Box, { display: "flex", justifyContent: "space-between", alignItems: "center", mt: 2, children: [_jsx(Typography, { variant: "caption", color: "text.secondary", children: formatSize(image.size ?? 0) }), _jsx(Tooltip, { title: "View details", children: _jsx(IconButton, { size: "small", onClick: (e) => {
                                                     e.stopPropagation();
                                                     // TODO: Open image details modal
                                                 }, children: _jsx(InfoIcon, { fontSize: "small" }) }) })] })] }) }) }, image.id))) })), _jsx(Box, { mt: 2, children: _jsxs(Typography, { variant: "caption", color: "text.secondary", children: ["Showing ", filteredImages.length, " of ", images.length, " image(s)"] }) })] }));

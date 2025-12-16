@@ -12,27 +12,7 @@
  * - Collapsible panel to save screen space
  */
 import React from 'react';
-interface CommandTemplate {
-    template_id: string;
-    display_name: string;
-    description: string;
-    category: string;
-    command: {
-        executable: string;
-        format: string;
-        requires_mpi: boolean;
-    };
-    variables: any;
-    pre_commands?: string[];
-    post_commands?: string[];
-}
-interface ApptainerImage {
-    id: string;
-    name: string;
-    path: string;
-    partition: string;
-    command_templates: CommandTemplate[];
-}
+import { CommandTemplate, ApptainerImage } from '../types/apptainer';
 interface SlurmJobConfig {
     partition?: string;
     nodes?: number;

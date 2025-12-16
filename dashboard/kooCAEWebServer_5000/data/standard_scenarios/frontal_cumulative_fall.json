@@ -1,0 +1,35 @@
+{
+  "id": "frontal_cumulative_fall",
+  "name": "전각도 누적 낙하",
+  "category": "cumulative_test",
+  "description": "정면 전각도에서의 누적 낙하 시험. 반복 충격에 대한 내구성을 평가합니다.",
+  "version": "1.0.0",
+  "created_at": "2025-12-03T00:00:00Z",
+  "parameters": {
+    "analysisType": "cumulative",
+    "dropHeight": 1.5,
+    "mass": 80.0,
+    "impactSurface": "rigid",
+    "includeGravity": true,
+    "repeatCount": 3,
+    "intervalTime": 1.0,
+    "simulationTime": 0.15,
+    "outputInterval": 0.001
+  },
+  "angles": [
+    { "name": "정면 0도", "phi": 0.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 45도", "phi": 45.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 90도", "phi": 90.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 135도", "phi": 135.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 180도", "phi": 180.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 225도", "phi": 225.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 270도", "phi": 270.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "정면 315도", "phi": 315.0, "theta": 0.0, "psi": 0.0 }
+  ],
+  "metadata": {
+    "standardReference": "KS M 3150-B",
+    "testMethod": "Cumulative Free Drop Test",
+    "requiredEquipment": ["Drop Tower", "Impact Surface", "High-Speed Camera", "Damage Assessment Tools"],
+    "safetyRequirements": ["Protective Gear Required", "Controlled Environment", "Material Inspection After Each Drop"]
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "multiple_cumulative_fall",
+  "name": "다회 누적 낙하",
+  "category": "cumulative_test",
+  "description": "여러 방향에서의 다회 누적 낙하 시험. 다양한 각도에서의 반복 충격 내구성을 종합 평가합니다.",
+  "version": "1.0.0",
+  "created_at": "2025-12-03T00:00:00Z",
+  "parameters": {
+    "analysisType": "multiCumulative",
+    "dropHeight": 1.5,
+    "mass": 80.0,
+    "impactSurface": "rigid",
+    "includeGravity": true,
+    "repeatCount": 5,
+    "intervalTime": 1.0,
+    "simulationTime": 0.15,
+    "outputInterval": 0.001
+  },
+  "angles": [
+    { "name": "정면 상단", "phi": 0.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "우측 상단", "phi": 0.0, "theta": 45.0, "psi": 0.0 },
+    { "name": "후면 상단", "phi": 0.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "좌측 상단", "phi": 0.0, "theta": 135.0, "psi": 0.0 },
+    { "name": "정면 중앙", "phi": 45.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "우측 중앙", "phi": 45.0, "theta": 90.0, "psi": 0.0 },
+    { "name": "후면 중앙", "phi": 45.0, "theta": 180.0, "psi": 0.0 },
+    { "name": "좌측 중앙", "phi": 45.0, "theta": 270.0, "psi": 0.0 },
+    { "name": "정면 하단", "phi": 90.0, "theta": 0.0, "psi": 0.0 },
+    { "name": "우측 하단", "phi": 90.0, "theta": 90.0, "psi": 0.0 }
+  ],
+  "metadata": {
+    "standardReference": "ISO 6487",
+    "testMethod": "Multi-Angle Cumulative Drop Test",
+    "requiredEquipment": ["Drop Tower", "Multi-Axis Platform", "Impact Surface", "High-Speed Camera", "Damage Assessment Tools"],
+    "safetyRequirements": ["Protective Gear Required", "Controlled Environment", "Comprehensive Material Inspection", "Progressive Damage Monitoring"]
+  }
+}

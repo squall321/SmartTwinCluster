@@ -40,36 +40,7 @@ import {
   Code as CodeIcon,
 } from '@mui/icons-material';
 
-interface CommandTemplate {
-  template_id: string;
-  display_name: string;
-  description: string;
-  category: 'solver' | 'post-processing' | 'preprocessing';
-  command: {
-    executable: string;
-    format: string;
-    requires_mpi: boolean;
-  };
-}
-
-interface ApptainerImage {
-  id: string;
-  name: string;
-  path: string;
-  node: string;
-  partition: 'compute' | 'viz' | 'shared';
-  type: 'viz' | 'compute' | 'shared' | 'custom';
-  size: number;
-  version: string;
-  description: string;
-  labels: Record<string, string>;
-  apps: string[];
-  command_templates: CommandTemplate[];
-  created_at: string;
-  updated_at: string;
-  last_scanned: string;
-  is_active: boolean;
-}
+import { CommandTemplate, ApptainerImage } from '../types/apptainer';
 
 interface ApptainerImageSelectorProps {
   onSelectImage: (image: ApptainerImage) => void;
@@ -128,7 +99,7 @@ const ApptainerImageSelector: React.FC<ApptainerImageSelectorProps> = ({
     const matchesSearch =
       searchQuery === '' ||
       image.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      image.description.toLowerCase().includes(searchQuery.toLowerCase());
+      (image.description ?? "").toLowerCase().includes(searchQuery.toLowerCase());
 
     // Type filter
     const matchesType = typeFilter === 'all' || image.type === typeFilter;
@@ -137,7 +108,7 @@ const ApptainerImageSelector: React.FC<ApptainerImageSelectorProps> = ({
   });
 
   // Get icon based on image type
-  const getTypeIcon = (type: string) => {
+  const getTypeIcon = (type?: string) => {
     switch (type) {
       case 'compute':
         return <ComputeIcon />;
@@ -321,7 +292,7 @@ const ApptainerImageSelector: React.FC<ApptainerImageSelectorProps> = ({
                   {/* Footer */}
                   <Box display="flex" justifyContent="space-between" alignItems="center" mt={2}>
                     <Typography variant="caption" color="text.secondary">
-                      {formatSize(image.size)}
+                      {formatSize(image.size ?? 0)}
                     </Typography>
 
                     {/* Info button */}

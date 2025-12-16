@@ -11,6 +11,8 @@
  * - Script generation with pre/post commands
  */
 
+import { CommandTemplate } from '../types/apptainer';
+
 // ============================================
 // Transform Functions
 // ============================================
@@ -140,37 +142,6 @@ interface SlurmJobConfig {
   [key: string]: any;
 }
 
-interface CommandTemplate {
-  template_id: string;
-  display_name: string;
-  command: {
-    executable: string;
-    format: string;
-    requires_mpi: boolean;
-  };
-  variables: {
-    dynamic?: Record<string, {
-      source: string;
-      transform?: string;
-      description: string;
-      required: boolean;
-    }>;
-    input_files?: Record<string, {
-      description: string;
-      pattern: string;
-      required: boolean;
-      file_key: string;
-    }>;
-    computed?: Record<string, {
-      source: string;
-      transform: string;
-      description: string;
-    }>;
-  };
-  pre_commands?: string[];
-  post_commands?: string[];
-}
-
 interface TemplateContext {
   slurmConfig: SlurmJobConfig;
   inputFiles: Record<string, string>;
@@ -251,8 +222,8 @@ function buildVariableMap(
   variables.APPTAINER_IMAGE = context.apptainerImage;
 
   // 2. Add dynamic variables (from Slurm config)
-  if (template.variables.dynamic) {
-    for (const [varName, varDef] of Object.entries(template.variables.dynamic)) {
+  if (template.variables?.dynamic) {
+    for (const [varName, varDef] of Object.entries(template.variables?.dynamic)) {
       try {
         variables[varName] = resolveDynamicVariable(
           varDef.source,
@@ -270,8 +241,8 @@ function buildVariableMap(
   }
 
   // 3. Add input file variables
-  if (template.variables.input_files) {
-    for (const [varName, varDef] of Object.entries(template.variables.input_files)) {
+  if (template.variables?.input_files) {
+    for (const [varName, varDef] of Object.entries(template.variables?.input_files)) {
       const fileValue = context.inputFiles[varDef.file_key];
 
       if (!fileValue && varDef.required) {
@@ -285,8 +256,8 @@ function buildVariableMap(
   }
 
   // 4. Add computed variables (derived from other variables)
-  if (template.variables.computed) {
-    for (const [varName, varDef] of Object.entries(template.variables.computed)) {
+  if (template.variables?.computed) {
+    for (const [varName, varDef] of Object.entries(template.variables?.computed)) {
       variables[varName] = resolveComputedVariable(
         varDef.source,
         varDef.transform,
@@ -415,8 +386,8 @@ export function validateTemplate(
 export function getRequiredInputFiles(template: CommandTemplate): string[] {
   const required: string[] = [];
 
-  if (template.variables.input_files) {
-    for (const [varName, varDef] of Object.entries(template.variables.input_files)) {
+  if (template.variables?.input_files) {
+    for (const [varName, varDef] of Object.entries(template.variables?.input_files)) {
       if (varDef.required) {
         required.push(varDef.file_key);
       }
@@ -432,8 +403,8 @@ export function getRequiredInputFiles(template: CommandTemplate): string[] {
 export function getRequiredSlurmFields(template: CommandTemplate): string[] {
   const required: string[] = [];
 
-  if (template.variables.dynamic) {
-    for (const [varName, varDef] of Object.entries(template.variables.dynamic)) {
+  if (template.variables?.dynamic) {
+    for (const [varName, varDef] of Object.entries(template.variables?.dynamic)) {
       if (varDef.required && varDef.source.startsWith('slurm.')) {
         const field = varDef.source.substring(6);
         required.push(field);

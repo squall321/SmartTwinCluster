@@ -10,6 +10,7 @@
  * - Dynamic variable resolution from Slurm job config
  * - Script generation with pre/post commands
  */
+import { CommandTemplate } from '../types/apptainer';
 /**
  * Convert memory string to kilobytes
  * Examples: "16G" → 16777216, "512M" → 524288, "1024K" → 1024
@@ -53,36 +54,6 @@ interface SlurmJobConfig {
     time?: string;
     qos?: string;
     [key: string]: any;
-}
-interface CommandTemplate {
-    template_id: string;
-    display_name: string;
-    command: {
-        executable: string;
-        format: string;
-        requires_mpi: boolean;
-    };
-    variables: {
-        dynamic?: Record<string, {
-            source: string;
-            transform?: string;
-            description: string;
-            required: boolean;
-        }>;
-        input_files?: Record<string, {
-            description: string;
-            pattern: string;
-            required: boolean;
-            file_key: string;
-        }>;
-        computed?: Record<string, {
-            source: string;
-            transform: string;
-            description: string;
-        }>;
-    };
-    pre_commands?: string[];
-    post_commands?: string[];
 }
 interface TemplateContext {
     slurmConfig: SlurmJobConfig;

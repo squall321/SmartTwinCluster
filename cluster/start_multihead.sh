@@ -395,15 +395,31 @@ EOPY
 
     local success_count=0
     local failed_count=0
+    local total_count=0
+
+    # Get all local IPs for skip checking
+    local local_ips=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^$')
+    log_info "  Local IPs: $(echo $local_ips | tr '\n' ' ')"
+
+    # Count total nodes
+    total_count=$(echo "$all_nodes" | jq 'length')
+    log_info "  Total nodes to configure: $total_count"
 
     while IFS= read -r node_json; do
         local hostname=$(echo "$node_json" | jq -r '.hostname')
         local ip=$(echo "$node_json" | jq -r '.ip')
         local user=$(echo "$node_json" | jq -r '.user')
 
-        # Skip current node
-        local current_ip=$(hostname -I | awk '{print $1}')
-        if [[ "$ip" == "$current_ip" ]]; then
+        # Skip current node (check against all local IPs)
+        local is_local=false
+        for local_ip in $local_ips; do
+            if [[ "$ip" == "$local_ip" ]]; then
+                is_local=true
+                break
+            fi
+        done
+
+        if [[ "$is_local" == "true" ]]; then
             log_info "  Skipping current node: $hostname ($ip)"
             continue
         fi
