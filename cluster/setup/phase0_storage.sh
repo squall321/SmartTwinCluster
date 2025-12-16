@@ -333,8 +333,17 @@ echo ""
 ###############################################################################
 
 log "INFO" "[Step 4/8] Discovering active GlusterFS nodes..."
+log "INFO" "  Running auto-discovery script (timeout: 2s per node)..."
 
-DISCOVERY_JSON=$(bash "$DISCOVERY_SH" --config "$CONFIG_PATH" --timeout 2 2>/dev/null || echo '{"controllers":[]}')
+# Run discovery with verbose logging to help diagnose issues
+# Note: stderr output goes to console, stdout is captured as JSON
+DISCOVERY_JSON=$(bash "$DISCOVERY_SH" --config "$CONFIG_PATH" --timeout 2 --verbose 2>&1 | tee /dev/stderr | tail -1 || echo '{"controllers":[]}')
+
+# Validate JSON output
+if ! echo "$DISCOVERY_JSON" | jq empty 2>/dev/null; then
+    log "WARN" "  Discovery returned invalid JSON, using empty result"
+    DISCOVERY_JSON='{"controllers":[]}'
+fi
 
 # Extract active GlusterFS nodes
 ACTIVE_GLUSTERFS_NODES=()

@@ -16,12 +16,29 @@ CONFIG_PATH="../my_multihead_cluster.yaml"
 SSH_TIMEOUT=5
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARSER_PY="${SCRIPT_DIR}/../config/parser.py"
+DEBUG=false
+VERBOSE=false
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
+
+# Debug logging function
+debug_log() {
+    if [[ "$DEBUG" == "true" ]]; then
+        echo -e "${CYAN}[DEBUG $(date '+%H:%M:%S.%3N')] $1${NC}" >&2
+    fi
+}
+
+verbose_log() {
+    if [[ "$VERBOSE" == "true" ]] || [[ "$DEBUG" == "true" ]]; then
+        echo -e "${BLUE}[INFO $(date '+%H:%M:%S')] $1${NC}" >&2
+    fi
+}
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -34,12 +51,23 @@ while [[ $# -gt 0 ]]; do
             SSH_TIMEOUT="$2"
             shift 2
             ;;
+        --debug)
+            DEBUG=true
+            VERBOSE=true
+            shift
+            ;;
+        --verbose|-v)
+            VERBOSE=true
+            shift
+            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --config PATH     Path to my_multihead_cluster.yaml (default: ../my_multihead_cluster.yaml)"
             echo "  --timeout SECONDS SSH timeout in seconds (default: 5)"
+            echo "  --debug           Enable debug logging (very verbose)"
+            echo "  --verbose, -v     Enable verbose logging"
             echo "  --help            Show this help message"
             exit 0
             ;;
@@ -50,17 +78,26 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+debug_log "Script started"
+debug_log "CONFIG_PATH=$CONFIG_PATH"
+debug_log "SSH_TIMEOUT=$SSH_TIMEOUT"
+debug_log "SCRIPT_DIR=$SCRIPT_DIR"
+
 # Check if parser.py exists
+debug_log "Checking parser.py at: $PARSER_PY"
 if [[ ! -f "$PARSER_PY" ]]; then
     echo -e "${RED}Error: parser.py not found at $PARSER_PY${NC}" >&2
     exit 1
 fi
+debug_log "parser.py found"
 
 # Check if config file exists
+debug_log "Checking config file at: $CONFIG_PATH"
 if [[ ! -f "$CONFIG_PATH" ]]; then
     echo -e "${RED}Error: Config file not found: $CONFIG_PATH${NC}" >&2
     exit 1
 fi
+debug_log "Config file found"
 
 ###############################################################################
 # Helper Functions
@@ -71,13 +108,45 @@ check_ssh() {
     local ip=$1
     local user=$2
     local port=${3:-22}
+    local start_time=$(date +%s.%N)
 
-    timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    debug_log "check_ssh: Starting SSH check to ${user}@${ip}:${port} (timeout: ${SSH_TIMEOUT}s)"
+
+    # First, quick ping test
+    debug_log "check_ssh: Testing ping to $ip..."
+    if ! timeout 2 ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
+        debug_log "check_ssh: Ping failed to $ip"
+        verbose_log "  → Ping failed to $ip (host unreachable)"
+        return 1
+    fi
+    debug_log "check_ssh: Ping successful to $ip"
+
+    # Then SSH test
+    debug_log "check_ssh: Testing SSH to ${user}@${ip}:${port}..."
+    local ssh_output
+    local ssh_exit_code
+    ssh_output=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                               -o StrictHostKeyChecking=no \
                               -o BatchMode=yes \
+                              -o UserKnownHostsFile=/dev/null \
+                              -o LogLevel=ERROR \
                               -p $port \
                               "${user}@${ip}" \
-                              "echo ok" 2>/dev/null
+                              "echo ok" 2>&1)
+    ssh_exit_code=$?
+
+    local end_time=$(date +%s.%N)
+    local elapsed=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "?")
+
+    if [[ $ssh_exit_code -eq 0 ]]; then
+        debug_log "check_ssh: SSH successful to $ip (took ${elapsed}s)"
+        echo "ok"
+        return 0
+    else
+        debug_log "check_ssh: SSH failed to $ip (exit code: $ssh_exit_code, output: $ssh_output, took ${elapsed}s)"
+        verbose_log "  → SSH failed to $ip (code: $ssh_exit_code)"
+        return 1
+    fi
 }
 
 # Check GlusterFS status
@@ -259,14 +328,26 @@ get_uptime() {
 # Main Discovery Logic
 ###############################################################################
 
+verbose_log "Starting discovery process..."
+verbose_log "SSH Timeout: ${SSH_TIMEOUT}s"
+
 # Get VIP from config
+debug_log "Getting VIP from config..."
 VIP=$(python3 "$PARSER_PY" --config "$CONFIG_PATH" --get-vip | jq -r '.address')
+debug_log "VIP: $VIP"
 
 # Get controllers from config
+debug_log "Getting controllers list from config..."
 CONTROLLERS_JSON=$(python3 "$PARSER_PY" --config "$CONFIG_PATH" --list-controllers)
+debug_log "Controllers JSON received"
 
 # Parse controllers
 TOTAL_CONTROLLERS=$(echo "$CONTROLLERS_JSON" | jq '. | length')
+verbose_log "Total controllers to check: $TOTAL_CONTROLLERS"
+
+# Get current host IP for comparison
+CURRENT_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+debug_log "Current host IP: $CURRENT_IP"
 
 # Initialize counters
 ACTIVE_COUNT=0
@@ -296,49 +377,79 @@ for i in $(seq 0 $(($TOTAL_CONTROLLERS - 1))); do
     PRIORITY=$(echo "$CTRL" | jq -r '.priority')
     SERVICES=$(echo "$CTRL" | jq '.services')
 
+    verbose_log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    verbose_log "Checking controller $((i+1))/$TOTAL_CONTROLLERS: $HOSTNAME"
+    verbose_log "  IP: $IP, User: $SSH_USER, Port: $SSH_PORT"
+    debug_log "  Services config: $SERVICES"
+
     echo -e "${YELLOW}Checking $HOSTNAME ($IP)...${NC}" >&2
 
+    # Skip if this is the current host
+    if [[ "$IP" == "$CURRENT_IP" ]]; then
+        verbose_log "  → Skipping: This is the current host"
+        debug_log "  Current host detected, marking as active without SSH"
+        # Still mark as active but skip SSH check
+    fi
+
     # Check SSH connectivity
+    verbose_log "  Testing SSH connectivity..."
+    local check_start=$(date +%s)
     if check_ssh "$IP" "$SSH_USER" "$SSH_PORT" >/dev/null 2>&1; then
+        local check_end=$(date +%s)
+        verbose_log "  → SSH OK (took $((check_end - check_start))s)"
         STATUS="active"
         ACTIVE_COUNT=$((ACTIVE_COUNT + 1))
 
         # Get system info
+        debug_log "  Getting system info..."
         LOAD=$(get_system_load "$IP" "$SSH_USER" "$SSH_PORT")
         UPTIME=$(get_uptime "$IP" "$SSH_USER" "$SSH_PORT")
+        debug_log "  Load: $LOAD, Uptime: $UPTIME"
 
         # Initialize services status
         SERVICES_STATUS='{}'
 
         # Check each service if enabled
         if [[ $(echo "$SERVICES" | jq -r '.glusterfs // false') == "true" ]]; then
+            verbose_log "  Checking GlusterFS..."
             GLUSTERFS_STATUS=$(check_glusterfs "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"glusterfs\": $GLUSTERFS_STATUS}")
+            debug_log "  GlusterFS: $GLUSTERFS_STATUS"
         fi
 
         if [[ $(echo "$SERVICES" | jq -r '.mariadb // false') == "true" ]]; then
+            verbose_log "  Checking MariaDB..."
             MARIADB_STATUS=$(check_mariadb "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"mariadb\": $MARIADB_STATUS}")
+            debug_log "  MariaDB: $MARIADB_STATUS"
         fi
 
         if [[ $(echo "$SERVICES" | jq -r '.redis // false') == "true" ]]; then
+            verbose_log "  Checking Redis..."
             REDIS_STATUS=$(check_redis "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"redis\": $REDIS_STATUS}")
+            debug_log "  Redis: $REDIS_STATUS"
         fi
 
         if [[ $(echo "$SERVICES" | jq -r '.slurm // false') == "true" ]]; then
+            verbose_log "  Checking Slurm..."
             SLURM_STATUS=$(check_slurm "$IP" "$SSH_USER" "$SSH_PORT")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"slurm\": $SLURM_STATUS}")
+            debug_log "  Slurm: $SLURM_STATUS"
         fi
 
         if [[ $(echo "$SERVICES" | jq -r '.web // false') == "true" ]]; then
+            verbose_log "  Checking Web services..."
             WEB_STATUS=$(check_web "$IP")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"web\": $WEB_STATUS}")
+            debug_log "  Web: $WEB_STATUS"
         fi
 
         if [[ $(echo "$SERVICES" | jq -r '.keepalived // false') == "true" ]]; then
+            verbose_log "  Checking Keepalived..."
             KEEPALIVED_STATUS=$(check_keepalived "$IP" "$SSH_USER" "$SSH_PORT" "$VIP")
             SERVICES_STATUS=$(echo "$SERVICES_STATUS" | jq ". + {\"keepalived\": $KEEPALIVED_STATUS}")
+            debug_log "  Keepalived: $KEEPALIVED_STATUS"
 
             # Check if this controller owns VIP
             if [[ $(echo "$KEEPALIVED_STATUS" | jq -r '.vip') == "true" ]]; then
@@ -367,8 +478,11 @@ for i in $(seq 0 $(($TOTAL_CONTROLLERS - 1))); do
         )
 
         echo -e "${GREEN}  ✓ $HOSTNAME is active${NC}" >&2
+        verbose_log "  Result: ACTIVE"
 
     else
+        local check_end=$(date +%s)
+        verbose_log "  → SSH FAILED (took $((check_end - check_start))s)"
         STATUS="inactive"
         INACTIVE_COUNT=$((INACTIVE_COUNT + 1))
 
@@ -387,11 +501,19 @@ for i in $(seq 0 $(($TOTAL_CONTROLLERS - 1))); do
         )
 
         echo -e "${RED}  ✗ $HOSTNAME is inactive${NC}" >&2
+        verbose_log "  Result: INACTIVE"
     fi
 
     # Add to result
     RESULT_JSON=$(echo "$RESULT_JSON" | jq ".controllers += [$CTRL_INFO]")
+    debug_log "Controller $HOSTNAME added to result"
 done
+
+verbose_log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+verbose_log "Discovery Summary:"
+verbose_log "  Total controllers: $TOTAL_CONTROLLERS"
+verbose_log "  Active: $ACTIVE_COUNT"
+verbose_log "  Inactive: $INACTIVE_COUNT"
 
 # Update counters
 RESULT_JSON=$(echo "$RESULT_JSON" | jq ".active_controllers = $ACTIVE_COUNT")
@@ -406,9 +528,14 @@ else
     CLUSTER_STATE="down"
 fi
 
+verbose_log "  Cluster state: $CLUSTER_STATE"
+verbose_log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
 RESULT_JSON=$(echo "$RESULT_JSON" | jq ".cluster_state = \"$CLUSTER_STATE\"")
 
 # Output result
+debug_log "Outputting final JSON result"
 echo "$RESULT_JSON"
 
+debug_log "Script completed"
 exit 0
