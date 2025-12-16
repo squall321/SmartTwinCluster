@@ -55,8 +55,8 @@ APPTAINER_ONLY=false
 MPI_TYPE="openmpi"  # openmpi or mpich
 LOG_FILE="/var/log/cluster_software_setup.log"
 
-# SSH options
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes"
+# SSH options (includes GSSAPIAuthentication=no to prevent Kerberos delays)
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
 
 ################################################################################
 # Logging Functions

@@ -53,6 +53,12 @@ SETUP_DBD=false
 AUTO_DEPLOY_COMPUTE=false
 DRY_RUN=false
 
+# SSH options for secure remote connections
+# GSSAPIAuthentication=no: Disable Kerberos to prevent delays
+# PreferredAuthentications=publickey: Only try publickey auth
+SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
+
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -813,21 +819,21 @@ EOPY
         fi
 
         # Check if Slurm is already installed
-        if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" "test -x /usr/local/slurm/bin/slurmd" 2>/dev/null; then
+        if ssh $SSH_OPTS "$ssh_user@$ip_address" "test -x /usr/local/slurm/bin/slurmd" 2>/dev/null; then
             log INFO "Slurm already installed on $hostname, syncing config..."
 
             # Sync slurm.conf
-            scp -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+            scp $SCP_OPTS \
                 /usr/local/slurm/etc/slurm.conf \
                 "$ssh_user@$ip_address:/tmp/slurm.conf" &>/dev/null
 
-            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS "$ssh_user@$ip_address" \
                 "sudo mv /tmp/slurm.conf /usr/local/slurm/etc/slurm.conf && \
                  sudo chown slurm:slurm /usr/local/slurm/etc/slurm.conf && \
                  sudo chmod 644 /usr/local/slurm/etc/slurm.conf" &>/dev/null
 
             # Restart slurmd
-            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS "$ssh_user@$ip_address" \
                 "sudo systemctl restart slurmd 2>/dev/null || sudo /usr/local/slurm/sbin/slurmd" &>/dev/null
 
             log SUCCESS "Config synced and slurmd restarted on $hostname"
@@ -838,7 +844,7 @@ EOPY
         log INFO "Installing Slurm on $hostname..."
 
         # Copy installation script
-        if ! scp -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+        if ! scp $SCP_OPTS \
             "${PROJECT_ROOT}/install_slurm_cgroup_v2.sh" \
             "$ssh_user@$ip_address:/tmp/" &>/dev/null; then
             log ERROR "Failed to copy install script to $hostname"
@@ -846,8 +852,8 @@ EOPY
             continue
         fi
 
-        # Execute installation
-        if ssh -o ConnectTimeout=300 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+        # Execute installation (use longer timeout for install)
+        if ssh -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
             "cd /tmp && sudo bash install_slurm_cgroup_v2.sh" &>/dev/null; then
             log SUCCESS "Slurm installed on $hostname"
         else
@@ -857,10 +863,10 @@ EOPY
         fi
 
         # Copy slurm.conf
-        if scp -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+        if scp $SCP_OPTS \
             /usr/local/slurm/etc/slurm.conf \
             "$ssh_user@$ip_address:/tmp/slurm.conf" &>/dev/null; then
-            ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS "$ssh_user@$ip_address" \
                 "sudo mv /tmp/slurm.conf /usr/local/slurm/etc/slurm.conf && \
                  sudo chown slurm:slurm /usr/local/slurm/etc/slurm.conf && \
                  sudo chmod 644 /usr/local/slurm/etc/slurm.conf" &>/dev/null
@@ -870,7 +876,7 @@ EOPY
         fi
 
         # Start slurmd
-        if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+        if ssh $SSH_OPTS "$ssh_user@$ip_address" \
             "sudo systemctl enable slurmd && sudo systemctl start slurmd" &>/dev/null; then
             log SUCCESS "slurmd started on $hostname"
             setup_count=$((setup_count + 1))

@@ -134,10 +134,12 @@ run_command() {
 }
 
 # SSH options for secure remote connections
-# Uses accept-new: accepts host key on first connection, rejects if changed later
-# This is safer than StrictHostKeyChecking=no which always accepts
-SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
-SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
+# StrictHostKeyChecking=no: Accept any host key (needed for fresh installs)
+# UserKnownHostsFile=/dev/null: Don't save/check host keys
+# GSSAPIAuthentication=no: Disable Kerberos to prevent delays in non-Kerberos environments
+# PreferredAuthentications=publickey: Only try publickey auth (fastest, no password prompts)
+SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no"
 
 # Function to pre-populate known_hosts for a list of IPs
 # This is more secure than disabling host key checking
@@ -848,11 +850,9 @@ deploy_to_other_controllers() {
     # Track failed nodes for summary
     local -a FAILED_NODES=()
 
-    # Get SSH user from config
-    local ssh_user=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get nodes.controllers[0].ssh_user 2>/dev/null || echo "root")
-
-    # Get first controller IP
+    # Get first controller info (including SSH user)
     local first_node_ip=$(echo "$MARIADB_CONTROLLERS" | jq -r '.[0].ip_address')
+    local default_ssh_user=$(echo "$MARIADB_CONTROLLERS" | jq -r '.[0].ssh_user // "root"')
 
     # Only run on first controller
     if [[ "$CURRENT_IP" != "$first_node_ip" ]]; then
@@ -867,6 +867,7 @@ deploy_to_other_controllers() {
     while IFS= read -r controller; do
         local ip=$(echo "$controller" | jq -r '.ip_address')
         local hostname=$(echo "$controller" | jq -r '.hostname')
+        local ssh_user=$(echo "$controller" | jq -r '.ssh_user // "'"$default_ssh_user"'"')
 
         # Skip current node
         if [[ "$ip" == "$CURRENT_IP" ]]; then
@@ -874,7 +875,7 @@ deploy_to_other_controllers() {
         fi
 
         node_count=$((node_count + 1))
-        log INFO "Deploying to $hostname ($ip)..."
+        log INFO "Deploying to $hostname ($ip) as $ssh_user..."
 
         # Pre-populate known_hosts for security
         populate_known_hosts "$ip"

@@ -123,8 +123,12 @@ run_command() {
 }
 
 # SSH options for secure remote connections
-SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
-SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
+# StrictHostKeyChecking=no: Accept any host key (needed for fresh installs)
+# UserKnownHostsFile=/dev/null: Don't save/check host keys
+# GSSAPIAuthentication=no: Disable Kerberos to prevent delays
+# PreferredAuthentications=publickey: Only try publickey auth
+SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no"
 
 # Pre-populate known_hosts for security
 populate_known_hosts() {

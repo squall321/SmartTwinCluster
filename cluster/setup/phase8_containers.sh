@@ -53,8 +53,8 @@ COMPUTE_IMAGES_SOURCE="$PROJECT_ROOT/apptainer/compute-node-images"
 VIZ_TARGET_PATH="/opt/apptainers"
 COMPUTE_TARGET_PATH="/opt/apptainers"
 
-# SSH options
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
+# SSH options (includes GSSAPIAuthentication=no to prevent Kerberos delays)
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
 
 # Function to print colored output
 log_info() {

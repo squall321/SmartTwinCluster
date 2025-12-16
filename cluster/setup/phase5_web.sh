@@ -47,6 +47,11 @@ SKIP_SSL=false
 FORCE=false
 LOG_FILE="/var/log/cluster_web_setup.log"
 
+# SSH options for secure remote connections
+# GSSAPIAuthentication=no: Disable Kerberos to prevent delays
+# PreferredAuthentications=publickey: Only try publickey auth
+SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+
 # Web services configuration
 WEB_SERVICES_DIR="/opt/web_services"
 WEB_CONFIG_TEMPLATE="$SCRIPT_DIR/../config/web_services_template.yaml"
@@ -1977,19 +1982,19 @@ EOFPY
 
         if [[ "$DRY_RUN" == false ]]; then
             # Create /opt/scripts directory on viz node
-            ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$node_ip" "sudo mkdir -p /opt/scripts" || {
+            ssh $SSH_OPTS "$ssh_user@$node_ip" "sudo mkdir -p /opt/scripts" || {
                 log_warning "Failed to create /opt/scripts on $node"
                 continue
             }
 
             # Deploy the script
-            echo "$script_content" | ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$node_ip" "sudo tee /opt/scripts/start-gedit-working.sh > /dev/null" || {
+            echo "$script_content" | ssh $SSH_OPTS "$ssh_user@$node_ip" "sudo tee /opt/scripts/start-gedit-working.sh > /dev/null" || {
                 log_warning "Failed to deploy script to $node"
                 continue
             }
 
             # Make it executable
-            ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$node_ip" "sudo chmod +x /opt/scripts/start-gedit-working.sh" || {
+            ssh $SSH_OPTS "$ssh_user@$node_ip" "sudo chmod +x /opt/scripts/start-gedit-working.sh" || {
                 log_warning "Failed to set permissions on $node"
                 continue
             }

@@ -183,7 +183,7 @@ check_ssh() {
 
     debug_log "check_ssh: Starting SSH check to ${user}@${ip}:${port} (timeout: ${SSH_TIMEOUT}s)"
 
-    # First, quick ping test
+    # First, quick ping test (with stricter timeout)
     debug_log "check_ssh: Testing ping to $ip..."
     if ! timeout 2 ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
         debug_log "check_ssh: Ping failed to $ip"
@@ -192,15 +192,30 @@ check_ssh() {
     fi
     debug_log "check_ssh: Ping successful to $ip"
 
-    # Then SSH test
+    # Then SSH test with all necessary options to prevent hangs
     debug_log "check_ssh: Testing SSH to ${user}@${ip}:${port}..."
     local ssh_output
     local ssh_exit_code
+
+    # SSH options explained:
+    # - ConnectTimeout: TCP connection timeout
+    # - StrictHostKeyChecking=no: Don't prompt for host key verification
+    # - BatchMode=yes: Never prompt for password/passphrase (fail instead)
+    # - UserKnownHostsFile=/dev/null: Don't check/save host keys
+    # - LogLevel=ERROR: Reduce logging noise
+    # - GSSAPIAuthentication=no: Disable Kerberos (prevents delays in non-Kerberos environments)
+    # - PreferredAuthentications: Only try publickey (fastest, no password prompts)
+    # - ServerAliveInterval: Send keepalive every 5 seconds
+    # - ServerAliveCountMax: Disconnect after 1 missed keepalive
     ssh_output=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
                               -o StrictHostKeyChecking=no \
                               -o BatchMode=yes \
                               -o UserKnownHostsFile=/dev/null \
                               -o LogLevel=ERROR \
+                              -o GSSAPIAuthentication=no \
+                              -o PreferredAuthentications=publickey \
+                              -o ServerAliveInterval=5 \
+                              -o ServerAliveCountMax=1 \
                               -p $port \
                               "${user}@${ip}" \
                               "echo ok" 2>&1)
@@ -220,6 +235,9 @@ check_ssh() {
     fi
 }
 
+# Common SSH options to prevent hangs (used by all service check functions)
+SSH_OPTS="-o ConnectTimeout=\$SSH_TIMEOUT -o StrictHostKeyChecking=no -o BatchMode=yes -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+
 # Check GlusterFS status
 check_glusterfs() {
     local ip=$1
@@ -234,6 +252,8 @@ check_glusterfs() {
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
                                              -o LogLevel=ERROR \
+                                             -o GSSAPIAuthentication=no \
+                                             -o PreferredAuthentications=publickey \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "gluster peer status 2>/dev/null | grep -c 'Peer in Cluster' || echo 0" 2>/dev/null)
@@ -267,6 +287,8 @@ check_mariadb() {
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
                                              -o LogLevel=ERROR \
+                                             -o GSSAPIAuthentication=no \
+                                             -o PreferredAuthentications=publickey \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "mysql -e \"SHOW STATUS LIKE 'wsrep_cluster_size'\" 2>/dev/null | tail -1 | awk '{print \$2}' || echo 0" 2>/dev/null)
@@ -283,6 +305,8 @@ check_mariadb() {
                                                 -o BatchMode=yes \
                                                 -o UserKnownHostsFile=/dev/null \
                                                 -o LogLevel=ERROR \
+                                                -o GSSAPIAuthentication=no \
+                                                -o PreferredAuthentications=publickey \
                                                 -p $port \
                                                 "${user}@${ip}" \
                                                 "mysql -e \"SHOW STATUS LIKE 'wsrep_local_state_comment'\" 2>/dev/null | tail -1 | awk '{print \$2}'" 2>/dev/null)
@@ -317,6 +341,8 @@ check_redis() {
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
                                              -o LogLevel=ERROR \
+                                             -o GSSAPIAuthentication=no \
+                                             -o PreferredAuthentications=publickey \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "redis-cli cluster info 2>/dev/null | grep cluster_state | cut -d: -f2 | tr -d '\r\n' || echo 'fail'" 2>/dev/null)
@@ -333,6 +359,8 @@ check_redis() {
                                                 -o BatchMode=yes \
                                                 -o UserKnownHostsFile=/dev/null \
                                                 -o LogLevel=ERROR \
+                                                -o GSSAPIAuthentication=no \
+                                                -o PreferredAuthentications=publickey \
                                                 -p $port \
                                                 "${user}@${ip}" \
                                                 "redis-cli cluster info 2>/dev/null | grep cluster_known_nodes | cut -d: -f2 | tr -d '\r\n' || echo 0" 2>/dev/null)
@@ -367,6 +395,8 @@ check_slurm() {
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
                                              -o LogLevel=ERROR \
+                                             -o GSSAPIAuthentication=no \
+                                             -o PreferredAuthentications=publickey \
                                              -p $port \
                                              "${user}@${ip}" \
                                              "scontrol ping 2>/dev/null | grep -q 'is UP' && echo 'primary' || scontrol ping 2>/dev/null | grep -q 'Backup controller' && echo 'backup' || echo 'down'" 2>/dev/null)
@@ -423,6 +453,8 @@ check_keepalived() {
                                               -o BatchMode=yes \
                                               -o UserKnownHostsFile=/dev/null \
                                               -o LogLevel=ERROR \
+                                              -o GSSAPIAuthentication=no \
+                                              -o PreferredAuthentications=publickey \
                                               -p $port \
                                               "${user}@${ip}" \
                                               "ip addr show | grep -q '$vip' && echo 'true' || echo 'false'" 2>/dev/null)
@@ -436,6 +468,8 @@ check_keepalived() {
                                                           -o BatchMode=yes \
                                                           -o UserKnownHostsFile=/dev/null \
                                                           -o LogLevel=ERROR \
+                                                          -o GSSAPIAuthentication=no \
+                                                          -o PreferredAuthentications=publickey \
                                                           -p $port \
                                                           "${user}@${ip}" \
                                                           "systemctl is-active keepalived 2>/dev/null || echo 'inactive'" 2>/dev/null)
@@ -466,6 +500,8 @@ get_system_load() {
                                           -o BatchMode=yes \
                                           -o UserKnownHostsFile=/dev/null \
                                           -o LogLevel=ERROR \
+                                          -o GSSAPIAuthentication=no \
+                                          -o PreferredAuthentications=publickey \
                                           -p $port \
                                           "${user}@${ip}" \
                                           "uptime | awk -F'load average:' '{print \$2}' | awk '{print \$1}' | tr -d ','" 2>/dev/null || echo "0.00")
@@ -484,6 +520,8 @@ get_uptime() {
                                                  -o BatchMode=yes \
                                                  -o UserKnownHostsFile=/dev/null \
                                                  -o LogLevel=ERROR \
+                                                 -o GSSAPIAuthentication=no \
+                                                 -o PreferredAuthentications=publickey \
                                                  -p $port \
                                                  "${user}@${ip}" \
                                                  "uptime -p 2>/dev/null || uptime | awk '{print \$3\" \"\$4}'" 2>/dev/null || echo "unknown")
