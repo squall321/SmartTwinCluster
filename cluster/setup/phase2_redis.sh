@@ -146,11 +146,18 @@ ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
 ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
 SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
 
+# Debug: Show SSH key detection info
+echo "[DEBUG] SUDO_USER=${SUDO_USER:-<not set>}, ORIGINAL_USER=$ORIGINAL_USER" >&2
+echo "[DEBUG] ORIGINAL_HOME=$ORIGINAL_HOME, SSH_KEY_FILE=$SSH_KEY_FILE" >&2
+echo "[DEBUG] SSH key exists: $(test -f "$SSH_KEY_FILE" && echo 'YES' || echo 'NO')" >&2
+
 # Build SSH options - include identity file if it exists
 if [[ -f "$SSH_KEY_FILE" ]]; then
+    echo "[DEBUG] Using SSH key: $SSH_KEY_FILE" >&2
     SSH_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
     SCP_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no"
 else
+    echo "[DEBUG] SSH key not found, using default SSH options" >&2
     SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
     SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no"
 fi
