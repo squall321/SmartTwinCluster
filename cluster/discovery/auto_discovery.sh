@@ -393,10 +393,10 @@ for i in $(seq 0 $(($TOTAL_CONTROLLERS - 1))); do
 
     # Check SSH connectivity
     verbose_log "  Testing SSH connectivity..."
-    local check_start=$(date +%s)
+    CHECK_START=$(date +%s)
     if check_ssh "$IP" "$SSH_USER" "$SSH_PORT" >/dev/null 2>&1; then
-        local check_end=$(date +%s)
-        verbose_log "  → SSH OK (took $((check_end - check_start))s)"
+        CHECK_END=$(date +%s)
+        verbose_log "  → SSH OK (took $((CHECK_END - CHECK_START))s)"
         STATUS="active"
         ACTIVE_COUNT=$((ACTIVE_COUNT + 1))
 
@@ -481,8 +481,8 @@ for i in $(seq 0 $(($TOTAL_CONTROLLERS - 1))); do
         verbose_log "  Result: ACTIVE"
 
     else
-        local check_end=$(date +%s)
-        verbose_log "  → SSH FAILED (took $((check_end - check_start))s)"
+        CHECK_END=$(date +%s)
+        verbose_log "  → SSH FAILED (took $((CHECK_END - CHECK_START))s)"
         STATUS="inactive"
         INACTIVE_COUNT=$((INACTIVE_COUNT + 1))
 
