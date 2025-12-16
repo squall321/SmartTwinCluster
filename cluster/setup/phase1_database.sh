@@ -681,10 +681,19 @@ bootstrap_cluster() {
     fi
 
     # Use galera_new_cluster command for bootstrap
-    run_command "galera_new_cluster"
+    log INFO "Running galera_new_cluster..."
 
-    # Wait for MariaDB to start
     if [[ "$DRY_RUN" == "false" ]]; then
+        # Run galera_new_cluster and capture output
+        local bootstrap_output
+        bootstrap_output=$(galera_new_cluster 2>&1) || true
+        local bootstrap_exit=$?
+
+        if [[ -n "$bootstrap_output" ]]; then
+            log INFO "Bootstrap output: $bootstrap_output"
+        fi
+
+        # Wait for MariaDB to start
         sleep 5
 
         # Check if MariaDB is running
@@ -698,9 +707,28 @@ bootstrap_cluster() {
             log INFO "Cluster size: ${cluster_size:-1}"
         else
             log ERROR "Failed to bootstrap Galera cluster"
-            log ERROR "Check logs: journalctl -u mariadb -n 50"
+            log ERROR "Bootstrap exit code: $bootstrap_exit"
+            log ERROR ""
+            log ERROR "=== MariaDB Service Status ==="
+            systemctl status mariadb --no-pager 2>&1 | head -30 || true
+            log ERROR ""
+            log ERROR "=== Last 50 lines from journalctl ==="
+            journalctl -u mariadb -n 50 --no-pager 2>&1 || true
+            log ERROR ""
+            log ERROR "=== MariaDB Error Log (last 50 lines) ==="
+            tail -50 /var/log/mysql/error.log 2>/dev/null || tail -50 /var/lib/mysql/*.err 2>/dev/null || true
+            log ERROR ""
+            log ERROR "=== Current grastate.dat ==="
+            cat /var/lib/mysql/grastate.dat 2>/dev/null || echo "File not found"
+            log ERROR ""
+            log ERROR "=== Galera Config ==="
+            grep -E "^(wsrep_|binlog_format)" /etc/mysql/mariadb.conf.d/60-galera.cnf 2>/dev/null || \
+            grep -E "^(wsrep_|binlog_format)" /etc/mysql/conf.d/galera.cnf 2>/dev/null || \
+            echo "Galera config not found"
             exit 1
         fi
+    else
+        log INFO "[DRY-RUN] Would run: galera_new_cluster"
     fi
 }
 
