@@ -350,6 +350,9 @@ confirm_execution() {
 setup_remote_passwordless_sudo() {
     log_info "Configuring passwordless sudo on all remote nodes..."
 
+    # Temporarily disable exit on error for SSH operations
+    set +e
+
     # Get all compute nodes from YAML
     local all_nodes=$(python3 << EOPY
 import yaml, json
@@ -484,6 +487,9 @@ EOPY
     if [[ $failed_count -gt 0 ]]; then
         log_warning "  - Failed: $failed_count nodes (continuing anyway)"
     fi
+
+    # Re-enable exit on error
+    set -e
 }
 
 # Function to execute Phase 0: Infrastructure
