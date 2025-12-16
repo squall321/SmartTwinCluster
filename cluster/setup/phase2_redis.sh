@@ -204,19 +204,38 @@ load_config() {
     CLUSTER_NAME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cluster.name 2>/dev/null || echo "multihead_cluster")
 
     # Get Redis-specific config with validation
-    REDIS_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cache.redis.password 2>/dev/null)
+    # Priority: 1) environment.REDIS_PASSWORD 2) redis.cluster.password 3) cache.redis.password (legacy)
+    REDIS_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get environment.REDIS_PASSWORD 2>/dev/null)
+
+    # Check if it's a variable reference like ${REDIS_PASSWORD} and resolve it
+    if [[ "$REDIS_PASSWORD" == '${REDIS_PASSWORD}' ]] || [[ -z "$REDIS_PASSWORD" ]]; then
+        # Try redis.cluster.password (may contain ${REDIS_PASSWORD} reference)
+        local redis_config_pass=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get redis.cluster.password 2>/dev/null)
+        if [[ "$redis_config_pass" == '${REDIS_PASSWORD}' ]]; then
+            # It's a reference, get the actual value from environment section
+            REDIS_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get environment.REDIS_PASSWORD 2>/dev/null)
+        elif [[ -n "$redis_config_pass" ]]; then
+            REDIS_PASSWORD="$redis_config_pass"
+        fi
+    fi
+
+    # Legacy fallback: cache.redis.password
+    if [[ -z "$REDIS_PASSWORD" ]]; then
+        REDIS_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cache.redis.password 2>/dev/null)
+    fi
+
+    log INFO "Redis password source: environment.REDIS_PASSWORD or redis.cluster.password"
 
     # Validate password - warn if using insecure default
     if [[ -z "$REDIS_PASSWORD" || "$REDIS_PASSWORD" == "changeme" ]]; then
-        log WARNING "⚠️  cache.redis.password is not set or uses insecure default!"
+        log WARNING "⚠️  Redis password is not set or uses insecure default!"
         log WARNING "   Please set a secure password in $CONFIG_FILE"
         log WARNING "   Using 'changeme' as fallback - NOT RECOMMENDED FOR PRODUCTION"
         log WARNING ""
         log WARNING "=== SECURITY NOTICE ==="
         log WARNING "Add the following to your YAML config:"
-        log WARNING "  cache:"
-        log WARNING "    redis:"
-        log WARNING "      password: <your-secure-password>"
+        log WARNING "  environment:"
+        log WARNING "    REDIS_PASSWORD: <your-secure-password>"
         log WARNING ""
         REDIS_PASSWORD="changeme"
         # Auto-confirm 모드 또는 비대화형 환경에서는 자동 계속

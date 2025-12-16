@@ -638,7 +638,11 @@ clustering:
 # Environment Variables (Template)
 # ============================================================================
 environment:
-  # 데이터베이스
+  # MariaDB 관리자 비밀번호
+  DB_ROOT_PASSWORD: "mariadb_root_secure_password"
+  DB_SST_PASSWORD: "galera_sst_secure_password"
+
+  # 데이터베이스 사용자
   DB_SLURM_PASSWORD: "slurm_secure_password"
   DB_AUTH_PASSWORD: "auth_secure_password"
 

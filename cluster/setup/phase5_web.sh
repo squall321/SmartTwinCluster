@@ -278,10 +278,44 @@ load_config() {
     DOMAIN=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('cluster_info', {}).get('domain', 'hpc.local'))")
     DB_VIP=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('vip', ''))" || echo "")
     DB_USER=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('mariadb', {}).get('user', 'hpcadmin'))")
-    DB_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('mariadb', {}).get('root_password', ''))")
-    REDIS_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('redis', {}).get('password', ''))")
-    SESSION_SECRET=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('session_secret', ''))")
-    JWT_SECRET=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('jwt_secret', ''))")
+
+    # Helper function to resolve ${VAR} references from environment section
+    resolve_env_var() {
+        local value="$1"
+        local env_section
+        if [[ "$value" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$ ]]; then
+            local var_name="${BASH_REMATCH[1]}"
+            env_section=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('environment', {}).get('$var_name', ''))" 2>/dev/null)
+            echo "$env_section"
+        else
+            echo "$value"
+        fi
+    }
+
+    # Get passwords - resolve ${VAR} references from environment section
+    local raw_db_password=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('database', {}).get('mariadb', {}).get('root_password', ''))")
+    DB_PASSWORD=$(resolve_env_var "$raw_db_password")
+    # Fallback: try environment.DB_ROOT_PASSWORD directly
+    if [[ -z "$DB_PASSWORD" || "$DB_PASSWORD" == '${DB_ROOT_PASSWORD}' ]]; then
+        DB_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('environment', {}).get('DB_ROOT_PASSWORD', ''))" 2>/dev/null)
+    fi
+
+    local raw_redis_password=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('redis', {}).get('cluster', {}).get('password', '') or c.get('redis', {}).get('password', ''))")
+    REDIS_PASSWORD=$(resolve_env_var "$raw_redis_password")
+    # Fallback: try environment.REDIS_PASSWORD directly
+    if [[ -z "$REDIS_PASSWORD" || "$REDIS_PASSWORD" == '${REDIS_PASSWORD}' ]]; then
+        REDIS_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('environment', {}).get('REDIS_PASSWORD', ''))" 2>/dev/null)
+    fi
+
+    local raw_session_secret=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('session_secret', ''))")
+    SESSION_SECRET=$(resolve_env_var "$raw_session_secret")
+
+    local raw_jwt_secret=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('jwt_secret', ''))")
+    JWT_SECRET=$(resolve_env_var "$raw_jwt_secret")
+    # Fallback: try environment.JWT_SECRET_KEY directly
+    if [[ -z "$JWT_SECRET" || "$JWT_SECRET" == '${JWT_SECRET_KEY}' ]]; then
+        JWT_SECRET=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('environment', {}).get('JWT_SECRET_KEY', ''))" 2>/dev/null)
+    fi
 
     # Validate security-sensitive configurations
     local config_warnings=false

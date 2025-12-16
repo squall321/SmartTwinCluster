@@ -226,15 +226,30 @@ load_config() {
 
     # Expand environment variables if value is in ${VAR} format
     # This allows YAML to use: root_password: "${DB_ROOT_PASSWORD}"
+    # First try shell environment, then try YAML environment section
     if [[ "$DB_ROOT_PASSWORD" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$ ]]; then
         local env_var="${BASH_REMATCH[1]}"
-        DB_ROOT_PASSWORD="${!env_var:-}"
-        [[ -n "$DB_ROOT_PASSWORD" ]] && log INFO "root_password loaded from environment variable: $env_var"
+        # Try shell environment first
+        if [[ -n "${!env_var:-}" ]]; then
+            DB_ROOT_PASSWORD="${!env_var}"
+            log INFO "root_password loaded from shell environment: $env_var"
+        else
+            # Try YAML environment section
+            DB_ROOT_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get "environment.$env_var" 2>/dev/null)
+            [[ -n "$DB_ROOT_PASSWORD" ]] && log INFO "root_password loaded from YAML environment.$env_var"
+        fi
     fi
     if [[ "$SST_PASSWORD" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$ ]]; then
         local env_var="${BASH_REMATCH[1]}"
-        SST_PASSWORD="${!env_var:-}"
-        [[ -n "$SST_PASSWORD" ]] && log INFO "sst_password loaded from environment variable: $env_var"
+        # Try shell environment first
+        if [[ -n "${!env_var:-}" ]]; then
+            SST_PASSWORD="${!env_var}"
+            log INFO "sst_password loaded from shell environment: $env_var"
+        else
+            # Try YAML environment section
+            SST_PASSWORD=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get "environment.$env_var" 2>/dev/null)
+            [[ -n "$SST_PASSWORD" ]] && log INFO "sst_password loaded from YAML environment.$env_var"
+        fi
     fi
 
     # Validate passwords - warn if using insecure defaults
