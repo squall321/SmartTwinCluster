@@ -53,6 +53,12 @@ SETUP_DBD=false
 AUTO_DEPLOY_COMPUTE=false
 DRY_RUN=false
 
+# GlusterFS settings (will be set based on availability)
+USE_GLUSTERFS=false
+GLUSTERFS_ENABLED=false
+SLURM_STATE_DIR="/var/spool/slurmctld"
+SLURM_LOG_DIR="/var/log/slurm"
+
 # SSH options for secure remote connections
 # GSSAPIAuthentication=no: Disable Kerberos to prevent delays
 # PreferredAuthentications=publickey: Only try publickey auth
@@ -219,8 +225,15 @@ load_config() {
     log INFO "VIP address: $VIP_ADDRESS"
     log INFO "VIP owner: $VIP_OWNER_IP"
 
-    # GlusterFS mount point
-    GLUSTER_MOUNT=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get storage.glusterfs.mount_point 2>/dev/null || echo "/mnt/gluster")
+    # GlusterFS mount point - try both 'shared_storage' and 'storage' paths for compatibility
+    GLUSTER_MOUNT=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get shared_storage.glusterfs.mount_point 2>/dev/null || \
+                    python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get storage.glusterfs.mount_point 2>/dev/null || \
+                    echo "/mnt/gluster")
+
+    # Also check if GlusterFS service is enabled for this controller
+    GLUSTERFS_ENABLED=$(echo "$CURRENT_CONTROLLER" | jq -r '.services.glusterfs // false')
+    log INFO "GlusterFS enabled: $GLUSTERFS_ENABLED"
+    log INFO "GlusterFS mount point: $GLUSTER_MOUNT"
 
     # MariaDB config for SlurmDBD with validation
     DB_HOST=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get database.mariadb.host 2>/dev/null || echo "$VIP_ADDRESS")
@@ -372,25 +385,62 @@ check_glusterfs_mounted() {
 
     if mount | grep -q "$GLUSTER_MOUNT"; then
         log SUCCESS "GlusterFS is mounted at $GLUSTER_MOUNT"
+        USE_GLUSTERFS=true
     else
-        log ERROR "GlusterFS is not mounted at $GLUSTER_MOUNT"
-        log ERROR "Please run Phase 1 (GlusterFS setup) first"
-        exit 1
+        log WARNING "GlusterFS is not mounted at $GLUSTER_MOUNT"
+
+        # Check if GlusterFS is expected to be enabled
+        if [[ "$GLUSTERFS_ENABLED" == "true" ]]; then
+            log WARNING "GlusterFS is enabled in config but not mounted"
+            log WARNING "You may want to run Phase 0 (GlusterFS setup) first"
+            log INFO "Proceeding with local directories instead..."
+        else
+            log INFO "GlusterFS is not enabled for this controller"
+        fi
+
+        # Fallback: Use local directories for Slurm state
+        USE_GLUSTERFS=false
+        log INFO "Will use local directories for Slurm state management"
     fi
 }
 
 create_shared_directories() {
-    log INFO "Creating shared Slurm directories on GlusterFS..."
+    if [[ "$USE_GLUSTERFS" == "true" ]]; then
+        log INFO "Creating shared Slurm directories on GlusterFS..."
 
-    local state_dir="$GLUSTER_MOUNT/slurm/state"
-    local log_dir="$GLUSTER_MOUNT/slurm/logs"
-    local spool_dir="$GLUSTER_MOUNT/slurm/spool"
+        local state_dir="$GLUSTER_MOUNT/slurm/state"
+        local log_dir="$GLUSTER_MOUNT/slurm/logs"
+        local spool_dir="$GLUSTER_MOUNT/slurm/spool"
 
-    run_command "mkdir -p $state_dir $log_dir $spool_dir"
-    run_command "chown -R slurm:slurm $GLUSTER_MOUNT/slurm"
-    run_command "chmod 755 $state_dir $log_dir $spool_dir"
+        run_command "mkdir -p $state_dir $log_dir $spool_dir"
+        run_command "chown -R slurm:slurm $GLUSTER_MOUNT/slurm"
+        run_command "chmod 755 $state_dir $log_dir $spool_dir"
 
-    log SUCCESS "Shared directories created"
+        # Set paths for slurm.conf
+        SLURM_STATE_DIR="$state_dir"
+        SLURM_LOG_DIR="$log_dir"
+
+        log SUCCESS "Shared directories created on GlusterFS"
+    else
+        log INFO "Creating local Slurm directories..."
+
+        # Fallback to local directories
+        local state_dir="/var/spool/slurmctld"
+        local log_dir="/var/log/slurm"
+        local spool_dir="/var/spool/slurmd"
+
+        run_command "mkdir -p $state_dir $log_dir $spool_dir"
+        run_command "chown -R slurm:slurm $state_dir $log_dir $spool_dir"
+        run_command "chmod 755 $state_dir $log_dir $spool_dir"
+
+        # Set paths for slurm.conf
+        SLURM_STATE_DIR="$state_dir"
+        SLURM_LOG_DIR="$log_dir"
+
+        log SUCCESS "Local directories created"
+        log WARNING "Note: Without shared storage, Slurm state is local to each controller"
+        log WARNING "This may affect failover capabilities in multi-controller setup"
+    fi
 }
 
 generate_slurmctld_hosts() {
@@ -541,16 +591,20 @@ generate_slurm_config() {
     config_content=$(cat "$SLURM_TEMPLATE")
 
     # Substitute template variables
+    # Use SLURM_STATE_DIR and SLURM_LOG_DIR which are set based on GlusterFS availability
     config_content="${config_content//\{\{CLUSTER_NAME\}\}/$CLUSTER_NAME}"
     config_content="${config_content//\{\{SLURMCTLD_HOSTS\}\}/$SLURMCTLD_HOSTS}"
-    config_content="${config_content//\{\{STATE_SAVE_LOCATION\}\}/$GLUSTER_MOUNT/slurm/state}"
-    config_content="${config_content//\{\{SLURMCTLD_LOG_FILE\}\}/$GLUSTER_MOUNT/slurm/logs/slurmctld.log}"
+    config_content="${config_content//\{\{STATE_SAVE_LOCATION\}\}/$SLURM_STATE_DIR}"
+    config_content="${config_content//\{\{SLURMCTLD_LOG_FILE\}\}/$SLURM_LOG_DIR/slurmctld.log}"
     config_content="${config_content//\{\{SLURMD_LOG_FILE\}\}/\/var\/log\/slurm\/slurmd.log}"
     config_content="${config_content//\{\{ACCOUNTING_STORAGE_HOST:-localhost\}\}/localhost}"
     config_content="${config_content//\{\{PLUGIN_DIR:-\/usr\/local\/slurm\/lib\/slurm\}\}/$PLUGIN_DIR}"
     config_content="${config_content//\{\{NODE_DEFINITIONS\}\}/$NODE_DEFINITIONS}"
     config_content="${config_content//\{\{PARTITION_DEFINITIONS\}\}/$PARTITION_DEFINITIONS}"
     config_content="${config_content//\{\{DEFAULT_PARTITION\}\}/$DEFAULT_PARTITION}"
+
+    log INFO "Using state directory: $SLURM_STATE_DIR"
+    log INFO "Using log directory: $SLURM_LOG_DIR"
 
     # Backup existing config
     if [[ -f "$SLURM_CONFIG" ]] && [[ "$DRY_RUN" == "false" ]]; then
@@ -984,15 +1038,31 @@ main() {
 
     # Compute node setup
     if [[ "$SETUP_COMPUTE" == "true" ]]; then
-        # Copy slurm.conf from controller or shared location
+        # Try to copy slurm.conf from shared storage or system config
+        local config_found=false
+
+        # Check GlusterFS shared storage first
         if [[ -f "$GLUSTER_MOUNT/slurm/slurm.conf" ]]; then
-            log INFO "Copying slurm.conf from shared storage..."
+            log INFO "Copying slurm.conf from shared storage (GlusterFS)..."
             cp "$GLUSTER_MOUNT/slurm/slurm.conf" "$SLURM_CONFIG"
+            config_found=true
+        # Fallback: Check /etc/slurm
+        elif [[ -f "/etc/slurm/slurm.conf" ]]; then
+            log INFO "Using existing slurm.conf from /etc/slurm"
+            config_found=true
+        # Fallback: Check /usr/local/slurm/etc
+        elif [[ -f "/usr/local/slurm/etc/slurm.conf" ]]; then
+            log INFO "Using existing slurm.conf from /usr/local/slurm/etc"
+            cp "/usr/local/slurm/etc/slurm.conf" "$SLURM_CONFIG"
+            config_found=true
+        fi
+
+        if [[ "$config_found" == "true" ]]; then
             chown slurm:slurm "$SLURM_CONFIG"
             chmod 644 "$SLURM_CONFIG"
         else
-            log ERROR "slurm.conf not found in shared storage"
-            log ERROR "Please run --controller setup first"
+            log ERROR "slurm.conf not found in any known location"
+            log ERROR "Please run --controller setup first or manually copy slurm.conf"
             exit 1
         fi
 
