@@ -322,7 +322,7 @@ check_web() {
     debug_log "check_web: Starting Web check for ${ip}:${port}"
     local check_start=$(date +%s.%N)
 
-    local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout $SSH_TIMEOUT --max-time $SSH_TIMEOUT "http://${ip}:${port}/health" 2>/dev/null || echo "000")
+    local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout $SSH_TIMEOUT "http://${ip}:${port}/health" 2>/dev/null || echo "000")
 
     local check_end=$(date +%s.%N)
     local elapsed=$(echo "$check_end - $check_start" | bc 2>/dev/null || echo "?")
