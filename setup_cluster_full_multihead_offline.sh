@@ -472,15 +472,146 @@ else
     echo ""
 
     ################################################################################
-    # 나머지 단계들 (기존 setup_cluster_full_multihead.sh와 동일)
+    # Step 5: Python 가상환경
     ################################################################################
 
-    # Step 5: Python 가상환경
+    log_info "Step 5/9: Python 가상환경 확인..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    if [ ! -d "venv" ]; then
+        log_warning "가상환경이 없습니다. 생성합니다..."
+        python3 -m venv venv
+    fi
+
+    source venv/bin/activate
+    log_success "가상환경 활성화 완료"
+    echo ""
+
+    ################################################################################
     # Step 6: 설정 검증
-    # Step 7: SSH 연결 테스트
-    # Step 8: /etc/hosts 설정
-    # Step 9: PATH 설정
-    # (기존 코드 재사용)
+    ################################################################################
+
+    log_info "Step 6/9: 설정 파일 검증..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    if [ -f "cluster/config/parser.py" ]; then
+        python3 cluster/config/parser.py "$CONFIG_FILE" validate
+        if [ $? -ne 0 ]; then
+            log_error "설정 파일 검증 실패"
+            exit 1
+        fi
+        log_success "설정 파일 검증 완료"
+    else
+        log_warning "parser.py가 없습니다. 건너뜁니다."
+    fi
+    echo ""
+
+    ################################################################################
+    # Step 7: SSH 연결 테스트 및 자동 설정
+    ################################################################################
+
+    log_info "Step 7/9: SSH 연결 테스트 및 자동 설정..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # 멀티헤드 환경에서는 모든 컨트롤러 간 SSH 키 필요
+    log_info "멀티헤드 환경: 모든 컨트롤러 간 SSH 키 설정 필요"
+
+    # SSH 키가 없으면 생성
+    if [ ! -f ~/.ssh/id_rsa ]; then
+        log_info "SSH 키 생성 중..."
+        ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
+        log_success "SSH 키 생성 완료"
+    else
+        log_success "SSH 키가 이미 존재합니다"
+    fi
+
+    # setup_ssh_passwordless_multihead.sh 실행 (멀티헤드용)
+    if [ -f "setup_ssh_passwordless_multihead.sh" ]; then
+        log_info "SSH 키 자동 배포 중..."
+        chmod +x setup_ssh_passwordless_multihead.sh
+        if ./setup_ssh_passwordless_multihead.sh "$CONFIG_FILE"; then
+            log_success "SSH 키 배포 완료"
+        else
+            log_warning "SSH 키 자동 배포 실패"
+            echo ""
+            echo "⚠️  일부 노드는 비밀번호 입력이 필요할 수 있습니다."
+            echo "   설치를 계속하시려면 각 노드에 접속할 때 비밀번호를 입력하세요."
+            echo ""
+            if [ "$AUTO_CONFIRM" = false ]; then
+                read -p "계속하시겠습니까? (Y/n): " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Nn]$ ]]; then
+                    exit 1
+                fi
+            fi
+        fi
+    else
+        log_warning "setup_ssh_passwordless_multihead.sh가 없습니다"
+        echo "⚠️  SSH 키 설정을 수동으로 해야 할 수 있습니다"
+    fi
+
+    log_success "SSH 설정 완료"
+    echo ""
+
+    ################################################################################
+    # Step 8: /etc/hosts 자동 설정
+    ################################################################################
+
+    log_info "Step 8/9: /etc/hosts 자동 설정..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # 멀티헤드 환경: 모든 컨트롤러 추가
+    if [ -f "cluster/config/parser.py" ]; then
+        log_info "YAML에서 컨트롤러 정보 추출 중..."
+
+        # 컨트롤러 목록 추출
+        mapfile -t CONTROLLERS < <(python3 cluster/config/parser.py "$CONFIG_FILE" get-controllers | tail -n +2)
+
+        for ctrl_line in "${CONTROLLERS[@]}"; do
+            # 형식: hostname|ip_address|...
+            hostname=$(echo "$ctrl_line" | cut -d'|' -f1)
+            ip_addr=$(echo "$ctrl_line" | cut -d'|' -f2)
+
+            if ! grep -q "$hostname" /etc/hosts; then
+                log_info "$hostname ($ip_addr) 추가 중..."
+                echo "$ip_addr $hostname" | sudo tee -a /etc/hosts > /dev/null
+            else
+                log_success "$hostname 이미 존재함"
+            fi
+        done
+
+        log_success "/etc/hosts 설정 완료"
+    else
+        log_warning "parser.py가 없습니다. 수동으로 /etc/hosts를 설정하세요"
+    fi
+    echo ""
+
+    ################################################################################
+    # Step 9: PATH 영구 설정
+    ################################################################################
+
+    log_info "Step 9/9: PATH 영구 설정..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # /etc/profile.d/slurm.sh 확인
+    if [ ! -f "/etc/profile.d/slurm.sh" ]; then
+        log_info "/etc/profile.d/slurm.sh 생성 중..."
+        sudo tee /etc/profile.d/slurm.sh > /dev/null << 'SLURM_PATH_EOF'
+# Slurm Environment
+export PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:$PATH
+export LD_LIBRARY_PATH=/usr/local/slurm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export MANPATH=/usr/local/slurm/share/man${MANPATH:+:$MANPATH}
+SLURM_PATH_EOF
+        sudo chmod 644 /etc/profile.d/slurm.sh
+        log_success "/etc/profile.d/slurm.sh 생성 완료"
+    else
+        log_success "/etc/profile.d/slurm.sh 이미 존재함"
+    fi
+
+    # 현재 터미널에 PATH 적용
+    source /etc/profile.d/slurm.sh 2>/dev/null || export PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:$PATH
+    log_success "PATH 적용 완료"
+    echo ""
 
     log_success "기본 시스템 설정 완료!"
     echo ""
