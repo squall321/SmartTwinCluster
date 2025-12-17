@@ -4,20 +4,28 @@
 #
 # 설명:
 #   오프라인 설치를 위해 필요한 모든 APT 패키지와 의존성을 다운로드합니다.
+#   외부 저장소(PPA, NodeSource)도 자동으로 설정하여 최신 패키지를 수집합니다.
 #
 # 기능:
 #   - 멀티헤드 클러스터 서비스에 필요한 모든 패키지 수집
 #   - 의존성 자동 해결 및 다운로드
+#   - 외부 저장소 자동 설정 (Apptainer PPA, Python 3.12, Node.js LTS)
 #   - .deb 파일 패키징
 #
 # 사용법:
 #   sudo ./collect_apt_packages.sh [OPTIONS]
 #
 # 옵션:
-#   --output-dir PATH    출력 디렉토리 (기본: ./apt_packages)
-#   --service SERVICE    특정 서비스만 수집 (all|slurm|glusterfs|mariadb|redis|web)
-#   --dry-run            실제 다운로드 없이 목록만 표시
-#   --help               도움말 표시
+#   --output-dir PATH      출력 디렉토리 (기본: ./apt_packages)
+#   --service SERVICE      특정 서비스만 수집 (all|slurm|glusterfs|mariadb|redis|web|hpc)
+#   --no-external-repos    외부 저장소 설정 건너뛰기 (Apptainer, Python 3.12 등)
+#   --dry-run              실제 다운로드 없이 목록만 표시
+#   --help                 도움말 표시
+#
+# 외부 저장소:
+#   - Apptainer PPA (ppa:apptainer/ppa)
+#   - Python 3.12 (ppa:deadsnakes/ppa)
+#   - Node.js 20.x LTS (NodeSource)
 #
 # 작성자: Claude Code
 # 날짜: 2025-11-17
@@ -37,6 +45,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/apt_packages"
 SERVICE="all"
 DRY_RUN=false
+SETUP_EXTERNAL_REPOS=true  # 외부 저장소 (Apptainer, Python 3.12, Node.js) 설정
 
 # 로깅 함수
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -64,6 +73,10 @@ parse_args() {
                 ;;
             --dry-run)
                 DRY_RUN=true
+                shift
+                ;;
+            --no-external-repos)
+                SETUP_EXTERNAL_REPOS=false
                 shift
                 ;;
             --help)
@@ -259,6 +272,74 @@ select_packages() {
 
     # 중복 제거
     SELECTED_PACKAGES=($(printf '%s\n' "${packages[@]}" | sort -u))
+}
+
+# 외부 저장소 설정 (PPA, NodeSource 등)
+setup_external_repositories() {
+    log_info "Setting up external repositories for additional packages..."
+
+    # 1. Apptainer PPA
+    log_info "  Adding Apptainer PPA..."
+    if ! grep -q "apptainer" /etc/apt/sources.list.d/* 2>/dev/null; then
+        add-apt-repository -y ppa:apptainer/ppa 2>/dev/null || {
+            log_warning "  Failed to add Apptainer PPA (may not be available)"
+        }
+    else
+        log_info "  Apptainer PPA already configured"
+    fi
+
+    # 2. Python 3.12 (deadsnakes PPA)
+    log_info "  Adding Python deadsnakes PPA..."
+    if ! grep -q "deadsnakes" /etc/apt/sources.list.d/* 2>/dev/null; then
+        add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || {
+            log_warning "  Failed to add deadsnakes PPA"
+        }
+    else
+        log_info "  deadsnakes PPA already configured"
+    fi
+
+    # 3. Node.js (NodeSource)
+    log_info "  Adding NodeSource repository (Node.js LTS)..."
+    if ! grep -q "nodesource" /etc/apt/sources.list.d/* 2>/dev/null; then
+        # Node.js 20.x LTS
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>/dev/null || {
+            log_warning "  Failed to add NodeSource repository"
+        }
+    else
+        log_info "  NodeSource repository already configured"
+    fi
+
+    log_success "External repositories configured"
+}
+
+# 외부 저장소 패키지 목록 추가
+add_external_packages() {
+    log_info "Adding packages from external repositories..."
+
+    # Apptainer
+    if apt-cache show apptainer &>/dev/null; then
+        SELECTED_PACKAGES+=("apptainer")
+        log_success "  Added: apptainer"
+    fi
+
+    # Python 3.12
+    if apt-cache show python3.12 &>/dev/null; then
+        SELECTED_PACKAGES+=(
+            "python3.12"
+            "python3.12-venv"
+            "python3.12-dev"
+            "python3.12-distutils"
+        )
+        log_success "  Added: python3.12, python3.12-venv, python3.12-dev"
+    fi
+
+    # Node.js (최신 LTS)
+    if apt-cache show nodejs &>/dev/null; then
+        # NodeSource 버전은 npm 포함
+        log_info "  nodejs already in package list"
+    fi
+
+    log_success "External packages added to collection list"
 }
 
 # APT 캐시 업데이트
@@ -501,7 +582,17 @@ main() {
         fi
     fi
 
-    update_apt_cache
+    # 외부 저장소 설정 (Apptainer, Python 3.12, Node.js LTS)
+    if [[ "$SETUP_EXTERNAL_REPOS" == "true" ]]; then
+        setup_external_repositories
+        update_apt_cache
+        # 외부 저장소 패키지 추가
+        add_external_packages
+    else
+        log_info "Skipping external repository setup (--no-external-repos)"
+        update_apt_cache
+    fi
+
     download_packages
     create_package_list
     create_install_script
