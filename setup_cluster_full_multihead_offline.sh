@@ -318,6 +318,7 @@ if [ "$SKIP_BASE_SETUP" = false ]; then
     echo "  ✓ Munge 인증"
     echo "  ✓ SSH 키 설정"
     echo "  ✓ /etc/hosts 설정"
+    echo "  ✓ systemd 서비스 파일"
     echo "  ✓ PATH 설정"
     echo ""
 else
@@ -376,7 +377,7 @@ else
     ################################################################################
 
     if [ "$USE_APT_MIRROR" = true ]; then
-        log_info "Step 1/9: 로컬 APT 미러 설정..."
+        log_info "Step 1/10: 로컬 APT 미러 설정..."
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
         if [ -f "${OFFLINE_PACKAGES_DIR}/apt_mirror/setup_client.sh" ]; then
@@ -393,7 +394,7 @@ else
     ################################################################################
 
     if [ "$INSTALL_APT_PACKAGES" = true ]; then
-        log_info "Step 2/9: APT 패키지 설치 (오프라인)..."
+        log_info "Step 2/10: APT 패키지 설치 (오프라인)..."
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
         if [ -f "${OFFLINE_PACKAGES_DIR}/apt_packages/install_offline_packages.sh" ]; then
@@ -412,7 +413,7 @@ else
         cd "$SCRIPT_DIR"
         echo ""
     else
-        log_info "Step 2/9: APT 패키지 설치 건너뜀 (--install-apt 옵션 없음)"
+        log_info "Step 2/10: APT 패키지 설치 건너뜀 (--install-apt 옵션 없음)"
         echo ""
     fi
 
@@ -420,7 +421,7 @@ else
     # Step 3: Slurm 프리빌드 배포
     ################################################################################
 
-    log_info "Step 3/9: Slurm 프리빌드 배포..."
+    log_info "Step 3/10: Slurm 프리빌드 배포..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     if [ -f "${OFFLINE_PACKAGES_DIR}/slurm/slurm-"*"-prebuilt.tar.gz" ]; then
@@ -453,7 +454,7 @@ else
     # Step 4: Munge 설치
     ################################################################################
 
-    log_info "Step 4/9: Munge 인증 시스템 설치..."
+    log_info "Step 4/10: Munge 인증 시스템 설치..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     if [ -f "${OFFLINE_PACKAGES_DIR}/munge/deploy_munge.sh" ]; then
@@ -640,6 +641,7 @@ fi
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "✅ Part 1 완료"
+echo "📋 SKIP_MULTIHEAD_SETUP = $SKIP_MULTIHEAD_SETUP"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -658,6 +660,14 @@ if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
 
     # cluster/start_multihead.sh 실행
     MULTIHEAD_SCRIPT="cluster/start_multihead.sh"
+
+    echo "🔍 디버그 정보:"
+    echo "  - 스크립트 경로: $MULTIHEAD_SCRIPT"
+    echo "  - 파일 존재 여부: $([ -f "$MULTIHEAD_SCRIPT" ] && echo "✅ YES" || echo "❌ NO")"
+    echo "  - 설정 파일: $CONFIG_FILE"
+    echo "  - 현재 EUID: $EUID"
+    echo "  - 현재 USER: $USER"
+    echo ""
 
     if [ -f "$MULTIHEAD_SCRIPT" ]; then
         log_info "멀티헤드 클러스터 오케스트레이션 시작..."
@@ -682,18 +692,35 @@ if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
             log_warning "⚠️  GlusterFS 볼륨 완전 초기화 옵션 활성화"
         fi
 
-        log_info "실행 명령: bash $MULTIHEAD_SCRIPT $MULTIHEAD_OPTS"
+        echo "🚀 실행 명령: bash $MULTIHEAD_SCRIPT $MULTIHEAD_OPTS"
         echo ""
 
-        # 환경변수 전달하여 실행
-        if bash "$MULTIHEAD_SCRIPT" $MULTIHEAD_OPTS; then
+        # sudo 중첩 방지: 이미 root면 sudo 없이, 아니면 sudo 사용
+        if [ "$EUID" -eq 0 ]; then
+            bash "$MULTIHEAD_SCRIPT" $MULTIHEAD_OPTS
+            RESULT=$?
+        else
+            sudo -E bash "$MULTIHEAD_SCRIPT" $MULTIHEAD_OPTS
+            RESULT=$?
+        fi
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Part 2 실행 결과: $RESULT"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        if [ $RESULT -eq 0 ]; then
             log_success "멀티헤드 클러스터 서비스 설치 완료!"
         else
-            log_error "멀티헤드 클러스터 서비스 설치 실패"
+            log_error "멀티헤드 클러스터 서비스 설치 실패 (종료 코드: $RESULT)"
             exit 1
         fi
     else
         log_error "cluster/start_multihead.sh를 찾을 수 없습니다"
+        log_error "현재 디렉토리: $(pwd)"
+        log_error "파일 목록:"
+        ls -la cluster/ 2>&1 | head -10
         exit 1
     fi
     echo ""
@@ -726,7 +753,21 @@ echo ""
 echo "3️⃣  자동화 테스트 실행:"
 echo "   ./cluster/test_cluster.sh --all"
 echo ""
+echo "4️⃣  Slurm 명령어:"
+echo "   sinfo              # 클러스터 상태"
+echo "   squeue             # 작업 큐"
+echo "   sbatch test.sh     # 작업 제출"
+echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+log_info "설치된 서비스:"
+echo "  ✅ GlusterFS 분산 스토리지"
+echo "  ✅ MariaDB Galera 클러스터"
+echo "  ✅ Redis 클러스터/센티넬"
+echo "  ✅ Slurm 멀티 마스터"
+echo "  ✅ Keepalived VIP"
+echo "  ✅ 웹 서비스 (8개)"
 echo ""
 
 log_success "오프라인 멀티헤드 클러스터가 준비되었습니다! 🚀"
