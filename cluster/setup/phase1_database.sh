@@ -676,13 +676,14 @@ check_existing_galera_state() {
         return 0  # Can use existing state
     fi
 
-    # Check if seqno is -1 (crash recovery needed)
-    if [[ "$existing_seqno" == "-1" ]]; then
-        log WARNING "Previous shutdown was unclean (seqno=-1)"
-        log INFO "Running wsrep_recover to find last committed position..."
+    # Check if seqno is -1 (crash recovery needed) or safe_to_bootstrap is 0
+    if [[ "$existing_seqno" == "-1" ]] || [[ "$safe_to_bootstrap" == "0" ]]; then
+        log WARNING "Previous shutdown was unclean or cluster crashed"
+        log INFO "Attempting automatic Galera state recovery..."
 
         if [[ "$DRY_RUN" == "false" ]]; then
             # Run wsrep_recover to get the correct position
+            log INFO "Running wsrep_recover to find last committed position..."
             local recover_output
             recover_output=$(mysqld --wsrep-recover 2>&1 || true)
             local recovered_pos=$(echo "$recover_output" | grep -oP 'Recovered position.*:\K[0-9]+' | tail -1)
@@ -697,7 +698,32 @@ check_existing_galera_state() {
                 log SUCCESS "Updated grastate.dat for safe recovery"
                 return 0  # Can now use existing state
             else
-                log WARNING "Could not recover valid position"
+                # Alternative recovery: Check if this node has the most recent data
+                # by comparing with other cluster members
+                log WARNING "wsrep_recover did not return valid position"
+                log INFO "Attempting alternative recovery method..."
+
+                # Check if any other cluster node is available
+                local other_nodes_available=false
+                if [[ -n "${ACTIVE_CONTROLLERS:-}" ]] && [[ "$ACTIVE_COUNT" -gt 0 ]]; then
+                    log INFO "Other cluster nodes are available - will join instead of bootstrap"
+                    other_nodes_available=true
+                fi
+
+                if [[ "$other_nodes_available" == "false" ]]; then
+                    # No other nodes available - force bootstrap as this is the only node
+                    log WARNING "No other cluster nodes available"
+                    log INFO "Forcing safe_to_bootstrap=1 for single-node recovery"
+
+                    # Set a fallback seqno if still -1
+                    if [[ "$existing_seqno" == "-1" ]]; then
+                        sed -i "s/^seqno:.*/seqno: 0/" "$grastate"
+                    fi
+                    sed -i "s/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/" "$grastate"
+
+                    log SUCCESS "Galera state updated for emergency single-node bootstrap"
+                    return 0
+                fi
             fi
         fi
     fi

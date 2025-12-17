@@ -489,10 +489,35 @@ if [[ "$MODE" == "join" && $ACTIVE_COUNT -gt 0 ]]; then
             if gluster peer status | grep -q "$NODE_IP"; then
                 log "INFO" "  Already connected to $NODE_HOSTNAME"
             else
-                if gluster peer probe "$NODE_IP" &>> "$LOG_FILE"; then
-                    log "SUCCESS" "  Connected to $NODE_HOSTNAME"
-                else
-                    log "WARNING" "  Failed to connect to $NODE_HOSTNAME"
+                # Retry logic with exponential backoff (5 attempts)
+                local max_attempts=5
+                local attempt=1
+                local connected=false
+                local wait_time=2
+
+                while [[ $attempt -le $max_attempts ]]; do
+                    log "INFO" "  Attempt $attempt/$max_attempts: probing $NODE_HOSTNAME..."
+
+                    if gluster peer probe "$NODE_IP" &>> "$LOG_FILE"; then
+                        log "SUCCESS" "  Connected to $NODE_HOSTNAME (attempt $attempt)"
+                        connected=true
+                        break
+                    else
+                        if [[ $attempt -lt $max_attempts ]]; then
+                            log "WARNING" "  Probe failed, retrying in ${wait_time}s..."
+                            sleep $wait_time
+                            # Exponential backoff: 2, 4, 8, 16 seconds
+                            wait_time=$((wait_time * 2))
+                        fi
+                    fi
+                    attempt=$((attempt + 1))
+                done
+
+                if [[ "$connected" == "false" ]]; then
+                    log "ERROR" "  Failed to connect to $NODE_HOSTNAME after $max_attempts attempts"
+                    log "ERROR" "  This may cause GlusterFS replication issues"
+                    log "INFO" "  Troubleshooting: Check if glusterd is running on $NODE_IP"
+                    log "INFO" "  Command: ssh $NODE_IP systemctl status glusterd"
                 fi
             fi
         fi

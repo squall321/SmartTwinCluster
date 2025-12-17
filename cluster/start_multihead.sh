@@ -535,7 +535,33 @@ EOPY
     log_info "Passwordless sudo setup summary:"
     log_info "  - Successful: $success_count nodes"
     if [[ $failed_count -gt 0 ]]; then
-        log_warning "  - Failed: $failed_count nodes (continuing anyway)"
+        log_error "  - Failed: $failed_count nodes"
+        log_error ""
+        log_error "=== CRITICAL: SSH CONNECTION FAILURES ==="
+        log_error "Some nodes are not reachable via SSH."
+        log_error "This will cause phase deployments to fail."
+        log_error ""
+        log_error "Troubleshooting steps:"
+        log_error "  1. Verify network connectivity: ping <node_ip>"
+        log_error "  2. Check SSH key setup: ssh-copy-id user@<node_ip>"
+        log_error "  3. Verify sshd is running on target nodes"
+        log_error "  4. Check firewall rules (port 22)"
+        log_error ""
+
+        if [[ "$AUTO_CONFIRM" == true ]]; then
+            log_error "Auto-confirm mode: aborting due to SSH failures"
+            log_error "All nodes must be reachable for reliable cluster setup"
+            exit 1
+        fi
+
+        echo -ne "${YELLOW}Continue despite SSH failures? (not recommended) (yes/no): ${NC}"
+        read -r response
+        if [[ "$response" != "yes" && "$response" != "y" ]]; then
+            log_info "Execution stopped due to SSH failures"
+            log_info "Please fix SSH connectivity and re-run the setup"
+            exit 1
+        fi
+        log_warning "Continuing despite SSH failures (user override)..."
     fi
 
     # Re-enable exit on error
@@ -949,7 +975,25 @@ main() {
                 if verify_phase "$phase_num"; then
                     log_success "Phase $phase_num verification passed"
                 else
-                    log_warning "Phase $phase_num verification failed (but execution succeeded)"
+                    log_error "Phase $phase_num verification FAILED"
+                    log_error "Critical services are not running properly after phase execution"
+                    failed_phases=$((failed_phases + 1))
+
+                    # In auto-confirm mode, verification failure is critical - abort
+                    if [[ "$AUTO_CONFIRM" == true ]]; then
+                        log_error "Auto-confirm mode: aborting due to verification failure"
+                        log_error "The phase executed but services failed to start correctly"
+                        exit 1
+                    fi
+
+                    # Interactive mode: ask user if they want to continue
+                    echo -ne "${YELLOW}Verification failed. Continue with next phase? (yes/no): ${NC}"
+                    read -r response
+                    if [[ "$response" != "yes" && "$response" != "y" ]]; then
+                        log_info "Execution stopped due to verification failure"
+                        exit 1
+                    fi
+                    log_warning "Continuing despite verification failure (user override)..."
                 fi
 
                 # Wait between phases (except after last phase)

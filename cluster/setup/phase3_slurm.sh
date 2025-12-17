@@ -447,12 +447,83 @@ create_slurm_user() {
 setup_munge() {
     log INFO "Setting up Munge authentication..."
 
-    # Check if munge key exists
-    if [[ ! -f /etc/munge/munge.key ]]; then
-        log INFO "Generating munge key..."
-        run_command "create-munge-key -f"
+    # Determine if this is the first (primary) controller
+    local first_controller_ip=$(echo "$SLURM_CONTROLLERS" | jq -r '.[0].ip_address')
+    local is_first_controller=false
+
+    if [[ "$CURRENT_IP" == "$first_controller_ip" ]]; then
+        is_first_controller=true
+        log INFO "This is the first controller - will generate/manage munge key"
     else
-        log INFO "Munge key already exists"
+        log INFO "This is a secondary controller - will sync munge key from first controller"
+    fi
+
+    if [[ "$is_first_controller" == "true" ]]; then
+        # First controller: Generate munge key if it doesn't exist
+        if [[ ! -f /etc/munge/munge.key ]]; then
+            log INFO "Generating munge key on primary controller..."
+            run_command "create-munge-key -f"
+        else
+            log INFO "Munge key already exists on primary controller"
+        fi
+    else
+        # Secondary controller: Sync munge key from first controller
+        log INFO "Synchronizing munge key from primary controller ($first_controller_ip)..."
+
+        local first_controller_user=$(echo "$SLURM_CONTROLLERS" | jq -r '.[0].ssh_user // "root"')
+
+        if [[ "$DRY_RUN" == "false" ]]; then
+            # Backup existing key if present
+            if [[ -f /etc/munge/munge.key ]]; then
+                cp /etc/munge/munge.key /etc/munge/munge.key.backup.$(date +%Y%m%d_%H%M%S)
+                log INFO "Existing munge key backed up"
+            fi
+
+            # Copy munge key from first controller
+            local max_attempts=3
+            local attempt=1
+            local synced=false
+
+            while [[ $attempt -le $max_attempts ]]; do
+                log INFO "Attempt $attempt/$max_attempts: Fetching munge key from $first_controller_ip..."
+
+                if scp $SCP_OPTS "$first_controller_user@$first_controller_ip:/etc/munge/munge.key" /tmp/munge.key.sync 2>/dev/null; then
+                    # Verify key is valid (non-empty)
+                    if [[ -s /tmp/munge.key.sync ]]; then
+                        mv /tmp/munge.key.sync /etc/munge/munge.key
+                        log SUCCESS "Munge key synchronized from primary controller"
+                        synced=true
+                        break
+                    else
+                        log WARNING "Received empty munge key, retrying..."
+                        rm -f /tmp/munge.key.sync
+                    fi
+                else
+                    log WARNING "Failed to copy munge key, retrying..."
+                fi
+
+                attempt=$((attempt + 1))
+                sleep 2
+            done
+
+            if [[ "$synced" == "false" ]]; then
+                log ERROR "Failed to synchronize munge key after $max_attempts attempts"
+                log ERROR "Slurm authentication will fail between nodes!"
+                log ERROR ""
+                log ERROR "Manual fix:"
+                log ERROR "  1. On primary controller: cat /etc/munge/munge.key | base64"
+                log ERROR "  2. On this node: echo '<base64_output>' | base64 -d > /etc/munge/munge.key"
+                log ERROR ""
+
+                # Generate a local key as fallback (will cause auth issues but won't crash)
+                if [[ ! -f /etc/munge/munge.key ]]; then
+                    log WARNING "Generating local munge key as fallback (NOT RECOMMENDED)"
+                    create-munge-key -f
+                fi
+            fi
+        else
+            log INFO "[DRY-RUN] Would sync munge key from $first_controller_ip"
+        fi
     fi
 
     # Set permissions
@@ -465,11 +536,58 @@ setup_munge() {
 
     # Test munge
     if [[ "$DRY_RUN" == "false" ]]; then
+        sleep 1  # Give munge a moment to start
         if munge -n | unmunge &>/dev/null; then
             log SUCCESS "Munge is working"
         else
             log ERROR "Munge test failed"
+            log ERROR "Check: journalctl -u munge -n 20"
             exit 1
+        fi
+    fi
+
+    # If first controller, sync key to all other controllers
+    if [[ "$is_first_controller" == "true" ]] && [[ "$DRY_RUN" == "false" ]]; then
+        log INFO "Distributing munge key to other controllers..."
+
+        local sync_count=0
+        local fail_count=0
+
+        while IFS= read -r controller; do
+            local ctrl_ip=$(echo "$controller" | jq -r '.ip_address')
+            local ctrl_hostname=$(echo "$controller" | jq -r '.hostname')
+            local ctrl_user=$(echo "$controller" | jq -r '.ssh_user // "root"')
+
+            # Skip self
+            if [[ "$ctrl_ip" == "$CURRENT_IP" ]]; then
+                continue
+            fi
+
+            log INFO "  Syncing munge key to $ctrl_hostname ($ctrl_ip)..."
+
+            if scp $SCP_OPTS /etc/munge/munge.key "$ctrl_user@$ctrl_ip:/tmp/munge.key.sync" 2>/dev/null; then
+                if ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" \
+                    "sudo mv /tmp/munge.key.sync /etc/munge/munge.key && \
+                     sudo chown munge:munge /etc/munge/munge.key && \
+                     sudo chmod 400 /etc/munge/munge.key && \
+                     sudo systemctl restart munge" 2>/dev/null; then
+                    log SUCCESS "  Munge key synced to $ctrl_hostname"
+                    sync_count=$((sync_count + 1))
+                else
+                    log WARNING "  Failed to install munge key on $ctrl_hostname"
+                    fail_count=$((fail_count + 1))
+                fi
+            else
+                log WARNING "  Failed to copy munge key to $ctrl_hostname"
+                fail_count=$((fail_count + 1))
+            fi
+        done < <(echo "$SLURM_CONTROLLERS" | jq -c '.[]')
+
+        if [[ $sync_count -gt 0 ]]; then
+            log SUCCESS "Munge key distributed to $sync_count controller(s)"
+        fi
+        if [[ $fail_count -gt 0 ]]; then
+            log WARNING "$fail_count controller(s) failed to sync - they may have auth issues"
         fi
     fi
 }

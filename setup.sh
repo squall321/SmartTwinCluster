@@ -92,7 +92,8 @@ else
         echo "Python 3.12 설치 시도 중..."
         sudo add-apt-repository ppa:deadsnakes/ppa -y
         sudo apt update
-        sudo apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils
+        # Note: python3.12-distutils is removed in Python 3.12, use setuptools instead
+        sudo apt install -y python3.12 python3.12-venv python3.12-dev python3-setuptools
         
         if command -v python3.12 &> /dev/null; then
             PYTHON_CMD="python3.12"
@@ -196,7 +197,8 @@ if [ -z "$PIP_CMD" ]; then
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             if command -v apt &> /dev/null; then
                 if [ "$PYTHON_CMD" = "python3.12" ]; then
-                    sudo apt install -y python3.12-pip python3.12-distutils
+                    # Note: python3.12-distutils is removed in Python 3.12, use setuptools instead
+                    sudo apt install -y python3.12-pip python3-setuptools
                 else
                     sudo apt install -y python3-pip
                 fi
