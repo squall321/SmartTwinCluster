@@ -132,6 +132,15 @@ usage() {
     6. 계산 노드 자동 배포:
        ./offline_deploy/deploy_to_compute_node.sh
 
+주의사항:
+    - YAML 파일에 민감 정보가 포함되므로 권한 설정 필요:
+      chmod 600 my_multihead_cluster.yaml
+
+    - Git 저장소에 커밋 시 주의 (.gitignore 권장)
+
+    - 오프라인 패키지 디렉토리도 보안 주의:
+      chmod 700 offline_packages/
+
 EOF
     exit 0
 }
@@ -753,7 +762,13 @@ echo ""
 echo "3️⃣  자동화 테스트 실행:"
 echo "   ./cluster/test_cluster.sh --all"
 echo ""
-echo "4️⃣  Slurm 명령어:"
+echo "4️⃣  웹 서비스 헬스체크:"
+echo "   ./cluster/utils/web_health_check.sh"
+echo ""
+echo "5️⃣  클러스터 중지:"
+echo "   ./cluster/stop_multihead.sh"
+echo ""
+echo "6️⃣  Slurm 명령어:"
 echo "   sinfo              # 클러스터 상태"
 echo "   squeue             # 작업 큐"
 echo "   sbatch test.sh     # 작업 제출"
