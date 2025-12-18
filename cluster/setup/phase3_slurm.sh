@@ -2218,24 +2218,35 @@ EOPY
 
         # Save output to temp file to avoid subshell issues
         local install_log="/tmp/slurm_install_${hostname}.log"
-        ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh 2>&1" > "$install_log" 2>&1
-        local install_exit_code=$?
 
-        if [[ $install_exit_code -eq 0 ]]; then
-            log SUCCESS "Slurm installed on $hostname"
-            rm -f "$install_log" 2>/dev/null || true
-        else
+        # Debug: Show SSH command being executed
+        log INFO "  SSH command: ssh -n ... $ssh_user@$ip_address 'cd /tmp && sudo bash install_slurm_cgroup_v2.sh'"
+
+        # Execute with explicit error capture
+        if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh" > "$install_log" 2>&1; then
+            local install_exit_code=$?
             log ERROR "Failed to install Slurm on $hostname (exit code: $install_exit_code)"
-            log ERROR "  Last 30 lines of output:"
-            if [[ -f "$install_log" ]]; then
-                tail -30 "$install_log" | sed 's/^/    [LOG] /'
+            log ERROR "  Install log file: $install_log"
+            if [[ -f "$install_log" ]] && [[ -s "$install_log" ]]; then
+                log ERROR "  === Last 50 lines of output ==="
+                while IFS= read -r line; do
+                    echo "    [LOG] $line"
+                done < <(tail -50 "$install_log")
+                log ERROR "  === End of output ==="
             else
-                log ERROR "    (No log file available)"
+                log ERROR "  (Log file empty or not created)"
+                # Try to get more info about why it failed
+                log ERROR "  Checking if script exists on remote..."
+                ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                    "ls -la /tmp/install_slurm_cgroup_v2.sh 2>&1" || log ERROR "    Script not found on remote!"
             fi
             failed_count=$((failed_count + 1))
             continue
         fi
+
+        log SUCCESS "Slurm installed on $hostname"
+        rm -f "$install_log" 2>/dev/null || true
 
         # Copy slurm.conf - detect remote path
         local remote_slurm_conf

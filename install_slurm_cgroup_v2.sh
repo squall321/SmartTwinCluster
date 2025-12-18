@@ -4,7 +4,34 @@
 # Ubuntu 22.04 + Slurm 23.11.x + cgroup v2 완전 지원
 ################################################################################
 
-set -e
+# Don't use set -e - it causes silent failures
+# Instead, check exit codes explicitly for critical operations
+
+# Debug mode - show each command before execution
+# Uncomment the following line for verbose debugging:
+# set -x
+
+# Error handler - called on script exit to show last executed line
+LAST_COMMAND=""
+CURRENT_LINE=0
+
+# Track command execution for debugging
+debug_trap() {
+    LAST_COMMAND="$BASH_COMMAND"
+    CURRENT_LINE="$1"
+}
+trap 'debug_trap $LINENO' DEBUG
+
+# On exit, show where we were if there was an error
+exit_trap() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo ""
+        echo "❌ Script exited with code $exit_code"
+        echo "   Last command (around line $CURRENT_LINE): $LAST_COMMAND"
+    fi
+}
+trap exit_trap EXIT
 
 SLURM_VERSION="23.11.10"
 SLURM_DOWNLOAD_URL="https://download.schedmd.com/slurm/slurm-${SLURM_VERSION}.tar.bz2"
@@ -130,12 +157,22 @@ setup_offline_apt_repo() {
     if [ -d "/tmp/offline_packages" ] && [ -f "/tmp/offline_packages/Packages.gz" ]; then
         offline_pkg_path="/tmp/offline_packages"
         echo "✅ SCP로 복사된 오프라인 패키지 발견: $offline_pkg_path"
+    # 1-1. /tmp/offline_packages가 있지만 Packages.gz가 없는 경우
+    elif [ -d "/tmp/offline_packages" ]; then
+        offline_pkg_path="/tmp/offline_packages"
+        echo "⚠️  /tmp/offline_packages 발견했으나 Packages.gz 없음 - 생성 시도"
     # 2. GlusterFS 마운트 확인
     else
         local gluster_mount="${GLUSTER_MOUNT:-/mnt/gluster}"
         local gluster_pkg_path="${gluster_mount}/offline_packages/apt_packages"
 
-        if mount | grep -q "$gluster_mount" && [ -d "$gluster_pkg_path" ]; then
+        # Check if GlusterFS is mounted (use subshell to prevent ERR trap on grep failure)
+        local is_mounted=false
+        if (mount | grep -q "$gluster_mount") 2>/dev/null; then
+            is_mounted=true
+        fi
+
+        if [ "$is_mounted" = "true" ] && [ -d "$gluster_pkg_path" ]; then
             offline_pkg_path="$gluster_pkg_path"
             echo "✅ GlusterFS 오프라인 패키지 발견: $offline_pkg_path"
         fi
