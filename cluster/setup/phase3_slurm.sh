@@ -595,25 +595,43 @@ create_slurm_user() {
 setup_munge() {
     log INFO "Setting up Munge authentication..."
 
+    # Clean up existing munge state first to ensure fresh start
+    log INFO "Cleaning up existing munge state..."
+    systemctl stop munge 2>/dev/null || true
+
+    # Remove old munge key (will be regenerated or synced)
+    if [[ -f /etc/munge/munge.key ]]; then
+        log INFO "  Removing existing munge key..."
+        rm -f /etc/munge/munge.key
+    fi
+
+    # Clean up munge runtime files
+    rm -rf /var/run/munge/* 2>/dev/null || true
+    rm -rf /run/munge/* 2>/dev/null || true
+
+    # Ensure munge directories exist with correct permissions
+    mkdir -p /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge
+    chown -R munge:munge /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge 2>/dev/null || true
+    chmod 700 /etc/munge /var/lib/munge
+    chmod 755 /var/log/munge /var/run/munge /run/munge
+
+    log SUCCESS "Munge state cleaned up"
+
     # Determine if this is the first (primary) controller
     local first_controller_ip=$(echo "$SLURM_CONTROLLERS" | jq -r '.[0].ip_address')
     local is_first_controller=false
 
     if [[ "$CURRENT_IP" == "$first_controller_ip" ]]; then
         is_first_controller=true
-        log INFO "This is the first controller - will generate/manage munge key"
+        log INFO "This is the first controller - will generate munge key"
     else
         log INFO "This is a secondary controller - will sync munge key from first controller"
     fi
 
     if [[ "$is_first_controller" == "true" ]]; then
-        # First controller: Generate munge key if it doesn't exist
-        if [[ ! -f /etc/munge/munge.key ]]; then
-            log INFO "Generating munge key on primary controller..."
-            run_command "create-munge-key -f"
-        else
-            log INFO "Munge key already exists on primary controller"
-        fi
+        # First controller: Always generate new munge key (we just deleted the old one)
+        log INFO "Generating munge key on primary controller..."
+        run_command "create-munge-key -f"
     else
         # Secondary controller: Sync munge key from first controller
         log INFO "Synchronizing munge key from primary controller ($first_controller_ip)..."
@@ -817,16 +835,22 @@ setup_munge() {
 
             if [[ $scp_exit -eq 0 ]]; then
                 log SUCCESS "      File transferred"
-                log INFO "      Installing munge key and restarting service..."
+                log INFO "      Cleaning up and installing munge key..."
 
-                # More robust installation: ensure munge directory exists and has correct ownership
+                # Clean up existing munge state, install new key, and restart service
                 local ssh_error
                 ssh_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" \
-                    "sudo mkdir -p /etc/munge && \
+                    "sudo systemctl stop munge 2>/dev/null || true && \
+                     sudo rm -f /etc/munge/munge.key 2>/dev/null || true && \
+                     sudo rm -rf /var/run/munge/* /run/munge/* 2>/dev/null || true && \
+                     sudo mkdir -p /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge && \
                      sudo mv /tmp/munge.key.sync /etc/munge/munge.key && \
-                     (sudo chown munge:munge /etc/munge/munge.key 2>/dev/null || sudo chown root:root /etc/munge/munge.key) && \
+                     sudo chown -R munge:munge /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge 2>/dev/null || true && \
+                     sudo chmod 700 /etc/munge /var/lib/munge && \
                      sudo chmod 400 /etc/munge/munge.key && \
-                     (sudo systemctl restart munge 2>/dev/null || sudo service munge restart 2>/dev/null || echo 'munge service not found')" 2>&1)
+                     sudo chmod 755 /var/log/munge /var/run/munge /run/munge && \
+                     sudo systemctl enable munge 2>/dev/null || true && \
+                     sudo systemctl start munge" 2>&1)
                 local ssh_exit=$?
 
                 if [[ $ssh_exit -eq 0 ]]; then
