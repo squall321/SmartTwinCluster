@@ -44,10 +44,11 @@ CONFIG_DIR="/usr/local/slurm/etc"
 CONFIG_FILE="${1:-my_cluster.yaml}"
 
 # 기본값 (YAML에서 못 읽을 경우)
-SLURM_UID=1001
-SLURM_GID=1001
-MUNGE_UID=1002
-MUNGE_GID=1002
+# 64000번대 사용: 일반 시스템 계정(1000~)과 충돌 회피
+SLURM_UID=64001
+SLURM_GID=64001
+MUNGE_UID=64002
+MUNGE_GID=64002
 
 # YAML에서 UID/GID 읽기 함수
 read_uid_gid_from_yaml() {
@@ -69,32 +70,32 @@ import yaml
 try:
     with open('$yaml_file') as f:
         c = yaml.safe_load(f)
-    print(c.get('slurm', {}).get('slurm_uid', 1001))
-except: print(1001)
+    print(c.get('slurm', {}).get('slurm_uid', 64001))
+except: print(64001)
 " 2>/dev/null)
             SLURM_GID=$(python3 -c "
 import yaml
 try:
     with open('$yaml_file') as f:
         c = yaml.safe_load(f)
-    print(c.get('slurm', {}).get('slurm_gid', 1001))
-except: print(1001)
+    print(c.get('slurm', {}).get('slurm_gid', 64001))
+except: print(64001)
 " 2>/dev/null)
             MUNGE_UID=$(python3 -c "
 import yaml
 try:
     with open('$yaml_file') as f:
         c = yaml.safe_load(f)
-    print(c.get('slurm', {}).get('munge_uid', 1002))
-except: print(1002)
+    print(c.get('slurm', {}).get('munge_uid', 64002))
+except: print(64002)
 " 2>/dev/null)
             MUNGE_GID=$(python3 -c "
 import yaml
 try:
     with open('$yaml_file') as f:
         c = yaml.safe_load(f)
-    print(c.get('slurm', {}).get('munge_gid', 1002))
-except: print(1002)
+    print(c.get('slurm', {}).get('munge_gid', 64002))
+except: print(64002)
 " 2>/dev/null)
 
             if [ "$has_uid" = "yes" ]; then
@@ -103,10 +104,10 @@ except: print(1002)
                 echo "⚠️  YAML에 UID/GID 미정의 - 기본값 사용: slurm=$SLURM_UID:$SLURM_GID, munge=$MUNGE_UID:$MUNGE_GID"
                 echo "   💡 YAML에 다음을 추가하면 커스텀 UID/GID 사용 가능:"
                 echo "      slurm:"
-                echo "        slurm_uid: 1001"
-                echo "        slurm_gid: 1001"
-                echo "        munge_uid: 1002"
-                echo "        munge_gid: 1002"
+                echo "        slurm_uid: 64001"
+                echo "        slurm_gid: 64001"
+                echo "        munge_uid: 64002"
+                echo "        munge_gid: 64002"
             fi
         else
             echo "⚠️  Python yaml 모듈 없음 - 기본값 사용: slurm=$SLURM_UID:$SLURM_GID"
@@ -123,11 +124,78 @@ check_uid_available() {
     if getent passwd "$uid" >/dev/null 2>&1; then
         local existing_user=$(getent passwd "$uid" | cut -d: -f1)
         if [ "$existing_user" != "$username" ]; then
-            echo "❌ UID $uid가 이미 '$existing_user' 사용자에게 할당됨!"
+            echo "⚠️  UID $uid가 이미 '$existing_user' 사용자에게 할당됨"
             return 1
         fi
     fi
     return 0
+}
+
+# GID 사용 여부 확인 함수
+check_gid_available() {
+    local gid=$1
+    local groupname=$2
+    if getent group "$gid" >/dev/null 2>&1; then
+        local existing_group=$(getent group "$gid" | cut -d: -f1)
+        if [ "$existing_group" != "$groupname" ]; then
+            echo "⚠️  GID $gid가 이미 '$existing_group' 그룹에게 할당됨"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# 사용 가능한 UID/GID 찾기 함수
+find_available_uid() {
+    local start_uid=$1
+    local username=$2
+    local uid=$start_uid
+
+    # 먼저 사용자가 이미 존재하는지 확인
+    if id "$username" &>/dev/null; then
+        local existing_uid=$(id -u "$username")
+        echo "$existing_uid"
+        return 0
+    fi
+
+    # 사용 가능한 UID 찾기 (최대 100번 시도)
+    for i in $(seq 1 100); do
+        if ! getent passwd "$uid" >/dev/null 2>&1; then
+            echo "$uid"
+            return 0
+        fi
+        uid=$((uid + 1))
+    done
+
+    # 실패 시 원래 값 반환
+    echo "$start_uid"
+    return 1
+}
+
+find_available_gid() {
+    local start_gid=$1
+    local groupname=$2
+    local gid=$start_gid
+
+    # 먼저 그룹이 이미 존재하는지 확인
+    if getent group "$groupname" >/dev/null 2>&1; then
+        local existing_gid=$(getent group "$groupname" | cut -d: -f3)
+        echo "$existing_gid"
+        return 0
+    fi
+
+    # 사용 가능한 GID 찾기 (최대 100번 시도)
+    for i in $(seq 1 100); do
+        if ! getent group "$gid" >/dev/null 2>&1; then
+            echo "$gid"
+            return 0
+        fi
+        gid=$((gid + 1))
+    done
+
+    # 실패 시 원래 값 반환
+    echo "$start_gid"
+    return 1
 }
 
 # YAML에서 UID/GID 읽기
@@ -295,13 +363,39 @@ echo ""
 
 echo "👤 Step 2/7: Slurm 사용자 생성..."
 echo "--------------------------------------------------------------------------------"
-echo "   사용할 UID/GID: slurm=$SLURM_UID:$SLURM_GID, munge=$MUNGE_UID:$MUNGE_GID"
 
-# UID 충돌 검사
+# UID/GID 충돌 자동 해결
+echo "🔍 UID/GID 사용 가능 여부 확인 중..."
+
+# Slurm UID 확인 및 자동 조정
 if ! check_uid_available "$SLURM_UID" "slurm"; then
-    echo "❌ UID 충돌! 다른 UID를 YAML 설정에서 지정하세요."
-    exit 1
+    echo "   자동으로 사용 가능한 UID 탐색 중..."
+    SLURM_UID=$(find_available_uid "$SLURM_UID" "slurm")
+    echo "   ✅ slurm용 새 UID 발견: $SLURM_UID"
 fi
+
+# Slurm GID 확인 및 자동 조정
+if ! check_gid_available "$SLURM_GID" "slurm"; then
+    echo "   자동으로 사용 가능한 GID 탐색 중..."
+    SLURM_GID=$(find_available_gid "$SLURM_GID" "slurm")
+    echo "   ✅ slurm용 새 GID 발견: $SLURM_GID"
+fi
+
+# Munge UID 확인 및 자동 조정 (munge 사용자가 이미 있으면 그 UID 사용)
+if ! check_uid_available "$MUNGE_UID" "munge"; then
+    echo "   자동으로 사용 가능한 munge UID 탐색 중..."
+    MUNGE_UID=$(find_available_uid "$MUNGE_UID" "munge")
+    echo "   ✅ munge용 새 UID 발견: $MUNGE_UID"
+fi
+
+# Munge GID 확인 및 자동 조정
+if ! check_gid_available "$MUNGE_GID" "munge"; then
+    echo "   자동으로 사용 가능한 munge GID 탐색 중..."
+    MUNGE_GID=$(find_available_gid "$MUNGE_GID" "munge")
+    echo "   ✅ munge용 새 GID 발견: $MUNGE_GID"
+fi
+
+echo "   최종 UID/GID: slurm=$SLURM_UID:$SLURM_GID, munge=$MUNGE_UID:$MUNGE_GID"
 
 if ! id slurm &>/dev/null; then
     sudo groupadd -g "$SLURM_GID" slurm 2>/dev/null || true
@@ -312,7 +406,8 @@ else
     existing_uid=$(id -u slurm)
     if [ "$existing_uid" != "$SLURM_UID" ]; then
         echo "⚠️  slurm 사용자가 다른 UID($existing_uid)로 존재합니다 (설정값: $SLURM_UID)"
-        echo "   NFS 공유 시 권한 문제가 발생할 수 있습니다!"
+        echo "   컨트롤러와 계산노드 간 UID가 다르면 권한 문제 발생 가능!"
+        SLURM_UID=$existing_uid
     else
         echo "ℹ️  slurm 사용자가 이미 존재합니다 (UID=$existing_uid)"
     fi
