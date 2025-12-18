@@ -2214,11 +2214,20 @@ EOPY
         # Execute installation (use longer timeout for install)
         # -n: Don't read from stdin (critical for while read loops!)
         # Pass GLUSTER_MOUNT environment variable for offline mode detection
-        if ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh" &>/dev/null; then
+        log INFO "  Running install_slurm_cgroup_v2.sh on $hostname..."
+        local install_output
+        install_output=$(ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh 2>&1" 2>&1)
+        local install_exit_code=$?
+
+        if [[ $install_exit_code -eq 0 ]]; then
             log SUCCESS "Slurm installed on $hostname"
         else
-            log ERROR "Failed to install Slurm on $hostname"
+            log ERROR "Failed to install Slurm on $hostname (exit code: $install_exit_code)"
+            log ERROR "  Last 20 lines of output:"
+            echo "$install_output" | tail -20 | while read -r line; do
+                log ERROR "    $line"
+            done
             failed_count=$((failed_count + 1))
             continue
         fi
