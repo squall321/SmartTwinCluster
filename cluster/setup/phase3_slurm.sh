@@ -317,6 +317,148 @@ check_slurm_installed() {
     fi
 }
 
+fix_systemd_service_files() {
+    # Fix systemd service files that may point to wrong paths
+    # This happens when a custom-compiled Slurm was previously installed
+    # but we're now using package-installed Slurm
+
+    log INFO "Checking systemd service files for correct paths..."
+
+    local needs_reload=false
+
+    # Check slurmctld service file
+    if [[ -f /etc/systemd/system/slurmctld.service ]]; then
+        if grep -q "/usr/local/slurm" /etc/systemd/system/slurmctld.service 2>/dev/null; then
+            log WARNING "Found old slurmctld.service pointing to /usr/local/slurm"
+            log INFO "Updating slurmctld.service to use package paths..."
+
+            # Backup old service file
+            cp /etc/systemd/system/slurmctld.service /etc/systemd/system/slurmctld.service.backup.$(date +%Y%m%d_%H%M%S)
+
+            # Create new service file with correct paths
+            cat > /etc/systemd/system/slurmctld.service << 'SLURMCTLD_SERVICE'
+[Unit]
+Description=Slurm controller daemon
+After=network.target munge.service slurmdbd.service
+Wants=slurmdbd.service
+Requires=munge.service
+ConditionPathExists=/etc/slurm/slurm.conf
+
+[Service]
+Type=forking
+EnvironmentFile=-/etc/default/slurmctld
+ExecStart=/usr/sbin/slurmctld $SLURMCTLD_OPTIONS
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/run/slurm/slurmctld.pid
+KillMode=process
+LimitNOFILE=131072
+LimitMEMLOCK=infinity
+LimitSTACK=infinity
+Delegate=yes
+TasksMax=infinity
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+SLURMCTLD_SERVICE
+            log SUCCESS "slurmctld.service updated"
+            needs_reload=true
+        fi
+    fi
+
+    # Check slurmdbd service file
+    if [[ -f /etc/systemd/system/slurmdbd.service ]]; then
+        if grep -q "/usr/local/slurm" /etc/systemd/system/slurmdbd.service 2>/dev/null; then
+            log WARNING "Found old slurmdbd.service pointing to /usr/local/slurm"
+            log INFO "Updating slurmdbd.service to use package paths..."
+
+            # Backup old service file
+            cp /etc/systemd/system/slurmdbd.service /etc/systemd/system/slurmdbd.service.backup.$(date +%Y%m%d_%H%M%S)
+
+            # Create new service file with correct paths
+            cat > /etc/systemd/system/slurmdbd.service << 'SLURMDBD_SERVICE'
+[Unit]
+Description=Slurm DBD accounting daemon
+After=network.target munge.service mariadb.service mysql.service
+Requires=munge.service
+ConditionPathExists=/etc/slurm/slurmdbd.conf
+
+[Service]
+Type=forking
+EnvironmentFile=-/etc/default/slurmdbd
+ExecStart=/usr/sbin/slurmdbd $SLURMDBD_OPTIONS
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/run/slurm/slurmdbd.pid
+KillMode=process
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+LimitSTACK=infinity
+
+[Install]
+WantedBy=multi-user.target
+SLURMDBD_SERVICE
+            log SUCCESS "slurmdbd.service updated"
+            needs_reload=true
+        fi
+    fi
+
+    # Check slurmd service file
+    if [[ -f /etc/systemd/system/slurmd.service ]]; then
+        if grep -q "/usr/local/slurm" /etc/systemd/system/slurmd.service 2>/dev/null; then
+            log WARNING "Found old slurmd.service pointing to /usr/local/slurm"
+            log INFO "Updating slurmd.service to use package paths..."
+
+            # Backup old service file
+            cp /etc/systemd/system/slurmd.service /etc/systemd/system/slurmd.service.backup.$(date +%Y%m%d_%H%M%S)
+
+            # Create new service file with correct paths
+            cat > /etc/systemd/system/slurmd.service << 'SLURMD_SERVICE'
+[Unit]
+Description=Slurm node daemon
+After=network.target munge.service remote-fs.target
+Requires=munge.service
+ConditionPathExists=/etc/slurm/slurm.conf
+
+[Service]
+Type=forking
+EnvironmentFile=-/etc/default/slurmd
+ExecStart=/usr/sbin/slurmd $SLURMD_OPTIONS
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/run/slurm/slurmd.pid
+KillMode=process
+LimitNOFILE=131072
+LimitMEMLOCK=infinity
+LimitSTACK=infinity
+Delegate=yes
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
+SLURMD_SERVICE
+            log SUCCESS "slurmd.service updated"
+            needs_reload=true
+        fi
+    fi
+
+    # Create /run/slurm directory if it doesn't exist
+    if [[ ! -d /run/slurm ]]; then
+        mkdir -p /run/slurm
+        chown slurm:slurm /run/slurm
+        chmod 755 /run/slurm
+    fi
+
+    # Reload systemd if any changes were made
+    if [[ "$needs_reload" == "true" ]]; then
+        log INFO "Reloading systemd daemon..."
+        systemctl daemon-reload
+        log SUCCESS "systemd daemon reloaded"
+    else
+        log SUCCESS "systemd service files already correct"
+    fi
+}
+
 install_slurm() {
     log INFO "Installing/checking Slurm packages..."
 
@@ -410,6 +552,10 @@ install_slurm() {
     esac
 
     log SUCCESS "Slurm packages ready"
+
+    # Fix systemd service files if they point to wrong paths
+    # This happens when a custom-compiled Slurm was previously installed
+    fix_systemd_service_files
 
     # Disable slurmd on controller nodes (only run slurmctld)
     if [[ "$SETUP_CONTROLLER" == "true" ]] && [[ "$SETUP_COMPUTE" == "false" ]]; then
