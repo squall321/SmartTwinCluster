@@ -631,7 +631,50 @@ setup_munge() {
     if [[ "$is_first_controller" == "true" ]]; then
         # First controller: Always generate new munge key (we just deleted the old one)
         log INFO "Generating munge key on primary controller..."
-        run_command "create-munge-key -f"
+
+        # Try multiple methods to generate munge key (different distros use different commands)
+        if [[ "$DRY_RUN" == "false" ]]; then
+            local key_generated=false
+
+            # Method 1: mungekey (Ubuntu/Debian standard)
+            if command -v mungekey &> /dev/null; then
+                log INFO "  Using mungekey command..."
+                mungekey --create --force 2>/dev/null && key_generated=true
+            fi
+
+            # Method 2: create-munge-key (RHEL/CentOS)
+            if [[ "$key_generated" == "false" ]] && command -v create-munge-key &> /dev/null; then
+                log INFO "  Using create-munge-key command..."
+                create-munge-key -f 2>/dev/null && key_generated=true
+            fi
+
+            # Method 3: /usr/sbin/mungekey (explicit path)
+            if [[ "$key_generated" == "false" ]] && [[ -x /usr/sbin/mungekey ]]; then
+                log INFO "  Using /usr/sbin/mungekey..."
+                /usr/sbin/mungekey --create --force 2>/dev/null && key_generated=true
+            fi
+
+            # Method 4: /usr/sbin/create-munge-key (explicit path)
+            if [[ "$key_generated" == "false" ]] && [[ -x /usr/sbin/create-munge-key ]]; then
+                log INFO "  Using /usr/sbin/create-munge-key..."
+                /usr/sbin/create-munge-key -f 2>/dev/null && key_generated=true
+            fi
+
+            # Method 5: dd (fallback - works on any Linux)
+            if [[ "$key_generated" == "false" ]]; then
+                log INFO "  Using dd to generate key (fallback)..."
+                dd if=/dev/urandom bs=1 count=1024 > /etc/munge/munge.key 2>/dev/null && key_generated=true
+            fi
+
+            if [[ "$key_generated" == "false" ]]; then
+                log ERROR "Failed to generate munge key with any method"
+                exit 1
+            fi
+
+            log SUCCESS "Munge key generated successfully"
+        else
+            log INFO "[DRY-RUN] Would generate munge key"
+        fi
     else
         # Secondary controller: Sync munge key from first controller
         log INFO "Synchronizing munge key from primary controller ($first_controller_ip)..."
@@ -662,7 +705,16 @@ setup_munge() {
                 if [[ ! -f /etc/munge/munge.key ]]; then
                     log WARNING "Generating local munge key as fallback (NOT RECOMMENDED)"
                     log WARNING "⚠️  Slurm authentication will fail between controllers!"
-                    create-munge-key -f
+                    # Try multiple methods
+                    if command -v mungekey &> /dev/null; then
+                        mungekey --create --force 2>/dev/null
+                    elif [[ -x /usr/sbin/mungekey ]]; then
+                        /usr/sbin/mungekey --create --force 2>/dev/null
+                    elif command -v create-munge-key &> /dev/null; then
+                        create-munge-key -f 2>/dev/null
+                    else
+                        dd if=/dev/urandom bs=1 count=1024 > /etc/munge/munge.key 2>/dev/null
+                    fi
                 fi
             else
                 log SUCCESS "  SSH connectivity OK"
@@ -723,7 +775,16 @@ setup_munge() {
                     # Generate a local key as fallback (will cause auth issues but won't crash)
                     if [[ ! -f /etc/munge/munge.key ]]; then
                         log WARNING "Generating local munge key as fallback (NOT RECOMMENDED)"
-                        create-munge-key -f
+                        # Try multiple methods
+                        if command -v mungekey &> /dev/null; then
+                            mungekey --create --force 2>/dev/null
+                        elif [[ -x /usr/sbin/mungekey ]]; then
+                            /usr/sbin/mungekey --create --force 2>/dev/null
+                        elif command -v create-munge-key &> /dev/null; then
+                            create-munge-key -f 2>/dev/null
+                        else
+                            dd if=/dev/urandom bs=1 count=1024 > /etc/munge/munge.key 2>/dev/null
+                        fi
                     fi
                 fi
             fi
