@@ -207,17 +207,50 @@ echo "--------------------------------------------------------------------------
 
 cd "$DEB_DIR"
 
-echo "📥 .deb 패키지 설치 중..."
-echo "  (의존성 순서대로 설치)"
+echo "📥 로컬 APT 저장소를 통해 패키지 설치 중..."
+echo "  (APT가 의존성을 자동으로 해결합니다)"
 
-# dpkg로 직접 설치 (의존성 오류 무시)
-sudo dpkg -i *.deb 2>/dev/null || true
+# APT 저장소 인덱스 생성 (없으면)
+if [[ ! -f "$DEB_DIR/Packages.gz" ]]; then
+    echo "🔧 APT 저장소 인덱스 생성 중..."
+    dpkg-scanpackages . /dev/null > Packages 2>/dev/null || true
+    gzip -k -f Packages 2>/dev/null || true
+fi
 
-# apt-get으로 의존성 해결
-echo "🔧 의존성 해결 중..."
-sudo apt-get install -f -y --no-install-recommends 2>/dev/null || {
-    echo "⚠️  일부 의존성 해결 실패 (수동 확인 필요)"
-}
+# 로컬 APT 저장소 설정
+REPO_LIST="/etc/apt/sources.list.d/offline-cluster.list"
+echo "deb [trusted=yes] file://$DEB_DIR ./" | sudo tee "$REPO_LIST" > /dev/null
+
+# APT 캐시 업데이트 (로컬 저장소만)
+echo "🔧 APT 캐시 업데이트 중..."
+sudo apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" \
+                    -o Dir::Etc::sourceparts="-" \
+                    -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+
+# package_list.txt에서 패키지 이름 추출하여 APT로 설치
+if [[ -f "$DEB_DIR/package_list.txt" ]]; then
+    PACKAGES_TO_INSTALL=()
+    while IFS= read -r deb_file; do
+        pkg_name=$(echo "$deb_file" | sed 's/_.*$//')
+        PACKAGES_TO_INSTALL+=("$pkg_name")
+    done < "$DEB_DIR/package_list.txt"
+
+    # 중복 제거
+    PACKAGES_TO_INSTALL=($(printf '%s\n' "${PACKAGES_TO_INSTALL[@]}" | sort -u))
+
+    echo "📦 ${#PACKAGES_TO_INSTALL[@]}개 패키지 설치 중..."
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        "${PACKAGES_TO_INSTALL[@]}" 2>/dev/null || {
+        echo "⚠️  일부 패키지 설치 실패, 재시도 중..."
+        sudo apt-get install -f -y 2>/dev/null || true
+    }
+else
+    echo "⚠️  package_list.txt를 찾을 수 없어 기본 패키지만 설치합니다"
+    sudo apt-get install -f -y 2>/dev/null || true
+fi
+
+# 임시 저장소 설정 정리
+sudo rm -f "$REPO_LIST" 2>/dev/null || true
 
 echo "✅ 시스템 패키지 설치 완료"
 echo ""

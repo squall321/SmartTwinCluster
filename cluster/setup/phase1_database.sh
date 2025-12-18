@@ -421,20 +421,49 @@ install_mariadb() {
     # Check for offline packages first
     local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
     local mariadb_deb="$offline_pkgs/mariadb-server-*.deb"
+    local repo_list="/etc/apt/sources.list.d/offline-mariadb.list"
 
     if [[ -d "$offline_pkgs" ]] && compgen -G "$mariadb_deb" > /dev/null 2>&1; then
-        log INFO "Found offline packages, installing from local .deb files..."
+        log INFO "Found offline packages, installing via local APT repository..."
 
         if [[ "$DRY_RUN" == "false" ]]; then
-            # Install MariaDB packages from offline directory
-            sudo dpkg -i "$offline_pkgs"/mariadb-*.deb "$offline_pkgs"/galera-*.deb "$offline_pkgs"/rsync*.deb 2>/dev/null || true
+            # Setup local APT repository for offline packages
+            if [[ -f "$offline_pkgs/Packages.gz" ]]; then
+                echo "deb [trusted=yes] file://$offline_pkgs ./" | sudo tee "$repo_list" > /dev/null
 
-            # Fix any dependency issues
-            sudo dpkg --configure -a 2>/dev/null || true
+                # Update APT cache with local repo
+                sudo apt-get update -o Dir::Etc::sourcelist="$repo_list" \
+                                    -o Dir::Etc::sourceparts="-" \
+                                    -o APT::Get::List-Cleanup="0" 2>/dev/null || true
 
-            log SUCCESS "MariaDB installed from offline packages"
+                # Install MariaDB via APT (handles dependencies automatically)
+                sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                    mariadb-server mariadb-client galera-4 rsync 2>/dev/null || {
+                    log WARNING "APT install had issues, trying to fix dependencies..."
+                    sudo apt-get install -f -y 2>/dev/null || true
+                }
+
+                log SUCCESS "MariaDB installed from offline packages via APT"
+            else
+                log WARNING "Packages.gz not found, generating..."
+                if command -v dpkg-scanpackages &>/dev/null; then
+                    (cd "$offline_pkgs" && dpkg-scanpackages . /dev/null > Packages && gzip -k -f Packages)
+                    # Retry installation
+                    echo "deb [trusted=yes] file://$offline_pkgs ./" | sudo tee "$repo_list" > /dev/null
+                    sudo apt-get update -o Dir::Etc::sourcelist="$repo_list" \
+                                        -o Dir::Etc::sourceparts="-" \
+                                        -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+                    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                        mariadb-server mariadb-client galera-4 rsync 2>/dev/null || {
+                        sudo apt-get install -f -y 2>/dev/null || true
+                    }
+                    log SUCCESS "MariaDB installed from offline packages via APT"
+                else
+                    log ERROR "dpkg-scanpackages not available, cannot create APT index"
+                fi
+            fi
         else
-            log INFO "[DRY-RUN] Would install MariaDB from offline packages"
+            log INFO "[DRY-RUN] Would install MariaDB from offline packages via APT"
         fi
     else
         # Online installation fallback

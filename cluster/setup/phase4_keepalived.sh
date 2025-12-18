@@ -277,18 +277,39 @@ install_keepalived() {
     local keepalived_deb="$offline_pkgs/keepalived_*.deb"
 
     if [[ -d "$offline_pkgs" ]] && compgen -G "$keepalived_deb" > /dev/null 2>&1; then
-        log INFO "Found offline packages, installing from local .deb files..."
+        log INFO "Found offline packages, installing via local APT repository..."
 
         if [[ "$DRY_RUN" == "false" ]]; then
-            # Install Keepalived packages from offline directory
-            sudo dpkg -i "$offline_pkgs"/keepalived*.deb 2>/dev/null || true
+            # Setup local APT repository for safe installation
+            local repo_list="/etc/apt/sources.list.d/offline-keepalived.list"
 
-            # Fix any dependency issues
-            sudo dpkg --configure -a 2>/dev/null || true
+            # Ensure Packages.gz exists for APT
+            if [[ ! -f "$offline_pkgs/Packages.gz" ]]; then
+                log INFO "Creating APT repository index..."
+                (cd "$offline_pkgs" && dpkg-scanpackages . /dev/null > Packages && gzip -k -f Packages) 2>/dev/null || true
+            fi
 
-            log SUCCESS "Keepalived installed from offline packages"
+            # Configure local APT repository
+            echo "deb [trusted=yes] file://$offline_pkgs ./" | sudo tee "$repo_list" > /dev/null
+
+            # Update APT cache with local repository only
+            sudo apt-get update -o Dir::Etc::sourcelist="$repo_list" \
+                                -o Dir::Etc::sourceparts="-" \
+                                -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+
+            # Install Keepalived via APT (handles dependencies automatically)
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                keepalived 2>/dev/null || {
+                log WARNING "APT install failed, trying with -f flag..."
+                sudo apt-get install -f -y 2>/dev/null || true
+            }
+
+            # Cleanup: remove temporary repository config
+            sudo rm -f "$repo_list" 2>/dev/null || true
+
+            log SUCCESS "Keepalived installed from offline packages via APT"
         else
-            log INFO "[DRY-RUN] Would install Keepalived from offline packages"
+            log INFO "[DRY-RUN] Would install Keepalived from offline packages via APT"
         fi
     else
         # Online installation fallback

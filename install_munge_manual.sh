@@ -10,19 +10,36 @@ echo "==========================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OFFLINE_PKGS="$SCRIPT_DIR/offline_packages/apt_packages"
 
-# Try offline installation first
-if [ -d "$OFFLINE_PKGS" ] && [ -f "$OFFLINE_PKGS/munge_0.5.14-6_amd64.deb" ]; then
-    echo "📦 오프라인 패키지에서 Munge 설치 중..."
+# Try offline installation first (using local APT repository)
+if [ -d "$OFFLINE_PKGS" ] && ls "$OFFLINE_PKGS"/munge*.deb &>/dev/null; then
+    echo "📦 로컬 APT 저장소를 통해 Munge 설치 중..."
 
-    # Install munge packages from local .deb files
-    sudo dpkg -i \
-        "$OFFLINE_PKGS/libmunge2_0.5.14-6_amd64.deb" \
-        "$OFFLINE_PKGS/munge_0.5.14-6_amd64.deb" \
-        "$OFFLINE_PKGS/libmunge-dev_0.5.14-6_amd64.deb" \
-        2>/dev/null || true
+    # Setup local APT repository for safe installation
+    REPO_LIST="/etc/apt/sources.list.d/offline-munge.list"
 
-    # Fix any dependency issues
-    sudo dpkg --configure -a 2>/dev/null || true
+    # Ensure Packages.gz exists for APT
+    if [[ ! -f "$OFFLINE_PKGS/Packages.gz" ]]; then
+        echo "🔧 APT 저장소 인덱스 생성 중..."
+        (cd "$OFFLINE_PKGS" && dpkg-scanpackages . /dev/null > Packages && gzip -k -f Packages) 2>/dev/null || true
+    fi
+
+    # Configure local APT repository
+    echo "deb [trusted=yes] file://$OFFLINE_PKGS ./" | sudo tee "$REPO_LIST" > /dev/null
+
+    # Update APT cache with local repository only
+    sudo apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" \
+                        -o Dir::Etc::sourceparts="-" \
+                        -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+
+    # Install Munge via APT (handles dependencies automatically)
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        munge libmunge2 libmunge-dev 2>/dev/null || {
+        echo "⚠️ APT 설치 실패, 재시도 중..."
+        sudo apt-get install -f -y 2>/dev/null || true
+    }
+
+    # Cleanup: remove temporary repository config
+    sudo rm -f "$REPO_LIST" 2>/dev/null || true
 
     echo "✅ 오프라인 패키지 설치 완료"
 

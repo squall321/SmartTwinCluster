@@ -414,18 +414,32 @@ class OfflinePackageManager:
             print(f"  ⚠️  DEB 파일을 찾을 수 없음")
             return False
         
-        print(f"  📦 {deb_count}개의 DEB 파일 설치 중...")
-        
-        # 의존성 DEB 설치
+        print(f"  📦 {deb_count}개의 DEB 파일 설치 중 (APT 저장소 방식)...")
+
+        # 로컬 APT 저장소 방식으로 안전하게 설치 (의존성 자동 해결)
+        apt_install_cmds = f"""
+            REPO_LIST="/etc/apt/sources.list.d/offline-install.list"
+            # APT 인덱스 생성
+            cd {deb_dir} && dpkg-scanpackages . /dev/null > Packages 2>/dev/null && gzip -k -f Packages
+            # 로컬 저장소 설정
+            echo "deb [trusted=yes] file://{deb_dir} ./" > "$REPO_LIST"
+            # APT 캐시 업데이트
+            apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+            # 패키지 설치
+            DEBIAN_FRONTEND=noninteractive apt-get install -f -y 2>/dev/null || true
+            # 정리
+            rm -f "$REPO_LIST" 2>/dev/null || true
+        """
+
         exit_code, stdout, stderr = self.ssh_manager.execute_command(
             hostname,
-            f"dpkg -i {deb_dir}/*.deb || apt-get install -f -y",
+            apt_install_cmds,
             show_output=False,
             timeout=600
         )
-        
+
         if exit_code == 0:
-            print(f"  ✅ DEB 설치 성공")
+            print(f"  ✅ DEB 설치 성공 (APT 저장소 방식)")
             return True
         else:
             print(f"  ❌ DEB 설치 실패")
