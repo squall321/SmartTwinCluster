@@ -904,6 +904,23 @@ setup_munge() {
                 local ssh_exit
                 set +e  # Temporarily disable errexit
                 ssh_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "
+                    # Ensure munge package is installed
+                    if ! command -v munge &> /dev/null && ! dpkg -l | grep -q '^ii.*munge' && ! rpm -q munge &> /dev/null 2>&1; then
+                        echo 'Installing munge package...'
+                        if command -v apt-get &> /dev/null; then
+                            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null
+                        elif command -v yum &> /dev/null; then
+                            sudo yum install -y munge munge-libs 2>/dev/null
+                        elif command -v dnf &> /dev/null; then
+                            sudo dnf install -y munge munge-libs 2>/dev/null
+                        fi
+                    fi
+
+                    # Create munge user if not exists
+                    if ! id munge &> /dev/null; then
+                        sudo useradd -r -s /sbin/nologin munge 2>/dev/null || true
+                    fi
+
                     sudo systemctl stop munge 2>/dev/null || true
                     sudo rm -f /etc/munge/munge.key 2>/dev/null || true
                     sudo rm -rf /var/run/munge/* /run/munge/* 2>/dev/null || true
