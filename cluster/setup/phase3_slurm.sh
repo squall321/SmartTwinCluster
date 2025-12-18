@@ -271,8 +271,94 @@ install_offline_package_remote() {
     return 0
 }
 
+# Setup offline APT repository on remote node via SCP
+# Fallback method when GlusterFS is not available
+# Usage: setup_scp_offline_repo_remote <remote_user> <remote_ip>
+setup_scp_offline_repo_remote() {
+    local remote_user="$1"
+    local remote_ip="$2"
+    local local_offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages"
+    local remote_offline_pkg="/tmp/offline_packages"
+    local repo_list="/etc/apt/sources.list.d/offline-local.list"
+
+    log INFO "  Setting up offline APT repository via SCP on $remote_ip..."
+
+    if [[ ! -d "$local_offline_pkg" ]]; then
+        log ERROR "  Local offline package directory not found: $local_offline_pkg"
+        return 1
+    fi
+
+    # Create remote directory
+    ssh $SSH_OPTS "$remote_user@$remote_ip" "sudo mkdir -p '$remote_offline_pkg' && sudo chmod 777 '$remote_offline_pkg'" 2>/dev/null || {
+        log ERROR "  Failed to create remote directory on $remote_ip"
+        return 1
+    }
+
+    # Copy Packages.gz and essential files first (smaller, faster)
+    log INFO "  Copying APT index files..."
+    for file in Packages Packages.gz Release package_list.txt; do
+        if [[ -f "$local_offline_pkg/$file" ]]; then
+            scp $SCP_OPTS "$local_offline_pkg/$file" "$remote_user@$remote_ip:$remote_offline_pkg/" 2>/dev/null || true
+        fi
+    done
+
+    # Copy all .deb files using rsync for efficiency (with progress)
+    log INFO "  Copying .deb packages (this may take a while)..."
+    if command -v rsync &>/dev/null; then
+        rsync -az --progress -e "ssh $SSH_OPTS" "$local_offline_pkg/"*.deb "$remote_user@$remote_ip:$remote_offline_pkg/" 2>/dev/null || {
+            # Fallback to scp if rsync fails
+            log WARNING "  rsync failed, falling back to scp..."
+            scp $SCP_OPTS "$local_offline_pkg/"*.deb "$remote_user@$remote_ip:$remote_offline_pkg/" 2>/dev/null || {
+                log ERROR "  Failed to copy packages to $remote_ip"
+                return 1
+            }
+        }
+    else
+        scp $SCP_OPTS "$local_offline_pkg/"*.deb "$remote_user@$remote_ip:$remote_offline_pkg/" 2>/dev/null || {
+            log ERROR "  Failed to copy packages to $remote_ip"
+            return 1
+        }
+    fi
+
+    # Generate Packages.gz on remote if not copied
+    log INFO "  Setting up APT repository on $remote_ip..."
+    ssh $SSH_OPTS "$remote_user@$remote_ip" "
+        cd '$remote_offline_pkg'
+
+        # Generate Packages.gz if not exists
+        if [ ! -f Packages.gz ]; then
+            if command -v dpkg-scanpackages &>/dev/null; then
+                dpkg-scanpackages . /dev/null > Packages 2>/dev/null
+                gzip -k -f Packages
+            else
+                # Try to install dpkg-dev from local packages
+                if ls dpkg-dev*.deb &>/dev/null; then
+                    sudo dpkg -i dpkg-dev*.deb 2>/dev/null || true
+                    sudo apt-get install -f -y 2>/dev/null || true
+                    dpkg-scanpackages . /dev/null > Packages 2>/dev/null
+                    gzip -k -f Packages
+                fi
+            fi
+        fi
+
+        # Setup local APT repository
+        echo 'deb [trusted=yes] file://$remote_offline_pkg ./' | sudo tee '$repo_list' > /dev/null
+
+        # Update APT cache
+        sudo apt-get update -o Dir::Etc::sourcelist='$repo_list' \
+                            -o Dir::Etc::sourceparts='-' \
+                            -o APT::Get::List-Cleanup='0' 2>/dev/null || sudo apt-get update
+    " 2>/dev/null || {
+        log WARNING "  APT update had some warnings (may be normal for offline)"
+    }
+
+    log SUCCESS "  Offline APT repository configured on $remote_ip via SCP"
+    return 0
+}
+
 # Setup GlusterFS-based offline APT repository on remote node
 # This is the most maintainable solution for offline compute nodes
+# Falls back to SCP if GlusterFS is not available
 # Usage: setup_glusterfs_offline_repo_remote <remote_user> <remote_ip>
 setup_glusterfs_offline_repo_remote() {
     local remote_user="$1"
@@ -298,8 +384,10 @@ setup_glusterfs_offline_repo_remote() {
                 fi
             fi
         " 2>/dev/null || {
-            log ERROR "  Failed to mount GlusterFS on $remote_ip"
-            return 1
+            log WARNING "  GlusterFS mount failed on $remote_ip, falling back to SCP method..."
+            # Fallback to SCP-based installation
+            setup_scp_offline_repo_remote "$remote_user" "$remote_ip"
+            return $?
         }
     fi
 
