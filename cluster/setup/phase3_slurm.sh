@@ -2215,19 +2215,24 @@ EOPY
         # -n: Don't read from stdin (critical for while read loops!)
         # Pass GLUSTER_MOUNT environment variable for offline mode detection
         log INFO "  Running install_slurm_cgroup_v2.sh on $hostname..."
-        local install_output
-        install_output=$(ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh 2>&1" 2>&1)
+
+        # Save output to temp file to avoid subshell issues
+        local install_log="/tmp/slurm_install_${hostname}.log"
+        ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh 2>&1" > "$install_log" 2>&1
         local install_exit_code=$?
 
         if [[ $install_exit_code -eq 0 ]]; then
             log SUCCESS "Slurm installed on $hostname"
+            rm -f "$install_log" 2>/dev/null || true
         else
             log ERROR "Failed to install Slurm on $hostname (exit code: $install_exit_code)"
-            log ERROR "  Last 20 lines of output:"
-            echo "$install_output" | tail -20 | while read -r line; do
-                log ERROR "    $line"
-            done
+            log ERROR "  Last 30 lines of output:"
+            if [[ -f "$install_log" ]]; then
+                tail -30 "$install_log" | sed 's/^/    [LOG] /'
+            else
+                log ERROR "    (No log file available)"
+            fi
             failed_count=$((failed_count + 1))
             continue
         fi
