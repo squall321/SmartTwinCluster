@@ -628,10 +628,30 @@ setup_munge() {
             log SUCCESS "      SSH connectivity OK"
 
             # Use a temporary variable to capture scp errors
+            # Note: munge.key is owned by munge:munge with 400 permissions
+            # We need to read it as root (which we are since script runs with sudo)
             log INFO "      Copying munge key..."
+
+            # First check if we can read the local munge key
+            if [[ ! -r /etc/munge/munge.key ]]; then
+                log ERROR "      Cannot read /etc/munge/munge.key (permission denied)"
+                fail_count=$((fail_count + 1))
+                failed_controllers+=("$ctrl_hostname")
+                continue
+            fi
+
             local scp_error
-            scp_error=$(scp $SCP_OPTS /etc/munge/munge.key "$ctrl_user@$ctrl_ip:/tmp/munge.key.sync" 2>&1)
+            # Use timeout to prevent hanging
+            scp_error=$(timeout 30 scp $SCP_OPTS /etc/munge/munge.key "$ctrl_user@$ctrl_ip:/tmp/munge.key.sync" 2>&1)
             local scp_exit=$?
+
+            # Check for timeout
+            if [[ $scp_exit -eq 124 ]]; then
+                log ERROR "      SCP timed out after 30 seconds"
+                fail_count=$((fail_count + 1))
+                failed_controllers+=("$ctrl_hostname")
+                continue
+            fi
 
             if [[ $scp_exit -eq 0 ]]; then
                 log SUCCESS "      File transferred"
