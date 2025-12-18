@@ -641,12 +641,28 @@ setup_munge() {
             fi
 
             local scp_error
+            local scp_exit
             # Use timeout to prevent hanging
-            scp_error=$(timeout 30 scp $SCP_OPTS /etc/munge/munge.key "$ctrl_user@$ctrl_ip:/tmp/munge.key.sync" 2>&1)
-            local scp_exit=$?
+            # Note: Use || true to prevent set -e from killing the script on SCP failure
+            scp_error=$(timeout 30 scp $SCP_OPTS /etc/munge/munge.key "$ctrl_user@$ctrl_ip:/tmp/munge.key.sync" 2>&1) || true
+            scp_exit=${PIPESTATUS[0]}
+            # If PIPESTATUS is empty, check the command substitution exit code
+            if [[ -z "$scp_exit" ]] || [[ "$scp_exit" -eq 0 && -z "$scp_error" ]]; then
+                # Command succeeded
+                scp_exit=0
+            elif [[ -n "$scp_error" ]]; then
+                # There was an error, check if it's a real failure
+                # SCP returns non-zero on failure
+                scp_exit=1
+            fi
 
-            # Check for timeout
-            if [[ $scp_exit -eq 124 ]]; then
+            # Alternative: Try to check if the file was transferred
+            if timeout 5 ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "test -f /tmp/munge.key.sync" 2>/dev/null; then
+                scp_exit=0
+            fi
+
+            # Check for timeout (exit code 124 from timeout command)
+            if echo "$scp_error" | grep -qi "timed out\|timeout"; then
                 log ERROR "      SCP timed out after 30 seconds"
                 fail_count=$((fail_count + 1))
                 failed_controllers+=("$ctrl_hostname")
