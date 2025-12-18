@@ -854,3 +854,30 @@ time_synchronization:
     - time.cloudflare.com
     - pool.ntp.org
   timezone: Asia/Seoul
+
+# ============================================================================
+# Web/SSL Settings
+# ============================================================================
+web:
+  ssl:
+    # SSL 인증서 모드: letsencrypt | self_signed | none
+    # - letsencrypt: Let's Encrypt 인증서 (인터넷 연결 필요)
+    # - self_signed: 자체 서명 인증서 (오프라인 환경용, 기본값)
+    # - none: SSL 비활성화 (HTTP만 사용)
+    mode: self_signed
+    # Let's Encrypt 사용 시 도메인 (letsencrypt 모드 필수)
+    domain: ""
+    # Let's Encrypt 사용 시 이메일 (인증서 만료 알림용)
+    email: ""
+
+# ============================================================================
+# SAML IdP Test Users (개발/테스트용)
+# ============================================================================
+saml:
+  test_users:
+    - username: koopark
+      password: "Soseks314!"
+      email: koopark@hpc.local
+      roles:
+        - admin
+        - user

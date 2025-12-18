@@ -1648,32 +1648,138 @@ fix_ssh_api_and_nginx() {
     fi
 }
 
-# Function to setup SSL with Let's Encrypt
+# Function to setup SSL (supports letsencrypt, self_signed, or none)
 setup_ssl() {
     if [[ "$SKIP_SSL" == true ]]; then
         log_warning "Skipping SSL setup (--skip-ssl flag)"
         return
     fi
 
-    log_info "Setting up SSL with Let's Encrypt..."
+    # Read SSL mode from YAML config (default: self_signed)
+    local ssl_mode
+    ssl_mode=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web', {}).get('ssl', {}).get('mode', 'self_signed'))" 2>/dev/null || echo "self_signed")
+
+    log_info "SSL mode from config: $ssl_mode"
+
+    case "$ssl_mode" in
+        none)
+            log_warning "SSL disabled (mode: none). Using HTTP only."
+            log_warning "⚠️  This is NOT recommended for production!"
+            return
+            ;;
+        self_signed)
+            log_info "Setting up self-signed SSL certificate..."
+            setup_self_signed_ssl
+            ;;
+        letsencrypt)
+            log_info "Setting up Let's Encrypt SSL certificate..."
+            setup_letsencrypt_ssl
+            ;;
+        *)
+            log_warning "Unknown SSL mode: $ssl_mode. Falling back to self_signed."
+            setup_self_signed_ssl
+            ;;
+    esac
+
+    log_success "SSL setup complete"
+}
+
+# Self-signed SSL certificate setup (for offline environments)
+setup_self_signed_ssl() {
+    if [[ "$DRY_RUN" == false ]]; then
+        # Create SSL directories
+        mkdir -p /etc/ssl/private
+        chmod 700 /etc/ssl/private
+        mkdir -p /etc/nginx/snippets
+
+        # Generate self-signed certificate if not exists
+        if [[ ! -f "/etc/ssl/certs/nginx-selfsigned.crt" ]]; then
+            log_info "Generating self-signed SSL certificate (1 year validity)..."
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout /etc/ssl/private/nginx-selfsigned.key \
+                -out /etc/ssl/certs/nginx-selfsigned.crt \
+                -subj "/C=KR/ST=Seoul/L=Seoul/O=HPC Lab/CN=$DOMAIN" \
+                2>/dev/null
+            log_success "Self-signed certificate generated"
+        else
+            log_info "Self-signed certificate already exists"
+        fi
+
+        chmod 600 /etc/ssl/private/nginx-selfsigned.key
+        chmod 644 /etc/ssl/certs/nginx-selfsigned.crt
+
+        # Generate DH parameters if not exists (can take 1-5 minutes)
+        if [[ ! -f "/etc/ssl/certs/dhparam.pem" ]]; then
+            log_info "Generating DH parameters (this may take 1-5 minutes)..."
+            openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 2>/dev/null
+            chmod 644 /etc/ssl/certs/dhparam.pem
+            log_success "DH parameters generated"
+        fi
+
+        # Create Nginx SSL snippets
+        cat > /etc/nginx/snippets/self-signed.conf << 'EOF'
+ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
+ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
+EOF
+
+        cat > /etc/nginx/snippets/ssl-params.conf << 'EOF'
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers on;
+ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+ssl_ecdh_curve secp384r1;
+ssl_session_timeout 10m;
+ssl_session_cache shared:SSL:10m;
+ssl_session_tickets off;
+ssl_dhparam /etc/ssl/certs/dhparam.pem;
+add_header Strict-Transport-Security "max-age=63072000" always;
+add_header X-Frame-Options DENY always;
+add_header X-Content-Type-Options nosniff always;
+add_header X-XSS-Protection "1; mode=block" always;
+EOF
+
+        log_success "Self-signed SSL configured"
+    else
+        log_info "[DRY-RUN] Would setup self-signed SSL certificate"
+    fi
+}
+
+# Let's Encrypt SSL certificate setup (requires internet)
+setup_letsencrypt_ssl() {
+    # Get domain and email from YAML
+    local ssl_domain ssl_email
+    ssl_domain=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web', {}).get('ssl', {}).get('domain', ''))" 2>/dev/null || echo "")
+    ssl_email=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web', {}).get('ssl', {}).get('email', ''))" 2>/dev/null || echo "")
+
+    # Use cluster domain as fallback
+    if [[ -z "$ssl_domain" ]]; then
+        ssl_domain="$DOMAIN"
+    fi
+    if [[ -z "$ssl_email" ]]; then
+        ssl_email="admin@$ssl_domain"
+    fi
 
     if [[ "$DRY_RUN" == false ]]; then
         # Check if certificate already exists
-        if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
-            log_info "SSL certificate already exists for $DOMAIN"
+        if [[ -d "/etc/letsencrypt/live/$ssl_domain" ]]; then
+            log_info "Let's Encrypt certificate already exists for $ssl_domain"
         else
             # Stop Nginx temporarily
             systemctl stop nginx || true
 
             # Obtain certificate
-            certbot certonly --standalone \
-                -d "$DOMAIN" \
+            if certbot certonly --standalone \
+                -d "$ssl_domain" \
                 --non-interactive \
                 --agree-tos \
-                --email "admin@$DOMAIN" \
-                --preferred-challenges http
-
-            log_success "SSL certificate obtained"
+                --email "$ssl_email" \
+                --preferred-challenges http; then
+                log_success "Let's Encrypt certificate obtained"
+            else
+                log_error "Failed to obtain Let's Encrypt certificate"
+                log_warning "Falling back to self-signed certificate..."
+                setup_self_signed_ssl
+                return
+            fi
         fi
 
         # Setup auto-renewal
@@ -1682,10 +1788,8 @@ setup_ssl() {
             log_success "SSL auto-renewal configured"
         fi
     else
-        log_info "[DRY-RUN] Would setup SSL certificate for $DOMAIN"
+        log_info "[DRY-RUN] Would setup Let's Encrypt certificate for $ssl_domain"
     fi
-
-    log_success "SSL setup complete"
 }
 
 # Function to start web services
