@@ -154,6 +154,123 @@ run_command() {
     fi
 }
 
+# Install package from offline repository
+# Usage: install_offline_package <package_name> [package_name2...]
+# Returns: 0 on success, 1 on failure
+install_offline_package() {
+    local packages=("$@")
+    local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+
+    if [[ ! -d "$offline_pkg_dir" ]]; then
+        log ERROR "Offline package directory not found: $offline_pkg_dir"
+        return 1
+    fi
+
+    # Check if Packages.gz exists for local APT repo
+    if [[ ! -f "$offline_pkg_dir/Packages.gz" ]]; then
+        log WARNING "Packages.gz not found, creating repository index..."
+        if command -v dpkg-scanpackages &> /dev/null; then
+            (cd "$offline_pkg_dir" && dpkg-scanpackages . /dev/null > Packages && gzip -k -f Packages)
+        else
+            log WARNING "dpkg-scanpackages not available, trying direct dpkg install..."
+        fi
+    fi
+
+    # Setup local APT repository if Packages.gz exists
+    local repo_list="/etc/apt/sources.list.d/offline-local.list"
+    if [[ -f "$offline_pkg_dir/Packages.gz" ]]; then
+        log INFO "Setting up local APT repository..."
+        echo "deb [trusted=yes] file://$offline_pkg_dir ./" > "$repo_list"
+        apt-get update -o Dir::Etc::sourcelist="$repo_list" \
+                       -o Dir::Etc::sourceparts="-" \
+                       -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+
+        # Try apt install with local repo
+        log INFO "Installing packages via local APT repository: ${packages[*]}"
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}" 2>&1; then
+            log SUCCESS "Packages installed successfully via local APT repo"
+            return 0
+        else
+            log WARNING "APT install failed, trying direct dpkg install..."
+        fi
+    fi
+
+    # Fallback: Direct dpkg install
+    local installed=0
+    for pkg in "${packages[@]}"; do
+        # Find matching .deb files
+        local deb_files=("$offline_pkg_dir"/${pkg}_*.deb "$offline_pkg_dir"/${pkg}-*.deb)
+        for deb_file in "${deb_files[@]}"; do
+            if [[ -f "$deb_file" ]]; then
+                log INFO "Installing $(basename "$deb_file") via dpkg..."
+                if dpkg -i "$deb_file" 2>&1; then
+                    installed=$((installed + 1))
+                else
+                    # Try to fix dependencies
+                    apt-get install -f -y 2>/dev/null || true
+                fi
+            fi
+        done
+    done
+
+    if [[ $installed -gt 0 ]]; then
+        log SUCCESS "Installed $installed package(s) via dpkg"
+        return 0
+    else
+        log ERROR "Failed to install packages: ${packages[*]}"
+        log ERROR "Ensure offline packages are available in: $offline_pkg_dir"
+        return 1
+    fi
+}
+
+# Install package on remote node using offline packages
+# Usage: install_offline_package_remote <remote_user> <remote_ip> <package_name> [package_name2...]
+install_offline_package_remote() {
+    local remote_user="$1"
+    local remote_ip="$2"
+    shift 2
+    local packages=("$@")
+    local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+
+    if [[ ! -d "$offline_pkg_dir" ]]; then
+        log ERROR "Offline package directory not found: $offline_pkg_dir"
+        return 1
+    fi
+
+    # Create temp directory on remote
+    ssh $SSH_OPTS "$remote_user@$remote_ip" "mkdir -p /tmp/offline_packages" 2>/dev/null || true
+
+    # Copy packages and their dependencies
+    local copied=0
+    for pkg in "${packages[@]}"; do
+        for deb_file in "$offline_pkg_dir"/${pkg}_*.deb "$offline_pkg_dir"/${pkg}-*.deb "$offline_pkg_dir"/lib${pkg}*.deb; do
+            if [[ -f "$deb_file" ]]; then
+                log INFO "  Copying $(basename "$deb_file") to $remote_ip..."
+                scp $SCP_OPTS "$deb_file" "$remote_user@$remote_ip:/tmp/offline_packages/" 2>/dev/null && copied=$((copied + 1))
+            fi
+        done
+    done
+
+    if [[ $copied -eq 0 ]]; then
+        log WARNING "No packages found for: ${packages[*]}"
+        return 1
+    fi
+
+    # Install on remote
+    log INFO "Installing packages on $remote_ip..."
+    ssh $SSH_OPTS "$remote_user@$remote_ip" "
+        cd /tmp/offline_packages
+        # Install all .deb files
+        sudo dpkg -i *.deb 2>/dev/null || true
+        # Fix any dependency issues
+        sudo apt-get install -f -y 2>/dev/null || true
+        # Cleanup
+        rm -rf /tmp/offline_packages
+    " 2>/dev/null
+
+    return 0
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]] && [[ "$DRY_RUN" == "false" ]]; then
         log ERROR "This script must be run as root (use sudo)"
@@ -467,8 +584,12 @@ install_slurm() {
             # Install controller packages if needed
             if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
                 if ! command -v slurmctld &> /dev/null; then
-                    log INFO "Installing slurmctld..."
-                    run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurm-wlm slurmctld"
+                    log INFO "Installing slurmctld via offline packages..."
+                    if ! install_offline_package slurm-wlm slurmctld libslurm37; then
+                        log ERROR "Failed to install slurmctld from offline packages"
+                        log ERROR "Ensure slurm packages are in: ${PROJECT_ROOT}/offline_packages/apt_packages/"
+                        exit 1
+                    fi
                 else
                     log INFO "slurmctld already installed"
                 fi
@@ -477,31 +598,60 @@ install_slurm() {
             # Install slurmdbd if needed (check separately - may not be installed even if slurmctld is)
             if [[ "$SETUP_DBD" == "true" ]]; then
                 if ! command -v slurmdbd &> /dev/null; then
-                    log INFO "Installing slurmdbd..."
+                    log INFO "Installing slurmdbd via offline packages..."
+                    if ! install_offline_package slurmdbd libslurm37; then
+                        log WARNING "Failed to install slurmdbd from offline packages"
+                        log WARNING "SlurmDBD will be skipped - accounting will not be available"
+                    fi
+                else
+                    log INFO "slurmdbd already installed"
+                fi
+            fi
 
-                    # Try offline package first (useful when apt has broken dependencies)
-                    local offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages/slurmdbd_21.08.5-2ubuntu1_amd64.deb"
-                    if [[ -f "$offline_pkg" ]]; then
-                        log INFO "Found offline slurmdbd package, trying dpkg install..."
-                        if dpkg -i "$offline_pkg" 2>&1; then
-                            log SUCCESS "slurmdbd installed from offline package"
-                        else
-                            log WARNING "Offline package install failed, trying apt..."
-                            if ! DEBIAN_FRONTEND=noninteractive apt-get install -y slurmdbd 2>&1; then
-                                log WARNING "Failed to install slurmdbd package"
-                                log WARNING "System may have broken package dependencies"
-                                log WARNING "Try running: sudo apt --fix-broken install"
-                                log WARNING "SlurmDBD will be skipped - accounting will not be available"
-                            fi
-                        fi
+            # Install compute node packages if needed
+            if [[ "$SETUP_COMPUTE" == "true" ]]; then
+                if ! command -v slurmd &> /dev/null; then
+                    log INFO "Installing slurmd via offline packages..."
+                    if ! install_offline_package slurmd libslurm37; then
+                        log ERROR "Failed to install slurmd from offline packages"
+                        log ERROR "Ensure slurm packages are in: ${PROJECT_ROOT}/offline_packages/apt_packages/"
+                        exit 1
+                    fi
+                else
+                    log INFO "slurmd already installed"
+                fi
+            fi
+            ;;
+        centos|rhel|rocky|almalinux)
+            # For RHEL-based systems, use yum with local repo if available
+            local offline_rpm_dir="${PROJECT_ROOT}/offline_packages/rpm_packages"
+
+            # Install controller packages if needed
+            if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
+                if ! command -v slurmctld &> /dev/null; then
+                    log INFO "Installing slurmctld..."
+                    if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm*.rpm &>/dev/null; then
+                        log INFO "Installing from offline RPM packages..."
+                        yum localinstall -y "$offline_rpm_dir"/slurm-[0-9]*.rpm "$offline_rpm_dir"/slurm-slurmctld*.rpm 2>/dev/null || true
                     else
-                        # No offline package, try apt directly
-                        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y slurmdbd 2>&1; then
-                            log WARNING "Failed to install slurmdbd package"
-                            log WARNING "System may have broken package dependencies"
-                            log WARNING "Try running: sudo apt --fix-broken install"
-                            log WARNING "SlurmDBD will be skipped - accounting will not be available"
-                        fi
+                        log WARNING "No offline RPM packages found, this may fail in offline environment"
+                        run_command "yum install -y slurm slurm-slurmctld"
+                    fi
+                else
+                    log INFO "slurmctld already installed"
+                fi
+            fi
+
+            # Install slurmdbd if needed
+            if [[ "$SETUP_DBD" == "true" ]]; then
+                if ! command -v slurmdbd &> /dev/null; then
+                    log INFO "Installing slurmdbd..."
+                    if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm-slurmdbd*.rpm &>/dev/null; then
+                        log INFO "Installing from offline RPM packages..."
+                        yum localinstall -y "$offline_rpm_dir"/slurm-slurmdbd*.rpm 2>/dev/null || true
+                    else
+                        log WARNING "No offline RPM packages found, this may fail in offline environment"
+                        run_command "yum install -y slurm-slurmdbd"
                     fi
                 else
                     log INFO "slurmdbd already installed"
@@ -512,38 +662,13 @@ install_slurm() {
             if [[ "$SETUP_COMPUTE" == "true" ]]; then
                 if ! command -v slurmd &> /dev/null; then
                     log INFO "Installing slurmd..."
-                    run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y slurmd"
-                else
-                    log INFO "slurmd already installed"
-                fi
-            fi
-            ;;
-        centos|rhel|rocky|almalinux)
-            # Install controller packages if needed
-            if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
-                if ! command -v slurmctld &> /dev/null; then
-                    log INFO "Installing slurmctld..."
-                    run_command "yum install -y slurm slurm-slurmctld"
-                else
-                    log INFO "slurmctld already installed"
-                fi
-            fi
-
-            # Install slurmdbd if needed
-            if [[ "$SETUP_DBD" == "true" ]]; then
-                if ! command -v slurmdbd &> /dev/null; then
-                    log INFO "Installing slurmdbd..."
-                    run_command "yum install -y slurm-slurmdbd"
-                else
-                    log INFO "slurmdbd already installed"
-                fi
-            fi
-
-            # Install compute node packages if needed
-            if [[ "$SETUP_COMPUTE" == "true" ]]; then
-                if ! command -v slurmd &> /dev/null; then
-                    log INFO "Installing slurmd..."
-                    run_command "yum install -y slurm-slurmd"
+                    if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm-slurmd*.rpm &>/dev/null; then
+                        log INFO "Installing from offline RPM packages..."
+                        yum localinstall -y "$offline_rpm_dir"/slurm-slurmd*.rpm 2>/dev/null || true
+                    else
+                        log WARNING "No offline RPM packages found, this may fail in offline environment"
+                        run_command "yum install -y slurm-slurmd"
+                    fi
                 else
                     log INFO "slurmd already installed"
                 fi
@@ -865,6 +990,48 @@ setup_munge() {
                 continue
             fi
 
+            # Check if munge is installed on remote, if not copy offline packages
+            local munge_installed
+            munge_installed=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "dpkg -l | grep -q '^ii.*munge ' && echo 'yes' || echo 'no'" 2>/dev/null || echo "no")
+
+            if [[ "$munge_installed" == "no" ]]; then
+                log INFO "      Munge not installed on $ctrl_hostname, copying offline packages..."
+                local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+
+                if [[ -d "$offline_pkg_dir" ]]; then
+                    # Create temp directory on remote
+                    ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "mkdir -p /tmp/munge_packages" 2>/dev/null || true
+
+                    # Copy munge packages
+                    local munge_pkgs=("munge_"*.deb "libmunge2_"*.deb "libmunge-dev_"*.deb)
+                    for pkg_pattern in "${munge_pkgs[@]}"; do
+                        for pkg_file in "$offline_pkg_dir"/$pkg_pattern; do
+                            if [[ -f "$pkg_file" ]]; then
+                                log INFO "        Copying $(basename "$pkg_file")..."
+                                scp $SCP_OPTS "$pkg_file" "$ctrl_user@$ctrl_ip:/tmp/munge_packages/" 2>/dev/null || true
+                            fi
+                        done
+                    done
+
+                    # Install packages on remote using dpkg
+                    log INFO "      Installing munge packages on $ctrl_hostname..."
+                    ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "
+                        cd /tmp/munge_packages
+                        # Install in dependency order: libmunge2 -> munge
+                        sudo dpkg -i libmunge2_*.deb 2>/dev/null || true
+                        sudo dpkg -i munge_*.deb 2>/dev/null || true
+                        # Fix any dependency issues
+                        sudo apt-get install -f -y 2>/dev/null || true
+                        # Cleanup
+                        rm -rf /tmp/munge_packages
+                    " 2>/dev/null || true
+
+                    log SUCCESS "      Munge packages installed on $ctrl_hostname"
+                else
+                    log WARNING "      Offline package directory not found: $offline_pkg_dir"
+                fi
+            fi
+
             local scp_error
             local scp_exit
             # Use timeout to prevent hanging
@@ -904,16 +1071,10 @@ setup_munge() {
                 local ssh_exit
                 set +e  # Temporarily disable errexit
                 ssh_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "
-                    # Ensure munge package is installed
-                    if ! command -v munge &> /dev/null && ! dpkg -l | grep -q '^ii.*munge' && ! rpm -q munge &> /dev/null 2>&1; then
-                        echo 'Installing munge package...'
-                        if command -v apt-get &> /dev/null; then
-                            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null
-                        elif command -v yum &> /dev/null; then
-                            sudo yum install -y munge munge-libs 2>/dev/null
-                        elif command -v dnf &> /dev/null; then
-                            sudo dnf install -y munge munge-libs 2>/dev/null
-                        fi
+                    # Verify munge package is installed (should have been installed via offline packages above)
+                    if ! dpkg -l | grep -q '^ii.*munge ' && ! rpm -q munge &> /dev/null 2>&1; then
+                        echo 'ERROR: munge package is not installed. Offline package installation may have failed.'
+                        exit 1
                     fi
 
                     # Create munge user if not exists
@@ -1340,20 +1501,26 @@ EOSQL
         if ! systemctl list-unit-files slurmdbd.service &>/dev/null; then
             log ERROR "slurmdbd.service not found!"
             log ERROR "slurmdbd package may not be installed properly"
-            log INFO "Attempting to install slurmdbd package..."
+            log INFO "Attempting to install slurmdbd from offline packages..."
 
             case $OS in
                 ubuntu|debian)
-                    apt-get update && apt-get install -y slurmdbd
+                    install_offline_package slurmdbd libslurm37
                     ;;
                 centos|rhel|rocky|almalinux)
-                    yum install -y slurm-slurmdbd
+                    local offline_rpm_dir="${PROJECT_ROOT}/offline_packages/rpm_packages"
+                    if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm-slurmdbd*.rpm &>/dev/null; then
+                        yum localinstall -y "$offline_rpm_dir"/slurm-slurmdbd*.rpm 2>/dev/null || true
+                    else
+                        log WARNING "No offline RPM packages found"
+                    fi
                     ;;
             esac
 
             # Check again
             if ! systemctl list-unit-files slurmdbd.service &>/dev/null; then
                 log ERROR "Failed to install slurmdbd - service file still not found"
+                log ERROR "Ensure slurmdbd package is in: ${PROJECT_ROOT}/offline_packages/apt_packages/"
                 log WARNING "Skipping SlurmDBD setup - accounting will not be available"
                 return 1
             fi
