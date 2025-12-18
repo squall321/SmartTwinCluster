@@ -635,6 +635,13 @@ generate_galera_config() {
         log INFO "[DRY-RUN] Config preview (first 20 lines):"
         echo "$config_content" | head -20
     else
+        # Ensure the directory exists before writing the config file
+        local galera_dir=$(dirname "$GALERA_CONFIG")
+        if [[ ! -d "$galera_dir" ]]; then
+            log WARNING "Directory $galera_dir does not exist, creating..."
+            mkdir -p "$galera_dir"
+        fi
+
         echo "$config_content" > "$GALERA_CONFIG"
         chmod 644 "$GALERA_CONFIG"
         log SUCCESS "Galera configuration written to $GALERA_CONFIG"
