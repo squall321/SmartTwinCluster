@@ -685,6 +685,48 @@ deploy_to_other_controllers() {
     fi
 }
 
+cleanup_existing_redis_cluster_state() {
+    # Clean up existing Redis cluster state to allow fresh cluster creation
+    # This handles "[ERR] Node X:6379 is not empty" errors
+    log INFO "Cleaning up existing Redis cluster state..."
+
+    local ip="$1"
+    local password="$2"
+
+    # Check if node has existing cluster data
+    local cluster_info
+    cluster_info=$(redis-cli -h "$ip" -p "$REDIS_PORT" -a "$password" --no-auth-warning CLUSTER INFO 2>/dev/null || echo "")
+
+    if echo "$cluster_info" | grep -q "cluster_state:ok"; then
+        log WARNING "  $ip: Node is part of existing cluster, resetting..."
+
+        # Flush all data
+        redis-cli -h "$ip" -p "$REDIS_PORT" -a "$password" --no-auth-warning FLUSHALL 2>/dev/null || true
+
+        # Reset cluster state
+        redis-cli -h "$ip" -p "$REDIS_PORT" -a "$password" --no-auth-warning CLUSTER RESET HARD 2>/dev/null || true
+
+        log SUCCESS "  $ip: Cluster state reset"
+    fi
+
+    # Check for nodes.conf file and remove it
+    if ssh $SSH_OPTS "$ORIGINAL_USER@$ip" "test -f /var/lib/redis/nodes.conf" 2>/dev/null; then
+        log INFO "  $ip: Removing stale nodes.conf..."
+        ssh $SSH_OPTS "$ORIGINAL_USER@$ip" "sudo rm -f /var/lib/redis/nodes*.conf 2>/dev/null || true" 2>/dev/null || true
+    fi
+
+    # Ensure Redis data directory is clean for cluster
+    local db_size
+    db_size=$(redis-cli -h "$ip" -p "$REDIS_PORT" -a "$password" --no-auth-warning DBSIZE 2>/dev/null | grep -oP '\d+' || echo "0")
+
+    if [[ "$db_size" -gt 0 ]]; then
+        log WARNING "  $ip: Found $db_size keys, flushing..."
+        redis-cli -h "$ip" -p "$REDIS_PORT" -a "$password" --no-auth-warning FLUSHALL 2>/dev/null || true
+    fi
+
+    return 0
+}
+
 create_cluster() {
     log INFO "Creating Redis Cluster..."
 
@@ -717,6 +759,16 @@ create_cluster() {
 
     if [[ "$CURRENT_IP" == "$first_node_ip" ]]; then
         log INFO "This is the first node, creating cluster..."
+
+        # Clean up existing cluster state on all nodes before creating new cluster
+        # This prevents "[ERR] Node X:6379 is not empty" errors
+        log INFO "Cleaning up existing cluster state on all nodes..."
+        while IFS= read -r ip; do
+            cleanup_existing_redis_cluster_state "$ip" "$REDIS_PASSWORD"
+        done < <(echo "$REDIS_CONTROLLERS" | jq -r '.[].ip_address')
+
+        # Small delay to ensure cleanup is complete
+        sleep 2
 
         # Use redis-cli to create cluster
         # --cluster-replicas 0 means no replicas (we'll add them later if needed)
