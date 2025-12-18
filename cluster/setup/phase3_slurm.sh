@@ -1360,6 +1360,52 @@ EOSQL
         fi
     fi
 
+    # Pre-flight checks before starting slurmdbd
+    if [[ "$DRY_RUN" == "false" ]]; then
+        log INFO "Running pre-flight checks before starting SlurmDBD..."
+
+        # Check 1: Munge service
+        if ! systemctl is-active --quiet munge; then
+            log WARNING "Munge service not active, attempting to start..."
+            systemctl start munge 2>/dev/null || true
+            sleep 2
+            if ! systemctl is-active --quiet munge; then
+                log ERROR "Munge service failed to start - SlurmDBD requires munge!"
+                log ERROR "Check munge key and permissions: ls -la /etc/munge/munge.key"
+                log WARNING "Continuing anyway, but SlurmDBD will likely fail..."
+            else
+                log SUCCESS "Munge service started successfully"
+            fi
+        else
+            log SUCCESS "Munge service is active"
+        fi
+
+        # Check 2: MariaDB connectivity
+        local mysql_host="${SLURMDBD_STORAGE_HOST}"
+        local mysql_check_cmd=""
+        if [[ "$mysql_host" == "localhost" ]]; then
+            mysql_check_cmd="mysql -u root -p'${DB_ROOT_PASSWORD}' -e 'SELECT 1' 2>/dev/null"
+        else
+            mysql_check_cmd="mysql -h '$mysql_host' -u root -p'${DB_ROOT_PASSWORD}' -e 'SELECT 1' 2>/dev/null"
+        fi
+
+        if eval "$mysql_check_cmd"; then
+            log SUCCESS "MariaDB connection successful"
+        else
+            log WARNING "MariaDB connection failed - checking if service is running..."
+            if systemctl is-active --quiet mariadb; then
+                log INFO "MariaDB is running but connection failed - check credentials"
+            elif systemctl is-active --quiet mysql; then
+                log INFO "MySQL is running but connection failed - check credentials"
+            else
+                log ERROR "MariaDB/MySQL service is not running!"
+                log INFO "Attempting to start mariadb..."
+                systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+                sleep 3
+            fi
+        fi
+    fi
+
     # Enable and start slurmdbd
     run_command "systemctl enable slurmdbd"
 
