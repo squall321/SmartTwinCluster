@@ -223,7 +223,7 @@ install_offline_package() {
     fi
 }
 
-# Install package on remote node using offline packages
+# Install package on remote node using offline packages (APT method)
 # Usage: install_offline_package_remote <remote_user> <remote_ip> <package_name> [package_name2...]
 install_offline_package_remote() {
     local remote_user="$1"
@@ -231,6 +231,8 @@ install_offline_package_remote() {
     shift 2
     local packages=("$@")
     local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+    local remote_pkg_dir="/tmp/offline_packages"
+    local repo_list="/etc/apt/sources.list.d/offline-local.list"
 
     if [[ ! -d "$offline_pkg_dir" ]]; then
         log ERROR "Offline package directory not found: $offline_pkg_dir"
@@ -238,7 +240,13 @@ install_offline_package_remote() {
     fi
 
     # Create temp directory on remote
-    ssh $SSH_OPTS "$remote_user@$remote_ip" "mkdir -p /tmp/offline_packages" 2>/dev/null || true
+    ssh $SSH_OPTS "$remote_user@$remote_ip" "sudo mkdir -p '$remote_pkg_dir' && sudo chmod 777 '$remote_pkg_dir'" 2>/dev/null || true
+
+    # Copy Packages.gz first (for APT)
+    if [[ -f "$offline_pkg_dir/Packages.gz" ]]; then
+        scp $SCP_OPTS "$offline_pkg_dir/Packages.gz" "$remote_user@$remote_ip:$remote_pkg_dir/" 2>/dev/null || true
+        scp $SCP_OPTS "$offline_pkg_dir/Packages" "$remote_user@$remote_ip:$remote_pkg_dir/" 2>/dev/null || true
+    fi
 
     # Copy packages and their dependencies
     local copied=0
@@ -246,7 +254,7 @@ install_offline_package_remote() {
         for deb_file in "$offline_pkg_dir"/${pkg}_*.deb "$offline_pkg_dir"/${pkg}-*.deb "$offline_pkg_dir"/lib${pkg}*.deb; do
             if [[ -f "$deb_file" ]]; then
                 log INFO "  Copying $(basename "$deb_file") to $remote_ip..."
-                scp $SCP_OPTS "$deb_file" "$remote_user@$remote_ip:/tmp/offline_packages/" 2>/dev/null && copied=$((copied + 1))
+                scp $SCP_OPTS "$deb_file" "$remote_user@$remote_ip:$remote_pkg_dir/" 2>/dev/null && copied=$((copied + 1))
             fi
         done
     done
@@ -256,16 +264,34 @@ install_offline_package_remote() {
         return 1
     fi
 
-    # Install on remote
-    log INFO "Installing packages on $remote_ip..."
+    # Install on remote using APT (not dpkg directly)
+    log INFO "Installing packages on $remote_ip via APT..."
     ssh $SSH_OPTS "$remote_user@$remote_ip" "
-        cd /tmp/offline_packages
-        # Install all .deb files
-        sudo dpkg -i *.deb 2>/dev/null || true
-        # Fix any dependency issues
-        sudo apt-get install -f -y 2>/dev/null || true
-        # Cleanup
-        rm -rf /tmp/offline_packages
+        cd '$remote_pkg_dir'
+
+        # Generate Packages.gz if not exists
+        if [ ! -f Packages.gz ]; then
+            if command -v dpkg-scanpackages &>/dev/null; then
+                dpkg-scanpackages . /dev/null > Packages 2>/dev/null
+                gzip -k -f Packages
+            fi
+        fi
+
+        # Setup local APT repository
+        echo 'deb [trusted=yes] file://$remote_pkg_dir ./' | sudo tee '$repo_list' > /dev/null
+
+        # Update APT cache with local repo
+        sudo apt-get update -o Dir::Etc::sourcelist='$repo_list' \
+                            -o Dir::Etc::sourceparts='-' \
+                            -o APT::Get::List-Cleanup='0' 2>/dev/null || true
+
+        # Install packages via APT (handles dependencies automatically)
+        sudo apt-get install -y --no-install-recommends ${packages[*]} 2>/dev/null || {
+            # Fallback: fix dependencies
+            sudo apt-get install -f -y 2>/dev/null || true
+        }
+
+        # Keep repo for future use (don't cleanup)
     " 2>/dev/null
 
     return 0
@@ -1209,10 +1235,18 @@ setup_munge() {
             if [[ "$munge_installed" == "no" ]]; then
                 log INFO "      Munge not installed on $ctrl_hostname, copying offline packages..."
                 local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+                local remote_pkg_dir="/tmp/munge_packages"
+                local repo_list="/etc/apt/sources.list.d/offline-munge.list"
 
                 if [[ -d "$offline_pkg_dir" ]]; then
                     # Create temp directory on remote
-                    ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "mkdir -p /tmp/munge_packages" 2>/dev/null || true
+                    ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "sudo mkdir -p '$remote_pkg_dir' && sudo chmod 777 '$remote_pkg_dir'" 2>/dev/null || true
+
+                    # Copy Packages.gz for APT
+                    if [[ -f "$offline_pkg_dir/Packages.gz" ]]; then
+                        scp $SCP_OPTS "$offline_pkg_dir/Packages.gz" "$ctrl_user@$ctrl_ip:$remote_pkg_dir/" 2>/dev/null || true
+                        scp $SCP_OPTS "$offline_pkg_dir/Packages" "$ctrl_user@$ctrl_ip:$remote_pkg_dir/" 2>/dev/null || true
+                    fi
 
                     # Copy munge packages
                     local munge_pkgs=("munge_"*.deb "libmunge2_"*.deb "libmunge-dev_"*.deb)
@@ -1220,25 +1254,41 @@ setup_munge() {
                         for pkg_file in "$offline_pkg_dir"/$pkg_pattern; do
                             if [[ -f "$pkg_file" ]]; then
                                 log INFO "        Copying $(basename "$pkg_file")..."
-                                scp $SCP_OPTS "$pkg_file" "$ctrl_user@$ctrl_ip:/tmp/munge_packages/" 2>/dev/null || true
+                                scp $SCP_OPTS "$pkg_file" "$ctrl_user@$ctrl_ip:$remote_pkg_dir/" 2>/dev/null || true
                             fi
                         done
                     done
 
-                    # Install packages on remote using dpkg
-                    log INFO "      Installing munge packages on $ctrl_hostname..."
+                    # Install packages on remote using APT (not dpkg directly)
+                    log INFO "      Installing munge packages on $ctrl_hostname via APT..."
                     ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "
-                        cd /tmp/munge_packages
-                        # Install in dependency order: libmunge2 -> munge
-                        sudo dpkg -i libmunge2_*.deb 2>/dev/null || true
-                        sudo dpkg -i munge_*.deb 2>/dev/null || true
-                        # Fix any dependency issues
-                        sudo apt-get install -f -y 2>/dev/null || true
-                        # Cleanup
-                        rm -rf /tmp/munge_packages
+                        cd '$remote_pkg_dir'
+
+                        # Generate Packages.gz if not exists
+                        if [ ! -f Packages.gz ]; then
+                            if command -v dpkg-scanpackages &>/dev/null; then
+                                dpkg-scanpackages . /dev/null > Packages 2>/dev/null
+                                gzip -k -f Packages
+                            fi
+                        fi
+
+                        # Setup local APT repository
+                        echo 'deb [trusted=yes] file://$remote_pkg_dir ./' | sudo tee '$repo_list' > /dev/null
+
+                        # Update APT cache with local repo
+                        sudo apt-get update -o Dir::Etc::sourcelist='$repo_list' \
+                                            -o Dir::Etc::sourceparts='-' \
+                                            -o APT::Get::List-Cleanup='0' 2>/dev/null || true
+
+                        # Install munge via APT (handles dependencies automatically)
+                        sudo apt-get install -y --no-install-recommends munge libmunge2 2>/dev/null || {
+                            sudo apt-get install -f -y 2>/dev/null || true
+                        }
+
+                        # Keep repo for future use
                     " 2>/dev/null || true
 
-                    log SUCCESS "      Munge packages installed on $ctrl_hostname"
+                    log SUCCESS "      Munge packages installed on $ctrl_hostname via APT"
                 else
                     log WARNING "      Offline package directory not found: $offline_pkg_dir"
                 fi
