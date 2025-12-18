@@ -637,17 +637,28 @@ setup_munge() {
                 log SUCCESS "      File transferred"
                 log INFO "      Installing munge key and restarting service..."
 
+                # More robust installation: ensure munge directory exists and has correct ownership
                 local ssh_error
                 ssh_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" \
-                    "sudo mv /tmp/munge.key.sync /etc/munge/munge.key && \
-                     sudo chown munge:munge /etc/munge/munge.key && \
+                    "sudo mkdir -p /etc/munge && \
+                     sudo mv /tmp/munge.key.sync /etc/munge/munge.key && \
+                     (sudo chown munge:munge /etc/munge/munge.key 2>/dev/null || sudo chown root:root /etc/munge/munge.key) && \
                      sudo chmod 400 /etc/munge/munge.key && \
-                     sudo systemctl restart munge" 2>&1)
+                     (sudo systemctl restart munge 2>/dev/null || sudo service munge restart 2>/dev/null || echo 'munge service not found')" 2>&1)
                 local ssh_exit=$?
 
                 if [[ $ssh_exit -eq 0 ]]; then
-                    log SUCCESS "      ✅ Munge key synced to $ctrl_hostname"
-                    sync_count=$((sync_count + 1))
+                    # Verify munge is actually running on the remote node
+                    local verify_error
+                    verify_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "systemctl is-active munge 2>/dev/null || echo 'inactive'" 2>&1)
+                    if [[ "$verify_error" == "active" ]]; then
+                        log SUCCESS "      ✅ Munge key synced to $ctrl_hostname (service running)"
+                        sync_count=$((sync_count + 1))
+                    else
+                        log WARNING "      ⚠️  Munge key copied but service not running on $ctrl_hostname"
+                        log WARNING "      Status: $verify_error"
+                        sync_count=$((sync_count + 1))  # Key was copied, count as partial success
+                    fi
                 else
                     log ERROR "      ❌ Failed to install munge key on $ctrl_hostname"
                     log ERROR "      Error: $ssh_error"
