@@ -741,15 +741,15 @@ monitoring:
 users:
   admin_user: admin
   slurm_user: slurm
-  slurm_uid: 1001
-  slurm_gid: 1001
+  slurm_uid: 64001
+  slurm_gid: 64001
   munge_user: munge
-  munge_uid: 1002
-  munge_gid: 1002
+  munge_uid: 64002
+  munge_gid: 64002
   cluster_users:
     - username: user01
-      uid: 2001
-      gid: 2001
+      uid: 65001
+      gid: 65001
       groups: [users, hpc]
 
 security:
