@@ -2202,56 +2202,181 @@ EOPY
                 log WARNING "  Could not setup offline repo on $hostname (may need online access)"
         fi
 
-        # Copy installation script
-        if ! scp $SCP_OPTS \
-            "${PROJECT_ROOT}/install_slurm_cgroup_v2.sh" \
-            "$ssh_user@$ip_address:/tmp/" &>/dev/null; then
-            log ERROR "Failed to copy install script to $hostname"
-            failed_count=$((failed_count + 1))
-            continue
-        fi
-
-        # Execute installation (use longer timeout for install)
-        # -n: Don't read from stdin (critical for while read loops!)
-        # Pass GLUSTER_MOUNT environment variable for offline mode detection
-        log INFO "  Running install_slurm_cgroup_v2.sh on $hostname..."
-
         # Save output to temp file to avoid subshell issues
         local install_log="/tmp/slurm_install_${hostname}.log"
 
-        # Debug: Show SSH command being executed
-        log INFO "  SSH command: ssh -n ... $ssh_user@$ip_address 'cd /tmp && sudo bash install_slurm_cgroup_v2.sh'"
+        # Check for prebuilt Slurm package (preferred for offline environments)
+        local PREBUILT_TARBALL="${PROJECT_ROOT}/offline_packages/slurm/slurm-23.11.10-prebuilt.tar.gz"
+        local use_prebuilt=false
 
-        # Execute with explicit error capture
-        if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh" > "$install_log" 2>&1; then
-            local install_exit_code=$?
-            log ERROR "Failed to install Slurm on $hostname (exit code: $install_exit_code)"
-            log ERROR "  Install log file: $install_log"
-            if [[ -f "$install_log" ]] && [[ -s "$install_log" ]]; then
-                log ERROR "  === Last 50 lines of output ==="
-                while IFS= read -r line; do
-                    echo "    [LOG] $line"
-                done < <(tail -50 "$install_log")
-                log ERROR "  === End of output ==="
-            else
-                log ERROR "  (Log file empty or not created)"
-                # Try to get more info about why it failed
-                log ERROR "  Checking if script exists on remote..."
-                ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                    "ls -la /tmp/install_slurm_cgroup_v2.sh 2>&1" || log ERROR "    Script not found on remote!"
-            fi
-            failed_count=$((failed_count + 1))
-            continue
+        if [[ -f "$PREBUILT_TARBALL" ]]; then
+            log INFO "  Found prebuilt Slurm package, using offline deployment..."
+            use_prebuilt=true
+        else
+            log WARNING "  Prebuilt package not found: $PREBUILT_TARBALL"
+            log INFO "  Falling back to source compilation (requires internet)"
         fi
 
-        log SUCCESS "Slurm installed on $hostname"
+        if [[ "$use_prebuilt" == "true" ]]; then
+            # === PREBUILT PACKAGE DEPLOYMENT (OFFLINE) ===
+
+            # Get UID/GID from YAML config (default to 64001 to avoid conflicts with system accounts like opsadmin)
+            local target_slurm_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('uid', 64001))" 2>/dev/null || echo 64001)
+            local target_slurm_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('gid', 64001))" 2>/dev/null || echo 64001)
+
+            # Create slurm user on remote node BEFORE deploying (to avoid UID 1001 conflict in deploy_slurm.sh)
+            log INFO "  Creating slurm user on $hostname (UID=$target_slurm_uid, GID=$target_slurm_gid)..."
+            ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "if ! id slurm &>/dev/null; then \
+                    sudo groupadd -g $target_slurm_gid slurm 2>/dev/null || sudo groupadd slurm 2>/dev/null || true; \
+                    sudo useradd -u $target_slurm_uid -g slurm -m -s /bin/bash slurm 2>/dev/null || sudo useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true; \
+                fi" >> "$install_log" 2>&1 || log WARNING "  Could not create slurm user (may already exist)"
+
+            # Also create munge user with proper UID
+            local target_munge_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('munge_uid', 64002))" 2>/dev/null || echo 64002)
+            local target_munge_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('munge_gid', 64002))" 2>/dev/null || echo 64002)
+
+            log INFO "  Creating munge user on $hostname (UID=$target_munge_uid, GID=$target_munge_gid)..."
+            ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "if ! id munge &>/dev/null; then \
+                    sudo groupadd -g $target_munge_gid munge 2>/dev/null || sudo groupadd munge 2>/dev/null || true; \
+                    sudo useradd -u $target_munge_uid -g munge -m -s /sbin/nologin munge 2>/dev/null || sudo useradd -g munge -m -s /sbin/nologin munge 2>/dev/null || true; \
+                fi" >> "$install_log" 2>&1 || log WARNING "  Could not create munge user (may already exist)"
+
+            log INFO "  Copying prebuilt Slurm package to $hostname..."
+
+            # Copy prebuilt tarball
+            if ! scp $SCP_OPTS "$PREBUILT_TARBALL" "$ssh_user@$ip_address:/tmp/" 2>&1 | tee -a "$install_log"; then
+                log ERROR "Failed to copy prebuilt tarball to $hostname"
+                failed_count=$((failed_count + 1))
+                continue
+            fi
+
+            # Extract and deploy prebuilt package
+            log INFO "  Deploying prebuilt Slurm on $hostname..."
+
+            if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+                "cd /tmp && tar -xzf slurm-23.11.10-prebuilt.tar.gz && sudo bash deploy_slurm.sh" >> "$install_log" 2>&1; then
+                local install_exit_code=$?
+                log ERROR "Failed to deploy prebuilt Slurm on $hostname (exit code: $install_exit_code)"
+                log ERROR "  Install log file: $install_log"
+                if [[ -f "$install_log" ]] && [[ -s "$install_log" ]]; then
+                    log ERROR "  === Last 50 lines of output ==="
+                    while IFS= read -r line; do
+                        echo "    [LOG] $line"
+                    done < <(tail -50 "$install_log")
+                    log ERROR "  === End of output ==="
+                fi
+                failed_count=$((failed_count + 1))
+                continue
+            fi
+
+            # Setup slurmd systemd service for prebuilt package
+            log INFO "  Creating slurmd systemd service on $hostname..."
+            ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "sudo tee /etc/systemd/system/slurmd.service > /dev/null << 'EOFSVC'
+[Unit]
+Description=Slurm node daemon
+After=munge.service network-online.target remote-fs.target
+Wants=network-online.target
+ConditionPathExists=/opt/slurm/etc/slurm.conf
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/slurmd
+ExecStart=/opt/slurm/sbin/slurmd -D \$SLURMD_OPTIONS
+ExecReload=/bin/kill -HUP \$MAINPID
+KillMode=process
+LimitNOFILE=131072
+LimitMEMLOCK=infinity
+LimitSTACK=infinity
+Delegate=yes
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOFSVC
+sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not create slurmd service file"
+
+            # Also need to install Munge package via offline APT repo (if available)
+            log INFO "  Installing Munge on $hostname..."
+            ssh -n -o BatchMode=yes -o ConnectTimeout=120 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "if ! command -v munge &>/dev/null; then \
+                    if [[ -f $GLUSTER_MOUNT/offline_packages/apt_packages/Packages.gz ]]; then \
+                        echo 'deb [trusted=yes] file://$GLUSTER_MOUNT/offline_packages/apt_packages ./' | sudo tee /etc/apt/sources.list.d/offline-gluster.list > /dev/null && \
+                        sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/offline-gluster.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 2>/dev/null || true && \
+                        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends munge libmunge2 2>/dev/null || \
+                        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null || true; \
+                    else \
+                        sudo DEBIAN_FRONTEND=noninteractive apt-get update && \
+                        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null || true; \
+                    fi; \
+                fi" >> "$install_log" 2>&1 || log WARNING "  Munge installation may need manual attention"
+
+            # Setup Munge on compute node (copy key from controller)
+            log INFO "  Setting up Munge key on $hostname..."
+            if [[ -f /etc/munge/munge.key ]]; then
+                scp $SCP_OPTS /etc/munge/munge.key "$ssh_user@$ip_address:/tmp/munge.key" 2>/dev/null || true
+                ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                    "sudo mkdir -p /etc/munge /var/log/munge /var/lib/munge /run/munge && \
+                     sudo mv /tmp/munge.key /etc/munge/munge.key && \
+                     sudo chown -R munge:munge /etc/munge /var/log/munge /var/lib/munge /run/munge 2>/dev/null || true && \
+                     sudo chmod 700 /etc/munge /var/lib/munge && \
+                     sudo chmod 400 /etc/munge/munge.key && \
+                     sudo systemctl enable munge && \
+                     sudo systemctl restart munge" >> "$install_log" 2>&1 || log WARNING "  Munge key setup may need manual attention"
+            fi
+
+            log SUCCESS "Prebuilt Slurm deployed on $hostname"
+        else
+            # === SOURCE COMPILATION FALLBACK (ONLINE) ===
+            # Copy installation script
+            if ! scp $SCP_OPTS \
+                "${PROJECT_ROOT}/install_slurm_cgroup_v2.sh" \
+                "$ssh_user@$ip_address:/tmp/" &>/dev/null; then
+                log ERROR "Failed to copy install script to $hostname"
+                failed_count=$((failed_count + 1))
+                continue
+            fi
+
+            # Execute installation (use longer timeout for install)
+            log INFO "  Running install_slurm_cgroup_v2.sh on $hostname (source compilation)..."
+            log INFO "  SSH command: ssh -n ... $ssh_user@$ip_address 'cd /tmp && sudo bash install_slurm_cgroup_v2.sh'"
+
+            # Execute with explicit error capture
+            if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+                "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh" > "$install_log" 2>&1; then
+                local install_exit_code=$?
+                log ERROR "Failed to install Slurm on $hostname (exit code: $install_exit_code)"
+                log ERROR "  Install log file: $install_log"
+                if [[ -f "$install_log" ]] && [[ -s "$install_log" ]]; then
+                    log ERROR "  === Last 50 lines of output ==="
+                    while IFS= read -r line; do
+                        echo "    [LOG] $line"
+                    done < <(tail -50 "$install_log")
+                    log ERROR "  === End of output ==="
+                else
+                    log ERROR "  (Log file empty or not created)"
+                    log ERROR "  Checking if script exists on remote..."
+                    ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                        "ls -la /tmp/install_slurm_cgroup_v2.sh 2>&1" || log ERROR "    Script not found on remote!"
+                fi
+                failed_count=$((failed_count + 1))
+                continue
+            fi
+
+            log SUCCESS "Slurm installed on $hostname (from source)"
+        fi
+
         rm -f "$install_log" 2>/dev/null || true
 
-        # Copy slurm.conf - detect remote path
+        # Copy slurm.conf - detect remote path (check prebuilt path /opt/slurm/etc first)
         local remote_slurm_conf
         remote_slurm_conf=$(ssh $SSH_OPTS "$ssh_user@$ip_address" \
-            "if [ -d /etc/slurm ]; then echo /etc/slurm/slurm.conf; elif [ -d /usr/local/slurm/etc ]; then echo /usr/local/slurm/etc/slurm.conf; else echo /etc/slurm/slurm.conf; fi" 2>/dev/null)
+            "if [ -d /opt/slurm/etc ]; then echo /opt/slurm/etc/slurm.conf; \
+             elif [ -d /usr/local/slurm/etc ]; then echo /usr/local/slurm/etc/slurm.conf; \
+             elif [ -d /etc/slurm ]; then echo /etc/slurm/slurm.conf; \
+             else echo /opt/slurm/etc/slurm.conf; fi" 2>/dev/null)
 
         if scp $SCP_OPTS \
             "$SLURM_CONFIG" \
