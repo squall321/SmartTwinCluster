@@ -2255,8 +2255,13 @@ EOPY
             # Extract and deploy prebuilt package
             log INFO "  Deploying prebuilt Slurm on $hostname..."
 
+            # Create dedicated extraction directory to avoid /tmp permission issues
             if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-                "cd /tmp && tar -xzf slurm-23.11.10-prebuilt.tar.gz && sudo bash deploy_slurm.sh" >> "$install_log" 2>&1; then
+                "sudo rm -rf /tmp/slurm_prebuilt && \
+                 mkdir -p /tmp/slurm_prebuilt && \
+                 cd /tmp/slurm_prebuilt && \
+                 tar --no-same-owner --no-same-permissions -xzf /tmp/slurm-23.11.10-prebuilt.tar.gz && \
+                 sudo bash deploy_slurm.sh" >> "$install_log" 2>&1; then
                 local install_exit_code=$?
                 log ERROR "Failed to deploy prebuilt Slurm on $hostname (exit code: $install_exit_code)"
                 log ERROR "  Install log file: $install_log"
@@ -2326,6 +2331,10 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
                      sudo systemctl enable munge && \
                      sudo systemctl restart munge" >> "$install_log" 2>&1 || log WARNING "  Munge key setup may need manual attention"
             fi
+
+            # Cleanup temporary files
+            ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "rm -rf /tmp/slurm_prebuilt /tmp/slurm-23.11.10-prebuilt.tar.gz" 2>/dev/null || true
 
             log SUCCESS "Prebuilt Slurm deployed on $hostname"
         else
