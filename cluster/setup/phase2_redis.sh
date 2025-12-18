@@ -152,13 +152,14 @@ echo "[DEBUG] ORIGINAL_HOME=$ORIGINAL_HOME, SSH_KEY_FILE=$SSH_KEY_FILE" >&2
 echo "[DEBUG] SSH key exists: $(test -f "$SSH_KEY_FILE" && echo 'YES' || echo 'NO')" >&2
 
 # Build SSH options - include identity file if it exists
+# -n: Don't read from stdin (critical for while read loops!)
 if [[ -f "$SSH_KEY_FILE" ]]; then
     echo "[DEBUG] Using SSH key: $SSH_KEY_FILE" >&2
-    SSH_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SSH_OPTS="-n -i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
     SCP_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no"
 else
     echo "[DEBUG] SSH key not found, using default SSH options" >&2
-    SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SSH_OPTS="-n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
     SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no"
 fi
 

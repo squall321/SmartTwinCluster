@@ -69,10 +69,12 @@ ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
 SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
 
 if [[ -f "$SSH_KEY_FILE" ]]; then
-    SSH_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    # -n: Don't read from stdin (critical for while read loops!)
+    SSH_OPTS="-n -i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
     SCP_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
 else
-    SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    # -n: Don't read from stdin (critical for while read loops!)
+    SSH_OPTS="-n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
     SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
 fi
 
@@ -1224,7 +1226,8 @@ EOPY
         fi
 
         # Execute installation (use longer timeout for install)
-        if ssh -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+        # -n: Don't read from stdin (critical for while read loops!)
+        if ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
             "cd /tmp && sudo bash install_slurm_cgroup_v2.sh" &>/dev/null; then
             log SUCCESS "Slurm installed on $hostname"
         else

@@ -139,17 +139,49 @@ EOPY
     echo "$nodes_json"
 }
 
+# GlusterFS 설정 추출
+get_glusterfs_config() {
+    python3 << EOPY
+import yaml
+import json
+
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+
+# GlusterFS 설정
+gluster = config.get('shared_storage', {}).get('glusterfs', {})
+mount_point = gluster.get('mount_point', '/mnt/gluster')
+volume_name = gluster.get('volume_name', 'shared_data')
+
+# 첫 번째 controller IP (GlusterFS 서버)
+controllers = config.get('nodes', {}).get('controllers', [])
+gluster_server = controllers[0]['ip_address'] if controllers else ''
+
+result = {
+    'mount_point': mount_point,
+    'volume_name': volume_name,
+    'gluster_server': gluster_server
+}
+
+print(json.dumps(result))
+EOPY
+}
+
 # 단일 노드 배포
 deploy_to_node() {
     local node_hostname="$1"
     local node_ip="$2"
     local node_user="$3"
+    local gluster_server="$4"
+    local gluster_volume="$5"
+    local gluster_mount="$6"
 
     log_info "[$node_hostname] Starting deployment..."
 
     # DRY-RUN
     if [[ "$DRY_RUN" == "true" ]]; then
         log_warning "[$node_hostname] DRY-RUN: Would deploy to $node_user@$node_ip"
+        log_warning "[$node_hostname] DRY-RUN: GlusterFS: $gluster_server:/$gluster_volume -> $gluster_mount"
         return 0
     fi
 
@@ -184,11 +216,15 @@ deploy_to_node() {
     # 원격 설치 스크립트 실행
     log_info "[$node_hostname] Installing packages..."
 
-    ssh "$node_user@$node_ip" bash << 'EOFREMOTE'
+    ssh "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" << 'EOFREMOTE'
 set -e
 
+GLUSTER_SERVER="$1"
+GLUSTER_VOLUME="$2"
+GLUSTER_MOUNT="$3"
+
 echo "═══════════════════════════════════════════════════════════"
-echo "  Offline Package Installation"
+echo "  Offline Package Installation (Compute Node)"
 echo "═══════════════════════════════════════════════════════════"
 
 # 1. APT 패키지 설치
@@ -222,9 +258,94 @@ else
     echo "WARNING: Munge package not found"
 fi
 
+# 4. GlusterFS 클라이언트 + autofs 설정
 echo ""
+echo "Step 4: Setting up GlusterFS client with autofs..."
+
+if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
+    # GlusterFS 클라이언트 설치 확인
+    if ! dpkg -l | grep -q glusterfs-client; then
+        echo "  Installing glusterfs-client..."
+        sudo apt-get update -qq
+        sudo apt-get install -y glusterfs-client autofs 2>/dev/null || {
+            echo "  WARNING: Could not install glusterfs-client (may need offline package)"
+        }
+    else
+        echo "  glusterfs-client already installed"
+    fi
+
+    # autofs 설치 확인
+    if ! dpkg -l | grep -q autofs; then
+        sudo apt-get install -y autofs 2>/dev/null || {
+            echo "  WARNING: Could not install autofs"
+        }
+    fi
+
+    # autofs 설정
+    echo "  Configuring autofs for GlusterFS..."
+
+    # /etc/auto.master에 gluster 맵 추가
+    AUTOFS_MASTER="/etc/auto.master"
+    AUTOFS_GLUSTER="/etc/auto.gluster"
+
+    # 마운트 포인트의 부모 디렉토리 (예: /mnt/gluster -> /mnt)
+    MOUNT_PARENT=$(dirname "$GLUSTER_MOUNT")
+    MOUNT_NAME=$(basename "$GLUSTER_MOUNT")
+
+    # auto.master 설정 (이미 있으면 건너뜀)
+    if ! grep -q "auto.gluster" "$AUTOFS_MASTER" 2>/dev/null; then
+        echo "" | sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        echo "# GlusterFS autofs mount (added by cluster deploy)" | sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        echo "$MOUNT_PARENT /etc/auto.gluster --timeout=300 --ghost" | sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        echo "  Added entry to $AUTOFS_MASTER"
+    else
+        echo "  autofs entry already exists in $AUTOFS_MASTER"
+    fi
+
+    # auto.gluster 맵 파일 생성
+    # 옵션 설명:
+    #   -fstype=glusterfs  : GlusterFS 타입
+    #   backup-volfile-servers : 백업 서버 (HA)
+    #   log-level=WARNING  : 로그 레벨
+    #   _netdev            : 네트워크 의존
+    sudo tee "$AUTOFS_GLUSTER" > /dev/null << EOFAUTOFS
+# GlusterFS autofs map
+# Format: mount_name  -options  server:/volume
+$MOUNT_NAME  -fstype=glusterfs,log-level=WARNING,backup-volfile-servers=$GLUSTER_SERVER  $GLUSTER_SERVER:/$GLUSTER_VOLUME
+EOFAUTOFS
+
+    echo "  Created $AUTOFS_GLUSTER"
+
+    # autofs 재시작
+    sudo systemctl enable autofs
+    sudo systemctl restart autofs
+
+    echo "  autofs service restarted"
+
+    # 마운트 테스트 (접근하면 자동 마운트됨)
+    echo "  Testing GlusterFS mount..."
+    if ls "$GLUSTER_MOUNT" &>/dev/null; then
+        echo "  ✓ GlusterFS mount accessible at $GLUSTER_MOUNT"
+    else
+        echo "  WARNING: GlusterFS mount test failed (server may be down)"
+        echo "  Mount will be attempted automatically when accessed"
+    fi
+else
+    echo "  Skipping GlusterFS setup (no server configured)"
+fi
+
+echo ""
+echo "═══════════════════════════════════════════════════════════"
 echo "✅ Offline package installation complete!"
 echo ""
+echo "GlusterFS autofs configuration:"
+echo "  - Mount point: $GLUSTER_MOUNT (auto-mount on access)"
+echo "  - Server: $GLUSTER_SERVER"
+echo "  - Volume: $GLUSTER_VOLUME"
+echo "  - Timeout: 300s (unmount after 5min idle)"
+echo ""
+echo "Test with: ls $GLUSTER_MOUNT"
+echo "═══════════════════════════════════════════════════════════"
 EOFREMOTE
 
     if [[ $? -eq 0 ]]; then
@@ -239,9 +360,13 @@ EOFREMOTE
 # 병렬 배포
 deploy_all_nodes() {
     local nodes_json="$1"
+    local gluster_server="$2"
+    local gluster_volume="$3"
+    local gluster_mount="$4"
     local total_nodes=$(echo "$nodes_json" | jq '. | length')
 
     log_info "Total compute nodes: $total_nodes"
+    log_info "GlusterFS: $gluster_server:/$gluster_volume -> $gluster_mount"
 
     if [[ "$SPECIFIC_NODE" != "" ]]; then
         log_info "Deploying to specific node only: $SPECIFIC_NODE"
@@ -275,7 +400,7 @@ deploy_all_nodes() {
 
         # 백그라운드 배포
         (
-            if deploy_to_node "$hostname" "$ip" "$user"; then
+            if deploy_to_node "$hostname" "$ip" "$user" "$gluster_server" "$gluster_volume" "$gluster_mount"; then
                 echo "SUCCESS:$hostname" >> /tmp/deploy_results_$$.txt
             else
                 echo "FAILED:$hostname" >> /tmp/deploy_results_$$.txt
@@ -320,6 +445,12 @@ print_summary() {
     echo "║          계산 노드 배포 완료!                             ║"
     echo "╚════════════════════════════════════════════════════════════╝"
     echo ""
+    log_info "설치된 항목:"
+    echo "  ✓ APT 패키지 (오프라인)"
+    echo "  ✓ Slurm (slurmd)"
+    echo "  ✓ Munge 인증"
+    echo "  ✓ GlusterFS 클라이언트 + autofs"
+    echo ""
     log_info "Next Steps:"
     echo "  1. Verify Munge authentication:"
     echo "     ssh node001 'munge -n | unmunge'"
@@ -327,8 +458,17 @@ print_summary() {
     echo "  2. Check Slurm version:"
     echo "     ssh node001 'slurmd -V'"
     echo ""
-    echo "  3. Start slurmd on all nodes:"
+    echo "  3. Test GlusterFS mount (autofs):"
+    echo "     ssh node001 'ls /mnt/gluster'"
+    echo ""
+    echo "  4. Start slurmd on all nodes:"
     echo "     sudo ./cluster/start_multihead.sh --phase slurm"
+    echo ""
+    log_info "autofs 특징:"
+    echo "  - 부팅 시 마운트하지 않음 (부팅 실패 방지)"
+    echo "  - 접근 시 자동 마운트"
+    echo "  - 5분 미사용 시 자동 언마운트"
+    echo "  - Controller 다운 시에도 부팅 정상"
     echo ""
 }
 
@@ -363,7 +503,19 @@ main() {
 
     local nodes=$(get_compute_nodes)
 
-    if deploy_all_nodes "$nodes"; then
+    # GlusterFS 설정 추출
+    log_info "Extracting GlusterFS configuration..."
+    local gluster_config=$(get_glusterfs_config)
+    local gluster_server=$(echo "$gluster_config" | jq -r '.gluster_server')
+    local gluster_volume=$(echo "$gluster_config" | jq -r '.volume_name')
+    local gluster_mount=$(echo "$gluster_config" | jq -r '.mount_point')
+
+    log_info "GlusterFS Server: $gluster_server"
+    log_info "GlusterFS Volume: $gluster_volume"
+    log_info "Mount Point:      $gluster_mount"
+    echo ""
+
+    if deploy_all_nodes "$nodes" "$gluster_server" "$gluster_volume" "$gluster_mount"; then
         print_summary
         log_success "All nodes deployed successfully!"
         exit 0

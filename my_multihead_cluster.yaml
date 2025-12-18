@@ -505,7 +505,7 @@ shared_storage:
     volume_name: shared_data
     volume_type: replica
     replica_count: auto
-    brick_path: /srv/glusterfs/shared
+    brick_path: /scratch/glusterfs/brick
     mount_point: /mnt/gluster
     options:
       performance.cache-size: 256MB
