@@ -1573,6 +1573,25 @@ EOSQL
         fi
     fi
 
+    # Cleanup before starting slurmdbd
+    if [[ "$DRY_RUN" == "false" ]]; then
+        # Create PID directory with correct permissions
+        log INFO "Preparing slurmdbd runtime directories..."
+        mkdir -p /run/slurm /var/run/slurm
+        chown slurm:slurm /run/slurm /var/run/slurm 2>/dev/null || true
+        chmod 755 /run/slurm /var/run/slurm
+
+        # Kill any leftover slurmdbd processes
+        if pgrep -x slurmdbd > /dev/null 2>&1; then
+            log WARNING "Found leftover slurmdbd processes, killing them..."
+            pkill -9 -x slurmdbd 2>/dev/null || true
+            sleep 2
+        fi
+
+        # Remove stale PID files
+        rm -f /run/slurm/slurmdbd.pid /var/run/slurm/slurmdbd.pid /var/run/slurmdbd.pid 2>/dev/null || true
+    fi
+
     # Enable and start slurmdbd
     run_command "systemctl enable slurmdbd"
 
