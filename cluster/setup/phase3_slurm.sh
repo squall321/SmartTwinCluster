@@ -471,56 +471,96 @@ setup_munge() {
     else
         # Secondary controller: Sync munge key from first controller
         log INFO "Synchronizing munge key from primary controller ($first_controller_ip)..."
+        log INFO ""
 
         local first_controller_user=$(echo "$SLURM_CONTROLLERS" | jq -r '.[0].ssh_user // "root"')
 
         if [[ "$DRY_RUN" == "false" ]]; then
-            # Backup existing key if present
-            if [[ -f /etc/munge/munge.key ]]; then
-                cp /etc/munge/munge.key /etc/munge/munge.key.backup.$(date +%Y%m%d_%H%M%S)
-                log INFO "Existing munge key backed up"
-            fi
+            # First, test SSH connectivity to primary controller
+            log INFO "  Testing SSH connectivity to primary controller..."
+            local ssh_test_output
+            ssh_test_output=$(ssh $SSH_OPTS "$first_controller_user@$first_controller_ip" "echo 'SSH OK'" 2>&1)
+            local ssh_test_exit=$?
 
-            # Copy munge key from first controller
-            local max_attempts=3
-            local attempt=1
-            local synced=false
-
-            while [[ $attempt -le $max_attempts ]]; do
-                log INFO "Attempt $attempt/$max_attempts: Fetching munge key from $first_controller_ip..."
-
-                if scp $SCP_OPTS "$first_controller_user@$first_controller_ip:/etc/munge/munge.key" /tmp/munge.key.sync 2>/dev/null; then
-                    # Verify key is valid (non-empty)
-                    if [[ -s /tmp/munge.key.sync ]]; then
-                        mv /tmp/munge.key.sync /etc/munge/munge.key
-                        log SUCCESS "Munge key synchronized from primary controller"
-                        synced=true
-                        break
-                    else
-                        log WARNING "Received empty munge key, retrying..."
-                        rm -f /tmp/munge.key.sync
-                    fi
-                else
-                    log WARNING "Failed to copy munge key, retrying..."
-                fi
-
-                attempt=$((attempt + 1))
-                sleep 2
-            done
-
-            if [[ "$synced" == "false" ]]; then
-                log ERROR "Failed to synchronize munge key after $max_attempts attempts"
-                log ERROR "Slurm authentication will fail between nodes!"
+            if [[ $ssh_test_exit -ne 0 ]]; then
+                log ERROR "  ❌ Cannot SSH to primary controller ($first_controller_ip)"
+                log ERROR "  SSH error: $ssh_test_output"
                 log ERROR ""
-                log ERROR "Manual fix:"
-                log ERROR "  1. On primary controller: cat /etc/munge/munge.key | base64"
-                log ERROR "  2. On this node: echo '<base64_output>' | base64 -d > /etc/munge/munge.key"
+                log ERROR "  Possible causes:"
+                log ERROR "  - SSH key not configured"
+                log ERROR "  - Primary controller not reachable"
+                log ERROR "  - Firewall blocking SSH"
+                log ERROR ""
+                log ERROR "  Manual check: ssh $first_controller_user@$first_controller_ip"
                 log ERROR ""
 
-                # Generate a local key as fallback (will cause auth issues but won't crash)
+                # Generate local key as fallback
                 if [[ ! -f /etc/munge/munge.key ]]; then
                     log WARNING "Generating local munge key as fallback (NOT RECOMMENDED)"
+                    log WARNING "⚠️  Slurm authentication will fail between controllers!"
                     create-munge-key -f
+                fi
+            else
+                log SUCCESS "  SSH connectivity OK"
+
+                # Backup existing key if present
+                if [[ -f /etc/munge/munge.key ]]; then
+                    cp /etc/munge/munge.key /etc/munge/munge.key.backup.$(date +%Y%m%d_%H%M%S)
+                    log INFO "  Existing munge key backed up"
+                fi
+
+                # Copy munge key from first controller
+                local max_attempts=3
+                local attempt=1
+                local synced=false
+
+                while [[ $attempt -le $max_attempts ]]; do
+                    log INFO "  Attempt $attempt/$max_attempts: Fetching munge key..."
+
+                    local scp_error
+                    scp_error=$(scp $SCP_OPTS "$first_controller_user@$first_controller_ip:/etc/munge/munge.key" /tmp/munge.key.sync 2>&1)
+                    local scp_exit=$?
+
+                    if [[ $scp_exit -eq 0 ]]; then
+                        # Verify key is valid (non-empty)
+                        if [[ -s /tmp/munge.key.sync ]]; then
+                            mv /tmp/munge.key.sync /etc/munge/munge.key
+                            log SUCCESS "  ✅ Munge key synchronized from primary controller"
+                            synced=true
+                            break
+                        else
+                            log WARNING "  Received empty munge key, retrying..."
+                            rm -f /tmp/munge.key.sync
+                        fi
+                    else
+                        log WARNING "  SCP failed: $scp_error"
+                        log WARNING "  Retrying..."
+                    fi
+
+                    attempt=$((attempt + 1))
+                    sleep 2
+                done
+
+                if [[ "$synced" == "false" ]]; then
+                    log ERROR ""
+                    log ERROR "❌ Failed to synchronize munge key after $max_attempts attempts"
+                    log ERROR ""
+                    log ERROR "⚠️  Slurm authentication will fail between controllers!"
+                    log ERROR ""
+                    log ERROR "Manual fix options:"
+                    log ERROR "  Option 1: Copy directly"
+                    log ERROR "    scp $first_controller_user@$first_controller_ip:/etc/munge/munge.key /etc/munge/"
+                    log ERROR ""
+                    log ERROR "  Option 2: Base64 encoding (if scp fails)"
+                    log ERROR "    On primary controller: base64 /etc/munge/munge.key"
+                    log ERROR "    On this node: echo '<base64_output>' | base64 -d > /etc/munge/munge.key"
+                    log ERROR ""
+
+                    # Generate a local key as fallback (will cause auth issues but won't crash)
+                    if [[ ! -f /etc/munge/munge.key ]]; then
+                        log WARNING "Generating local munge key as fallback (NOT RECOMMENDED)"
+                        create-munge-key -f
+                    fi
                 fi
             fi
         else
@@ -551,9 +591,12 @@ setup_munge() {
     # If first controller, sync key to all other controllers
     if [[ "$is_first_controller" == "true" ]] && [[ "$DRY_RUN" == "false" ]]; then
         log INFO "Distributing munge key to other controllers..."
+        log INFO ""
 
         local sync_count=0
         local fail_count=0
+        local total_other_controllers=0
+        local failed_controllers=()
 
         while IFS= read -r controller; do
             local ctrl_ip=$(echo "$controller" | jq -r '.ip_address')
@@ -565,31 +608,80 @@ setup_munge() {
                 continue
             fi
 
-            log INFO "  Syncing munge key to $ctrl_hostname ($ctrl_ip)..."
+            total_other_controllers=$((total_other_controllers + 1))
+            log INFO "  [$total_other_controllers] Syncing munge key to $ctrl_hostname ($ctrl_ip)..."
 
-            if scp $SCP_OPTS /etc/munge/munge.key "$ctrl_user@$ctrl_ip:/tmp/munge.key.sync" 2>/dev/null; then
-                if ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" \
+            # First verify SSH connectivity to the target controller
+            log INFO "      Testing SSH connectivity..."
+            local ssh_test_output
+            ssh_test_output=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "echo 'SSH OK'" 2>&1)
+            local ssh_test_exit=$?
+
+            if [[ $ssh_test_exit -ne 0 ]]; then
+                log ERROR "      ❌ Cannot SSH to $ctrl_hostname ($ctrl_ip)"
+                log ERROR "      SSH error: $ssh_test_output"
+                log ERROR "      Manual check: ssh $ctrl_user@$ctrl_ip"
+                fail_count=$((fail_count + 1))
+                failed_controllers+=("$ctrl_hostname")
+                continue
+            fi
+            log SUCCESS "      SSH connectivity OK"
+
+            # Use a temporary variable to capture scp errors
+            log INFO "      Copying munge key..."
+            local scp_error
+            scp_error=$(scp $SCP_OPTS /etc/munge/munge.key "$ctrl_user@$ctrl_ip:/tmp/munge.key.sync" 2>&1)
+            local scp_exit=$?
+
+            if [[ $scp_exit -eq 0 ]]; then
+                log SUCCESS "      File transferred"
+                log INFO "      Installing munge key and restarting service..."
+
+                local ssh_error
+                ssh_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" \
                     "sudo mv /tmp/munge.key.sync /etc/munge/munge.key && \
                      sudo chown munge:munge /etc/munge/munge.key && \
                      sudo chmod 400 /etc/munge/munge.key && \
-                     sudo systemctl restart munge" 2>/dev/null; then
-                    log SUCCESS "  Munge key synced to $ctrl_hostname"
+                     sudo systemctl restart munge" 2>&1)
+                local ssh_exit=$?
+
+                if [[ $ssh_exit -eq 0 ]]; then
+                    log SUCCESS "      ✅ Munge key synced to $ctrl_hostname"
                     sync_count=$((sync_count + 1))
                 else
-                    log WARNING "  Failed to install munge key on $ctrl_hostname"
+                    log ERROR "      ❌ Failed to install munge key on $ctrl_hostname"
+                    log ERROR "      Error: $ssh_error"
                     fail_count=$((fail_count + 1))
+                    failed_controllers+=("$ctrl_hostname")
                 fi
             else
-                log WARNING "  Failed to copy munge key to $ctrl_hostname"
+                log ERROR "      ❌ Failed to copy munge key to $ctrl_hostname"
+                log ERROR "      SCP error: $scp_error"
                 fail_count=$((fail_count + 1))
+                failed_controllers+=("$ctrl_hostname")
             fi
+            log INFO ""
         done < <(echo "$SLURM_CONTROLLERS" | jq -c '.[]')
 
+        # Summary
+        log INFO "=== Munge Key Distribution Summary ==="
         if [[ $sync_count -gt 0 ]]; then
-            log SUCCESS "Munge key distributed to $sync_count controller(s)"
+            log SUCCESS "  ✅ Successfully synced: $sync_count controller(s)"
         fi
         if [[ $fail_count -gt 0 ]]; then
-            log WARNING "$fail_count controller(s) failed to sync - they may have auth issues"
+            log ERROR "  ❌ Failed: $fail_count controller(s)"
+            log ERROR "  Failed controllers: ${failed_controllers[*]}"
+            log ERROR ""
+            log ERROR "  ⚠️  IMPORTANT: Munge key must be identical on all controllers!"
+            log ERROR "  Without matching keys, slurmctld will fail to start."
+            log ERROR ""
+            log ERROR "  Manual fix options:"
+            log ERROR "  1. Copy key manually: scp /etc/munge/munge.key user@host:/etc/munge/"
+            log ERROR "  2. Fix SSH access and re-run this script"
+            log ERROR ""
+        fi
+        if [[ $total_other_controllers -eq 0 ]]; then
+            log INFO "  (No other controllers to sync - single controller setup)"
         fi
     fi
 }
@@ -970,6 +1062,8 @@ EOSQL
 
     # Enable and start slurmdbd
     run_command "systemctl enable slurmdbd"
+
+    log INFO "Starting slurmdbd service..."
     run_command "systemctl restart slurmdbd"
 
     # Verify service started
@@ -978,8 +1072,29 @@ EOSQL
         if systemctl is-active --quiet slurmdbd; then
             log SUCCESS "SlurmDBD started successfully"
         else
-            log WARNING "SlurmDBD may not have started properly"
-            log WARNING "Check: journalctl -u slurmdbd -n 30"
+            log ERROR "❌ SlurmDBD failed to start!"
+            log ERROR ""
+            log ERROR "=== SlurmDBD Diagnostic Information ==="
+            log ERROR "1. Service status:"
+            systemctl status slurmdbd --no-pager 2>&1 | head -15 || true
+            log ERROR ""
+            log ERROR "2. Recent logs:"
+            journalctl -u slurmdbd -n 20 --no-pager 2>&1 || true
+            log ERROR ""
+            log ERROR "3. Common causes:"
+            log ERROR "   - MariaDB not running or not reachable"
+            log ERROR "   - Wrong database credentials in slurmdbd.conf"
+            log ERROR "   - Munge service not running"
+            log ERROR "   - Permission issues on /var/log/slurm/"
+            log ERROR ""
+            log ERROR "4. Manual debug:"
+            log ERROR "   slurmdbd -Dvvv"
+            log ERROR ""
+            log ERROR "5. Check MariaDB connection:"
+            log ERROR "   mysql -h $SLURMDBD_STORAGE_HOST -u slurm_user -p slurm_acct_db"
+            log ERROR ""
+            # Don't exit - slurmctld can still work without accounting
+            log WARNING "Continuing without accounting database (SlurmDBD)..."
         fi
     else
         log SUCCESS "SlurmDBD setup completed (dry-run)"
@@ -989,10 +1104,56 @@ EOSQL
 start_slurmctld() {
     log INFO "Starting slurmctld service..."
 
+    # Pre-flight checks
+    log INFO "Pre-flight checks for slurmctld..."
+
+    # Check munge is running
+    if ! systemctl is-active --quiet munge; then
+        log WARNING "Munge service is not running - starting it first"
+        systemctl start munge
+        sleep 2
+        if ! systemctl is-active --quiet munge; then
+            log ERROR "Failed to start munge service"
+            log ERROR "Check: journalctl -u munge -n 30"
+            exit 1
+        fi
+    fi
+    log SUCCESS "  Munge service is running"
+
+    # Check slurm.conf exists
+    if [[ ! -f /etc/slurm/slurm.conf ]]; then
+        log ERROR "slurm.conf not found at /etc/slurm/slurm.conf"
+        exit 1
+    fi
+    log SUCCESS "  slurm.conf exists"
+
+    # Check slurm.conf syntax
+    if command -v slurmctld &>/dev/null; then
+        log INFO "  Checking slurm.conf syntax..."
+        local config_test
+        config_test=$(slurmctld -t 2>&1) || true
+        if [[ -n "$config_test" ]] && echo "$config_test" | grep -qi "error"; then
+            log WARNING "  Config issues found: $config_test"
+        fi
+    fi
+
+    # Check state directory permissions
+    local state_dir=$(grep "^StateSaveLocation" /etc/slurm/slurm.conf | awk -F= '{print $2}' | tr -d ' ')
+    if [[ -n "$state_dir" ]]; then
+        if [[ ! -d "$state_dir" ]]; then
+            log WARNING "State directory $state_dir does not exist - creating"
+            mkdir -p "$state_dir"
+            chown slurm:slurm "$state_dir"
+            chmod 755 "$state_dir"
+        fi
+        log SUCCESS "  State directory exists: $state_dir"
+    fi
+
     # Enable service
     run_command "systemctl enable slurmctld"
 
     # Start service
+    log INFO "Starting slurmctld..."
     run_command "systemctl restart slurmctld"
 
     # Wait for service to start
@@ -1003,7 +1164,22 @@ start_slurmctld() {
             log SUCCESS "slurmctld started successfully"
         else
             log ERROR "Failed to start slurmctld"
-            log ERROR "Check logs: journalctl -u slurmctld -n 50"
+            log ERROR ""
+            log ERROR "=== Diagnostic Information ==="
+            log ERROR "1. Service status:"
+            systemctl status slurmctld --no-pager 2>&1 | head -20 || true
+            log ERROR ""
+            log ERROR "2. Recent logs:"
+            journalctl -u slurmctld -n 30 --no-pager 2>&1 || true
+            log ERROR ""
+            log ERROR "3. Check these common issues:"
+            log ERROR "   - Munge key mismatch between controllers"
+            log ERROR "   - SlurmDBD not running (if accounting enabled)"
+            log ERROR "   - Incorrect hostname/IP in slurm.conf"
+            log ERROR "   - State directory permissions"
+            log ERROR ""
+            log ERROR "Run manually to see detailed errors:"
+            log ERROR "   slurmctld -Dvvv"
             exit 1
         fi
     fi
