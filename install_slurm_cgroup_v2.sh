@@ -118,28 +118,37 @@ echo ""
 echo "📦 Step 1/7: 필수 패키지 설치 중..."
 echo "--------------------------------------------------------------------------------"
 
-# 오프라인 APT 저장소 설정 (GlusterFS 기반)
-# 이 스크립트가 오프라인 환경에서 실행될 경우, GlusterFS에 마운트된 패키지를 사용
+# 오프라인 APT 저장소 설정 (SCP로 복사된 로컬 패키지 또는 GlusterFS 기반)
+# 이 스크립트가 오프라인 환경에서 실행될 경우, 복사된 패키지를 사용
 setup_offline_apt_repo() {
-    local gluster_mount="${GLUSTER_MOUNT:-/mnt/gluster}"
-    local offline_pkg_path="${gluster_mount}/offline_packages/apt_packages"
-    local repo_list="/etc/apt/sources.list.d/glusterfs-offline.list"
+    local repo_list="/etc/apt/sources.list.d/offline-slurm.list"
+    local offline_pkg_path=""
 
     echo "🔍 오프라인 APT 저장소 확인 중..."
 
-    # GlusterFS 마운트 확인
-    if ! mount | grep -q "$gluster_mount"; then
-        echo "⚠️  GlusterFS가 마운트되지 않음: $gluster_mount"
+    # 1. 먼저 SCP로 복사된 /tmp/offline_packages 확인 (우선순위 높음)
+    if [ -d "/tmp/offline_packages" ] && [ -f "/tmp/offline_packages/Packages.gz" ]; then
+        offline_pkg_path="/tmp/offline_packages"
+        echo "✅ SCP로 복사된 오프라인 패키지 발견: $offline_pkg_path"
+    # 2. GlusterFS 마운트 확인
+    else
+        local gluster_mount="${GLUSTER_MOUNT:-/mnt/gluster}"
+        local gluster_pkg_path="${gluster_mount}/offline_packages/apt_packages"
+
+        if mount | grep -q "$gluster_mount" && [ -d "$gluster_pkg_path" ]; then
+            offline_pkg_path="$gluster_pkg_path"
+            echo "✅ GlusterFS 오프라인 패키지 발견: $offline_pkg_path"
+        fi
+    fi
+
+    # 오프라인 패키지를 찾지 못한 경우
+    if [ -z "$offline_pkg_path" ]; then
+        echo "⚠️  오프라인 패키지 디렉토리를 찾을 수 없음"
+        echo "   확인 위치: /tmp/offline_packages, ${GLUSTER_MOUNT:-/mnt/gluster}/offline_packages/apt_packages"
         return 1
     fi
 
-    # 오프라인 패키지 디렉토리 확인
-    if [ ! -d "$offline_pkg_path" ]; then
-        echo "⚠️  오프라인 패키지 디렉토리 없음: $offline_pkg_path"
-        return 1
-    fi
-
-    # Packages.gz 확인
+    # Packages.gz 확인 및 생성
     if [ ! -f "$offline_pkg_path/Packages.gz" ]; then
         echo "📦 APT 패키지 인덱스 생성 중..."
         if command -v dpkg-scanpackages &>/dev/null; then
@@ -151,24 +160,35 @@ setup_offline_apt_repo() {
     fi
 
     # 로컬 APT 저장소 설정
-    echo "✅ GlusterFS 오프라인 APT 저장소 설정: $offline_pkg_path"
+    echo "✅ 오프라인 APT 저장소 설정: $offline_pkg_path"
     echo "deb [trusted=yes] file://$offline_pkg_path ./" | sudo tee "$repo_list" > /dev/null
+
+    # 전역 변수로 경로 저장 (나중에 사용)
+    OFFLINE_PKG_PATH="$offline_pkg_path"
 
     return 0
 }
 
 # 오프라인 저장소 설정 시도
 OFFLINE_MODE=false
-if setup_offline_apt_repo 2>/dev/null; then
+OFFLINE_PKG_PATH=""
+if setup_offline_apt_repo; then
     OFFLINE_MODE=true
-    echo "✅ 오프라인 모드로 설치 진행 (GlusterFS 기반)"
+    echo "✅ 오프라인 모드로 설치 진행"
+    echo "   패키지 경로: $OFFLINE_PKG_PATH"
     # 오프라인 저장소만 사용하도록 apt-get update
-    sudo apt-get update -o Dir::Etc::sourcelist="/etc/apt/sources.list.d/glusterfs-offline.list" \
+    sudo apt-get update -o Dir::Etc::sourcelist="/etc/apt/sources.list.d/offline-slurm.list" \
                         -o Dir::Etc::sourceparts="-" \
-                        -o APT::Get::List-Cleanup="0" 2>/dev/null || sudo apt-get update
+                        -o APT::Get::List-Cleanup="0" 2>/dev/null || {
+        echo "⚠️  APT 업데이트 실패, 전체 업데이트 시도..."
+        sudo apt-get update 2>/dev/null || true
+    }
 else
     echo "ℹ️  온라인 모드로 설치 진행"
-    sudo apt-get update
+    sudo apt-get update || {
+        echo "❌ APT 업데이트 실패 - 네트워크 연결을 확인하세요"
+        exit 1
+    }
 fi
 
 # cgroup v2 지원에 필수적인 패키지들
@@ -204,7 +224,30 @@ REQUIRED_PACKAGES=(
 )
 
 echo "설치할 패키지: ${REQUIRED_PACKAGES[*]}"
-sudo apt-get install -y "${REQUIRED_PACKAGES[@]}"
+
+# 오프라인 모드에서는 --no-install-recommends 사용
+if [ "$OFFLINE_MODE" = true ]; then
+    echo "📦 오프라인 모드: 필수 패키지만 설치..."
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${REQUIRED_PACKAGES[@]}" 2>&1 || {
+        echo "⚠️  일부 패키지 설치 실패, 의존성 해결 시도..."
+        sudo apt-get install -f -y 2>/dev/null || true
+        # 핵심 패키지만 다시 시도
+        echo "📦 핵심 패키지 재설치 시도..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential gcc g++ make munge libmunge-dev libmunge2 \
+            libpam0g-dev libreadline-dev libssl-dev libnuma-dev libhwloc-dev \
+            libdbus-1-dev libsystemd-dev python3 2>/dev/null || {
+            echo "❌ 패키지 설치 실패 - 오프라인 패키지가 불완전할 수 있습니다"
+            echo "   /tmp/offline_packages 디렉토리의 .deb 파일을 확인하세요"
+            exit 1
+        }
+    }
+else
+    sudo apt-get install -y "${REQUIRED_PACKAGES[@]}" || {
+        echo "❌ 패키지 설치 실패"
+        exit 1
+    }
+fi
 
 echo "✅ 패키지 설치 완료"
 echo ""
