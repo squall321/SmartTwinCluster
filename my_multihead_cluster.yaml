@@ -28,8 +28,8 @@ cluster_info:
 # ============================================================================
 nodes:
   controllers:
-    - hostname: icn102-0410-h13
-      ip_address: 10.179.100.50
+    - hostname: icn102-0407-h19
+      ip_address: 10.179.100.25
       ssh_user: koopark
       ssh_port: 22
       ssh_key_path: ~/.ssh/id_rsa
@@ -70,8 +70,8 @@ nodes:
         memory_mb: 763152
         disk_gb: 879
 
-    - hostname: icn102-0407-h19
-      ip_address: 10.179.100.25
+    - hostname: icn102-0410-h13
+      ip_address: 10.179.100.50
       ssh_user: koopark
       ssh_port: 22
       ssh_key_path: ~/.ssh/id_rsa
