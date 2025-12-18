@@ -271,6 +271,133 @@ install_offline_package_remote() {
     return 0
 }
 
+# Setup GlusterFS-based offline APT repository on remote node
+# This is the most maintainable solution for offline compute nodes
+# Usage: setup_glusterfs_offline_repo_remote <remote_user> <remote_ip>
+setup_glusterfs_offline_repo_remote() {
+    local remote_user="$1"
+    local remote_ip="$2"
+    local gluster_offline_pkg_path="${GLUSTER_MOUNT}/offline_packages/apt_packages"
+    local repo_list="/etc/apt/sources.list.d/glusterfs-offline.list"
+
+    log INFO "  Setting up GlusterFS-based offline APT repository on $remote_ip..."
+
+    # Check if GlusterFS is mounted on the remote node
+    if ! ssh $SSH_OPTS "$remote_user@$remote_ip" "mount | grep -q '$GLUSTER_MOUNT'" 2>/dev/null; then
+        log WARNING "  GlusterFS not mounted on $remote_ip at $GLUSTER_MOUNT"
+        log INFO "  Attempting to mount GlusterFS..."
+
+        # Try to mount GlusterFS on remote node
+        ssh $SSH_OPTS "$remote_user@$remote_ip" "
+            sudo mkdir -p '$GLUSTER_MOUNT'
+            # Try mounting from VIP first, then from any controller
+            if ! sudo mount -t glusterfs ${VIP_ADDRESS}:/gv0 '$GLUSTER_MOUNT' 2>/dev/null; then
+                if ! sudo mount -t glusterfs ${CURRENT_IP}:/gv0 '$GLUSTER_MOUNT' 2>/dev/null; then
+                    echo 'Failed to mount GlusterFS'
+                    exit 1
+                fi
+            fi
+        " 2>/dev/null || {
+            log ERROR "  Failed to mount GlusterFS on $remote_ip"
+            return 1
+        }
+    fi
+
+    # Check if offline packages exist on GlusterFS
+    if ! ssh $SSH_OPTS "$remote_user@$remote_ip" "[ -d '$gluster_offline_pkg_path' ]" 2>/dev/null; then
+        log WARNING "  Offline packages not found at $gluster_offline_pkg_path on $remote_ip"
+        log INFO "  Copying offline packages to GlusterFS..."
+
+        # Copy from local offline_packages to GlusterFS if it doesn't exist
+        local local_offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages"
+        if [[ -d "$local_offline_pkg" ]]; then
+            mkdir -p "${GLUSTER_MOUNT}/offline_packages"
+            rsync -a "$local_offline_pkg" "${GLUSTER_MOUNT}/offline_packages/" 2>/dev/null || {
+                log ERROR "  Failed to copy offline packages to GlusterFS"
+                return 1
+            }
+            log SUCCESS "  Offline packages copied to GlusterFS"
+        else
+            log ERROR "  Local offline package directory not found: $local_offline_pkg"
+            return 1
+        fi
+    fi
+
+    # Generate Packages.gz if not exists
+    if ! ssh $SSH_OPTS "$remote_user@$remote_ip" "[ -f '$gluster_offline_pkg_path/Packages.gz' ]" 2>/dev/null; then
+        log INFO "  Generating APT package index on $remote_ip..."
+        ssh $SSH_OPTS "$remote_user@$remote_ip" "
+            cd '$gluster_offline_pkg_path'
+            if command -v dpkg-scanpackages &>/dev/null; then
+                sudo dpkg-scanpackages . /dev/null > Packages 2>/dev/null
+                sudo gzip -k -f Packages
+            else
+                # dpkg-scanpackages not available, try to install dpkg-dev first
+                if [ -f dpkg-dev*.deb ]; then
+                    sudo dpkg -i dpkg-dev*.deb 2>/dev/null || true
+                    sudo apt-get install -f -y 2>/dev/null || true
+                    sudo dpkg-scanpackages . /dev/null > Packages 2>/dev/null
+                    sudo gzip -k -f Packages
+                fi
+            fi
+        " 2>/dev/null || log WARNING "  Could not generate Packages.gz (may already exist or dpkg-dev missing)"
+    fi
+
+    # Setup local APT repository pointing to GlusterFS
+    log INFO "  Configuring APT to use GlusterFS offline repository..."
+    ssh $SSH_OPTS "$remote_user@$remote_ip" "
+        # Create repo list file
+        echo 'deb [trusted=yes] file://$gluster_offline_pkg_path ./' | sudo tee '$repo_list' > /dev/null
+
+        # Update APT cache with local repo only
+        sudo apt-get update -o Dir::Etc::sourcelist='$repo_list' \
+                            -o Dir::Etc::sourceparts='-' \
+                            -o APT::Get::List-Cleanup='0' 2>/dev/null || sudo apt-get update
+    " 2>/dev/null || {
+        log WARNING "  APT update had some warnings (may be normal for offline)"
+    }
+
+    log SUCCESS "  GlusterFS-based offline APT repository configured on $remote_ip"
+    return 0
+}
+
+# Sync offline packages to GlusterFS shared storage (run once on controller)
+# This ensures all compute nodes can access offline packages
+sync_offline_packages_to_glusterfs() {
+    local gluster_offline_pkg_path="${GLUSTER_MOUNT}/offline_packages/apt_packages"
+    local local_offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages"
+
+    if [[ ! -d "$local_offline_pkg" ]]; then
+        log WARNING "Local offline package directory not found: $local_offline_pkg"
+        return 1
+    fi
+
+    if [[ "$USE_GLUSTERFS" != "true" ]]; then
+        log WARNING "GlusterFS not available, skipping sync"
+        return 1
+    fi
+
+    log INFO "Syncing offline packages to GlusterFS..."
+
+    # Create directory structure
+    mkdir -p "${GLUSTER_MOUNT}/offline_packages"
+
+    # Sync packages
+    if rsync -a --delete "$local_offline_pkg" "${GLUSTER_MOUNT}/offline_packages/"; then
+        log SUCCESS "Offline packages synced to GlusterFS: $gluster_offline_pkg_path"
+
+        # Generate Packages.gz
+        if command -v dpkg-scanpackages &>/dev/null; then
+            (cd "$gluster_offline_pkg_path" && dpkg-scanpackages . /dev/null > Packages && gzip -k -f Packages)
+            log SUCCESS "APT package index generated"
+        fi
+        return 0
+    else
+        log ERROR "Failed to sync offline packages to GlusterFS"
+        return 1
+    fi
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]] && [[ "$DRY_RUN" == "false" ]]; then
         log ERROR "This script must be run as root (use sudo)"
@@ -1864,6 +1991,15 @@ EOPY
         return 0
     fi
 
+    # Step: Sync offline packages to GlusterFS for compute nodes
+    # This is the most maintainable solution for offline environments
+    if [[ "$USE_GLUSTERFS" == "true" ]]; then
+        log INFO "Syncing offline packages to GlusterFS for compute nodes..."
+        sync_offline_packages_to_glusterfs || log WARNING "Could not sync offline packages (compute nodes may need online access)"
+    else
+        log WARNING "GlusterFS not available - compute nodes will need online access for package installation"
+    fi
+
     # Get cluster password from YAML for SSH access (if needed for sshpass)
     local ssh_password=$(python3 << EOPY
 import yaml
@@ -1921,6 +2057,13 @@ EOPY
 
         log INFO "Installing Slurm on $hostname..."
 
+        # Setup GlusterFS-based offline APT repository on compute node (for offline environments)
+        if [[ "$USE_GLUSTERFS" == "true" ]]; then
+            log INFO "  Setting up offline APT repository on $hostname..."
+            setup_glusterfs_offline_repo_remote "$ssh_user" "$ip_address" || \
+                log WARNING "  Could not setup offline repo on $hostname (may need online access)"
+        fi
+
         # Copy installation script
         if ! scp $SCP_OPTS \
             "${PROJECT_ROOT}/install_slurm_cgroup_v2.sh" \
@@ -1932,8 +2075,9 @@ EOPY
 
         # Execute installation (use longer timeout for install)
         # -n: Don't read from stdin (critical for while read loops!)
+        # Pass GLUSTER_MOUNT environment variable for offline mode detection
         if ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-            "cd /tmp && sudo bash install_slurm_cgroup_v2.sh" &>/dev/null; then
+            "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh" &>/dev/null; then
             log SUCCESS "Slurm installed on $hostname"
         else
             log ERROR "Failed to install Slurm on $hostname"

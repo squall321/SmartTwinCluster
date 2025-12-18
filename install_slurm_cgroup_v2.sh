@@ -118,7 +118,58 @@ echo ""
 echo "📦 Step 1/7: 필수 패키지 설치 중..."
 echo "--------------------------------------------------------------------------------"
 
-sudo apt-get update
+# 오프라인 APT 저장소 설정 (GlusterFS 기반)
+# 이 스크립트가 오프라인 환경에서 실행될 경우, GlusterFS에 마운트된 패키지를 사용
+setup_offline_apt_repo() {
+    local gluster_mount="${GLUSTER_MOUNT:-/mnt/gluster}"
+    local offline_pkg_path="${gluster_mount}/offline_packages/apt_packages"
+    local repo_list="/etc/apt/sources.list.d/glusterfs-offline.list"
+
+    echo "🔍 오프라인 APT 저장소 확인 중..."
+
+    # GlusterFS 마운트 확인
+    if ! mount | grep -q "$gluster_mount"; then
+        echo "⚠️  GlusterFS가 마운트되지 않음: $gluster_mount"
+        return 1
+    fi
+
+    # 오프라인 패키지 디렉토리 확인
+    if [ ! -d "$offline_pkg_path" ]; then
+        echo "⚠️  오프라인 패키지 디렉토리 없음: $offline_pkg_path"
+        return 1
+    fi
+
+    # Packages.gz 확인
+    if [ ! -f "$offline_pkg_path/Packages.gz" ]; then
+        echo "📦 APT 패키지 인덱스 생성 중..."
+        if command -v dpkg-scanpackages &>/dev/null; then
+            (cd "$offline_pkg_path" && sudo dpkg-scanpackages . /dev/null > Packages && sudo gzip -k -f Packages)
+        else
+            echo "⚠️  dpkg-scanpackages 없음, 인덱스 생성 불가"
+            return 1
+        fi
+    fi
+
+    # 로컬 APT 저장소 설정
+    echo "✅ GlusterFS 오프라인 APT 저장소 설정: $offline_pkg_path"
+    echo "deb [trusted=yes] file://$offline_pkg_path ./" | sudo tee "$repo_list" > /dev/null
+
+    return 0
+}
+
+# 오프라인 저장소 설정 시도
+OFFLINE_MODE=false
+if setup_offline_apt_repo 2>/dev/null; then
+    OFFLINE_MODE=true
+    echo "✅ 오프라인 모드로 설치 진행 (GlusterFS 기반)"
+    # 오프라인 저장소만 사용하도록 apt-get update
+    sudo apt-get update -o Dir::Etc::sourcelist="/etc/apt/sources.list.d/glusterfs-offline.list" \
+                        -o Dir::Etc::sourceparts="-" \
+                        -o APT::Get::List-Cleanup="0" 2>/dev/null || sudo apt-get update
+else
+    echo "ℹ️  온라인 모드로 설치 진행"
+    sudo apt-get update
+fi
 
 # cgroup v2 지원에 필수적인 패키지들
 REQUIRED_PACKAGES=(
