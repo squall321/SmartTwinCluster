@@ -462,11 +462,10 @@ Requires=munge.service
 ConditionPathExists=/etc/slurm/slurm.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmctld
-ExecStart=/usr/sbin/slurmctld $SLURMCTLD_OPTIONS
+ExecStart=/usr/sbin/slurmctld -D $SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/run/slurm/slurmctld.pid
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
@@ -503,11 +502,10 @@ Requires=munge.service
 ConditionPathExists=/etc/slurm/slurmdbd.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
-ExecStart=/usr/sbin/slurmdbd $SLURMDBD_OPTIONS
+ExecStart=/usr/sbin/slurmdbd -D $SLURMDBD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/run/slurm/slurmdbd.pid
 KillMode=process
 LimitNOFILE=65536
 LimitMEMLOCK=infinity
@@ -539,11 +537,10 @@ Requires=munge.service
 ConditionPathExists=/etc/slurm/slurm.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmd
-ExecStart=/usr/sbin/slurmd $SLURMD_OPTIONS
+ExecStart=/usr/sbin/slurmd -D $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/run/slurm/slurmd.pid
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
