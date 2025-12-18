@@ -899,20 +899,25 @@ setup_munge() {
                 log INFO "      Cleaning up and installing munge key..."
 
                 # Clean up existing munge state, install new key, and restart service
+                # Note: Capture exit code BEFORE || true to preserve failure status
                 local ssh_error
-                ssh_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" \
-                    "sudo systemctl stop munge 2>/dev/null || true && \
-                     sudo rm -f /etc/munge/munge.key 2>/dev/null || true && \
-                     sudo rm -rf /var/run/munge/* /run/munge/* 2>/dev/null || true && \
-                     sudo mkdir -p /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge && \
-                     sudo mv /tmp/munge.key.sync /etc/munge/munge.key && \
-                     sudo chown -R munge:munge /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge 2>/dev/null || true && \
-                     sudo chmod 700 /etc/munge /var/lib/munge && \
-                     sudo chmod 400 /etc/munge/munge.key && \
-                     sudo chmod 755 /var/log/munge /var/run/munge /run/munge && \
-                     sudo systemctl enable munge 2>/dev/null || true && \
-                     sudo systemctl start munge" 2>&1)
-                local ssh_exit=$?
+                local ssh_exit
+                set +e  # Temporarily disable errexit
+                ssh_error=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "
+                    sudo systemctl stop munge 2>/dev/null || true
+                    sudo rm -f /etc/munge/munge.key 2>/dev/null || true
+                    sudo rm -rf /var/run/munge/* /run/munge/* 2>/dev/null || true
+                    sudo mkdir -p /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge
+                    sudo mv /tmp/munge.key.sync /etc/munge/munge.key
+                    sudo chown -R munge:munge /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge 2>/dev/null || true
+                    sudo chmod 700 /etc/munge /var/lib/munge
+                    sudo chmod 400 /etc/munge/munge.key
+                    sudo chmod 755 /var/log/munge /var/run/munge /run/munge
+                    sudo systemctl enable munge 2>/dev/null || true
+                    sudo systemctl start munge
+                " 2>&1)
+                ssh_exit=$?
+                set -e  # Re-enable errexit
 
                 if [[ $ssh_exit -eq 0 ]]; then
                     # Verify munge is actually running on the remote node
