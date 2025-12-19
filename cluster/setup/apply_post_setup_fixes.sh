@@ -69,13 +69,17 @@ fix_redis_password() {
         return 1
     fi
 
+    # Get Redis password from environment or use fallback
+    # REDIS_PASSWORD should be set by phase5_web.sh before calling this script
+    local redis_pass="${REDIS_PASSWORD:-changeme}"
+
     # Check if REDIS_PASSWORD already exists
     if grep -q "^REDIS_PASSWORD=" "$ENV_FILE"; then
         log_info "REDIS_PASSWORD already exists in .env"
     else
         # Add REDIS_PASSWORD
         echo "" >> "$ENV_FILE"
-        echo "REDIS_PASSWORD=changeme" >> "$ENV_FILE"
+        echo "REDIS_PASSWORD=${redis_pass}" >> "$ENV_FILE"
         log_info "Added REDIS_PASSWORD to $ENV_FILE"
     fi
 }

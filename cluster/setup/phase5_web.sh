@@ -1055,20 +1055,27 @@ setup_jwt_authentication() {
             deactivate
 
             # Add JWT configuration to .env
+            # Use JWT_SECRET from YAML config, fallback to default
+            local jwt_value="${JWT_SECRET:-dev-jwt-secret-please-change}"
+
             if [[ -f "$service_dir/.env" ]]; then
                 if ! grep -q "^JWT_SECRET_KEY=" "$service_dir/.env"; then
                     echo "" >> "$service_dir/.env"
                     echo "# JWT Configuration (must match Auth Portal)" >> "$service_dir/.env"
-                    echo "JWT_SECRET_KEY=dev-jwt-secret-please-change" >> "$service_dir/.env"
+                    echo "JWT_SECRET_KEY=${jwt_value}" >> "$service_dir/.env"
                     echo "JWT_ALGORITHM=HS256" >> "$service_dir/.env"
                     log_success "JWT configuration added to .env"
+                elif [[ -n "$JWT_SECRET" && "$JWT_SECRET" != "change-this-jwt-secret" ]]; then
+                    # Update existing JWT_SECRET_KEY if YAML provides a real value
+                    sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=${jwt_value}/" "$service_dir/.env"
+                    log_info "JWT_SECRET_KEY updated from YAML config"
                 else
                     log_info "JWT configuration already exists in .env"
                 fi
             else
                 cat > "$service_dir/.env" << EOF
 # JWT Configuration (must match Auth Portal)
-JWT_SECRET_KEY=dev-jwt-secret-please-change
+JWT_SECRET_KEY=${jwt_value}
 JWT_ALGORITHM=HS256
 EOF
                 chown webservice:webservice "$service_dir/.env"
@@ -2261,6 +2268,8 @@ main() {
     # Apply post-setup fixes
     log_info "Applying post-setup fixes..."
     if [[ -f "$SCRIPT_DIR/apply_post_setup_fixes.sh" ]]; then
+        # Export variables so apply_post_setup_fixes.sh can use them
+        export REDIS_PASSWORD JWT_SECRET
         bash "$SCRIPT_DIR/apply_post_setup_fixes.sh" || log_warning "Post-setup fixes failed (non-critical)"
     else
         log_warning "Post-setup fixes script not found: $SCRIPT_DIR/apply_post_setup_fixes.sh"
