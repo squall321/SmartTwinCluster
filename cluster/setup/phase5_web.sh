@@ -1588,19 +1588,23 @@ configure_nginx() {
 
     if [[ "$DRY_RUN" == false ]]; then
         # Ensure WebSocket map directive exists in nginx.conf (required for $connection_upgrade variable)
-        if ! grep -q 'map \$http_upgrade \$connection_upgrade' /etc/nginx/nginx.conf 2>/dev/null; then
+        if ! grep -q 'connection_upgrade' /etc/nginx/nginx.conf 2>/dev/null; then
             log_info "Adding WebSocket map directive to nginx.conf..."
 
             # Add map directive after 'http {' line
-            if grep -q '^http {' /etc/nginx/nginx.conf; then
+            if grep -q 'http {' /etc/nginx/nginx.conf; then
                 # Create backup
                 cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.backup_$(date +%Y%m%d_%H%M%S)
 
-                # Insert map directive after 'http {'
-                sed -i '/^http {/a\
-\n\t# WebSocket support (added by phase5_web.sh)\n\tmap $http_upgrade $connection_upgrade {\n\t\tdefault upgrade;\n\t\t'"'"''"'"' close;\n\t}' /etc/nginx/nginx.conf
+                # Create a temp file with the map directive inserted
+                awk '/http \{/{print; print "\n\t# WebSocket support (added by phase5_web.sh)"; print "\tmap $http_upgrade $connection_upgrade {"; print "\t\tdefault upgrade;"; print "\t\t\"\" close;"; print "\t}\n"; next}1' /etc/nginx/nginx.conf > /tmp/nginx.conf.new
 
-                log_success "WebSocket map directive added to nginx.conf"
+                if [ -s /tmp/nginx.conf.new ]; then
+                    mv /tmp/nginx.conf.new /etc/nginx/nginx.conf
+                    log_success "WebSocket map directive added to nginx.conf"
+                else
+                    log_error "Failed to create modified nginx.conf"
+                fi
             else
                 log_warning "Could not find 'http {' in nginx.conf, WebSocket may not work"
             fi
