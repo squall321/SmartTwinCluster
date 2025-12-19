@@ -136,8 +136,21 @@ check_prerequisites() {
 
     local missing_deps=()
 
+    # Read SSL mode from YAML config to determine if certbot is needed
+    local ssl_mode
+    ssl_mode=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web', {}).get('ssl', {}).get('mode', 'self_signed'))" 2>/dev/null || echo "self_signed")
+
+    # Base required commands (certbot only needed for letsencrypt mode)
+    local required_cmds=(python3 node npm nginx jq)
+    if [[ "$ssl_mode" == "letsencrypt" ]]; then
+        required_cmds+=(certbot)
+        log_info "SSL mode: letsencrypt - certbot required"
+    else
+        log_info "SSL mode: $ssl_mode - certbot not required"
+    fi
+
     # Check for required commands
-    for cmd in python3 node npm nginx certbot jq; do
+    for cmd in "${required_cmds[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then
             missing_deps+=("$cmd")
         fi
@@ -155,8 +168,24 @@ check_prerequisites() {
                         # Install Node.js from NodeSource
                         curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
                         apt-get install -y nodejs
+
+                        # Install essential npm global packages for frontend builds
+                        log_info "Installing npm global packages (typescript, vite, pnpm, terser, ts-node)..."
+                        npm install -g typescript ts-node pnpm terser vite 2>/dev/null || {
+                            log_warning "Some npm global packages failed to install"
+                        }
+
+                        # Verify installations
+                        log_info "Installed npm global packages:"
+                        echo "  typescript: $(tsc -v 2>/dev/null || echo 'not installed')"
+                        echo "  ts-node: $(ts-node -v 2>/dev/null || echo 'not installed')"
+                        echo "  pnpm: $(pnpm -v 2>/dev/null || echo 'not installed')"
+                        echo "  terser: $(terser --version 2>/dev/null || echo 'not installed')"
+                        echo "  vite: $(vite --version 2>/dev/null || echo 'not installed')"
                         ;;
                     certbot)
+                        # Only install certbot if letsencrypt mode is selected
+                        log_info "Installing certbot for Let's Encrypt SSL..."
                         apt-get install -y certbot python3-certbot-nginx
                         ;;
                     *)
@@ -376,14 +405,25 @@ load_config() {
 create_web_user() {
     log_info "Creating web services user..."
 
+    # Get UID/GID from YAML config (default to 64010 to avoid conflicts)
+    local target_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web',{}).get('user_uid', 64010))" 2>/dev/null || echo 64010)
+    local target_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web',{}).get('user_gid', 64010))" 2>/dev/null || echo 64010)
+
     if id "webservice" &>/dev/null; then
-        log_info "User 'webservice' already exists"
+        local existing_uid=$(id -u webservice)
+        log_info "User 'webservice' already exists (UID=$existing_uid)"
     else
         if [[ "$DRY_RUN" == false ]]; then
-            useradd -r -s /bin/false -d "$WEB_SERVICES_DIR" webservice
-            log_success "User 'webservice' created"
+            # Create group first
+            if ! getent group webservice &>/dev/null; then
+                groupadd -g "$target_gid" webservice 2>/dev/null || groupadd webservice
+            fi
+            # Create user with specific UID if possible
+            useradd -r -u "$target_uid" -g webservice -s /bin/false -d "$WEB_SERVICES_DIR" webservice 2>/dev/null || \
+                useradd -r -g webservice -s /bin/false -d "$WEB_SERVICES_DIR" webservice
+            log_success "User 'webservice' created (UID=$(id -u webservice))"
         else
-            log_info "[DRY-RUN] Would create user 'webservice'"
+            log_info "[DRY-RUN] Would create user 'webservice' with UID=$target_uid"
         fi
     fi
 }
@@ -1343,14 +1383,36 @@ build_all_frontends() {
 
                 cd "$frontend_dir"
 
-                # Install dependencies if needed
+                # Install dependencies if needed (check for critical packages too)
+                local need_install=false
                 if [[ ! -d "node_modules" ]]; then
+                    need_install=true
+                    log_info "node_modules not found for $frontend"
+                elif [[ "$frontend" == "kooCAEWeb_5173" ]]; then
+                    # Check critical dependencies for CAE frontend
+                    if [[ ! -d "node_modules/@mui/material" ]] || [[ ! -d "node_modules/@mui/icons-material" ]]; then
+                        need_install=true
+                        log_info "Critical MUI packages missing in $frontend"
+                    fi
+                fi
+
+                if [[ "$need_install" == true ]]; then
                     log_info "Installing dependencies for $frontend..."
                     npm install || log_warning "npm install failed for $frontend"
                 fi
 
-                # Build frontend
-                npm run build || log_warning "Build failed for $frontend"
+                # Build frontend with retry on module errors
+                if ! npm run build 2>&1 | tee /tmp/${frontend}_build.log; then
+                    log_warning "Build failed for $frontend, checking for module errors..."
+                    if grep -q "Cannot find module" /tmp/${frontend}_build.log 2>/dev/null; then
+                        log_info "Module missing detected, reinstalling dependencies..."
+                        rm -rf node_modules 2>/dev/null || true
+                        npm install
+                        npm run build || log_warning "Rebuild failed for $frontend"
+                    else
+                        log_warning "Build failed for $frontend (non-module error)"
+                    fi
+                fi
 
                 # Special handling for app_5174: copy landing.html to dist/index.html
                 if [[ "$frontend" == "app_5174" && -f "landing.html" ]]; then

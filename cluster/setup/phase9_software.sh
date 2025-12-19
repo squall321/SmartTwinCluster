@@ -229,6 +229,39 @@ install_mpi_local() {
         fi
     fi
 
+    # Check for offline mode
+    if [[ "$OFFLINE_MODE" == "true" ]]; then
+        log INFO "Offline mode: checking for cached MPI packages..."
+        local mpi_cache="$PACKAGE_CACHE/mpi"
+
+        if [[ -d "$mpi_cache" ]]; then
+            case $OS_ID in
+                ubuntu|debian)
+                    if ls "$mpi_cache"/*.deb &>/dev/null; then
+                        log INFO "Installing MPI from offline cache: $mpi_cache"
+                        run_command "dpkg -i $mpi_cache/*.deb || apt-get install -f -y" "Install MPI from cache"
+                        log SUCCESS "MPI installed from offline cache"
+                        return 0
+                    fi
+                    ;;
+                centos|rhel|rocky|almalinux)
+                    if ls "$mpi_cache"/*.rpm &>/dev/null; then
+                        log INFO "Installing MPI from offline cache: $mpi_cache"
+                        run_command "rpm -ivh $mpi_cache/*.rpm || yum install -y $mpi_cache/*.rpm" "Install MPI from cache"
+                        log SUCCESS "MPI installed from offline cache"
+                        return 0
+                    fi
+                    ;;
+            esac
+            log WARNING "No cached MPI packages found in $mpi_cache"
+        else
+            log WARNING "MPI cache directory not found: $mpi_cache"
+        fi
+        log ERROR "Offline mode enabled but no cached packages available"
+        return 1
+    fi
+
+    # Online installation
     case $OS_ID in
         ubuntu|debian)
             if [[ "$MPI_TYPE" == "openmpi" ]]; then
@@ -338,6 +371,45 @@ install_apptainer_local() {
         fi
     fi
 
+    # Check for offline mode
+    if [[ "$OFFLINE_MODE" == "true" ]]; then
+        log INFO "Offline mode: checking for cached Apptainer packages..."
+        local apptainer_cache="$PACKAGE_CACHE/apptainer"
+
+        if [[ -d "$apptainer_cache" ]]; then
+            case $OS_ID in
+                ubuntu|debian)
+                    if ls "$apptainer_cache"/*.deb &>/dev/null; then
+                        log INFO "Installing Apptainer from offline cache: $apptainer_cache"
+                        run_command "dpkg -i $apptainer_cache/*.deb || apt-get install -f -y" "Install Apptainer from cache"
+                        # Create default directories
+                        run_command "mkdir -p /opt/apptainers" "Create Apptainer images directory"
+                        run_command "mkdir -p /tmp/apptainer" "Create Apptainer cache directory"
+                        log SUCCESS "Apptainer installed from offline cache"
+                        return 0
+                    fi
+                    ;;
+                centos|rhel|rocky|almalinux)
+                    if ls "$apptainer_cache"/*.rpm &>/dev/null; then
+                        log INFO "Installing Apptainer from offline cache: $apptainer_cache"
+                        run_command "rpm -ivh $apptainer_cache/*.rpm || yum install -y $apptainer_cache/*.rpm" "Install Apptainer from cache"
+                        # Create default directories
+                        run_command "mkdir -p /opt/apptainers" "Create Apptainer images directory"
+                        run_command "mkdir -p /tmp/apptainer" "Create Apptainer cache directory"
+                        log SUCCESS "Apptainer installed from offline cache"
+                        return 0
+                    fi
+                    ;;
+            esac
+            log WARNING "No cached Apptainer packages found in $apptainer_cache"
+        else
+            log WARNING "Apptainer cache directory not found: $apptainer_cache"
+        fi
+        log ERROR "Offline mode enabled but no cached packages available"
+        return 1
+    fi
+
+    # Online installation
     case $OS_ID in
         ubuntu|debian)
             run_command "apt-get update" "Update package lists"

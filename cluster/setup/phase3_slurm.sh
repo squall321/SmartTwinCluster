@@ -642,6 +642,30 @@ load_config() {
 
     log INFO "DB_HOST: ${DB_HOST:-localhost}"
     log INFO "DB_SLURM_PASSWORD: [configured from YAML]"
+
+    # Load cgroup configuration
+    CGROUP_ENABLED=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cgroup.enabled 2>/dev/null || echo "false")
+    CGROUP_CONSTRAIN_RAM=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cgroup.constrain_ram 2>/dev/null || echo "true")
+    CGROUP_CONSTRAIN_SWAP=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cgroup.constrain_swap 2>/dev/null || echo "true")
+    CGROUP_CONSTRAIN_DEVICES=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cgroup.constrain_devices 2>/dev/null || echo "true")
+    CGROUP_CONSTRAIN_CORES=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cgroup.constrain_cores 2>/dev/null || echo "true")
+    CGROUP_ALLOWED_RAM=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cgroup.allowed_ram_percent 2>/dev/null || echo "100")
+    CGROUP_ALLOWED_SWAP=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get cgroup.allowed_swap_percent 2>/dev/null || echo "0")
+
+    # Convert to yes/no for cgroup.conf
+    [[ "$CGROUP_CONSTRAIN_RAM" == "true" || "$CGROUP_CONSTRAIN_RAM" == "True" ]] && CGROUP_CONSTRAIN_RAM="yes" || CGROUP_CONSTRAIN_RAM="no"
+    [[ "$CGROUP_CONSTRAIN_SWAP" == "true" || "$CGROUP_CONSTRAIN_SWAP" == "True" ]] && CGROUP_CONSTRAIN_SWAP="yes" || CGROUP_CONSTRAIN_SWAP="no"
+    [[ "$CGROUP_CONSTRAIN_DEVICES" == "true" || "$CGROUP_CONSTRAIN_DEVICES" == "True" ]] && CGROUP_CONSTRAIN_DEVICES="yes" || CGROUP_CONSTRAIN_DEVICES="no"
+    [[ "$CGROUP_CONSTRAIN_CORES" == "true" || "$CGROUP_CONSTRAIN_CORES" == "True" ]] && CGROUP_CONSTRAIN_CORES="yes" || CGROUP_CONSTRAIN_CORES="no"
+
+    log INFO "Cgroup enabled: $CGROUP_ENABLED"
+    if [[ "$CGROUP_ENABLED" == "true" || "$CGROUP_ENABLED" == "True" ]]; then
+        log INFO "  ConstrainRAMSpace: $CGROUP_CONSTRAIN_RAM"
+        log INFO "  ConstrainSwapSpace: $CGROUP_CONSTRAIN_SWAP"
+        log INFO "  ConstrainDevices: $CGROUP_CONSTRAIN_DEVICES"
+        log INFO "  ConstrainCores: $CGROUP_CONSTRAIN_CORES"
+    fi
+
     log SUCCESS "Configuration loaded successfully"
 }
 
@@ -942,11 +966,32 @@ install_slurm() {
 create_slurm_user() {
     log INFO "Creating slurm user..."
 
+    # Get UID/GID from YAML config (default to 64001 to avoid conflicts with system accounts)
+    local target_slurm_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('slurm_uid', 64001))" 2>/dev/null || echo 64001)
+    local target_slurm_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('slurm_gid', 64001))" 2>/dev/null || echo 64001)
+
+    log INFO "  Target UID/GID: $target_slurm_uid/$target_slurm_gid"
+
     if id "slurm" &>/dev/null; then
-        log INFO "User 'slurm' already exists"
+        local existing_uid=$(id -u slurm)
+        local existing_gid=$(id -g slurm)
+        log INFO "User 'slurm' already exists (UID=$existing_uid, GID=$existing_gid)"
+
+        # Check if UID/GID matches
+        if [[ "$existing_uid" != "$target_slurm_uid" ]] || [[ "$existing_gid" != "$target_slurm_gid" ]]; then
+            log WARNING "Existing slurm user UID/GID ($existing_uid/$existing_gid) differs from target ($target_slurm_uid/$target_slurm_gid)"
+            log INFO "Keeping existing user to avoid breaking system"
+        fi
     else
-        run_command "useradd -r -s /bin/false -d /nonexistent slurm"
-        log SUCCESS "User 'slurm' created"
+        # Create group first
+        if ! getent group slurm &>/dev/null; then
+            run_command "groupadd -g $target_slurm_gid slurm 2>/dev/null || groupadd slurm" "Create slurm group"
+        fi
+
+        # Create user with specific UID if possible
+        if run_command "useradd -r -u $target_slurm_uid -g slurm -s /bin/false -d /nonexistent slurm 2>/dev/null || useradd -r -g slurm -s /bin/false -d /nonexistent slurm" "Create slurm user"; then
+            log SUCCESS "User 'slurm' created (UID=$(id -u slurm), GID=$(id -g slurm))"
+        fi
     fi
 
     # Create directories
@@ -1632,6 +1677,21 @@ generate_slurm_config() {
     config_content="${config_content//\{\{PARTITION_DEFINITIONS\}\}/$PARTITION_DEFINITIONS}"
     config_content="${config_content//\{\{DEFAULT_PARTITION\}\}/$DEFAULT_PARTITION}"
 
+    # Substitute cgroup-related placeholders
+    local PROCTRACK_TYPE
+    local TASK_PLUGIN
+    if [[ "$CGROUP_ENABLED" == "true" || "$CGROUP_ENABLED" == "True" ]]; then
+        PROCTRACK_TYPE="proctrack/cgroup"
+        TASK_PLUGIN="task/cgroup,task/affinity"
+        log INFO "Cgroup enabled: using proctrack/cgroup and task/cgroup"
+    else
+        PROCTRACK_TYPE="proctrack/linuxproc"
+        TASK_PLUGIN="task/affinity"
+        log INFO "Cgroup disabled: using proctrack/linuxproc and task/affinity only"
+    fi
+    config_content="${config_content//\{\{PROCTRACK_TYPE\}\}/$PROCTRACK_TYPE}"
+    config_content="${config_content//\{\{TASK_PLUGIN\}\}/$TASK_PLUGIN}"
+
     log INFO "Using state directory: $SLURM_STATE_DIR"
     log INFO "Using log directory: $SLURM_LOG_DIR"
 
@@ -1653,6 +1713,95 @@ generate_slurm_config() {
         chown slurm:slurm "$SLURM_CONFIG"
         log SUCCESS "Slurm configuration written to $SLURM_CONFIG"
     fi
+}
+
+generate_cgroup_config() {
+    # Generate cgroup.conf if cgroup is enabled
+    if [[ "$CGROUP_ENABLED" != "true" && "$CGROUP_ENABLED" != "True" ]]; then
+        log INFO "Cgroup disabled in YAML, skipping cgroup.conf generation"
+        return 0
+    fi
+
+    log INFO "Generating cgroup.conf for cgroup v2 resource control..."
+
+    local CGROUP_CONFIG_DIR
+    local CGROUP_CONFIG_FILE
+
+    # Determine config directory based on OS
+    if [[ -d "/etc/slurm" ]]; then
+        CGROUP_CONFIG_DIR="/etc/slurm"
+    elif [[ -d "/etc/slurm-llnl" ]]; then
+        CGROUP_CONFIG_DIR="/etc/slurm-llnl"
+    else
+        CGROUP_CONFIG_DIR="/etc/slurm"
+        mkdir -p "$CGROUP_CONFIG_DIR"
+    fi
+    CGROUP_CONFIG_FILE="${CGROUP_CONFIG_DIR}/cgroup.conf"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log INFO "[DRY-RUN] Would write cgroup.conf to: $CGROUP_CONFIG_FILE"
+        log INFO "[DRY-RUN] Settings:"
+        log INFO "  ConstrainRAMSpace=$CGROUP_CONSTRAIN_RAM"
+        log INFO "  ConstrainSwapSpace=$CGROUP_CONSTRAIN_SWAP"
+        log INFO "  ConstrainDevices=$CGROUP_CONSTRAIN_DEVICES"
+        log INFO "  ConstrainCores=$CGROUP_CONSTRAIN_CORES"
+        log INFO "  AllowedRAMSpace=$CGROUP_ALLOWED_RAM"
+        log INFO "  AllowedSwapSpace=$CGROUP_ALLOWED_SWAP"
+        return 0
+    fi
+
+    # Backup existing config
+    if [[ -f "$CGROUP_CONFIG_FILE" ]]; then
+        cp "$CGROUP_CONFIG_FILE" "${CGROUP_CONFIG_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+        log INFO "Backed up existing cgroup.conf"
+    fi
+
+    # Generate cgroup.conf
+    {
+        echo "################################################################################"
+        echo "# Slurm cgroup.conf - cgroup v2 Configuration"
+        echo "# Auto-generated by phase3_slurm.sh at $(date)"
+        echo "# Source: YAML configuration (cgroup section)"
+        echo "################################################################################"
+        echo ""
+        echo "# ============================================================================"
+        echo "# Resource Constraining (from YAML cgroup settings)"
+        echo "# ============================================================================"
+        echo ""
+        echo "# Enable memory constraining (limit job memory usage)"
+        echo "ConstrainRAMSpace=${CGROUP_CONSTRAIN_RAM}"
+        echo ""
+        echo "# Enable swap constraining (prevent swap usage)"
+        echo "ConstrainSwapSpace=${CGROUP_CONSTRAIN_SWAP}"
+        echo ""
+        echo "# Enable device constraining (GPU access control)"
+        echo "ConstrainDevices=${CGROUP_CONSTRAIN_DEVICES}"
+        echo ""
+        echo "# Enable core constraining (CPU affinity)"
+        echo "ConstrainCores=${CGROUP_CONSTRAIN_CORES}"
+        echo ""
+        echo "# ============================================================================"
+        echo "# Memory Settings"
+        echo "# ============================================================================"
+        echo ""
+        echo "# Allowed RAM usage as percentage of allocated memory"
+        echo "AllowedRAMSpace=${CGROUP_ALLOWED_RAM}"
+        echo ""
+        echo "# Allowed swap usage as percentage (0 = no swap)"
+        echo "AllowedSwapSpace=${CGROUP_ALLOWED_SWAP}"
+        echo ""
+        echo "################################################################################"
+        echo "# Notes:"
+        echo "# - cgroup v2 is auto-detected by Slurm 23.x+"
+        echo "# - slurm.conf uses: ProctrackType=proctrack/cgroup"
+        echo "# - slurm.conf uses: TaskPlugin=task/cgroup,task/affinity"
+        echo "################################################################################"
+    } > "$CGROUP_CONFIG_FILE"
+
+    chmod 644 "$CGROUP_CONFIG_FILE"
+    chown slurm:slurm "$CGROUP_CONFIG_FILE"
+
+    log SUCCESS "cgroup.conf written to $CGROUP_CONFIG_FILE"
 }
 
 setup_slurmdbd() {
@@ -2184,6 +2333,30 @@ EOPY
                  sudo chown slurm:slurm $remote_slurm_conf && \
                  sudo chmod 644 $remote_slurm_conf" &>/dev/null
 
+            # Sync cgroup.conf if cgroup is enabled
+            if [[ "$CGROUP_ENABLED" == "true" || "$CGROUP_ENABLED" == "True" ]]; then
+                local local_cgroup_conf
+                if [[ -f "/etc/slurm/cgroup.conf" ]]; then
+                    local_cgroup_conf="/etc/slurm/cgroup.conf"
+                elif [[ -f "/etc/slurm-llnl/cgroup.conf" ]]; then
+                    local_cgroup_conf="/etc/slurm-llnl/cgroup.conf"
+                fi
+
+                if [[ -n "$local_cgroup_conf" && -f "$local_cgroup_conf" ]]; then
+                    local remote_config_dir=$(dirname "$remote_slurm_conf")
+                    scp $SCP_OPTS \
+                        "$local_cgroup_conf" \
+                        "$ssh_user@$ip_address:/tmp/cgroup.conf" &>/dev/null
+
+                    ssh $SSH_OPTS "$ssh_user@$ip_address" \
+                        "sudo mv /tmp/cgroup.conf ${remote_config_dir}/cgroup.conf && \
+                         sudo chown slurm:slurm ${remote_config_dir}/cgroup.conf && \
+                         sudo chmod 644 ${remote_config_dir}/cgroup.conf" &>/dev/null
+
+                    log INFO "  cgroup.conf synced to $hostname"
+                fi
+            fi
+
             # Restart slurmd
             ssh $SSH_OPTS "$ssh_user@$ip_address" \
                 "sudo systemctl restart slurmd" &>/dev/null
@@ -2400,6 +2573,31 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
             log WARNING "Failed to copy config to $hostname"
         fi
 
+        # Copy cgroup.conf if cgroup is enabled
+        if [[ "$CGROUP_ENABLED" == "true" || "$CGROUP_ENABLED" == "True" ]]; then
+            local local_cgroup_conf
+            if [[ -f "/etc/slurm/cgroup.conf" ]]; then
+                local_cgroup_conf="/etc/slurm/cgroup.conf"
+            elif [[ -f "/etc/slurm-llnl/cgroup.conf" ]]; then
+                local_cgroup_conf="/etc/slurm-llnl/cgroup.conf"
+            fi
+
+            if [[ -n "$local_cgroup_conf" && -f "$local_cgroup_conf" ]]; then
+                local remote_config_dir=$(dirname "$remote_slurm_conf")
+                if scp $SCP_OPTS \
+                    "$local_cgroup_conf" \
+                    "$ssh_user@$ip_address:/tmp/cgroup.conf" &>/dev/null; then
+                    ssh $SSH_OPTS "$ssh_user@$ip_address" \
+                        "sudo mv /tmp/cgroup.conf ${remote_config_dir}/cgroup.conf && \
+                         sudo chown slurm:slurm ${remote_config_dir}/cgroup.conf && \
+                         sudo chmod 644 ${remote_config_dir}/cgroup.conf" &>/dev/null
+                    log SUCCESS "cgroup.conf copied to $hostname (${remote_config_dir}/cgroup.conf)"
+                else
+                    log WARNING "Failed to copy cgroup.conf to $hostname"
+                fi
+            fi
+        fi
+
         # Start slurmd
         if ssh $SSH_OPTS "$ssh_user@$ip_address" \
             "sudo systemctl enable slurmd && sudo systemctl start slurmd" &>/dev/null; then
@@ -2462,6 +2660,9 @@ main() {
 
         # Step 10: Generate slurm.conf
         generate_slurm_config
+
+        # Step 10.5: Generate cgroup.conf (if cgroup enabled)
+        generate_cgroup_config
 
         # Step 11: Setup SlurmDBD if requested
         if [[ "$SETUP_DBD" == "true" ]]; then

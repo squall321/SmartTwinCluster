@@ -188,10 +188,26 @@ if [ -d "kooCAEWeb_5173" ]; then
         rm -rf dist 2>/dev/null || sudo rm -rf dist 2>/dev/null || true
     fi
 
-    # node_modules 확인
+    # node_modules 확인 - 주요 의존성 체크 추가
+    need_install=false
     if [ ! -d "node_modules" ]; then
-        echo "  → npm install 실행 중..."
-        npm install --silent
+        need_install=true
+        echo "  → node_modules 없음"
+    elif [ ! -d "node_modules/@mui/material" ]; then
+        need_install=true
+        echo "  → @mui/material 누락됨"
+    elif [ ! -d "node_modules/@mui/icons-material" ]; then
+        need_install=true
+        echo "  → @mui/icons-material 누락됨"
+    fi
+
+    if [ "$need_install" = true ]; then
+        echo "  → npm install 실행 중... (의존성 설치)"
+        npm install 2>&1 | tail -5 || {
+            echo -e "${YELLOW}  ⚠ npm install 경고 발생 - 계속 진행${NC}"
+        }
+    else
+        echo "  → node_modules 확인 완료"
     fi
 
     # 빌드 실행 (TypeScript 컴파일 포함)
@@ -212,7 +228,25 @@ if [ -d "kooCAEWeb_5173" ]; then
         echo -e "${RED}❌ CAE Frontend 빌드 실패${NC}"
         echo "  → 로그: /tmp/cae_build.log"
         tail -20 /tmp/cae_build.log
-        BUILD_FAILED=$((BUILD_FAILED + 1))
+        # 의존성 문제인 경우 npm install 강제 재실행 후 재시도
+        if grep -q "Cannot find module" /tmp/cae_build.log 2>/dev/null; then
+            echo -e "${YELLOW}  → 모듈 누락 감지, npm install 재실행 후 재빌드 시도...${NC}"
+            rm -rf node_modules 2>/dev/null || true
+            npm install 2>&1 | tail -5
+            if npm run build > /tmp/cae_build.log 2>&1; then
+                echo -e "${GREEN}✅ CAE Frontend 재빌드 성공${NC}"
+                BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
+                sudo rm -rf /var/www/html/cae 2>/dev/null || true
+                sudo mkdir -p /var/www/html/cae
+                sudo cp -r dist/* /var/www/html/cae/
+                sudo chown -R www-data:www-data /var/www/html/cae
+                echo -e "${GREEN}  ✅ 배포 완료: /var/www/html/cae${NC}"
+            else
+                BUILD_FAILED=$((BUILD_FAILED + 1))
+            fi
+        else
+            BUILD_FAILED=$((BUILD_FAILED + 1))
+        fi
     fi
 
     cd "$SCRIPT_DIR"
