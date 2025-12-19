@@ -60,11 +60,14 @@ ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
 ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
 SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
 
-# -n: Don't read from stdin (critical for while read loops!)
+# SSH options: -n prevents reading from stdin (critical for while read loops!)
+# SCP options: -n is NOT supported by scp, so we need separate options
 if [[ -f "$SSH_KEY_FILE" ]]; then
     SSH_OPTS="-n -i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SCP_OPTS="-i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
 else
     SSH_OPTS="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
 fi
 
 # Function to print colored output
@@ -313,8 +316,8 @@ deploy_to_node() {
         local sif_size=$(du -h "$sif" | cut -f1)
         log_info "  Copying .sif to ${staging_dir}... (${sif_size})"
 
-        # Use scp with compression and show error output
-        if ! timeout 600 scp -C $SSH_OPTS "$sif" ${user}@${ip}:${staging_dir}/${sif_name}; then
+        # Use scp with compression and show error output (SCP_OPTS doesn't have -n)
+        if ! timeout 600 scp -C $SCP_OPTS "$sif" ${user}@${ip}:${staging_dir}/${sif_name}; then
             log_error "  Failed to copy $sif_name (check disk space on target ${staging_dir})"
             # Check target disk space
             ssh $SSH_OPTS ${user}@${ip} "df -h ${staging_dir} /opt 2>/dev/null" || true
@@ -325,7 +328,7 @@ deploy_to_node() {
         # Copy metadata JSON if it exists
         if [[ -f "$json_file" ]]; then
             log_info "  Copying metadata JSON to ${staging_dir}..."
-            scp $SSH_OPTS "$json_file" ${user}@${ip}:${staging_dir}/${json_name} 2>/dev/null || \
+            scp $SCP_OPTS "$json_file" ${user}@${ip}:${staging_dir}/${json_name} 2>/dev/null || \
                 log_warning "  Failed to copy metadata $json_name"
         fi
 
