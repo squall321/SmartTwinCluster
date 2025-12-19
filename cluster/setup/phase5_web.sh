@@ -740,6 +740,10 @@ EOF
                 if ! grep -q "^REDIS_PASSWORD=" "$service_dir/.env"; then
                     echo "REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}" >> "$service_dir/.env"
                     needs_update=true
+                elif [[ -n "$REDIS_PASSWORD" && "$REDIS_PASSWORD" != "changeme" ]]; then
+                    # Update existing REDIS_PASSWORD if YAML provides a real value
+                    sed -i "s/^REDIS_PASSWORD=.*/REDIS_PASSWORD=${REDIS_PASSWORD}/" "$service_dir/.env"
+                    needs_update=true
                 fi
 
                 if ! grep -q "^DEFAULT_SESSION_TTL=" "$service_dir/.env"; then
