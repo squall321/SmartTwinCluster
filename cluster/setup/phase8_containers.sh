@@ -300,30 +300,38 @@ deploy_to_node() {
             fi
         fi
 
-        # Copy to /tmp first (user writable)
+        # Determine staging directory (/scratch preferred for large files, /tmp as fallback)
+        local staging_dir
+        if timeout 5 ssh $SSH_OPTS ${user}@${ip} "test -d /scratch && test -w /scratch" 2>/dev/null; then
+            staging_dir="/scratch"
+        else
+            staging_dir="/tmp"
+        fi
+
+        # Copy to staging directory first (user writable)
         # Use timeout and show progress for large files
         local sif_size=$(du -h "$sif" | cut -f1)
-        log_info "  Copying .sif to /tmp... (${sif_size})"
+        log_info "  Copying .sif to ${staging_dir}... (${sif_size})"
 
         # Use scp with compression and show error output
-        if ! timeout 600 scp -C $SSH_OPTS "$sif" ${user}@${ip}:/tmp/${sif_name}; then
-            log_error "  Failed to copy $sif_name (check disk space on target /tmp)"
+        if ! timeout 600 scp -C $SSH_OPTS "$sif" ${user}@${ip}:${staging_dir}/${sif_name}; then
+            log_error "  Failed to copy $sif_name (check disk space on target ${staging_dir})"
             # Check target disk space
-            ssh $SSH_OPTS ${user}@${ip} "df -h /tmp /opt 2>/dev/null" || true
+            ssh $SSH_OPTS ${user}@${ip} "df -h ${staging_dir} /opt 2>/dev/null" || true
             ((fail_count++))
             continue
         fi
 
         # Copy metadata JSON if it exists
         if [[ -f "$json_file" ]]; then
-            log_info "  Copying metadata JSON to /tmp..."
-            scp $SSH_OPTS "$json_file" ${user}@${ip}:/tmp/${json_name} 2>/dev/null || \
+            log_info "  Copying metadata JSON to ${staging_dir}..."
+            scp $SSH_OPTS "$json_file" ${user}@${ip}:${staging_dir}/${json_name} 2>/dev/null || \
                 log_warning "  Failed to copy metadata $json_name"
         fi
 
         # Move to target with sudo
         log_info "  Moving to $target_path..."
-        if timeout 30 ssh $SSH_OPTS ${user}@${ip} "sudo mv /tmp/${sif_name} $remote_path && \
+        if timeout 30 ssh $SSH_OPTS ${user}@${ip} "sudo mv ${staging_dir}/${sif_name} $remote_path && \
             sudo chown root:root $remote_path && \
             sudo chmod 755 $remote_path" 2>/dev/null; then
             log_success "  ✅ $sif_name deployed successfully"
@@ -331,8 +339,8 @@ deploy_to_node() {
 
             # Move metadata JSON if it was copied
             if [[ -f "$json_file" ]]; then
-                ssh $SSH_OPTS ${user}@${ip} "sudo test -f /tmp/${json_name} && \
-                    sudo mv /tmp/${json_name} $json_remote_path && \
+                ssh $SSH_OPTS ${user}@${ip} "sudo test -f ${staging_dir}/${json_name} && \
+                    sudo mv ${staging_dir}/${json_name} $json_remote_path && \
                     sudo chown root:root $json_remote_path && \
                     sudo chmod 644 $json_remote_path" 2>/dev/null || \
                     log_warning "  Metadata not deployed"
@@ -340,7 +348,7 @@ deploy_to_node() {
         else
             log_error "  Failed to move $sif_name to target (timeout or permission denied)"
             # Clean up temp files if move failed
-            ssh $SSH_OPTS ${user}@${ip} "rm -f /tmp/${sif_name} /tmp/${json_name}" 2>/dev/null || true
+            ssh $SSH_OPTS ${user}@${ip} "rm -f ${staging_dir}/${sif_name} ${staging_dir}/${json_name}" 2>/dev/null || true
             ((fail_count++))
         fi
     done
