@@ -89,8 +89,8 @@ fix_nginx_cae_proxy() {
     local NGINX_CONF="/etc/nginx/conf.d/auth-portal.conf"
 
     if [[ ! -f "$NGINX_CONF" ]]; then
-        log_error "Nginx config not found: $NGINX_CONF"
-        return 1
+        log_warning "Nginx config not found: $NGINX_CONF (will be created by configure_nginx)"
+        return 0
     fi
 
     # Check if already fixed
@@ -182,8 +182,8 @@ fix_nginx_websocket_map() {
     local NGINX_CONF="/etc/nginx/nginx.conf"
 
     if [[ ! -f "$NGINX_CONF" ]]; then
-        log_error "Nginx config not found: $NGINX_CONF"
-        return 1
+        log_warning "Nginx main config not found: $NGINX_CONF"
+        return 0
     fi
 
     # Check if map already exists

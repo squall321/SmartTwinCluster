@@ -1590,27 +1590,43 @@ configure_nginx() {
         # Check if auth-portal.conf exists (from dashboard setup)
         if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
             log_info "Using existing auth-portal.conf (from dashboard setup)"
-
-            # Ensure web_services symlink is disabled to avoid conflict
-            if [[ -L "/etc/nginx/sites-enabled/web_services" ]]; then
-                log_info "Removing conflicting web_services symlink"
-                rm -f "/etc/nginx/sites-enabled/web_services"
-            fi
-
-            # Test Nginx configuration
-            if nginx -t 2>&1; then
-                log_success "Nginx configuration valid (using auth-portal.conf)"
-            else
-                log_error "Nginx configuration test failed"
-                nginx -t
-                exit 1
-            fi
         else
-            log_warning "auth-portal.conf not found, dashboard setup may not have been run"
-            log_info "Continuing without nginx configuration changes..."
+            log_warning "auth-portal.conf not found, creating from template..."
+
+            # Check if template exists
+            local template="$PROJECT_ROOT/cluster/config/nginx_auth-portal.conf"
+            if [[ -f "$template" ]]; then
+                cp "$template" /etc/nginx/conf.d/auth-portal.conf
+                log_success "Created auth-portal.conf from template"
+            else
+                log_error "Nginx template not found: $template"
+                log_info "Please ensure cluster/config/nginx_auth-portal.conf exists"
+                return 1
+            fi
+        fi
+
+        # Ensure web_services symlink is disabled to avoid conflict
+        if [[ -L "/etc/nginx/sites-enabled/web_services" ]]; then
+            log_info "Removing conflicting web_services symlink"
+            rm -f "/etc/nginx/sites-enabled/web_services"
+        fi
+
+        # Remove default site if it exists (conflicts with our config)
+        if [[ -L "/etc/nginx/sites-enabled/default" ]]; then
+            log_info "Removing default nginx site to avoid conflict"
+            rm -f "/etc/nginx/sites-enabled/default"
+        fi
+
+        # Test Nginx configuration
+        if nginx -t 2>&1; then
+            log_success "Nginx configuration valid"
+        else
+            log_error "Nginx configuration test failed"
+            nginx -t
+            return 1
         fi
     else
-        log_info "[DRY-RUN] Would check for existing nginx configuration"
+        log_info "[DRY-RUN] Would check/create nginx configuration"
     fi
 
     log_success "Nginx configured for production"
