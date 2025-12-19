@@ -1587,6 +1587,27 @@ configure_nginx() {
     log_info "Configuring Nginx reverse proxy (PRODUCTION MODE)..."
 
     if [[ "$DRY_RUN" == false ]]; then
+        # Ensure WebSocket map directive exists in nginx.conf (required for $connection_upgrade variable)
+        if ! grep -q 'map \$http_upgrade \$connection_upgrade' /etc/nginx/nginx.conf 2>/dev/null; then
+            log_info "Adding WebSocket map directive to nginx.conf..."
+
+            # Add map directive after 'http {' line
+            if grep -q '^http {' /etc/nginx/nginx.conf; then
+                # Create backup
+                cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.backup_$(date +%Y%m%d_%H%M%S)
+
+                # Insert map directive after 'http {'
+                sed -i '/^http {/a\
+\n\t# WebSocket support (added by phase5_web.sh)\n\tmap $http_upgrade $connection_upgrade {\n\t\tdefault upgrade;\n\t\t'"'"''"'"' close;\n\t}' /etc/nginx/nginx.conf
+
+                log_success "WebSocket map directive added to nginx.conf"
+            else
+                log_warning "Could not find 'http {' in nginx.conf, WebSocket may not work"
+            fi
+        else
+            log_info "WebSocket map directive already exists in nginx.conf"
+        fi
+
         # Check if auth-portal.conf exists (from dashboard setup)
         if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
             log_info "Using existing auth-portal.conf (from dashboard setup)"
