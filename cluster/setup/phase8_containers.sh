@@ -301,9 +301,15 @@ deploy_to_node() {
         fi
 
         # Copy to /tmp first (user writable)
-        log_info "  Copying .sif to /tmp..."
-        if ! scp $SSH_OPTS "$sif" ${user}@${ip}:/tmp/${sif_name} 2>/dev/null; then
-            log_error "  Failed to copy $sif_name"
+        # Use timeout and show progress for large files
+        local sif_size=$(du -h "$sif" | cut -f1)
+        log_info "  Copying .sif to /tmp... (${sif_size})"
+
+        # Use scp with compression and show error output
+        if ! timeout 600 scp -C $SSH_OPTS "$sif" ${user}@${ip}:/tmp/${sif_name}; then
+            log_error "  Failed to copy $sif_name (check disk space on target /tmp)"
+            # Check target disk space
+            ssh $SSH_OPTS ${user}@${ip} "df -h /tmp /opt 2>/dev/null" || true
             ((fail_count++))
             continue
         fi
