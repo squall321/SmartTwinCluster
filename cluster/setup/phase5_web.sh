@@ -1499,7 +1499,7 @@ create_systemd_services() {
     create_systemd_service_direct "prometheus" "monitoring" 9090 "$dashboard_dir/prometheus_9090" "./prometheus --config.file=prometheus.yml --storage.tsdb.path=./data"
     create_systemd_service_direct "node_exporter" "monitoring" 9100 "$dashboard_dir/node_exporter_9100" "./node_exporter"
 
-    log_success "All systemd services created (Production mode: backends + auth_frontend only)"
+    log_success "All systemd services created (Production mode: backends only, frontends served by Nginx)"
 }
 
 # Function to create systemd service directly with full path
@@ -1858,9 +1858,10 @@ setup_letsencrypt_ssl() {
 start_services() {
     log_info "Starting web services (PRODUCTION MODE: backends only)..."
 
+    # Note: auth_frontend (auth_portal_4431) is built and served by Nginx as static files
+    # No systemd service needed for frontend
     local services=(
         "auth_backend"
-        "auth_frontend"
         "dashboard_backend"
         "websocket_service"
         "cae_backend"
@@ -1903,9 +1904,10 @@ start_services() {
 verify_services() {
     log_info "Verifying web services (PRODUCTION MODE)..."
 
+    # Note: auth_frontend (auth_portal_4431) is served by Nginx as static files
+    # Verify it via Nginx instead of systemd service
     local services=(
         "auth_backend:4430:/health:backend"
-        "auth_frontend:4431:/:frontend"
         "dashboard_backend:5010:/api/nodes:backend"
         "websocket_service:5011:/:backend"
         "cae_backend:5000:/:backend"
