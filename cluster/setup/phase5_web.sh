@@ -1487,7 +1487,7 @@ create_systemd_services() {
 
     # Python Backend Services (5)
     create_systemd_service_direct "auth_backend" "python" 4430 "$dashboard_dir/auth_portal_4430" "source venv/bin/activate && python3 app.py"
-    create_systemd_service_direct "dashboard_backend" "python" 5010 "$dashboard_dir/backend_5010" "source venv2/bin/activate && python3 app.py"
+    create_systemd_service_direct "dashboard_backend" "python" 5010 "$dashboard_dir/backend_5010" "source venv/bin/activate && python3 app.py"
     create_systemd_service_direct "websocket_service" "python" 5011 "$dashboard_dir/websocket_5011" "source venv/bin/activate && python3 websocket_server_enhanced.py"
     create_systemd_service_direct "cae_backend" "python" 5000 "$dashboard_dir/kooCAEWebServer_5000" "source venv/bin/activate && python3 app.py"
     create_systemd_service_direct "cae_automation" "python" 5001 "$dashboard_dir/kooCAEWebAutomationServer_5001" "source venv/bin/activate && python3 app.py"
