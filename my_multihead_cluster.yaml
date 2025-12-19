@@ -764,6 +764,18 @@ security:
     expiration_hours: 8
 
 # ============================================================================
+# Cgroup Resource Control (Ubuntu 22.04 uses cgroup v2 by default)
+# ============================================================================
+cgroup:
+  enabled: true                # cgroup 활성화 여부
+  constrain_ram: true          # 메모리 제한 (ConstrainRAMSpace)
+  constrain_swap: true         # 스왑 제한 (ConstrainSwapSpace)
+  constrain_devices: true      # 디바이스 제한 - GPU 접근 제어 (ConstrainDevices)
+  constrain_cores: true        # CPU 친화성 (ConstrainCores)
+  allowed_ram_percent: 100     # 허용 RAM 비율 (100 = 엄격 제한)
+  allowed_swap_percent: 0      # 허용 스왑 비율 (0 = 스왑 사용 안함)
+
+# ============================================================================
 # Container & GPU Support
 # ============================================================================
 container_support:
@@ -871,7 +883,112 @@ web:
     email: ""
 
 # ============================================================================
-# SAML IdP Test Users (개발/테스트용)
+# SSO Configuration (SAML / OIDC)
+# ============================================================================
+sso:
+  # SSO 활성화 여부 (false면 Mock IdP 사용 - 개발/테스트용)
+  enabled: false
+
+  # SSO 타입: saml | oidc
+  type: saml
+
+  # ==========================================================================
+  # SAML 설정 (type: saml 일 때 사용)
+  # ==========================================================================
+  saml:
+    # IdP 메타데이터 URL (보통 이걸로 자동 설정 가능)
+    idp_metadata_url: ""
+
+    # IdP 개별 설정 (메타데이터 URL이 없는 경우)
+    idp:
+      entity_id: ""
+      sso_url: ""
+      slo_url: ""
+      # IdP 인증서 (PEM 형식, 또는 파일 경로)
+      certificate: ""
+      # certificate_file: "/path/to/idp-cert.pem"
+
+    # SP(Service Provider) 설정 - 우리 시스템 정보
+    sp:
+      entity_id: "hpc-dashboard"  # SSO 담당자에게 등록할 SP ID
+
+  # ==========================================================================
+  # OIDC 설정 (type: oidc 일 때 사용)
+  # ==========================================================================
+  oidc:
+    issuer: ""                    # https://sso.company.com
+    client_id: ""                 # SSO 담당자에게 받은 Client ID
+    client_secret: ""             # SSO 담당자에게 받은 Client Secret
+    # 요청할 scope (기본값: openid,profile,email,groups)
+    scopes:
+      - openid
+      - profile
+      - email
+      - groups
+
+    # 명시적 클레임 요청 (SAML의 AttributeConsumingService와 유사)
+    # OIDC는 기본적으로 scope로 클레임을 요청하지만,
+    # claims 파라미터로 개별 클레임을 명시적으로 요청할 수 있습니다.
+    # IdP가 claims 파라미터를 지원해야 합니다.
+    # 비워두면 attribute_mapping의 값들로 자동 생성됩니다.
+    requested_claims: []
+    # requested_claims:
+    #   - preferred_username
+    #   - email
+    #   - groups
+    #   - department
+
+  # ==========================================================================
+  # SSO 속성 매핑 (SAML/OIDC 공통)
+  # 사내 SSO가 보내는 속성명 → 내부 속성명
+  # ==========================================================================
+  attribute_mapping:
+    # 사용자 ID (필수) - SAML: uid, OIDC: preferred_username
+    username: "uid"
+    # 이메일 (필수)
+    email: "email"
+    # 그룹/부서 (권한 매핑용, 필수) - SAML: memberOf, OIDC: groups
+    groups: "groups"
+    # 선택적 속성
+    display_name: "displayName"
+    department: "department"
+
+  # ==========================================================================
+  # 그룹별 권한 매핑
+  # 사내 그룹명 → 서비스 권한 (dashboard, cae, vnc, app, admin)
+  # ==========================================================================
+  group_permissions:
+    # 관리자 그룹 (모든 권한)
+    "HPC-Admins":
+      - dashboard
+      - cae
+      - vnc
+      - app
+      - admin
+
+    # DX팀 (대시보드 + VNC + 앱)
+    "DX-Users":
+      - dashboard
+      - vnc
+      - app
+
+    # CAE팀 (대시보드 + CAE + VNC + 앱)
+    "CAEG-Users":
+      - dashboard
+      - cae
+      - vnc
+      - app
+
+    # AD 그룹 DN 형식 예시 (사내 SSO에서 전체 DN으로 보내는 경우)
+    # "CN=HPC-Admins,OU=Groups,DC=company,DC=com":
+    #   - dashboard
+    #   - cae
+    #   - vnc
+    #   - app
+    #   - admin
+
+# ============================================================================
+# SAML IdP Test Users (개발/테스트용 - sso.enabled: false 일 때만 사용)
 # ============================================================================
 saml:
   test_users:
