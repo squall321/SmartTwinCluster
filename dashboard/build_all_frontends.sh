@@ -1,8 +1,20 @@
 #!/bin/bash
 ################################################################################
 # 모든 프론트엔드 빌드 스크립트
-# Dashboard Frontend, VNC Service, CAE Frontend 빌드
+#
+# 사용법:
+#   ./build_all_frontends.sh                      # 전체 빌드
+#   ./build_all_frontends.sh --frontend <name>    # 선택적 빌드
+#
+# 옵션:
+#   --frontend <name>   특정 프론트엔드만 빌드 (예: frontend_3010)
+#
+# 주의:
+#   - node_modules는 사전에 하드카피로 배포되어 있어야 함
+#   - npm install은 실행하지 않음 (오프라인 환경)
 ################################################################################
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -13,304 +25,150 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# 인자 파싱
+TARGET_FRONTEND=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --frontend)
+            TARGET_FRONTEND="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
 echo "=========================================="
 echo "🔨 프론트엔드 빌드 시작"
+if [[ -n "$TARGET_FRONTEND" ]]; then
+    echo "   (선택적 빌드: $TARGET_FRONTEND)"
+fi
 echo "=========================================="
 echo ""
 
 BUILD_SUCCESS=0
 BUILD_FAILED=0
 
-# ==================== 1. Dashboard Frontend (3010) ====================
-echo -e "${BLUE}[1/3] Dashboard Frontend 빌드 중...${NC}"
-if [ -d "frontend_3010" ]; then
-    cd frontend_3010
+# 프론트엔드 목록 (auth_portal_4431 포함)
+frontends=(
+    "auth_portal_4431"        # Auth Portal (NEW!)
+    "frontend_3010"           # Dashboard
+    "vnc_service_8002"        # VNC
+    "moonlight_frontend_8003" # Moonlight
+    "kooCAEWeb_5173"          # CAE
+    "app_5174"                # App Service
+)
 
-    # TypeScript 캐시 삭제 (새 코드 반영 보장)
+# Nginx 배포 경로 매핑
+declare -A nginx_paths=(
+    ["auth_portal_4431"]="/var/www/html/auth_portal"
+    ["frontend_3010"]="/var/www/html/dashboard"
+    ["vnc_service_8002"]="/var/www/html/vnc_service_8002"
+    ["moonlight_frontend_8003"]="/var/www/html/moonlight"
+    ["kooCAEWeb_5173"]="/var/www/html/cae"
+    ["app_5174"]="/var/www/html/app_5174"
+)
+
+# 프론트엔드 빌드 함수
+build_frontend() {
+    local frontend=$1
+    local index=$2
+    local total=$3
+
+    echo -e "${BLUE}[$index/$total] $frontend 빌드 중...${NC}"
+
+    if [ ! -d "$frontend" ]; then
+        echo -e "${YELLOW}⚠  $frontend 디렉토리 없음${NC}"
+        echo ""
+        return 1
+    fi
+
+    cd "$frontend"
+
+    # 1. TypeScript 캐시 삭제
     if [ -f "tsconfig.tsbuildinfo" ]; then
         echo "  → TypeScript 캐시 삭제 중..."
         rm -f tsconfig.tsbuildinfo 2>/dev/null || true
     fi
 
-    # dist 폴더 권한 문제 해결 (강제 삭제)
+    # 2. dist 폴더 삭제
     if [ -d "dist" ]; then
         echo "  → 기존 dist 폴더 삭제 중..."
         rm -rf dist 2>/dev/null || sudo rm -rf dist 2>/dev/null || true
     fi
 
-    # node_modules 확인
+    # 3. node_modules 검증 (하드카피 전제 - npm install 하지 않음)
     if [ ! -d "node_modules" ]; then
-        echo "  → npm install 실행 중..."
-        npm install --silent
+        echo -e "${RED}❌ node_modules not found for $frontend${NC}"
+        echo "   Please copy node_modules via rsync/tar before building"
+        cd "$SCRIPT_DIR"
+        return 1
     fi
 
-    # 빌드 실행 (TypeScript 컴파일 포함)
-    echo "  → 빌드 실행 중..."
-    sudo rm -f /tmp/dashboard_build.log 2>/dev/null || true
-    if npm run build > /tmp/dashboard_build.log 2>&1; then
-        echo -e "${GREEN}✅ Dashboard Frontend 빌드 성공${NC}"
-        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
-
-        # Nginx 배포 디렉토리로 복사
-        echo "  → Nginx 배포 디렉토리로 복사 중..."
-        sudo rm -rf /var/www/html/dashboard 2>/dev/null || true
-        sudo mkdir -p /var/www/html/dashboard
-        sudo cp -r dist/* /var/www/html/dashboard/
-        sudo chown -R www-data:www-data /var/www/html/dashboard
-        echo -e "${GREEN}  ✅ 배포 완료: /var/www/html/dashboard${NC}"
-    else
-        echo -e "${RED}❌ Dashboard Frontend 빌드 실패${NC}"
-        echo "  → 로그: /tmp/dashboard_build.log"
-        tail -20 /tmp/dashboard_build.log
-        BUILD_FAILED=$((BUILD_FAILED + 1))
-    fi
-
-    cd "$SCRIPT_DIR"
-else
-    echo -e "${YELLOW}⚠  frontend_3010 디렉토리 없음${NC}"
-fi
-echo ""
-
-# ==================== 2. VNC Service (8002) ====================
-echo -e "${BLUE}[2/3] VNC Service 빌드 중...${NC}"
-if [ -d "vnc_service_8002" ]; then
-    cd vnc_service_8002
-
-    # TypeScript 캐시 삭제 (새 코드 반영 보장)
-    if [ -f "tsconfig.tsbuildinfo" ]; then
-        echo "  → TypeScript 캐시 삭제 중..."
-        rm -f tsconfig.tsbuildinfo 2>/dev/null || true
-    fi
-
-    # dist 폴더 권한 문제 해결 (강제 삭제)
-    if [ -d "dist" ]; then
-        echo "  → 기존 dist 폴더 삭제 중..."
-        rm -rf dist 2>/dev/null || sudo rm -rf dist 2>/dev/null || true
-    fi
-
-    # node_modules 확인
-    if [ ! -d "node_modules" ]; then
-        echo "  → npm install 실행 중..."
-        npm install --silent
-    fi
-
-    # 빌드 실행 (TypeScript 컴파일 포함)
-    echo "  → 빌드 실행 중..."
-    sudo rm -f /tmp/vnc_build.log 2>/dev/null || true
-    if npm run build > /tmp/vnc_build.log 2>&1; then
-        echo -e "${GREEN}✅ VNC Service 빌드 성공${NC}"
-        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
-
-        # Nginx 배포 디렉토리로 복사
-        echo "  → Nginx 배포 디렉토리로 복사 중..."
-        sudo rm -rf /var/www/html/vnc_service_8002 2>/dev/null || true
-        sudo mkdir -p /var/www/html/vnc_service_8002
-        sudo cp -r dist/* /var/www/html/vnc_service_8002/
-        sudo chown -R www-data:www-data /var/www/html/vnc_service_8002
-        echo -e "${GREEN}  ✅ 배포 완료: /var/www/html/vnc_service_8002${NC}"
-    else
-        echo -e "${RED}❌ VNC Service 빌드 실패${NC}"
-        echo "  → 로그: /tmp/vnc_build.log"
-        tail -20 /tmp/vnc_build.log
-        BUILD_FAILED=$((BUILD_FAILED + 1))
-    fi
-
-    cd "$SCRIPT_DIR"
-else
-    echo -e "${YELLOW}⚠  vnc_service_8002 디렉토리 없음${NC}"
-fi
-echo ""
-
-# ==================== 3. Moonlight Frontend (8003) ====================
-echo -e "${BLUE}[3/5] Moonlight Frontend 빌드 중...${NC}"
-if [ -d "moonlight_frontend_8003" ]; then
-    cd moonlight_frontend_8003
-
-    # TypeScript 캐시 삭제 (새 코드 반영 보장)
-    if [ -f "tsconfig.tsbuildinfo" ]; then
-        echo "  → TypeScript 캐시 삭제 중..."
-        rm -f tsconfig.tsbuildinfo 2>/dev/null || true
-    fi
-
-    # dist 폴더 권한 문제 해결 (강제 삭제)
-    if [ -d "dist" ]; then
-        echo "  → 기존 dist 폴더 삭제 중..."
-        rm -rf dist 2>/dev/null || sudo rm -rf dist 2>/dev/null || true
-    fi
-
-    # node_modules 확인
-    if [ ! -d "node_modules" ]; then
-        echo "  → npm install 실행 중..."
-        npm install --silent
-    fi
-
-    # 빌드 실행 (TypeScript 컴파일 포함)
-    echo "  → 빌드 실행 중..."
-    sudo rm -f /tmp/moonlight_build.log 2>/dev/null || true
-    if npm run build > /tmp/moonlight_build.log 2>&1; then
-        echo -e "${GREEN}✅ Moonlight Frontend 빌드 성공${NC}"
-        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
-
-        # Nginx 배포 디렉토리로 복사
-        echo "  → Nginx 배포 디렉토리로 복사 중..."
-        sudo rm -rf /var/www/html/moonlight 2>/dev/null || true
-        sudo mkdir -p /var/www/html/moonlight
-        sudo cp -r dist/* /var/www/html/moonlight/
-        sudo chown -R www-data:www-data /var/www/html/moonlight
-        echo -e "${GREEN}  ✅ 배포 완료: /var/www/html/moonlight${NC}"
-    else
-        echo -e "${RED}❌ Moonlight Frontend 빌드 실패${NC}"
-        echo "  → 로그: /tmp/moonlight_build.log"
-        tail -20 /tmp/moonlight_build.log
-        BUILD_FAILED=$((BUILD_FAILED + 1))
-    fi
-
-    cd "$SCRIPT_DIR"
-else
-    echo -e "${YELLOW}⚠  moonlight_frontend_8003 디렉토리 없음${NC}"
-fi
-echo ""
-
-# ==================== 4. CAE Frontend (5173) ====================
-echo -e "${BLUE}[4/5] CAE Frontend 빌드 중...${NC}"
-if [ -d "kooCAEWeb_5173" ]; then
-    cd kooCAEWeb_5173
-
-    # TypeScript 캐시 삭제 (새 코드 반영 보장)
-    if [ -f "tsconfig.tsbuildinfo" ]; then
-        echo "  → TypeScript 캐시 삭제 중..."
-        rm -f tsconfig.tsbuildinfo 2>/dev/null || true
-    fi
-
-    # dist 폴더 권한 문제 해결 (강제 삭제)
-    if [ -d "dist" ]; then
-        echo "  → 기존 dist 폴더 삭제 중..."
-        rm -rf dist 2>/dev/null || sudo rm -rf dist 2>/dev/null || true
-    fi
-
-    # node_modules 확인 - 주요 의존성 체크 추가
-    need_install=false
-    if [ ! -d "node_modules" ]; then
-        need_install=true
-        echo "  → node_modules 없음"
-    elif [ ! -d "node_modules/@mui/material" ]; then
-        need_install=true
-        echo "  → @mui/material 누락됨"
-    elif [ ! -d "node_modules/@mui/icons-material" ]; then
-        need_install=true
-        echo "  → @mui/icons-material 누락됨"
-    fi
-
-    if [ "$need_install" = true ]; then
-        echo "  → npm install 실행 중... (의존성 설치)"
-        npm install 2>&1 | tail -5 || {
-            echo -e "${YELLOW}  ⚠ npm install 경고 발생 - 계속 진행${NC}"
-        }
-    else
-        echo "  → node_modules 확인 완료"
-    fi
-
-    # 빌드 실행 (TypeScript 컴파일 포함)
-    echo "  → 빌드 실행 중..."
-    sudo rm -f /tmp/cae_build.log 2>/dev/null || true
-    if npm run build > /tmp/cae_build.log 2>&1; then
-        echo -e "${GREEN}✅ CAE Frontend 빌드 성공${NC}"
-        BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
-
-        # Nginx 배포 디렉토리로 복사
-        echo "  → Nginx 배포 디렉토리로 복사 중..."
-        sudo rm -rf /var/www/html/cae 2>/dev/null || true
-        sudo mkdir -p /var/www/html/cae
-        sudo cp -r dist/* /var/www/html/cae/
-        sudo chown -R www-data:www-data /var/www/html/cae
-        echo -e "${GREEN}  ✅ 배포 완료: /var/www/html/cae${NC}"
-    else
-        echo -e "${RED}❌ CAE Frontend 빌드 실패${NC}"
-        echo "  → 로그: /tmp/cae_build.log"
-        tail -20 /tmp/cae_build.log
-        # 의존성 문제인 경우 npm install 강제 재실행 후 재시도
-        if grep -q "Cannot find module" /tmp/cae_build.log 2>/dev/null; then
-            echo -e "${YELLOW}  → 모듈 누락 감지, npm install 재실행 후 재빌드 시도...${NC}"
-            rm -rf node_modules 2>/dev/null || true
-            npm install 2>&1 | tail -5
-            if npm run build > /tmp/cae_build.log 2>&1; then
-                echo -e "${GREEN}✅ CAE Frontend 재빌드 성공${NC}"
-                BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
-                sudo rm -rf /var/www/html/cae 2>/dev/null || true
-                sudo mkdir -p /var/www/html/cae
-                sudo cp -r dist/* /var/www/html/cae/
-                sudo chown -R www-data:www-data /var/www/html/cae
-                echo -e "${GREEN}  ✅ 배포 완료: /var/www/html/cae${NC}"
-            else
-                BUILD_FAILED=$((BUILD_FAILED + 1))
-            fi
-        else
-            BUILD_FAILED=$((BUILD_FAILED + 1))
+    # 4. 주요 의존성 추가 체크 (CAE Frontend)
+    if [[ "$frontend" == "kooCAEWeb_5173" ]]; then
+        if [ ! -d "node_modules/@mui/material" ] || [ ! -d "node_modules/@mui/icons-material" ]; then
+            echo -e "${RED}❌ Critical MUI packages missing in $frontend${NC}"
+            echo "   Please ensure complete node_modules are copied"
+            cd "$SCRIPT_DIR"
+            return 1
         fi
     fi
 
-    cd "$SCRIPT_DIR"
-else
-    echo -e "${YELLOW}⚠  kooCAEWeb_5173 디렉토리 없음${NC}"
-fi
-echo ""
+    # 5. 빌드 실행
+    echo "  → 빌드 실행 중 (using existing node_modules)..."
+    sudo rm -f "/tmp/${frontend}_build.log" 2>/dev/null || true
 
-# ==================== 5. App Service (5174) ====================
-echo -e "${BLUE}[5/5] App Service 빌드 중...${NC}"
-if [ -d "app_5174" ]; then
-    cd app_5174
-
-    # TypeScript 캐시 삭제 (새 코드 반영 보장)
-    if [ -f "tsconfig.tsbuildinfo" ]; then
-        echo "  → TypeScript 캐시 삭제 중..."
-        rm -f tsconfig.tsbuildinfo 2>/dev/null || true
-    fi
-
-    # dist 폴더 권한 문제 해결 (강제 삭제)
-    if [ -d "dist" ]; then
-        echo "  → 기존 dist 폴더 삭제 중..."
-        rm -rf dist 2>/dev/null || sudo rm -rf dist 2>/dev/null || true
-    fi
-
-    # node_modules 확인
-    if [ ! -d "node_modules" ]; then
-        echo "  → npm install 실행 중..."
-        npm install --silent
-    fi
-
-    # 빌드 실행 (TypeScript 컴파일 포함)
-    echo "  → 빌드 실행 중..."
-    sudo rm -f /tmp/app_build.log 2>/dev/null || true
-    if npm run build > /tmp/app_build.log 2>&1; then
-        cp landing.html dist/index.html 2>/dev/null || true
-        echo -e "${GREEN}✅ App Service 빌드 성공${NC}"
+    if npm run build > "/tmp/${frontend}_build.log" 2>&1; then
+        echo -e "${GREEN}✅ $frontend 빌드 성공${NC}"
         BUILD_SUCCESS=$((BUILD_SUCCESS + 1))
 
-        # Nginx 배포 디렉토리로 복사
+        # 6. app_5174 특별 처리: landing.html 복사
+        if [[ "$frontend" == "app_5174" && -f "landing.html" ]]; then
+            cp landing.html dist/index.html 2>/dev/null || true
+            echo "  → landing.html copied to dist/index.html"
+        fi
+
+        # 7. Nginx 배포 디렉토리로 복사
+        local nginx_path="${nginx_paths[$frontend]}"
         echo "  → Nginx 배포 디렉토리로 복사 중..."
-        sudo rm -rf /var/www/html/app_5174 2>/dev/null || true
-        sudo mkdir -p /var/www/html/app_5174
-        sudo cp -r dist/* /var/www/html/app_5174/
-        sudo chown -R www-data:www-data /var/www/html/app_5174
-        echo -e "${GREEN}  ✅ 배포 완료: /var/www/html/app_5174${NC}"
+        sudo rm -rf "$nginx_path" 2>/dev/null || true
+        sudo mkdir -p "$nginx_path"
+        sudo cp -r dist/* "$nginx_path/"
+        sudo chown -R www-data:www-data "$nginx_path"
+        echo -e "${GREEN}  ✅ 배포 완료: $nginx_path${NC}"
     else
-        echo -e "${RED}❌ App Service 빌드 실패${NC}"
-        echo "  → 로그: /tmp/app_build.log"
-        tail -20 /tmp/app_build.log
+        echo -e "${RED}❌ $frontend 빌드 실패${NC}"
+        echo "  → 로그: /tmp/${frontend}_build.log"
+        tail -20 "/tmp/${frontend}_build.log"
         BUILD_FAILED=$((BUILD_FAILED + 1))
     fi
 
     cd "$SCRIPT_DIR"
-else
-    echo -e "${YELLOW}⚠  app_5174 디렉토리 없음${NC}"
-fi
-echo ""
+    echo ""
+}
 
+# 빌드 실행
+if [[ -n "$TARGET_FRONTEND" ]]; then
+    # 선택적 빌드
+    build_frontend "$TARGET_FRONTEND" 1 1
+else
+    # 전체 빌드
+    total=${#frontends[@]}
+    index=1
+    for frontend in "${frontends[@]}"; do
+        build_frontend "$frontend" $index $total
+        ((index++))
+    done
+fi
 
 # ==================== 빌드 결과 ====================
 echo "=========================================="
 if [ $BUILD_FAILED -eq 0 ]; then
-    echo -e "${GREEN}✅ 모든 프론트엔드 빌드 완료! ($BUILD_SUCCESS/5)${NC}"
+    echo -e "${GREEN}✅ 모든 프론트엔드 빌드 완료! (성공: $BUILD_SUCCESS)${NC}"
     echo "=========================================="
     exit 0
 else

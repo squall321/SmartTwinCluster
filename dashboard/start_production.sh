@@ -3,6 +3,11 @@
 # HPC Cluster Production 시작 스크립트 (Gunicorn)
 # - 프론트엔드: Nginx를 통한 static 파일 서빙
 # - 백엔드: Gunicorn WSGI 서버로 실행
+#
+# 사용법:
+#   ./start_production.sh                  # 기본: 빌드 건너뛰기
+#   ./start_production.sh --rebuild        # 모든 프론트엔드 재빌드
+#   ./start_production.sh --skip-build     # 명시적으로 빌드 건너뛰기
 ################################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,20 +19,47 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0;33m'
 
+# 인자 파싱
+REBUILD_FRONTENDS=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --rebuild)
+            REBUILD_FRONTENDS=true
+            shift
+            ;;
+        --skip-build)
+            REBUILD_FRONTENDS=false
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--rebuild | --skip-build]"
+            exit 1
+            ;;
+    esac
+done
+
 echo "=========================================="
 echo "🚀 HPC Cluster Production 모드 시작 (Gunicorn)"
 echo "=========================================="
 echo ""
 
 # ==================== 0. 프론트엔드 빌드 ====================
-echo -e "${BLUE}[0/9] 프론트엔드 빌드 중...${NC}"
-if [ -f "./build_all_frontends.sh" ]; then
-    ./build_all_frontends.sh
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}❌ 프론트엔드 빌드 실패. 계속 진행합니다...${NC}"
+echo -e "${BLUE}[0/9] 프론트엔드 빌드 확인 중...${NC}"
+if [ "$REBUILD_FRONTENDS" = true ]; then
+    echo "  → 프론트엔드 재빌드 진행 (--rebuild 플래그 사용)"
+    if [ -f "./build_all_frontends.sh" ]; then
+        ./build_all_frontends.sh
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ 프론트엔드 빌드 실패. 계속 진행합니다...${NC}"
+        fi
+    else
+        echo -e "${RED}❌ build_all_frontends.sh를 찾을 수 없습니다${NC}"
     fi
 else
-    echo -e "${YELLOW}⚠  빌드 스크립트 없음. 기존 빌드 파일 사용${NC}"
+    echo "  → 프론트엔드 빌드 건너뛰기 (기존 빌드 파일 사용)"
+    echo "  → 재빌드가 필요하면: ./start_production.sh --rebuild"
 fi
 echo ""
 
@@ -147,22 +179,26 @@ else
 fi
 echo ""
 
-# ==================== 5. Auth Frontend (Dev 서버 - UI 개발용) ====================
-echo -e "${BLUE}[5/9] Auth Frontend 시작 중...${NC}"
+# ==================== 5. Auth Frontend (정적 파일 서빙) ====================
+echo -e "${BLUE}[5/9] Auth Frontend 확인 중...${NC}"
+# Auth Portal은 이제 Nginx가 /var/www/html/auth_portal에서 정적 파일로 서빙합니다.
+# Dev 서버(npm run dev)는 더 이상 사용하지 않습니다.
+
+# 혹시 실행 중인 dev 서버가 있다면 종료
 if pgrep -f "vite.*auth_portal_4431" > /dev/null; then
-    echo -e "${YELLOW}  → Auth Frontend 재시작 중...${NC}"
+    echo -e "${YELLOW}  → 기존 Auth Frontend Dev 서버 종료 중...${NC}"
     pkill -f "vite.*auth_portal_4431"
     sleep 1
 fi
 
-cd auth_portal_4431
-mkdir -p logs
-nohup npm run dev > logs/frontend.log 2>&1 &
-FRONTEND_PID=$!
-echo $FRONTEND_PID > logs/frontend.pid
-cd "$SCRIPT_DIR"
-sleep 5
-echo -e "${GREEN}✅ Auth Frontend 시작됨 (PID: $FRONTEND_PID, Port: 4431)${NC}"
+# 정적 파일 존재 확인
+if [ -d "/var/www/html/auth_portal" ] && [ -f "/var/www/html/auth_portal/index.html" ]; then
+    echo -e "${GREEN}✅ Auth Frontend 정적 파일 확인됨 (/var/www/html/auth_portal)${NC}"
+    echo "  → Nginx가 정적 파일로 서빙합니다 (Port 80/443, Path: /)"
+else
+    echo -e "${YELLOW}⚠  Auth Frontend 빌드 파일이 없습니다${NC}"
+    echo "  → 빌드 필요: ./build_all_frontends.sh --frontend auth_portal_4431"
+fi
 echo ""
 
 # ==================== 6. Dashboard Backend (Gunicorn) ====================
