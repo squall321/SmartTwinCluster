@@ -786,6 +786,13 @@ container_support:
     image_path: /share/apptainer/images
     cache_path: /tmp/apptainer
     bind_paths: [/home, /share, /scratch, /tmp]
+
+    # SIF 이미지 배포 전략
+    # - skip: 이미 존재하면 건너뜀 (기본값, 빠름)
+    # - overwrite: 무조건 덮어쓰기 (느림)
+    # - update: 크기/날짜 비교 후 변경된 것만 업데이트 (중간)
+    sif_deployment_mode: skip  # skip | overwrite | update
+
     deployment_strategy: local_copy
     master_images_path: /scratch/apptainers
     node_local_path: /scratch/apptainers

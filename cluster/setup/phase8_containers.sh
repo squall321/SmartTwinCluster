@@ -16,13 +16,19 @@
 # Options:
 #   --config PATH       Path to my_multihead_cluster.yaml (default: ../../my_multihead_cluster.yaml)
 #   --dry-run           Preview actions without executing
-#   --force             Force deployment even if images already exist
+#   --force             Deprecated: Use --mode overwrite instead
+#   --mode MODE         SIF deployment mode: skip | overwrite | update (overrides YAML setting)
 #   --help              Show this help message
+#
+# Deployment Modes (from YAML container_support.apptainer.sif_deployment_mode):
+#   skip      Skip if file exists (default, fastest)
+#   overwrite Force overwrite all files (slowest)
+#   update    Compare size/mtime, copy only if different (medium)
 #
 # Example:
 #   sudo ./phase8_containers.sh --config ../my_multihead_cluster.yaml
 #   sudo ./phase8_containers.sh --dry-run
-#   sudo ./phase8_containers.sh --force
+#   sudo ./phase8_containers.sh --mode overwrite
 ################################################################################
 
 set -euo pipefail
@@ -43,6 +49,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG_PATH="$PROJECT_ROOT/my_multihead_cluster.yaml"
 DRY_RUN=false
 FORCE=false
+SIF_DEPLOYMENT_MODE=""  # Will be read from YAML (skip | overwrite | update)
 LOG_FILE="/var/log/cluster_containers_deployment.log"
 
 # Container images paths
@@ -109,8 +116,18 @@ parse_args() {
                 shift
                 ;;
             --force)
+                log_warning "--force is deprecated, using --mode overwrite instead"
                 FORCE=true
+                SIF_DEPLOYMENT_MODE="overwrite"
                 shift
+                ;;
+            --mode)
+                SIF_DEPLOYMENT_MODE="$2"
+                if [[ ! "$SIF_DEPLOYMENT_MODE" =~ ^(skip|overwrite|update)$ ]]; then
+                    log_error "Invalid mode: $SIF_DEPLOYMENT_MODE (must be skip, overwrite, or update)"
+                    exit 1
+                fi
+                shift 2
                 ;;
             --help)
                 show_help
@@ -153,6 +170,48 @@ validate_config() {
     fi
 
     log_success "Configuration file validated"
+}
+
+# Function to read SIF deployment mode from YAML (if not overridden by CLI)
+load_sif_deployment_mode() {
+    # If already set by CLI, use that value
+    if [[ -n "$SIF_DEPLOYMENT_MODE" ]]; then
+        log_info "Using deployment mode from CLI: $SIF_DEPLOYMENT_MODE"
+        return
+    fi
+
+    # Read from YAML
+    local yaml_mode=$(python3 << EOPY
+import yaml
+import sys
+
+try:
+    with open('$CONFIG_PATH', 'r') as f:
+        config = yaml.safe_load(f)
+
+    mode = config.get('container_support', {}).get('apptainer', {}).get('sif_deployment_mode', 'skip')
+
+    # Validate mode
+    if mode not in ['skip', 'overwrite', 'update']:
+        print('skip', file=sys.stderr)
+        sys.exit(1)
+
+    print(mode)
+
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    print('skip')  # Default to skip on error
+    sys.exit(1)
+EOPY
+)
+
+    if [[ -z "$yaml_mode" ]]; then
+        yaml_mode="skip"
+        log_warning "Failed to read sif_deployment_mode from YAML, using default: skip"
+    fi
+
+    SIF_DEPLOYMENT_MODE="$yaml_mode"
+    log_info "Using deployment mode from YAML: $SIF_DEPLOYMENT_MODE"
 }
 
 # Function to get viz nodes from YAML
@@ -292,15 +351,52 @@ deploy_to_node() {
         local json_name="${sif_name%.sif}.json"
         local json_remote_path="${target_path}/${json_name}"
 
-        log_info "Deploying: $sif_name ($size)"
+        log_info "Deploying: $sif_name ($size) [mode: $SIF_DEPLOYMENT_MODE]"
 
-        # Check if file already exists (unless --force)
-        if [[ "$FORCE" != "true" ]]; then
-            if timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
-                log_warning "  Already exists (use --force to overwrite)"
-                ((success_count++))
-                continue
-            fi
+        # Check deployment mode and decide whether to deploy
+        local should_deploy=true
+
+        case "$SIF_DEPLOYMENT_MODE" in
+            skip)
+                # Skip if file already exists
+                if timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
+                    log_warning "  Already exists, skipping (mode: skip)"
+                    ((success_count++))
+                    should_deploy=false
+                fi
+                ;;
+            overwrite)
+                # Always deploy, even if file exists
+                if timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
+                    log_info "  File exists, will overwrite (mode: overwrite)"
+                fi
+                ;;
+            update)
+                # Compare size and mtime, only deploy if different
+                if timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
+                    local local_size=$(stat -c%s "$sif" 2>/dev/null || echo "0")
+                    local local_mtime=$(stat -c%Y "$sif" 2>/dev/null || echo "0")
+
+                    local remote_info=$(ssh $SSH_OPTS ${user}@${ip} "sudo stat -c'%s %Y' $remote_path" 2>/dev/null || echo "0 0")
+                    local remote_size=$(echo "$remote_info" | awk '{print $1}')
+                    local remote_mtime=$(echo "$remote_info" | awk '{print $2}')
+
+                    if [[ "$local_size" == "$remote_size" ]] && [[ "$local_mtime" -le "$remote_mtime" ]]; then
+                        log_info "  File up-to-date, skipping (mode: update, size: $local_size)"
+                        ((success_count++))
+                        should_deploy=false
+                    else
+                        log_info "  File outdated, will update (mode: update, local: $local_size/${local_mtime}, remote: $remote_size/${remote_mtime})"
+                    fi
+                else
+                    log_info "  File does not exist, will deploy (mode: update)"
+                fi
+                ;;
+        esac
+
+        # Skip deployment if not needed
+        if [[ "$should_deploy" != "true" ]]; then
+            continue
         fi
 
         # Determine staging directory (/scratch preferred for large files, /tmp as fallback)
@@ -642,11 +738,15 @@ main() {
 
     log_info "Config: $CONFIG_PATH"
     log_info "Dry-run: $DRY_RUN"
-    log_info "Force: $FORCE"
     echo ""
 
     # Validate config
     validate_config
+    echo ""
+
+    # Load SIF deployment mode from YAML (or use CLI override)
+    load_sif_deployment_mode
+    log_info "SIF Deployment Mode: $SIF_DEPLOYMENT_MODE"
     echo ""
 
     # Deploy viz-node images
