@@ -788,10 +788,10 @@ container_support:
     bind_paths: [/home, /share, /scratch, /tmp]
 
     # SIF 이미지 배포 전략
-    # - skip: 이미 존재하면 건너뜀 (기본값, 빠름)
-    # - overwrite: 무조건 덮어쓰기 (느림)
-    # - update: 크기/날짜 비교 후 변경된 것만 업데이트 (중간)
-    sif_deployment_mode: skip  # skip | overwrite | update
+    # - skip: 이미 존재하면 무조건 건너뜀 (가장 빠름, 변경 감지 안함)
+    # - overwrite: 무조건 덮어쓰기 (가장 느림)
+    # - update: 크기/날짜 비교 후 변경된 것만 업데이트 (기본값, 권장)
+    sif_deployment_mode: update  # skip | overwrite | update
 
     deployment_strategy: local_copy
     master_images_path: /scratch/apptainers

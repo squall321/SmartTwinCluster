@@ -21,9 +21,9 @@
 #   --help              Show this help message
 #
 # Deployment Modes (from YAML container_support.apptainer.sif_deployment_mode):
-#   skip      Skip if file exists (default, fastest)
+#   skip      Skip if file exists (fastest, no change detection)
 #   overwrite Force overwrite all files (slowest)
-#   update    Compare size/mtime, copy only if different (medium)
+#   update    Compare size/mtime, copy only if different (default, recommended)
 #
 # Example:
 #   sudo ./phase8_containers.sh --config ../my_multihead_cluster.yaml
@@ -189,25 +189,25 @@ try:
     with open('$CONFIG_PATH', 'r') as f:
         config = yaml.safe_load(f)
 
-    mode = config.get('container_support', {}).get('apptainer', {}).get('sif_deployment_mode', 'skip')
+    mode = config.get('container_support', {}).get('apptainer', {}).get('sif_deployment_mode', 'update')
 
     # Validate mode
     if mode not in ['skip', 'overwrite', 'update']:
-        print('skip', file=sys.stderr)
+        print('update', file=sys.stderr)
         sys.exit(1)
 
     print(mode)
 
 except Exception as e:
     print(f"Error: {e}", file=sys.stderr)
-    print('skip')  # Default to skip on error
+    print('update')  # Default to update on error
     sys.exit(1)
 EOPY
 )
 
     if [[ -z "$yaml_mode" ]]; then
-        yaml_mode="skip"
-        log_warning "Failed to read sif_deployment_mode from YAML, using default: skip"
+        yaml_mode="update"
+        log_warning "Failed to read sif_deployment_mode from YAML, using default: update"
     fi
 
     SIF_DEPLOYMENT_MODE="$yaml_mode"
