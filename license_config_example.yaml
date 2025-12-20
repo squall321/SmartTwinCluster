@@ -1,0 +1,58 @@
+# 라이선스 설정 파일 예시
+# 사용법: ./start_license_update.sh --config license_config.yaml
+
+# 라이선스 서버 정보
+licenses:
+  # LS-DYNA 라이선스
+  - name: "LSDyna"
+    license_file_path: "/opt/ls-dyna_license/LSTC_FILE"
+    license_server_ip: "10.198.112.201"
+    license_content: |
+      Samsung Electronics Co., Ltd. -- 1127864
+      #LICENSE_SERVER: 0@{LICENSE_IP}
+
+  # ANSYS 라이선스 예시
+  - name: "ANSYS"
+    license_file_path: "/opt/ansys_license/ansyslmd.ini"
+    license_server_ip: "10.198.112.202"
+    license_content: |
+      SERVER=1@{LICENSE_IP}
+      USE_SERVER=1
+
+  # ABAQUS 라이선스 예시
+  - name: "ABAQUS"
+    license_file_path: "/opt/abaqus_license/abaqus.lic"
+    license_server_ip: "10.198.112.203"
+    license_content: |
+      ABAQUSLM_LICENSE_FILE=@{LICENSE_IP}
+
+# 컨테이너 이미지 업데이트 설정
+container_update:
+  # SIF 이미지 내부 라이선스 업데이트 여부
+  update_sif_licenses: true
+
+  # 업데이트할 SIF 이미지 목록 (비어있으면 모든 이미지)
+  sif_images:
+    - "KooSimulationPython313.sif"
+    - "LSDyna.sif"
+    # 비워두면 모든 .sif 파일 업데이트
+
+  # 샌드박스 임시 디렉토리
+  sandbox_temp_dir: "/scratch/apptainer_sandbox_temp"
+
+  # 업데이트 후 원본 백업 여부
+  backup_original: true
+
+# 클러스터 노드 설정 (my_multihead_cluster.yaml에서 읽어오거나 여기서 지정)
+cluster_config:
+  # 설정 파일 경로 (없으면 기본값 사용)
+  yaml_path: "./my_multihead_cluster.yaml"
+
+  # 직접 노드 지정 (선택사항, YAML보다 우선)
+  # nodes:
+  #   - hostname: "viz-node01"
+  #     ip: "10.179.100.11"
+  #     user: "hpcadmin"
+  #   - hostname: "compute-node01"
+  #     ip: "10.179.100.21"
+  #     user: "hpcadmin"
