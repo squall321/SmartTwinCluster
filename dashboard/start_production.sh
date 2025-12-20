@@ -485,13 +485,38 @@ echo "=========================================="
 echo -e "${GREEN}✅ Production 모드 시작 완료! (Gunicorn)${NC}"
 echo "=========================================="
 echo ""
+
+# 외부 접속 주소를 YAML에서 동적으로 읽기
+YAML_PATH="../my_multihead_cluster.yaml"
+if [ -f "$YAML_PATH" ]; then
+    # web.public_url 우선, 없으면 network.vip.address 사용
+    PUBLIC_URL=$(python3 -c "
+import yaml
+with open('$YAML_PATH') as f:
+    config = yaml.safe_load(f)
+# 외부 접속 주소 (public_url) 우선
+public_url = config.get('web', {}).get('public_url', '')
+if public_url:
+    print(public_url)
+else:
+    # 없으면 VIP 사용 (내부 접속용)
+    print(config.get('network', {}).get('vip', {}).get('address', 'localhost'))
+" 2>/dev/null)
+    if [ -z "$PUBLIC_URL" ]; then
+        PUBLIC_URL="localhost"
+    fi
+else
+    # YAML이 없으면 현재 서버 IP 사용
+    PUBLIC_URL=$(hostname -I | awk '{print $1}')
+fi
+
 echo "🔗 접속 정보 (Nginx Reverse Proxy):"
 echo ""
-echo "  ● 메인 포털:        http://110.15.177.120/"
-echo "  ● Dashboard:        http://110.15.177.120/dashboard/"
-echo "  ● VNC Service:      http://110.15.177.120/vnc/"
-echo "  ● CAE Frontend:     http://110.15.177.120/cae/"
-echo "  ● Moonlight:        http://110.15.177.120/moonlight/"
+echo "  ● 메인 포털:        http://$PUBLIC_URL/"
+echo "  ● Dashboard:        http://$PUBLIC_URL/dashboard/"
+echo "  ● VNC Service:      http://$PUBLIC_URL/vnc/"
+echo "  ● CAE Frontend:     http://$PUBLIC_URL/cae/"
+echo "  ● Moonlight:        http://$PUBLIC_URL/moonlight/"
 echo ""
 echo "📊 Backend Services (Gunicorn):"
 echo "  ● Auth Backend:     http://localhost:4430 (Gunicorn)"

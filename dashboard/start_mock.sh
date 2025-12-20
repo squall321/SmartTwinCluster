@@ -240,12 +240,25 @@ echo "=========================================="
 echo -e "${PURPLE}✅ Mock Mode 시작 완료!${NC}"
 echo "=========================================="
 echo ""
+
+# VIP 주소를 YAML에서 동적으로 읽기
+YAML_PATH="../my_multihead_cluster.yaml"
+if [ -f "$YAML_PATH" ]; then
+    VIP_ADDRESS=$(python3 -c "import yaml; config=yaml.safe_load(open('$YAML_PATH')); print(config.get('network', {}).get('vip', {}).get('address', 'localhost'))" 2>/dev/null)
+    if [ -z "$VIP_ADDRESS" ]; then
+        VIP_ADDRESS="localhost"
+    fi
+else
+    # YAML이 없으면 현재 서버 IP 사용
+    VIP_ADDRESS=$(hostname -I | awk '{print $1}')
+fi
+
 echo "🔗 접속 정보 (Nginx Reverse Proxy through Port 80):"
 echo ""
-echo -e "  ${PURPLE}●${NC} 메인 포털:      http://110.15.177.120/"
-echo -e "  ${PURPLE}●${NC} Dashboard:       http://110.15.177.120/dashboard/"
-echo -e "  ${PURPLE}●${NC} VNC Service:     http://110.15.177.120/vnc/"
-echo -e "  ${PURPLE}●${NC} CAE Frontend:    http://110.15.177.120/cae/"
+echo -e "  ${PURPLE}●${NC} 메인 포털:      http://$VIP_ADDRESS/"
+echo -e "  ${PURPLE}●${NC} Dashboard:       http://$VIP_ADDRESS/dashboard/"
+echo -e "  ${PURPLE}●${NC} VNC Service:     http://$VIP_ADDRESS/vnc/"
+echo -e "  ${PURPLE}●${NC} CAE Frontend:    http://$VIP_ADDRESS/cae/"
 echo ""
 echo "📊 Backend Services (Mock Mode):"
 echo -e "  ${BLUE}●${NC} Auth Backend:    http://localhost:4430"

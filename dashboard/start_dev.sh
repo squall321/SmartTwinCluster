@@ -304,12 +304,25 @@ echo "=========================================="
 echo -e "${GREEN}✅ Production 모드 시작 완료!${NC}"
 echo "=========================================="
 echo ""
+
+# VIP 주소를 YAML에서 동적으로 읽기
+YAML_PATH="../my_multihead_cluster.yaml"
+if [ -f "$YAML_PATH" ]; then
+    VIP_ADDRESS=$(python3 -c "import yaml; config=yaml.safe_load(open('$YAML_PATH')); print(config.get('network', {}).get('vip', {}).get('address', 'localhost'))" 2>/dev/null)
+    if [ -z "$VIP_ADDRESS" ]; then
+        VIP_ADDRESS="localhost"
+    fi
+else
+    # YAML이 없으면 현재 서버 IP 사용
+    VIP_ADDRESS=$(hostname -I | awk '{print $1}')
+fi
+
 echo "🔗 접속 정보 (Nginx Reverse Proxy through Port 80):"
 echo ""
-echo -e "  ${GREEN}●${NC} 메인 포털:      http://110.15.177.120/"
-echo -e "  ${GREEN}●${NC} Dashboard:       http://110.15.177.120/dashboard/"
-echo -e "  ${GREEN}●${NC} VNC Service:     http://110.15.177.120/vnc/"
-echo -e "  ${GREEN}●${NC} CAE Frontend:    http://110.15.177.120/cae/"
+echo -e "  ${GREEN}●${NC} 메인 포털:      http://$VIP_ADDRESS/"
+echo -e "  ${GREEN}●${NC} Dashboard:       http://$VIP_ADDRESS/dashboard/"
+echo -e "  ${GREEN}●${NC} VNC Service:     http://$VIP_ADDRESS/vnc/"
+echo -e "  ${GREEN}●${NC} CAE Frontend:    http://$VIP_ADDRESS/cae/"
 echo ""
 echo "📊 Backend Services:"
 echo -e "  ${BLUE}●${NC} Auth Backend:    http://localhost:4430"
@@ -320,13 +333,13 @@ echo -e "  ${BLUE}●${NC} CAE Automation:  http://localhost:5001"
 echo ""
 echo "📝 프론트엔드 모드:"
 echo -e "  ${GREEN}●${NC} Dashboard, VNC, CAE: Static files (Nginx 서빙)"
-echo -e "  ${GREEN}●${NC} App Service:      http://110.15.177.120/app/"
+echo -e "  ${GREEN}●${NC} App Service:      http://$VIP_ADDRESS/app/"
 echo -e "  ${YELLOW}●${NC} Auth Portal: Dev server (개발 중)"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "💡 사용 방법:"
-echo "   1. http://110.15.177.120/ 에서 로그인"
+echo "   1. http://$VIP_ADDRESS/ 에서 로그인"
 echo "   2. 서비스 메뉴에서 원하는 서비스 선택"
 echo "   3. 모든 서비스는 포트 80으로 통합 접근"
 echo ""
