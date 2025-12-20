@@ -170,6 +170,17 @@ performance_tuning:
   enabled: false
 power_management:
   enabled: false
+
+# Cgroup 리소스 제어 설정 (Ubuntu 22.04는 cgroup v2 기본)
+cgroup:
+  enabled: true                # cgroup 활성화 여부
+  constrain_ram: true          # 메모리 제한 (ConstrainRAMSpace)
+  constrain_swap: true         # 스왑 제한 (ConstrainSwapSpace)
+  constrain_devices: true      # 디바이스 제한 - GPU 접근 제어 (ConstrainDevices)
+  constrain_cores: true        # CPU 친화성 (ConstrainCores)
+  allowed_ram_percent: 100     # 허용 RAM 비율 (100 = 엄격 제한)
+  allowed_swap_percent: 0      # 허용 스왑 비율 (0 = 스왑 사용 안함)
+
 container_support:
   apptainer:
     enabled: true
