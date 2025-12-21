@@ -1,0 +1,23 @@
+# Job Template Manager - Python Dependencies
+
+# UI Framework
+PyQt5==5.15.10
+PyQt5-stubs==5.15.6.0
+
+# YAML 처리
+PyYAML==6.0.1
+
+# HTTP 통신 (백엔드 API 호출용, 선택사항)
+requests==2.31.0
+
+# 파일 처리
+pathlib2==2.3.7
+
+# 유틸리티
+python-dateutil==2.8.2
+
+# 개발 도구
+black==23.12.1        # 코드 포맷팅
+pylint==3.0.3         # 린팅
+pytest==7.4.3         # 테스트
+pytest-qt==4.2.0      # PyQt 테스트
