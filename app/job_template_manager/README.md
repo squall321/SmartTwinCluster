@@ -76,10 +76,20 @@ app/job_template_manager/
 - [x] 파일 환경 변수 생성 (FILE_XXX)
 - [x] TemplateEditorWidget에 통합
 
-### 다음 단계 (Phase 6)
-- [ ] ScriptGenerator (Slurm 배치 스크립트 생성)
-- [ ] 환경 변수 치환
-- [ ] Apptainer 명령어 조합
+### Phase 6 ✅
+- [x] ScriptGenerator (Slurm 배치 스크립트 생성)
+- [x] SBATCH 헤더 생성 (job-name, partition, nodes, ntasks, mem, time, gpus)
+- [x] 환경 변수 생성 (JOB_*, APPTAINER_IMAGE, FILE_*, RESULT_DIR)
+- [x] 디렉토리 설정 (/shared/jobs/$SLURM_JOB_ID/input, work, output, results)
+- [x] 파일 복사 명령 생성
+- [x] Template 스크립트 블록 조합 (pre_exec, main_exec, post_exec)
+- [x] Job 메타데이터 생성
+- [x] 스크립트 파일 저장 (실행 권한 755)
+
+### 다음 단계 (Phase 7)
+- [ ] ScriptPreviewDialog (생성된 스크립트 미리보기)
+- [ ] Job 제출 기능 (sbatch 실행)
+- [ ] Job ID 추출 및 표시
 
 자세한 개발 계획은 [PROJECT_PLAN.md](PROJECT_PLAN.md)를 참조하세요.
 
@@ -97,7 +107,8 @@ app/job_template_manager/
 │   ├── models/
 │   │   └── template.py            # 데이터 모델 (Template, SlurmConfig 등)
 │   ├── utils/
-│   │   └── yaml_loader.py         # YAML 템플릿 로더
+│   │   ├── yaml_loader.py         # YAML 템플릿 로더
+│   │   └── script_generator.py    # Slurm 스크립트 생성기
 │   └── resources/
 │       └── templates/             # 템플릿 YAML 파일
 │           ├── ml/                # ML 템플릿
