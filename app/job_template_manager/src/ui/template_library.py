@@ -78,76 +78,59 @@ class TemplateLibraryWidget(QWidget):
         self.setLayout(layout)
 
     def load_templates(self):
-        """템플릿 로드"""
-        # TODO: 실제로는 resources/templates/ 디렉토리에서 YAML 파일 로드
-        # 지금은 샘플 데이터로 테스트
+        """템플릿 로드 (YAML 파일에서)"""
+        try:
+            from utils.yaml_loader import YAMLLoader
 
-        sample_templates = [
-            {
-                'id': 'pytorch-gpu-training',
-                'name': 'PyTorch GPU Training',
-                'description': 'GPU 기반 딥러닝 학습',
-                'category': 'ml',
-                'source': 'official',
-                'tags': ['pytorch', 'gpu', 'deep-learning']
-            },
-            {
-                'id': 'tensorflow-distributed',
-                'name': 'TensorFlow Distributed',
-                'description': '분산 TensorFlow 학습',
-                'category': 'ml',
-                'source': 'official',
-                'tags': ['tensorflow', 'distributed']
-            },
-            {
-                'id': 'openfoam-cfd',
-                'name': 'OpenFOAM CFD Simulation',
-                'description': '유체 역학 시뮬레이션',
-                'category': 'simulation',
-                'source': 'official',
-                'tags': ['openfoam', 'cfd', 'simulation']
-            },
-            {
-                'id': 'gromacs-md',
-                'name': 'GROMACS Molecular Dynamics',
-                'description': '분자 동역학 시뮬레이션',
-                'category': 'simulation',
-                'source': 'official',
-                'tags': ['gromacs', 'molecular-dynamics']
-            },
-            {
-                'id': 'lsdyna-crash',
-                'name': 'LS-DYNA Crash Analysis',
-                'description': '충돌 해석',
-                'category': 'simulation',
-                'source': 'official',
-                'tags': ['lsdyna', 'crash', 'analysis']
-            },
-            {
-                'id': 'python-data-processing',
-                'name': 'Python Data Processing',
-                'description': '대용량 데이터 처리',
-                'category': 'data',
-                'source': 'official',
-                'tags': ['python', 'data']
-            },
-            {
-                'id': 'jupyter-notebook',
-                'name': 'Jupyter Notebook',
-                'description': 'Jupyter 노트북 실행',
-                'category': 'data',
-                'source': 'community',
-                'tags': ['jupyter', 'python']
-            },
-        ]
+            loader = YAMLLoader()
+            template_objects = loader.scan_templates()
 
-        for template_data in sample_templates:
-            self.templates[template_data['id']] = template_data
+            # Template 객체를 딕셔너리로 변환 (기존 코드 호환)
+            for template_obj in template_objects:
+                display_info = template_obj.get_display_info()
+                # Template 객체도 함께 저장
+                display_info['_template_obj'] = template_obj
+                self.templates[display_info['id']] = display_info
+
+            logger.info(f"Loaded {len(self.templates)} templates from YAML files")
+
+        except Exception as e:
+            logger.error(f"Failed to load templates from YAML: {e}")
+            logger.info("Using fallback sample data")
+
+            # 실패 시 샘플 데이터 사용
+            sample_templates = [
+                {
+                    'id': 'pytorch-gpu-training',
+                    'name': 'PyTorch GPU Training',
+                    'description': 'GPU 기반 딥러닝 학습',
+                    'category': 'ml',
+                    'source': 'official',
+                    'tags': ['pytorch', 'gpu', 'deep-learning']
+                },
+                {
+                    'id': 'openfoam-cfd',
+                    'name': 'OpenFOAM CFD Simulation',
+                    'description': '유체 역학 시뮬레이션',
+                    'category': 'simulation',
+                    'source': 'official',
+                    'tags': ['openfoam', 'cfd', 'simulation']
+                },
+                {
+                    'id': 'python-data-processing',
+                    'name': 'Python Data Processing',
+                    'description': '대용량 데이터 처리',
+                    'category': 'data',
+                    'source': 'official',
+                    'tags': ['python', 'data']
+                },
+            ]
+
+            for template_data in sample_templates:
+                self.templates[template_data['id']] = template_data
 
         self.filtered_templates = self.templates.copy()
         self.populate_tree()
-
-        logger.info(f"Loaded {len(self.templates)} templates")
 
     def populate_tree(self):
         """트리 위젯 채우기"""

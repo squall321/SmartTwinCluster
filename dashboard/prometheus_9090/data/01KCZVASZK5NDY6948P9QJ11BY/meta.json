@@ -1,0 +1,17 @@
+{
+	"ulid": "01KCZVASZK5NDY6948P9QJ11BY",
+	"minTime": 1766289610339,
+	"maxTime": 1766296800000,
+	"stats": {
+		"numSamples": 1135680,
+		"numSeries": 2366,
+		"numChunks": 9464
+	},
+	"compaction": {
+		"level": 1,
+		"sources": [
+			"01KCZVASZK5NDY6948P9QJ11BY"
+		]
+	},
+	"version": 1
+}
