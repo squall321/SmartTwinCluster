@@ -1,0 +1,72 @@
+template:
+  id: pytorch-gpu-training
+  name: PyTorch GPU Training
+  description: GPU 기반 딥러닝 모델 학습 템플릿
+  category: ml
+  version: 1.0.0
+  source: official
+  tags: [pytorch, gpu, deep-learning, training]
+  is_public: true
+
+slurm:
+  partition: compute
+  nodes: 1
+  ntasks: 4
+  mem: 32G
+  time: 02:00:00
+
+apptainer:
+  image_name: KooSimulationPython313.sif
+  mode: partition
+  bind:
+    - /shared:/shared
+    - /data:/data
+  env:
+    PYTHONPATH: /app
+    OMP_NUM_THREADS: "4"
+    CUDA_VISIBLE_DEVICES: "0"
+
+files:
+  input_schema:
+    required:
+      - file_key: training_script
+        name: Training Script
+        description: Python 학습 스크립트 (train.py)
+        validation:
+          extensions: [.py]
+          max_size: 10MB
+      - file_key: dataset
+        name: Dataset File
+        description: 학습 데이터셋 (tar.gz, zip)
+        validation:
+          extensions: [.tar.gz, .zip, .tar]
+          max_size: 500MB
+    optional:
+      - file_key: config
+        name: Config File
+        description: 학습 설정 파일 (YAML/JSON)
+        validation:
+          extensions: [.yaml, .yml, .json]
+          max_size: 1MB
+
+script:
+  pre_exec: |
+    echo "========================================"
+    echo "PyTorch GPU Training Starting..."
+    echo "========================================"
+    export PYTHONUNBUFFERED=1
+    nvidia-smi
+
+  main_exec: |
+    apptainer exec $APPTAINER_IMAGE \
+      python $FILE_TRAINING_SCRIPT \
+        --data $FILE_DATASET \
+        --output $RESULT_DIR \
+        ${FILE_CONFIG:+--config $FILE_CONFIG}
+
+  post_exec: |
+    echo "========================================"
+    echo "Training Completed"
+    echo "========================================"
+    ls -lh $RESULT_DIR
+    echo "Results saved to: $RESULT_DIR"

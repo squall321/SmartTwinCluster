@@ -1,0 +1,75 @@
+template:
+  id: python-data-processing
+  name: Python Data Processing
+  description: 대용량 데이터 처리 및 분석
+  category: data
+  version: 1.0.0
+  source: official
+  tags: [python, data, processing, pandas, analysis]
+  is_public: true
+
+slurm:
+  partition: compute
+  nodes: 1
+  ntasks: 8
+  mem: 128G
+  time: 01:30:00
+
+apptainer:
+  image_name: KooSimulationPython313.sif
+  mode: partition
+  bind:
+    - /shared:/shared
+    - /data:/data
+  env:
+    PYTHONPATH: /app
+    OMP_NUM_THREADS: "8"
+
+files:
+  input_schema:
+    required:
+      - file_key: script
+        name: Processing Script
+        description: Python 데이터 처리 스크립트
+        validation:
+          extensions: [.py]
+          max_size: 5MB
+      - file_key: input_data
+        name: Input Data
+        description: 입력 데이터 파일
+        validation:
+          extensions: [.csv, .parquet, .h5, .hdf5, .json]
+          max_size: 10GB
+    optional:
+      - file_key: requirements
+        name: Requirements File
+        description: Python 패키지 목록 (requirements.txt)
+        validation:
+          extensions: [.txt]
+          max_size: 100KB
+
+script:
+  pre_exec: |
+    echo "========================================"
+    echo "Python Data Processing"
+    echo "========================================"
+
+    # 추가 패키지 설치 (requirements가 있는 경우)
+    if [ -n "$FILE_REQUIREMENTS" ]; then
+      echo "Installing additional packages..."
+      pip install --user -r $FILE_REQUIREMENTS
+    fi
+
+  main_exec: |
+    apptainer exec $APPTAINER_IMAGE \
+      python $FILE_SCRIPT \
+        --input $FILE_INPUT_DATA \
+        --output $RESULT_DIR
+
+  post_exec: |
+    echo "========================================"
+    echo "Processing Completed"
+    echo "========================================"
+    du -sh $RESULT_DIR/*
+    echo "Output files:"
+    ls -lh $RESULT_DIR

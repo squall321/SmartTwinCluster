@@ -96,13 +96,21 @@ class MainWindow(QMainWindow):
         # QSplitter: 좌측 템플릿 라이브러리 + 우측 에디터
         splitter = QSplitter(Qt.Horizontal)
 
-        # 좌측: 템플릿 라이브러리 (나중에 TemplateLibraryWidget으로 교체)
-        left_widget = QWidget()
-        left_layout = QVBoxLayout()
-        left_label = QLabel("템플릿 라이브러리\n(TemplateLibraryWidget 구현 예정)")
-        left_label.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(left_label)
-        left_widget.setLayout(left_layout)
+        # 좌측: 템플릿 라이브러리
+        try:
+            from ui.template_library import TemplateLibraryWidget
+            self.template_library = TemplateLibraryWidget()
+            self.template_library.template_selected.connect(self.on_template_selected)
+            self.template_library.template_double_clicked.connect(self.on_template_double_clicked)
+            left_widget = self.template_library
+        except ImportError as e:
+            logger.warning(f"Failed to import TemplateLibraryWidget: {e}")
+            left_widget = QWidget()
+            left_layout = QVBoxLayout()
+            left_label = QLabel("템플릿 라이브러리\n(TemplateLibraryWidget 로드 실패)")
+            left_label.setAlignment(Qt.AlignCenter)
+            left_layout.addWidget(left_label)
+            left_widget.setLayout(left_layout)
 
         # 우측: 템플릿 에디터 (나중에 TemplateEditorWidget으로 교체)
         right_widget = QWidget()
@@ -164,6 +172,16 @@ class MainWindow(QMainWindow):
         geometry = self.settings.value("mainwindow/geometry")
         if geometry:
             self.restoreGeometry(geometry)
+
+    def on_template_selected(self, template_data: dict):
+        """템플릿 선택 이벤트 (단일 클릭)"""
+        logger.info(f"Template selected: {template_data['name']}")
+        # TODO: 우측 에디터에 템플릿 정보 표시
+
+    def on_template_double_clicked(self, template_data: dict):
+        """템플릿 더블클릭 이벤트 (로드)"""
+        logger.info(f"Template double-clicked: {template_data['name']}")
+        # TODO: 우측 에디터에 템플릿 로드 및 편집 모드
 
     def closeEvent(self, event):
         """윈도우 종료 이벤트"""

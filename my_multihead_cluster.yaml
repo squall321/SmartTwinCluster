@@ -882,7 +882,7 @@ web:
   # - 공인 IP 또는 도메인
   # - 내부 접속만 하려면 VIP 주소 사용: 10.179.100.100
   # - 외부 접속이 필요하면 공인 IP 또는 도메인 입력: 110.15.177.120 또는 cluster.example.com
-  public_url: "110.15.177.120"  # 외부 접속 주소 (공인 IP 또는 도메인)
+  public_url: "10.198.112.201"  # 외부 접속 주소 (공인 IP 또는 도메인)
 
   ssl:
     # SSL 인증서 모드: letsencrypt | self_signed | none
