@@ -458,3 +458,8 @@ class FileUploadWidget(QWidget):
                 return False
 
         return True
+
+    def clear(self):
+        """파일 업로드 위젯 초기화"""
+        self.clear_all_files()
+        logger.debug("File upload widget cleared")

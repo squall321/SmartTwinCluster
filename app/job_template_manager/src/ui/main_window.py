@@ -9,10 +9,11 @@ import logging
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QMenuBar, QMenu, QAction, QStatusBar,
-    QLabel, QMessageBox
+    QLabel, QMessageBox, QFileDialog, QInputDialog
 )
 from PyQt5.QtCore import Qt, QSettings
 from PyQt5.QtGui import QIcon
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,18 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        import_action = QAction('&Import Template...', self)
+        import_action.setStatusTip('Import template from YAML file')
+        import_action.triggered.connect(self.import_template)
+        file_menu.addAction(import_action)
+
+        export_action = QAction('&Export Template...', self)
+        export_action.setStatusTip('Export current template to YAML file')
+        export_action.triggered.connect(self.export_template)
+        file_menu.addAction(export_action)
+
+        file_menu.addSeparator()
+
         exit_action = QAction('E&xit', self)
         exit_action.setShortcut('Ctrl+Q')
         exit_action.setStatusTip('Exit application')
@@ -80,8 +93,34 @@ class MainWindow(QMainWindow):
         # Edit 메뉴
         edit_menu = menubar.addMenu('&Edit')
 
+        edit_template_action = QAction('&Edit Template', self)
+        edit_template_action.setShortcut('Ctrl+E')
+        edit_template_action.setStatusTip('Edit selected template')
+        edit_template_action.triggered.connect(self.edit_template)
+        edit_menu.addAction(edit_template_action)
+
+        duplicate_action = QAction('&Duplicate Template', self)
+        duplicate_action.setShortcut('Ctrl+D')
+        duplicate_action.setStatusTip('Duplicate selected template')
+        duplicate_action.triggered.connect(self.duplicate_template)
+        edit_menu.addAction(duplicate_action)
+
+        edit_menu.addSeparator()
+
+        delete_action = QAction('&Delete Template', self)
+        delete_action.setShortcut('Delete')
+        delete_action.setStatusTip('Delete selected template')
+        delete_action.triggered.connect(self.delete_template)
+        edit_menu.addAction(delete_action)
+
         # View 메뉴
         view_menu = menubar.addMenu('&View')
+
+        refresh_action = QAction('&Refresh Templates', self)
+        refresh_action.setShortcut('F5')
+        refresh_action.setStatusTip('Reload template library')
+        refresh_action.triggered.connect(self.refresh_templates)
+        view_menu.addAction(refresh_action)
 
         # Help 메뉴
         help_menu = menubar.addMenu('&Help')
@@ -153,17 +192,145 @@ class MainWindow(QMainWindow):
     def new_template(self):
         """새 템플릿 생성"""
         logger.info("New template action triggered")
-        QMessageBox.information(self, "New Template", "새 템플릿 생성 기능은 구현 예정입니다.")
+
+        try:
+            from ui.template_creator_dialog import TemplateCreatorDialog
+
+            # 템플릿 생성 다이얼로그 표시
+            dialog = TemplateCreatorDialog(self)
+
+            if dialog.exec_() == QMessageBox.Accepted:
+                template = dialog.get_template()
+
+                if template:
+                    # 템플릿 저장
+                    from utils.template_manager import TemplateManager
+                    manager = TemplateManager()
+
+                    success, error, file_path = manager.save_template(template, overwrite=False)
+
+                    if success:
+                        QMessageBox.information(
+                            self,
+                            "Template Created",
+                            f"Template '{template.template.name}' has been created successfully!\n\n"
+                            f"File: {file_path.name}"
+                        )
+                        # 템플릿 라이브러리 새로고침
+                        self.refresh_templates()
+                        logger.info(f"Template created: {template.template.id}")
+                    else:
+                        QMessageBox.critical(
+                            self,
+                            "Create Failed",
+                            f"Failed to create template:\n{error}"
+                        )
+
+        except Exception as e:
+            logger.error(f"Failed to create new template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to create template:\n{str(e)}"
+            )
 
     def open_template(self):
-        """템플릿 열기"""
+        """템플릿 열기 (YAML 파일에서)"""
         logger.info("Open template action triggered")
-        QMessageBox.information(self, "Open Template", "템플릿 열기 기능은 구현 예정입니다.")
+
+        try:
+            # 파일 선택 다이얼로그
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open Template",
+                str(Path.home()),
+                "YAML Files (*.yaml *.yml);;All Files (*.*)"
+            )
+
+            if not file_path:
+                return
+
+            # 템플릿 로드
+            from utils.yaml_loader import YAMLLoader
+            loader = YAMLLoader()
+            template = loader.load_template_from_file(Path(file_path))
+
+            if template:
+                # 에디터에 로드
+                if self.template_editor:
+                    self.template_editor.load_template(template)
+                    self.statusBar().showMessage(f"Template loaded from {Path(file_path).name}")
+                    logger.info(f"Template opened: {file_path}")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Load Failed",
+                    f"Failed to load template from:\n{file_path}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to open template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to open template:\n{str(e)}"
+            )
 
     def save_template(self):
-        """템플릿 저장"""
+        """현재 편집 중인 템플릿 저장"""
         logger.info("Save template action triggered")
-        QMessageBox.information(self, "Save Template", "템플릿 저장 기능은 구현 예정입니다.")
+
+        # 현재 편집 중인 템플릿 가져오기
+        if not self.template_editor:
+            QMessageBox.warning(self, "Save Template", "No template editor available")
+            return
+
+        current_template = self.template_editor.current_template
+
+        if not current_template:
+            QMessageBox.warning(self, "Save Template", "No template is currently loaded")
+            return
+
+        try:
+            from utils.template_manager import TemplateManager
+            manager = TemplateManager()
+
+            # 확인 다이얼로그
+            reply = QMessageBox.question(
+                self,
+                "Save Template",
+                f"Save changes to '{current_template.template.name}'?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+
+            if reply == QMessageBox.Yes:
+                # 템플릿 업데이트
+                success, error = manager.update_template(current_template)
+
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Saved",
+                        f"Template '{current_template.template.name}' has been saved."
+                    )
+                    # 템플릿 라이브러리 새로고침
+                    self.refresh_templates()
+                    logger.info(f"Template saved: {current_template.template.id}")
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Save Failed",
+                        f"Failed to save template:\n{error}"
+                    )
+
+        except Exception as e:
+            logger.error(f"Failed to save template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save template:\n{str(e)}"
+            )
 
     def show_about(self):
         """About 다이얼로그"""
@@ -389,6 +556,296 @@ class MainWindow(QMainWindow):
                 self,
                 "Submission Error",
                 f"An error occurred during submission:\n{str(e)}"
+            )
+
+    def edit_template(self):
+        """선택된 템플릿 편집"""
+        logger.info("Edit template action triggered")
+
+        # 현재 선택된 템플릿 가져오기
+        if not self.template_editor or not self.template_editor.current_template:
+            QMessageBox.warning(self, "Edit Template", "No template selected")
+            return
+
+        try:
+            from ui.template_creator_dialog import TemplateCreatorDialog
+
+            current_template = self.template_editor.current_template
+
+            # 편집 다이얼로그 표시
+            dialog = TemplateCreatorDialog(self, template=current_template)
+
+            if dialog.exec_() == QMessageBox.Accepted:
+                updated_template = dialog.get_template()
+
+                if updated_template:
+                    # 템플릿 저장
+                    from utils.template_manager import TemplateManager
+                    manager = TemplateManager()
+
+                    success, error = manager.update_template(updated_template)
+
+                    if success:
+                        QMessageBox.information(
+                            self,
+                            "Template Updated",
+                            f"Template '{updated_template.template.name}' has been updated successfully!"
+                        )
+                        # 새로고침
+                        self.refresh_templates()
+                        # 에디터에 업데이트된 템플릿 로드
+                        self.template_editor.load_template(updated_template)
+                        logger.info(f"Template updated: {updated_template.template.id}")
+                    else:
+                        QMessageBox.critical(
+                            self,
+                            "Update Failed",
+                            f"Failed to update template:\n{error}"
+                        )
+
+        except Exception as e:
+            logger.error(f"Failed to edit template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to edit template:\n{str(e)}"
+            )
+
+    def duplicate_template(self):
+        """선택된 템플릿 복제"""
+        logger.info("Duplicate template action triggered")
+
+        # 현재 선택된 템플릿 가져오기
+        if not self.template_editor or not self.template_editor.current_template:
+            QMessageBox.warning(self, "Duplicate Template", "No template selected")
+            return
+
+        try:
+            current_template = self.template_editor.current_template
+
+            # 새 템플릿 ID 입력
+            new_id, ok = QInputDialog.getText(
+                self,
+                "Duplicate Template",
+                f"Enter new template ID for duplicate of '{current_template.template.name}':",
+                text=f"{current_template.template.id}-copy"
+            )
+
+            if not ok or not new_id.strip():
+                return
+
+            new_id = new_id.strip()
+
+            # 템플릿 복제
+            from utils.template_manager import TemplateManager
+            manager = TemplateManager()
+
+            success, error, duplicated_template = manager.duplicate_template(
+                current_template.template.id,
+                new_id,
+                new_name=f"Copy of {current_template.template.name}"
+            )
+
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Template Duplicated",
+                    f"Template duplicated successfully!\n\n"
+                    f"New template ID: {new_id}"
+                )
+                # 새로고침
+                self.refresh_templates()
+                # 복제된 템플릿 로드
+                if duplicated_template:
+                    self.template_editor.load_template(duplicated_template)
+                logger.info(f"Template duplicated: {current_template.template.id} -> {new_id}")
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Duplicate Failed",
+                    f"Failed to duplicate template:\n{error}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to duplicate template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to duplicate template:\n{str(e)}"
+            )
+
+    def delete_template(self):
+        """선택된 템플릿 삭제"""
+        logger.info("Delete template action triggered")
+
+        # 현재 선택된 템플릿 가져오기
+        if not self.template_editor or not self.template_editor.current_template:
+            QMessageBox.warning(self, "Delete Template", "No template selected")
+            return
+
+        try:
+            current_template = self.template_editor.current_template
+
+            # 확인 다이얼로그
+            reply = QMessageBox.question(
+                self,
+                "Delete Template",
+                f"Are you sure you want to delete template '{current_template.template.name}'?\n\n"
+                f"The template will be moved to the archived folder.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                # 템플릿 삭제
+                from utils.template_manager import TemplateManager
+                manager = TemplateManager()
+
+                success, error = manager.delete_template(current_template.template.id, permanent=False)
+
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Template Deleted",
+                        f"Template '{current_template.template.name}' has been archived."
+                    )
+                    # 새로고침
+                    self.refresh_templates()
+                    # 에디터 클리어
+                    self.template_editor.clear()
+                    logger.info(f"Template deleted: {current_template.template.id}")
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Delete Failed",
+                        f"Failed to delete template:\n{error}"
+                    )
+
+        except Exception as e:
+            logger.error(f"Failed to delete template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to delete template:\n{str(e)}"
+            )
+
+    def import_template(self):
+        """템플릿 가져오기"""
+        logger.info("Import template action triggered")
+
+        try:
+            # 파일 선택 다이얼로그
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Import Template",
+                str(Path.home()),
+                "YAML Files (*.yaml *.yml);;All Files (*.*)"
+            )
+
+            if not file_path:
+                return
+
+            # 템플릿 가져오기
+            from utils.template_manager import TemplateManager
+            manager = TemplateManager()
+
+            success, error, template = manager.import_template(Path(file_path), overwrite=False)
+
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Template Imported",
+                    f"Template '{template.template.name}' has been imported successfully!"
+                )
+                # 새로고침
+                self.refresh_templates()
+                # 가져온 템플릿 로드
+                if template:
+                    self.template_editor.load_template(template)
+                logger.info(f"Template imported: {file_path}")
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Import Failed",
+                    f"Failed to import template:\n{error}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to import template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to import template:\n{str(e)}"
+            )
+
+    def export_template(self):
+        """현재 템플릿 내보내기"""
+        logger.info("Export template action triggered")
+
+        # 현재 선택된 템플릿 가져오기
+        if not self.template_editor or not self.template_editor.current_template:
+            QMessageBox.warning(self, "Export Template", "No template selected")
+            return
+
+        try:
+            current_template = self.template_editor.current_template
+
+            # 저장 위치 선택
+            default_filename = f"{current_template.template.id}.yaml"
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Template",
+                str(Path.home() / default_filename),
+                "YAML Files (*.yaml *.yml);;All Files (*.*)"
+            )
+
+            if not file_path:
+                return
+
+            # 템플릿 내보내기
+            from utils.template_manager import TemplateManager
+            manager = TemplateManager()
+
+            success, error = manager.export_template(current_template.template.id, Path(file_path))
+
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Template Exported",
+                    f"Template exported successfully to:\n{file_path}"
+                )
+                logger.info(f"Template exported: {current_template.template.id} -> {file_path}")
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Export Failed",
+                    f"Failed to export template:\n{error}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to export template: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to export template:\n{str(e)}"
+            )
+
+    def refresh_templates(self):
+        """템플릿 라이브러리 새로고침"""
+        logger.info("Refresh templates action triggered")
+
+        try:
+            if self.template_library:
+                self.template_library.load_templates()
+                self.statusBar().showMessage("Templates refreshed")
+                logger.info("Templates refreshed")
+
+        except Exception as e:
+            logger.error(f"Failed to refresh templates: {e}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                "Refresh Failed",
+                f"Failed to refresh templates:\n{str(e)}"
             )
 
     def closeEvent(self, event):

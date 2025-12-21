@@ -476,3 +476,31 @@ class TemplateEditorWidget(QWidget):
             return None
 
         return self.file_upload.get_file_variables()
+
+    def clear(self):
+        """에디터 초기화 (모든 입력 클리어)"""
+        self.current_template = None
+
+        # Template Info 섹션 클리어
+        self.template_name_label.setText("No template selected")
+        self.template_category_label.setText("")
+        self.template_description_label.setText("")
+        self.template_version_label.setText("")
+
+        # Slurm Config 섹션 초기화
+        self.partition_combo.setCurrentIndex(0)
+        self.nodes_spin.setValue(1)
+        self.ntasks_spin.setValue(4)
+        self.memory_edit.setText("32G")
+        self.time_edit.setText("02:00:00")
+        self.gpu_spin.setValue(0)
+
+        # 파일 업로드 클리어
+        if self.file_upload:
+            self.file_upload.clear()
+
+        # 버튼 비활성화
+        self.preview_button.setEnabled(False)
+        self.submit_button.setEnabled(False)
+
+        logger.debug("Template editor cleared")

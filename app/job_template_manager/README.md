@@ -122,9 +122,29 @@ app/job_template_manager/
   - [x] 미리보기 다이얼로그 표시
   - [x] Job 제출 및 결과 표시
 
-## 🎉 MVP (Minimum Viable Product) 완성!
+### Phase 8 ✅ - **템플릿 관리 완성!**
+- [x] TemplateCreatorDialog (템플릿 생성/편집 다이얼로그)
+  - [x] 6개 탭 UI (Basic Info, Slurm, Apptainer, Files, Script)
+  - [x] 템플릿 생성 모드
+  - [x] 템플릿 편집 모드
+  - [x] 실시간 검증
+- [x] TemplateManager (템플릿 관리자)
+  - [x] 템플릿 저장 (YAML 파일)
+  - [x] 템플릿 업데이트
+  - [x] 템플릿 삭제 (아카이브)
+  - [x] 템플릿 복제
+  - [x] 템플릿 내보내기
+  - [x] 템플릿 가져오기
+  - [x] 템플릿 검증
+- [x] 메인 윈도우 통합
+  - [x] 메뉴바 (New, Edit, Duplicate, Delete, Import, Export)
+  - [x] 키보드 단축키 (Ctrl+N, Ctrl+E, Ctrl+D, etc.)
+  - [x] 템플릿 라이브러리 컨텍스트 메뉴
+  - [x] 템플릿 새로고침 (F5)
 
-**핵심 기능**:
+## 🎉 완전한 기능의 앱 완성!
+
+**핵심 기능 (MVP - Phase 1-7)**:
 1. ✅ 템플릿 라이브러리 (검색, 카테고리별 분류)
 2. ✅ 템플릿 상세 보기 (Slurm Config, Apptainer, 파일 스키마)
 3. ✅ Slurm 설정 편집
@@ -133,12 +153,18 @@ app/job_template_manager/
 6. ✅ 스크립트 미리보기 및 편집
 7. ✅ Slurm Job 제출 및 Job ID 추출
 
-**다음 단계 (Phase 8-12)** - 편의 기능:
-- [ ] 템플릿 생성/편집/삭제
-- [ ] API 통합 (선택적)
-- [ ] Job 모니터링
-- [ ] 스타일링 및 UX 개선
-- [ ] 테스팅 및 배포
+**템플릿 관리 기능 (Phase 8)** - ⭐ NEW!
+8. ✅ 템플릿 생성/편집/삭제
+9. ✅ 템플릿 복제
+10. ✅ 템플릿 내보내기/가져오기 (YAML)
+11. ✅ 템플릿 검증
+12. ✅ 컨텍스트 메뉴 및 키보드 단축키
+
+**다음 단계 (Phase 9-12)** - 선택적 편의 기능:
+- [ ] API 통합 (백엔드 연동)
+- [ ] Job 모니터링 (squeue 통합)
+- [ ] 스타일링 및 UX 개선 (다크 모드, 아이콘)
+- [ ] 추가 테스팅 및 배포
 
 자세한 개발 계획은 [PROJECT_PLAN.md](PROJECT_PLAN.md)를 참조하세요.
 

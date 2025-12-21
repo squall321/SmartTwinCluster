@@ -233,53 +233,73 @@ class TemplateLibraryWidget(QWidget):
 
         # 템플릿 편집
         edit_action = QAction("Edit Template", self)
-        edit_action.triggered.connect(lambda: self.edit_template(item_data['data']))
+        edit_action.triggered.connect(lambda: self.request_edit_template(item_data['data']))
         menu.addAction(edit_action)
 
         # 템플릿 복제
         duplicate_action = QAction("Duplicate Template", self)
-        duplicate_action.triggered.connect(lambda: self.duplicate_template(item_data['data']))
+        duplicate_action.triggered.connect(lambda: self.request_duplicate_template(item_data['data']))
         menu.addAction(duplicate_action)
 
         # 템플릿 내보내기
         export_action = QAction("Export as YAML", self)
-        export_action.triggered.connect(lambda: self.export_template(item_data['data']))
+        export_action.triggered.connect(lambda: self.request_export_template(item_data['data']))
         menu.addAction(export_action)
 
         menu.addSeparator()
 
-        # 템플릿 삭제 (Custom만)
-        if item_data['data'].get('source') == 'custom':
-            delete_action = QAction("Delete Template", self)
-            delete_action.triggered.connect(lambda: self.delete_template(item_data['data']))
-            menu.addAction(delete_action)
+        # 템플릿 삭제
+        delete_action = QAction("Delete Template", self)
+        delete_action.triggered.connect(lambda: self.request_delete_template(item_data['data']))
+        menu.addAction(delete_action)
 
         menu.exec_(self.tree.viewport().mapToGlobal(position))
 
     def create_new_template(self):
         """새 템플릿 생성"""
         logger.info("Create new template clicked")
-        # TODO: 새 템플릿 다이얼로그 표시
+        # MainWindow의 new_template 메서드를 호출하도록 시그널 emit
+        # (이 메서드는 New Template 버튼에서 호출됨)
 
-    def edit_template(self, template_data: dict):
-        """템플릿 편집"""
-        logger.info(f"Edit template: {template_data['id']}")
-        # TODO: 템플릿 에디터에서 열기
+    def request_edit_template(self, template_data: dict):
+        """템플릿 편집 요청"""
+        logger.info(f"Edit template requested: {template_data['id']}")
+        # 먼저 템플릿 선택
+        self.template_selected.emit(template_data)
+        # 메인 윈도우에서 edit_template를 호출하도록 부모에게 알림
+        main_window = self.window()
+        if hasattr(main_window, 'edit_template'):
+            main_window.edit_template()
 
-    def duplicate_template(self, template_data: dict):
-        """템플릿 복제"""
-        logger.info(f"Duplicate template: {template_data['id']}")
-        # TODO: 템플릿 복제 로직
+    def request_duplicate_template(self, template_data: dict):
+        """템플릿 복제 요청"""
+        logger.info(f"Duplicate template requested: {template_data['id']}")
+        # 먼저 템플릿 선택
+        self.template_selected.emit(template_data)
+        # 메인 윈도우에서 duplicate_template를 호출
+        main_window = self.window()
+        if hasattr(main_window, 'duplicate_template'):
+            main_window.duplicate_template()
 
-    def export_template(self, template_data: dict):
-        """템플릿 YAML로 내보내기"""
-        logger.info(f"Export template: {template_data['id']}")
-        # TODO: 파일 저장 다이얼로그
+    def request_export_template(self, template_data: dict):
+        """템플릿 내보내기 요청"""
+        logger.info(f"Export template requested: {template_data['id']}")
+        # 먼저 템플릿 선택
+        self.template_selected.emit(template_data)
+        # 메인 윈도우에서 export_template를 호출
+        main_window = self.window()
+        if hasattr(main_window, 'export_template'):
+            main_window.export_template()
 
-    def delete_template(self, template_data: dict):
-        """템플릿 삭제"""
-        logger.info(f"Delete template: {template_data['id']}")
-        # TODO: 확인 다이얼로그 + 삭제
+    def request_delete_template(self, template_data: dict):
+        """템플릿 삭제 요청"""
+        logger.info(f"Delete template requested: {template_data['id']}")
+        # 먼저 템플릿 선택
+        self.template_selected.emit(template_data)
+        # 메인 윈도우에서 delete_template를 호출
+        main_window = self.window()
+        if hasattr(main_window, 'delete_template'):
+            main_window.delete_template()
 
     def get_selected_template(self) -> Optional[dict]:
         """선택된 템플릿 반환"""
