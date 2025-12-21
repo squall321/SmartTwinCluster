@@ -70,7 +70,11 @@ class TemplateEditorWidget(QWidget):
         self.files_group = self.create_files_section()
         content_layout.addWidget(self.files_group)
 
-        # 5. Script Preview Section
+        # 5. File Upload Section
+        self.upload_group = self.create_upload_section()
+        content_layout.addWidget(self.upload_group)
+
+        # 6. Script Preview Section
         self.script_group = self.create_script_section()
         content_layout.addWidget(self.script_group)
 
@@ -239,6 +243,22 @@ class TemplateEditorWidget(QWidget):
         group.setLayout(layout)
         return group
 
+    def create_upload_section(self) -> QGroupBox:
+        """파일 업로드 섹션"""
+        group = QGroupBox("File Upload")
+        group.setStyleSheet("QGroupBox { font-weight: bold; }")
+
+        layout = QVBoxLayout()
+
+        # FileUploadWidget
+        from ui.file_upload import FileUploadWidget
+        self.file_upload = FileUploadWidget()
+        self.file_upload.files_changed.connect(self.on_files_changed)
+        layout.addWidget(self.file_upload)
+
+        group.setLayout(layout)
+        return group
+
     def create_script_section(self) -> QGroupBox:
         """스크립트 미리보기 섹션"""
         group = QGroupBox("Script Preview")
@@ -302,7 +322,11 @@ class TemplateEditorWidget(QWidget):
         # 4. File Schema
         self.populate_files_table(template_obj.files)
 
-        # 5. Script Preview
+        # 5. File Upload
+        if template_obj.files:
+            self.file_upload.set_file_schema(template_obj.files)
+
+        # 6. Script Preview
         self.update_script_preview()
 
         # UI 활성화
@@ -379,6 +403,19 @@ class TemplateEditorWidget(QWidget):
         logger.info("Submit button clicked")
         self.submit_requested.emit()
 
+    def on_files_changed(self):
+        """파일 업로드 변경 이벤트"""
+        logger.debug("Files changed in upload widget")
+
+        # 필수 파일 체크
+        if self.current_template and self.file_upload.check_required_files():
+            logger.info("All required files uploaded")
+
+        # 템플릿 수정 플래그 설정
+        if self.current_template:
+            self.is_modified = True
+            self.template_modified.emit()
+
     def show_empty_state(self):
         """빈 상태 표시"""
         self.enable_ui(False)
@@ -415,3 +452,27 @@ class TemplateEditorWidget(QWidget):
             'time': self.time_edit.text(),
             'gpus': self.gpu_spin.value() if self.gpu_spin.value() > 0 else None,
         }
+
+    def get_uploaded_files(self) -> Optional[dict]:
+        """
+        업로드된 파일 반환
+
+        Returns:
+            {file_key: file_path} 또는 None
+        """
+        if not self.current_template:
+            return None
+
+        return self.file_upload.get_uploaded_files()
+
+    def get_file_variables(self) -> Optional[dict]:
+        """
+        파일 환경 변수 반환
+
+        Returns:
+            {'FILE_XXX': '/path/to/file'} 또는 None
+        """
+        if not self.current_template:
+            return None
+
+        return self.file_upload.get_file_variables()

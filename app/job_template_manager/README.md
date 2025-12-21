@@ -61,10 +61,25 @@ app/job_template_manager/
 - [x] YAML 로더 (scan_templates, save_template)
 - [x] TemplateLibraryWidget에 YAML 로더 통합
 
-### 다음 단계 (Phase 4)
-- [ ] TemplateEditorWidget (Slurm Config 폼)
-- [ ] FileUploadWidget (Drag & Drop)
-- [ ] ScriptGenerator (Bash 스크립트 생성)
+### Phase 4 ✅
+- [x] TemplateEditorWidget (우측 패널)
+- [x] Slurm Config 편집 폼 (Partition, Nodes, Tasks, Memory, Time, GPUs)
+- [x] 파일 스키마 테이블 표시
+- [x] 스크립트 미리보기 (pre_exec, main_exec, post_exec)
+- [x] Preview/Submit 버튼 연결
+
+### Phase 5 ✅
+- [x] FileUploadWidget (Drag & Drop 지원)
+- [x] 파일 브라우저 (QFileDialog)
+- [x] 파일 검증 (확장자, 크기)
+- [x] 파일 목록 표시 (상태 표시: ✓ 유효, ✗ 검증 실패)
+- [x] 파일 환경 변수 생성 (FILE_XXX)
+- [x] TemplateEditorWidget에 통합
+
+### 다음 단계 (Phase 6)
+- [ ] ScriptGenerator (Slurm 배치 스크립트 생성)
+- [ ] 환경 변수 치환
+- [ ] Apptainer 명령어 조합
 
 자세한 개발 계획은 [PROJECT_PLAN.md](PROJECT_PLAN.md)를 참조하세요.
 
@@ -76,7 +91,9 @@ app/job_template_manager/
 │   ├── main.py                    # 애플리케이션 진입점
 │   ├── ui/
 │   │   ├── main_window.py         # 메인 윈도우
-│   │   └── template_library.py    # 템플릿 라이브러리 위젯
+│   │   ├── template_library.py    # 템플릿 라이브러리 위젯
+│   │   ├── template_editor.py     # 템플릿 에디터 위젯
+│   │   └── file_upload.py         # 파일 업로드 위젯 (Drag & Drop)
 │   ├── models/
 │   │   └── template.py            # 데이터 모델 (Template, SlurmConfig 등)
 │   ├── utils/
