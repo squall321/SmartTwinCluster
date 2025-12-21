@@ -202,14 +202,194 @@ class MainWindow(QMainWindow):
     def on_preview_requested(self):
         """스크립트 미리보기 요청"""
         logger.info("Script preview requested")
-        # TODO: ScriptPreviewDialog 구현 후 연결
-        QMessageBox.information(self, "Preview", "스크립트 미리보기 기능은 Phase 7에서 구현됩니다.")
+
+        if not self.template_editor:
+            QMessageBox.warning(self, "Preview", "No template editor available")
+            return
+
+        # 현재 템플릿 및 설정 가져오기
+        current_template = self.template_editor.current_template
+        if not current_template:
+            QMessageBox.warning(self, "Preview", "No template selected")
+            return
+
+        slurm_config = self.template_editor.get_current_slurm_config()
+        uploaded_files = self.template_editor.get_uploaded_files()
+
+        # 필수 파일 체크
+        if current_template.files:
+            if not self.template_editor.file_upload.check_required_files():
+                QMessageBox.warning(
+                    self,
+                    "Missing Files",
+                    "Please upload all required files before preview."
+                )
+                return
+
+        # 스크립트 생성
+        try:
+            from utils.script_generator import ScriptGenerator
+
+            generator = ScriptGenerator()
+            script = generator.generate(
+                template_obj=current_template,
+                slurm_config=slurm_config,
+                uploaded_files=uploaded_files or {},
+                job_name=None,  # 사용자가 다이얼로그에서 지정 가능하도록
+                apptainer_image_path=None  # Template 기본값 사용
+            )
+
+            # 미리보기 다이얼로그 표시
+            from ui.script_preview_dialog import ScriptPreviewDialog
+
+            dialog = ScriptPreviewDialog(script, self)
+            result = dialog.exec_()
+
+            if result == QMessageBox.Accepted:
+                # 사용자가 Submit 버튼을 누른 경우
+                self.submit_job(dialog.get_script_content())
+
+        except Exception as e:
+            logger.error(f"Failed to generate script: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Script Generation Failed",
+                f"Failed to generate script:\n{str(e)}"
+            )
 
     def on_submit_requested(self):
-        """Job 제출 요청"""
+        """Job 제출 요청 (Preview 없이 바로 제출)"""
         logger.info("Job submit requested")
-        # TODO: Job 제출 다이얼로그 구현 후 연결
-        QMessageBox.information(self, "Submit", "Job 제출 기능은 Phase 7에서 구현됩니다.")
+
+        # Preview를 먼저 보여주도록 유도
+        reply = QMessageBox.question(
+            self,
+            "Submit Job",
+            "Do you want to preview the script before submission?",
+            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            QMessageBox.Yes
+        )
+
+        if reply == QMessageBox.Yes:
+            self.on_preview_requested()
+        elif reply == QMessageBox.No:
+            # Preview 없이 바로 제출
+            self.direct_submit()
+
+    def direct_submit(self):
+        """Preview 없이 바로 제출"""
+        if not self.template_editor:
+            return
+
+        current_template = self.template_editor.current_template
+        if not current_template:
+            QMessageBox.warning(self, "Submit", "No template selected")
+            return
+
+        slurm_config = self.template_editor.get_current_slurm_config()
+        uploaded_files = self.template_editor.get_uploaded_files()
+
+        # 필수 파일 체크
+        if current_template.files:
+            if not self.template_editor.file_upload.check_required_files():
+                QMessageBox.warning(
+                    self,
+                    "Missing Files",
+                    "Please upload all required files before submission."
+                )
+                return
+
+        # 스크립트 생성
+        try:
+            from utils.script_generator import ScriptGenerator
+
+            generator = ScriptGenerator()
+            script = generator.generate(
+                template_obj=current_template,
+                slurm_config=slurm_config,
+                uploaded_files=uploaded_files or {},
+                job_name=current_template.template.name,
+                apptainer_image_path=None
+            )
+
+            self.submit_job(script)
+
+        except Exception as e:
+            logger.error(f"Failed to generate script: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Script Generation Failed",
+                f"Failed to generate script:\n{str(e)}"
+            )
+
+    def submit_job(self, script_content: str):
+        """
+        Job 제출 실행
+
+        Args:
+            script_content: 스크립트 내용
+        """
+        logger.info("Submitting job to Slurm")
+
+        try:
+            from utils.job_submitter import JobSubmitter
+
+            submitter = JobSubmitter()
+
+            # Slurm 사용 가능 여부 확인
+            available, error_msg = submitter.check_slurm_available()
+            if not available:
+                QMessageBox.warning(
+                    self,
+                    "Slurm Not Available",
+                    f"Slurm is not available:\n{error_msg}\n\n"
+                    "The script has been generated but cannot be submitted."
+                )
+                return
+
+            # Job 제출
+            success, job_id, error = submitter.submit_job(script_content, dry_run=False)
+
+            if success and job_id:
+                # 성공
+                QMessageBox.information(
+                    self,
+                    "Job Submitted",
+                    f"Job submitted successfully!\n\n"
+                    f"Job ID: {job_id}\n\n"
+                    f"You can monitor the job with:\n"
+                    f"  squeue -j {job_id}\n"
+                    f"  scontrol show job {job_id}"
+                )
+
+                self.statusBar().showMessage(f"Job {job_id} submitted successfully", 5000)
+                logger.info(f"Job submitted: {job_id}")
+
+            elif success and not job_id:
+                # 제출 성공했지만 Job ID 추출 실패
+                QMessageBox.warning(
+                    self,
+                    "Job Submitted",
+                    "Job submitted successfully, but Job ID could not be extracted.\n"
+                    "Check 'squeue' to see your job."
+                )
+
+            else:
+                # 실패
+                QMessageBox.critical(
+                    self,
+                    "Submission Failed",
+                    f"Job submission failed:\n{error}"
+                )
+                logger.error(f"Job submission failed: {error}")
+
+        except Exception as e:
+            logger.error(f"Job submission error: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Submission Error",
+                f"An error occurred during submission:\n{str(e)}"
+            )
 
     def closeEvent(self, event):
         """윈도우 종료 이벤트"""

@@ -86,10 +86,39 @@ app/job_template_manager/
 - [x] Job 메타데이터 생성
 - [x] 스크립트 파일 저장 (실행 권한 755)
 
-### 다음 단계 (Phase 7)
-- [ ] ScriptPreviewDialog (생성된 스크립트 미리보기)
-- [ ] Job 제출 기능 (sbatch 실행)
-- [ ] Job ID 추출 및 표시
+### Phase 7 ✅ - **MVP 완성!**
+- [x] ScriptPreviewDialog (생성된 스크립트 미리보기)
+  - [x] 스크립트 편집 가능
+  - [x] 클립보드 복사
+  - [x] 파일로 저장
+- [x] JobSubmitter (Job 제출 엔진)
+  - [x] sbatch 명령 실행
+  - [x] Job ID 자동 추출
+  - [x] Slurm 가용성 체크
+  - [x] 에러 처리 및 사용자 피드백
+- [x] Preview 및 Submit 버튼 연결
+  - [x] 필수 파일 체크
+  - [x] 스크립트 생성
+  - [x] 미리보기 다이얼로그 표시
+  - [x] Job 제출 및 결과 표시
+
+## 🎉 MVP (Minimum Viable Product) 완성!
+
+**핵심 기능**:
+1. ✅ 템플릿 라이브러리 (검색, 카테고리별 분류)
+2. ✅ 템플릿 상세 보기 (Slurm Config, Apptainer, 파일 스키마)
+3. ✅ Slurm 설정 편집
+4. ✅ 파일 업로드 (Drag & Drop, 검증)
+5. ✅ Slurm 스크립트 자동 생성
+6. ✅ 스크립트 미리보기 및 편집
+7. ✅ Slurm Job 제출 및 Job ID 추출
+
+**다음 단계 (Phase 8-12)** - 편의 기능:
+- [ ] 템플릿 생성/편집/삭제
+- [ ] API 통합 (선택적)
+- [ ] Job 모니터링
+- [ ] 스타일링 및 UX 개선
+- [ ] 테스팅 및 배포
 
 자세한 개발 계획은 [PROJECT_PLAN.md](PROJECT_PLAN.md)를 참조하세요.
 
@@ -103,12 +132,14 @@ app/job_template_manager/
 │   │   ├── main_window.py         # 메인 윈도우
 │   │   ├── template_library.py    # 템플릿 라이브러리 위젯
 │   │   ├── template_editor.py     # 템플릿 에디터 위젯
-│   │   └── file_upload.py         # 파일 업로드 위젯 (Drag & Drop)
+│   │   ├── file_upload.py         # 파일 업로드 위젯 (Drag & Drop)
+│   │   └── script_preview_dialog.py  # 스크립트 미리보기 다이얼로그
 │   ├── models/
 │   │   └── template.py            # 데이터 모델 (Template, SlurmConfig 등)
 │   ├── utils/
 │   │   ├── yaml_loader.py         # YAML 템플릿 로더
-│   │   └── script_generator.py    # Slurm 스크립트 생성기
+│   │   ├── script_generator.py    # Slurm 스크립트 생성기
+│   │   └── job_submitter.py       # Job 제출 엔진 (sbatch 실행)
 │   └── resources/
 │       └── templates/             # 템플릿 YAML 파일
 │           ├── ml/                # ML 템플릿
