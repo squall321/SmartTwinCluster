@@ -112,13 +112,22 @@ class MainWindow(QMainWindow):
             left_layout.addWidget(left_label)
             left_widget.setLayout(left_layout)
 
-        # 우측: 템플릿 에디터 (나중에 TemplateEditorWidget으로 교체)
-        right_widget = QWidget()
-        right_layout = QVBoxLayout()
-        right_label = QLabel("템플릿 에디터\n(TemplateEditorWidget 구현 예정)")
-        right_label.setAlignment(Qt.AlignCenter)
-        right_layout.addWidget(right_label)
-        right_widget.setLayout(right_layout)
+        # 우측: 템플릿 에디터
+        try:
+            from ui.template_editor import TemplateEditorWidget
+            self.template_editor = TemplateEditorWidget()
+            self.template_editor.preview_requested.connect(self.on_preview_requested)
+            self.template_editor.submit_requested.connect(self.on_submit_requested)
+            right_widget = self.template_editor
+        except ImportError as e:
+            logger.warning(f"Failed to import TemplateEditorWidget: {e}")
+            right_widget = QWidget()
+            right_layout = QVBoxLayout()
+            right_label = QLabel("템플릿 에디터\n(TemplateEditorWidget 로드 실패)")
+            right_label.setAlignment(Qt.AlignCenter)
+            right_layout.addWidget(right_label)
+            right_widget.setLayout(right_layout)
+            self.template_editor = None
 
         # Splitter에 위젯 추가
         splitter.addWidget(left_widget)
@@ -176,12 +185,31 @@ class MainWindow(QMainWindow):
     def on_template_selected(self, template_data: dict):
         """템플릿 선택 이벤트 (단일 클릭)"""
         logger.info(f"Template selected: {template_data['name']}")
-        # TODO: 우측 에디터에 템플릿 정보 표시
+
+        # Template 객체가 있으면 에디터에 로드
+        if self.template_editor and '_template_obj' in template_data:
+            template_obj = template_data['_template_obj']
+            self.template_editor.load_template(template_obj)
+            self.statusBar().showMessage(f"Template loaded: {template_data['name']}")
 
     def on_template_double_clicked(self, template_data: dict):
-        """템플릿 더블클릭 이벤트 (로드)"""
+        """템플릿 더블클릭 이벤트 (로드 및 편집 모드)"""
         logger.info(f"Template double-clicked: {template_data['name']}")
-        # TODO: 우측 에디터에 템플릿 로드 및 편집 모드
+
+        # 단일 클릭과 동일하게 처리 (현재는 편집 모드 구분 없음)
+        self.on_template_selected(template_data)
+
+    def on_preview_requested(self):
+        """스크립트 미리보기 요청"""
+        logger.info("Script preview requested")
+        # TODO: ScriptPreviewDialog 구현 후 연결
+        QMessageBox.information(self, "Preview", "스크립트 미리보기 기능은 Phase 7에서 구현됩니다.")
+
+    def on_submit_requested(self):
+        """Job 제출 요청"""
+        logger.info("Job submit requested")
+        # TODO: Job 제출 다이얼로그 구현 후 연결
+        QMessageBox.information(self, "Submit", "Job 제출 기능은 Phase 7에서 구현됩니다.")
 
     def closeEvent(self, event):
         """윈도우 종료 이벤트"""
