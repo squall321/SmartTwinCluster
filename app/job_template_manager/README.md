@@ -4,22 +4,42 @@ PyQt5 기반 HPC Slurm Job Template 생성 및 관리 도구
 
 ## 설치 방법
 
-### 1. Python 가상 환경 활성화
+### 1. Python 가상 환경 생성 (처음 한 번만)
 ```bash
 cd app/job_template_manager
+
+# --system-site-packages 플래그로 시스템 PyQt5 사용
+python3 -m venv venv --system-site-packages
+```
+
+**중요**: `--system-site-packages` 플래그는 시스템에 설치된 PyQt5를 venv에서 사용할 수 있게 합니다. 이는 Qt 라이브러리 버전 호환성 문제를 해결합니다.
+
+### 2. 가상 환경 활성화
+```bash
 source venv/bin/activate
 ```
 
-### 2. 의존성 패키지 설치
+### 3. 의존성 패키지 설치
 ```bash
 pip install -r requirements.txt
 ```
 
 ## 실행 방법
 
-### 개발 모드
+### 방법 1: run.sh 스크립트 사용 (권장)
 ```bash
+./run.sh
+```
+
+### 방법 2: 수동 실행
+```bash
+source venv/bin/activate
 python src/main.py
+```
+
+### 방법 3: 시스템 Python 사용
+```bash
+python3 src/main.py
 ```
 
 ## 프로젝트 구조
