@@ -73,17 +73,22 @@ class TemplateCreatorDialog(QDialog):
         button_layout = QHBoxLayout()
 
         self.validate_button = QPushButton("🔍 Validate")
+        self.validate_button.setToolTip("Validate template configuration\n"
+                                       "Checks for required fields and correct formats")
         self.validate_button.clicked.connect(self.validate_template)
         button_layout.addWidget(self.validate_button)
 
         button_layout.addStretch()
 
         self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setToolTip("Close dialog without saving changes")
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
 
         self.save_button = QPushButton("💾 Save Template")
         self.save_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        self.save_button.setToolTip("Save template to YAML file\n"
+                                   "Template will be available in the library")
         self.save_button.clicked.connect(self.save_template)
         button_layout.addWidget(self.save_button)
 
@@ -99,6 +104,9 @@ class TemplateCreatorDialog(QDialog):
         # Template ID
         self.id_edit = QLineEdit()
         self.id_edit.setPlaceholderText("e.g., my-custom-template")
+        self.id_edit.setToolTip("Unique identifier for this template\n"
+                               "Use lowercase letters, numbers, and hyphens only\n"
+                               "Cannot be changed after creation")
         if self.is_edit_mode:
             self.id_edit.setEnabled(False)  # 편집 모드에서는 ID 변경 불가
         layout.addRow("Template ID *:", self.id_edit)
@@ -106,6 +114,8 @@ class TemplateCreatorDialog(QDialog):
         # Template Name
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., My Custom Template")
+        self.name_edit.setToolTip("Display name for this template\n"
+                                 "Can contain any characters and spaces")
         layout.addRow("Template Name *:", self.name_edit)
 
         # Category
@@ -116,22 +126,35 @@ class TemplateCreatorDialog(QDialog):
             "data",         # Data Processing
             "custom"        # Custom
         ])
+        self.category_combo.setToolTip("Template category for organization\n"
+                                       "ml: Machine Learning\n"
+                                       "simulation: Simulation jobs\n"
+                                       "data: Data processing\n"
+                                       "custom: Custom templates")
         layout.addRow("Category *:", self.category_combo)
 
         # Description
         self.description_edit = QTextEdit()
         self.description_edit.setPlaceholderText("Template description...")
         self.description_edit.setMaximumHeight(100)
+        self.description_edit.setToolTip("Detailed description of what this template does\n"
+                                        "Include purpose, requirements, and usage notes")
         layout.addRow("Description:", self.description_edit)
 
         # Version
         self.version_edit = QLineEdit()
         self.version_edit.setText("1.0.0")
+        self.version_edit.setToolTip("Template version in semantic versioning format\n"
+                                    "Example: 1.0.0, 1.2.3, 2.0.0-beta")
         layout.addRow("Version:", self.version_edit)
 
         # Source
         self.source_combo = QComboBox()
         self.source_combo.addItems(["custom", "official", "community"])
+        self.source_combo.setToolTip("Template source/origin\n"
+                                     "custom: User-created template\n"
+                                     "official: Official template\n"
+                                     "community: Community-contributed")
         layout.addRow("Source:", self.source_combo)
 
         widget.setLayout(layout)

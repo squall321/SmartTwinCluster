@@ -52,19 +52,19 @@ class MainWindow(QMainWindow):
         # File 메뉴
         file_menu = menubar.addMenu('&File')
 
-        new_action = QAction('&New Template', self)
+        new_action = QAction('📄 &New Template', self)
         new_action.setShortcut('Ctrl+N')
         new_action.setStatusTip('Create a new job template')
         new_action.triggered.connect(self.new_template)
         file_menu.addAction(new_action)
 
-        open_action = QAction('&Open Template...', self)
+        open_action = QAction('📂 &Open Template...', self)
         open_action.setShortcut('Ctrl+O')
         open_action.setStatusTip('Open an existing template')
         open_action.triggered.connect(self.open_template)
         file_menu.addAction(open_action)
 
-        save_action = QAction('&Save Template', self)
+        save_action = QAction('💾 &Save Template', self)
         save_action.setShortcut('Ctrl+S')
         save_action.setStatusTip('Save current template')
         save_action.triggered.connect(self.save_template)
@@ -72,19 +72,19 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        import_action = QAction('&Import Template...', self)
+        import_action = QAction('📥 &Import Template...', self)
         import_action.setStatusTip('Import template from YAML file')
         import_action.triggered.connect(self.import_template)
         file_menu.addAction(import_action)
 
-        export_action = QAction('&Export Template...', self)
+        export_action = QAction('📤 &Export Template...', self)
         export_action.setStatusTip('Export current template to YAML file')
         export_action.triggered.connect(self.export_template)
         file_menu.addAction(export_action)
 
         file_menu.addSeparator()
 
-        exit_action = QAction('E&xit', self)
+        exit_action = QAction('🚪 E&xit', self)
         exit_action.setShortcut('Ctrl+Q')
         exit_action.setStatusTip('Exit application')
         exit_action.triggered.connect(self.close)
@@ -93,13 +93,13 @@ class MainWindow(QMainWindow):
         # Edit 메뉴
         edit_menu = menubar.addMenu('&Edit')
 
-        edit_template_action = QAction('&Edit Template', self)
+        edit_template_action = QAction('✏️ &Edit Template', self)
         edit_template_action.setShortcut('Ctrl+E')
         edit_template_action.setStatusTip('Edit selected template')
         edit_template_action.triggered.connect(self.edit_template)
         edit_menu.addAction(edit_template_action)
 
-        duplicate_action = QAction('&Duplicate Template', self)
+        duplicate_action = QAction('📋 &Duplicate Template', self)
         duplicate_action.setShortcut('Ctrl+D')
         duplicate_action.setStatusTip('Duplicate selected template')
         duplicate_action.triggered.connect(self.duplicate_template)
@@ -107,7 +107,7 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
-        delete_action = QAction('&Delete Template', self)
+        delete_action = QAction('🗑️ &Delete Template', self)
         delete_action.setShortcut('Delete')
         delete_action.setStatusTip('Delete selected template')
         delete_action.triggered.connect(self.delete_template)
@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         # View 메뉴
         view_menu = menubar.addMenu('&View')
 
-        refresh_action = QAction('&Refresh Templates', self)
+        refresh_action = QAction('🔄 &Refresh Templates', self)
         refresh_action.setShortcut('F5')
         refresh_action.setStatusTip('Reload template library')
         refresh_action.triggered.connect(self.refresh_templates)
@@ -125,14 +125,14 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
 
         # 테마 서브메뉴
-        theme_menu = view_menu.addMenu('&Theme')
+        theme_menu = view_menu.addMenu('🎨 &Theme')
 
-        dark_theme_action = QAction('Dark Mode', self)
+        dark_theme_action = QAction('🌙 Dark Mode', self)
         dark_theme_action.setCheckable(True)
         dark_theme_action.triggered.connect(lambda: self.change_theme('dark'))
         theme_menu.addAction(dark_theme_action)
 
-        light_theme_action = QAction('Light Mode', self)
+        light_theme_action = QAction('☀️ Light Mode', self)
         light_theme_action.setCheckable(True)
         light_theme_action.triggered.connect(lambda: self.change_theme('light'))
         theme_menu.addAction(light_theme_action)
@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
         # Help 메뉴
         help_menu = menubar.addMenu('&Help')
 
-        about_action = QAction('&About', self)
+        about_action = QAction('ℹ️ &About', self)
         about_action.setStatusTip('About Job Template Manager')
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
@@ -592,7 +592,11 @@ class MainWindow(QMainWindow):
 
         # 현재 선택된 템플릿 가져오기
         if not self.template_editor or not self.template_editor.current_template:
-            QMessageBox.warning(self, "Edit Template", "No template selected")
+            QMessageBox.warning(
+                self,
+                "❌ No Template Selected",
+                "Please select a template from the library on the left side before editing."
+            )
             return
 
         try:
@@ -645,7 +649,11 @@ class MainWindow(QMainWindow):
 
         # 현재 선택된 템플릿 가져오기
         if not self.template_editor or not self.template_editor.current_template:
-            QMessageBox.warning(self, "Duplicate Template", "No template selected")
+            QMessageBox.warning(
+                self,
+                "❌ No Template Selected",
+                "Please select a template from the library before duplicating."
+            )
             return
 
         try:
@@ -708,7 +716,11 @@ class MainWindow(QMainWindow):
 
         # 현재 선택된 템플릿 가져오기
         if not self.template_editor or not self.template_editor.current_template:
-            QMessageBox.warning(self, "Delete Template", "No template selected")
+            QMessageBox.warning(
+                self,
+                "❌ No Template Selected",
+                "Please select a template from the library before deleting."
+            )
             return
 
         try:

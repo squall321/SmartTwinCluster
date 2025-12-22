@@ -116,10 +116,13 @@ class FileUploadWidget(QWidget):
         button_layout = QHBoxLayout()
 
         self.browse_button = QPushButton("📂 찾아보기")
+        self.browse_button.setToolTip("Browse and select files from your computer\n"
+                                      "You can also drag and drop files into the area above")
         self.browse_button.clicked.connect(self.browse_files)
         button_layout.addWidget(self.browse_button)
 
         self.clear_button = QPushButton("🗑️ 전체 삭제")
+        self.clear_button.setToolTip("Remove all uploaded files from the list")
         self.clear_button.clicked.connect(self.clear_all_files)
         self.clear_button.setEnabled(False)
         button_layout.addWidget(self.clear_button)

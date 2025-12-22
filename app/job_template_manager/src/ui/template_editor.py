@@ -6,6 +6,7 @@ Template Editor Widget - 템플릿 에디터
 
 import logging
 from typing import Optional
+import re
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
@@ -13,8 +14,8 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QScrollArea, QTableWidget, QTableWidgetItem,
     QHeaderView
 )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt, pyqtSignal, QRegExp
+from PyQt5.QtGui import QFont, QRegExpValidator
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +90,15 @@ class TemplateEditorWidget(QWidget):
         button_layout.addStretch()
 
         self.preview_button = QPushButton("Preview Script")
+        self.preview_button.setToolTip("Preview the generated Slurm batch script\n"
+                                       "Review and edit before submitting")
         self.preview_button.clicked.connect(self.on_preview_clicked)
         button_layout.addWidget(self.preview_button)
 
         self.submit_button = QPushButton("Submit Job")
         self.submit_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        self.submit_button.setToolTip("Submit job to Slurm scheduler\n"
+                                      "Requires all required files to be uploaded")
         self.submit_button.clicked.connect(self.on_submit_clicked)
         button_layout.addWidget(self.submit_button)
 
@@ -152,6 +157,11 @@ class TemplateEditorWidget(QWidget):
         # Partition
         self.partition_combo = QComboBox()
         self.partition_combo.addItems(['compute', 'viz', 'gpu', 'highmem'])
+        self.partition_combo.setToolTip("Select the Slurm partition for job execution\n"
+                                       "compute: General compute nodes\n"
+                                       "viz: Visualization nodes\n"
+                                       "gpu: GPU nodes\n"
+                                       "highmem: High memory nodes")
         self.partition_combo.currentTextChanged.connect(self.on_config_changed)
         layout.addRow("Partition:", self.partition_combo)
 
@@ -159,6 +169,7 @@ class TemplateEditorWidget(QWidget):
         self.nodes_spin = QSpinBox()
         self.nodes_spin.setMinimum(1)
         self.nodes_spin.setMaximum(100)
+        self.nodes_spin.setToolTip("Number of compute nodes to allocate for this job")
         self.nodes_spin.valueChanged.connect(self.on_config_changed)
         layout.addRow("Nodes:", self.nodes_spin)
 
@@ -166,25 +177,40 @@ class TemplateEditorWidget(QWidget):
         self.ntasks_spin = QSpinBox()
         self.ntasks_spin.setMinimum(1)
         self.ntasks_spin.setMaximum(256)
+        self.ntasks_spin.setToolTip("Number of tasks (CPU cores) to allocate\n"
+                                    "Typically equals the number of parallel processes")
         self.ntasks_spin.valueChanged.connect(self.on_config_changed)
         layout.addRow("Tasks (ntasks):", self.ntasks_spin)
 
         # Memory
         self.memory_edit = QLineEdit()
         self.memory_edit.setPlaceholderText("e.g., 32G, 64GB, 128G")
-        self.memory_edit.textChanged.connect(self.on_config_changed)
+        self.memory_edit.setToolTip("Memory allocation per node\n"
+                                   "Examples: 32G, 64GB, 128G, 256GB")
+        # Memory validation: number + G/GB/M/MB
+        memory_validator = QRegExpValidator(QRegExp(r'^\d+[GMgm][Bb]?$'))
+        self.memory_edit.setValidator(memory_validator)
+        self.memory_edit.textChanged.connect(self.on_memory_changed)
         layout.addRow("Memory:", self.memory_edit)
 
         # Time Limit
         self.time_edit = QLineEdit()
         self.time_edit.setPlaceholderText("HH:MM:SS (e.g., 02:00:00)")
-        self.time_edit.textChanged.connect(self.on_config_changed)
+        self.time_edit.setToolTip("Maximum job runtime in HH:MM:SS format\n"
+                                 "Job will be terminated after this time\n"
+                                 "Examples: 01:00:00 (1 hour), 12:30:00 (12.5 hours)")
+        # Time validation: HH:MM:SS format
+        time_validator = QRegExpValidator(QRegExp(r'^\d{1,2}:\d{2}:\d{2}$'))
+        self.time_edit.setValidator(time_validator)
+        self.time_edit.textChanged.connect(self.on_time_changed)
         layout.addRow("Time Limit:", self.time_edit)
 
         # GPUs (Optional)
         self.gpu_spin = QSpinBox()
         self.gpu_spin.setMinimum(0)
         self.gpu_spin.setMaximum(8)
+        self.gpu_spin.setToolTip("Number of GPUs to allocate (0 for CPU-only jobs)\n"
+                                "Requires 'gpu' partition")
         self.gpu_spin.valueChanged.connect(self.on_config_changed)
         layout.addRow("GPUs (optional):", self.gpu_spin)
 
@@ -392,6 +418,54 @@ class TemplateEditorWidget(QWidget):
             self.is_modified = True
             self.template_modified.emit()
             logger.debug("Template configuration modified")
+
+    def on_memory_changed(self, text):
+        """메모리 필드 변경 이벤트 (실시간 검증)"""
+        # 빈 문자열이면 스타일 초기화
+        if not text:
+            self.memory_edit.setStyleSheet("")
+            return
+
+        # 검증: 숫자 + G/GB/M/MB 형식
+        if re.match(r'^\d+[GMgm][Bb]?$', text):
+            # 유효한 입력: 초록색 테두리
+            self.memory_edit.setStyleSheet("border: 2px solid #4CAF50;")
+        else:
+            # 무효한 입력: 빨간색 테두리
+            self.memory_edit.setStyleSheet("border: 2px solid #f44336;")
+
+        self.on_config_changed()
+
+    def on_time_changed(self, text):
+        """시간 필드 변경 이벤트 (실시간 검증)"""
+        # 빈 문자열이면 스타일 초기화
+        if not text:
+            self.time_edit.setStyleSheet("")
+            return
+
+        # 검증: HH:MM:SS 형식
+        if re.match(r'^\d{1,2}:\d{2}:\d{2}$', text):
+            # 추가 검증: 시간/분/초 범위 체크
+            try:
+                parts = text.split(':')
+                hours = int(parts[0])
+                minutes = int(parts[1])
+                seconds = int(parts[2])
+
+                if 0 <= hours <= 99 and 0 <= minutes <= 59 and 0 <= seconds <= 59:
+                    # 유효한 입력: 초록색 테두리
+                    self.time_edit.setStyleSheet("border: 2px solid #4CAF50;")
+                else:
+                    # 범위 초과: 주황색 테두리
+                    self.time_edit.setStyleSheet("border: 2px solid #FF9800;")
+            except (ValueError, IndexError):
+                # 파싱 실패: 빨간색 테두리
+                self.time_edit.setStyleSheet("border: 2px solid #f44336;")
+        else:
+            # 무효한 형식: 빨간색 테두리
+            self.time_edit.setStyleSheet("border: 2px solid #f44336;")
+
+        self.on_config_changed()
 
     def on_preview_clicked(self):
         """미리보기 버튼 클릭"""
