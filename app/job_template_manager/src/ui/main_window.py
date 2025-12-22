@@ -122,6 +122,34 @@ class MainWindow(QMainWindow):
         refresh_action.triggered.connect(self.refresh_templates)
         view_menu.addAction(refresh_action)
 
+        view_menu.addSeparator()
+
+        # 테마 서브메뉴
+        theme_menu = view_menu.addMenu('&Theme')
+
+        dark_theme_action = QAction('Dark Mode', self)
+        dark_theme_action.setCheckable(True)
+        dark_theme_action.triggered.connect(lambda: self.change_theme('dark'))
+        theme_menu.addAction(dark_theme_action)
+
+        light_theme_action = QAction('Light Mode', self)
+        light_theme_action.setCheckable(True)
+        light_theme_action.triggered.connect(lambda: self.change_theme('light'))
+        theme_menu.addAction(light_theme_action)
+
+        # 현재 테마 체크
+        current_theme = self.settings.value("appearance/theme", "dark")
+        if current_theme == "dark":
+            dark_theme_action.setChecked(True)
+        else:
+            light_theme_action.setChecked(True)
+
+        # 테마 액션 그룹 (한 번에 하나만 선택)
+        from PyQt5.QtWidgets import QActionGroup
+        theme_group = QActionGroup(self)
+        theme_group.addAction(dark_theme_action)
+        theme_group.addAction(light_theme_action)
+
         # Help 메뉴
         help_menu = menubar.addMenu('&Help')
 
@@ -846,6 +874,47 @@ class MainWindow(QMainWindow):
                 self,
                 "Refresh Failed",
                 f"Failed to refresh templates:\n{str(e)}"
+            )
+
+    def change_theme(self, theme: str):
+        """
+        테마 변경
+
+        Args:
+            theme: 'dark' 또는 'light'
+        """
+        logger.info(f"Changing theme to: {theme}")
+
+        # 설정 저장
+        self.settings.setValue("appearance/theme", theme)
+
+        # 스타일시트 로드
+        stylesheet_path = Path(__file__).parent.parent / 'resources' / 'styles' / f'{theme}_theme.qss'
+
+        try:
+            with open(stylesheet_path, 'r', encoding='utf-8') as f:
+                stylesheet = f.read()
+
+            # 앱에 스타일시트 적용
+            from PyQt5.QtWidgets import QApplication
+            QApplication.instance().setStyleSheet(stylesheet)
+
+            self.statusBar().showMessage(f"Theme changed to {theme} mode", 2000)
+            logger.info(f"Theme changed to {theme}")
+
+        except FileNotFoundError:
+            logger.error(f"Theme file not found: {stylesheet_path}")
+            QMessageBox.warning(
+                self,
+                "Theme Error",
+                f"Theme file not found:\n{stylesheet_path}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to change theme: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Theme Error",
+                f"Failed to change theme:\n{str(e)}"
             )
 
     def closeEvent(self, event):

@@ -25,6 +25,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def load_stylesheet(theme='dark'):
+    """
+    테마 스타일시트 로드
+
+    Args:
+        theme: 'dark' 또는 'light'
+
+    Returns:
+        스타일시트 문자열
+    """
+    stylesheet_path = Path(__file__).parent / 'resources' / 'styles' / f'{theme}_theme.qss'
+
+    try:
+        with open(stylesheet_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning(f"Stylesheet not found: {stylesheet_path}")
+        return ""
+    except Exception as e:
+        logger.error(f"Failed to load stylesheet: {e}")
+        return ""
+
+
 def main():
     """애플리케이션 메인 함수"""
     logger.info("Job Template Manager starting...")
@@ -38,6 +61,15 @@ def main():
     # High DPI 지원
     app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
+    # 테마 적용
+    from PyQt5.QtCore import QSettings
+    settings = QSettings()
+    theme = settings.value("appearance/theme", "dark")
+    stylesheet = load_stylesheet(theme)
+    if stylesheet:
+        app.setStyleSheet(stylesheet)
+        logger.info(f"Applied {theme} theme")
 
     # MainWindow import (나중에 구현)
     try:
