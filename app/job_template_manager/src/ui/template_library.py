@@ -49,13 +49,15 @@ class TemplateLibraryWidget(QWidget):
         # 검색 바
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 템플릿 검색...")
+        self.search_input.setPlaceholderText("🔍 Search templates...")
         self.search_input.textChanged.connect(self.filter_templates)
         search_layout.addWidget(self.search_input)
 
         # 새 템플릿 버튼
-        new_button = QPushButton("+ New")
-        new_button.setMaximumWidth(60)
+        new_button = QPushButton("➕ New")
+        new_button.setToolTip("Create a new template (Ctrl+N)")
+        new_button.setMinimumWidth(70)
+        new_button.setMaximumWidth(80)
         new_button.clicked.connect(self.create_new_template)
         search_layout.addWidget(new_button)
 
@@ -258,8 +260,10 @@ class TemplateLibraryWidget(QWidget):
     def create_new_template(self):
         """새 템플릿 생성"""
         logger.info("Create new template clicked")
-        # MainWindow의 new_template 메서드를 호출하도록 시그널 emit
-        # (이 메서드는 New Template 버튼에서 호출됨)
+        # MainWindow의 new_template 메서드 호출
+        main_window = self.window()
+        if hasattr(main_window, 'new_template'):
+            main_window.new_template()
 
     def request_edit_template(self, template_data: dict):
         """템플릿 편집 요청"""
