@@ -35,7 +35,20 @@ web:
   # - 내부 접속만 하려면 VIP 주소 사용: 10.179.100.100
   # - 외부 접속이 필요하면 공인 IP 또는 도메인 입력: 110.15.177.120 또는 cluster.example.com
   public_url: "10.198.112.201"  # 여기를 새 서버 IP로 변경
+
+sso:
+  enabled: false  # true = HTTPS 강제 (SSO 사용), false = HTTP only (Mock IdP)
 ```
+
+**중요**: `sso.enabled` 설정에 따라 자동으로 다음이 변경됩니다:
+- **enabled: false** (개발/테스트 환경)
+  - HTTP only (포트 80)
+  - nginx: `hpc-portal.conf` 사용
+  - frontend .env: `http://`, `ws://`
+- **enabled: true** (운영 환경)
+  - HTTPS 강제 (포트 443)
+  - nginx: `auth-portal.conf` 사용 (HTTP→HTTPS 리다이렉트)
+  - frontend .env: `https://`, `wss://`
 
 ## 새 서버에 배포하기
 

@@ -402,6 +402,10 @@ load_config() {
         PUBLIC_URL="$CURRENT_NODE_IP"
     fi
 
+    # Load SSO configuration
+    SSO_ENABLED=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(str(c.get('sso', {}).get('enabled', True)).lower())" 2>/dev/null || echo "true")
+    log_info "SSO Enabled: $SSO_ENABLED"
+
     log_success "Configuration loaded successfully"
     log_info "Cluster: $CLUSTER_NAME"
     log_info "Domain: $DOMAIN"
@@ -783,6 +787,17 @@ generate_frontend_env_files() {
 
     log_info "Generating frontend .env files from YAML configuration..."
 
+    # Determine protocol based on SSO setting
+    local PROTOCOL="http"
+    local WS_PROTOCOL="ws"
+    if [[ "$SSO_ENABLED" == "true" ]]; then
+        PROTOCOL="https"
+        WS_PROTOCOL="wss"
+        log_info "SSO enabled: Using HTTPS/WSS protocols"
+    else
+        log_info "SSO disabled: Using HTTP/WS protocols"
+    fi
+
     # Frontend services that need .env files
     local frontends=(
         "frontend_3010"      # Main dashboard
@@ -818,12 +833,13 @@ generate_frontend_env_files() {
 # ============================================================================
 # Generated from my_multihead_cluster.yaml
 # Auto-generated on: $(date '+%Y-%m-%d %H:%M:%S')
+# SSO: $SSO_ENABLED | Protocol: $PROTOCOL
 # ============================================================================
 
 # Vite Configuration
-VITE_API_URL=http://${PUBLIC_URL}:5010
-VITE_WS_URL=ws://${PUBLIC_URL}:5011/ws
-VITE_AUTH_URL=http://${PUBLIC_URL}:4430
+VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5010
+VITE_WS_URL=${WS_PROTOCOL}://${PUBLIC_URL}:5011/ws
+VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
 VITE_ENVIRONMENT=production
 EOF
                     ;;
@@ -833,8 +849,9 @@ EOF
                     cat > "$env_file" << EOF
 # Auth Portal Frontend Environment
 # Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
-VITE_AUTH_URL=http://${PUBLIC_URL}:4430
-VITE_API_URL=http://${PUBLIC_URL}:5010
+# SSO: $SSO_ENABLED | Protocol: $PROTOCOL
+VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
+VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5010
 EOF
                     ;;
 
@@ -843,8 +860,9 @@ EOF
                     cat > "$env_file" << EOF
 # VNC Service Frontend Environment
 # Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
-VITE_API_URL=http://${PUBLIC_URL}:5010
-VITE_AUTH_URL=http://${PUBLIC_URL}:4430
+# SSO: $SSO_ENABLED | Protocol: $PROTOCOL
+VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5010
+VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
 EOF
                     ;;
 
@@ -853,8 +871,9 @@ EOF
                     cat > "$env_file" << EOF
 # CAE Web Frontend Environment
 # Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
-VITE_API_URL=http://${PUBLIC_URL}:5000
-VITE_AUTH_URL=http://${PUBLIC_URL}:4430
+# SSO: $SSO_ENABLED | Protocol: $PROTOCOL
+VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5000
+VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
 EOF
                     ;;
             esac
@@ -1727,32 +1746,60 @@ configure_nginx() {
             log_info "WebSocket map directive already exists in nginx.conf"
         fi
 
-        # Generate hpc-portal.conf from YAML configuration
-        log_info "Generating /etc/nginx/conf.d/hpc-portal.conf from YAML..."
-        local nginx_conf="/etc/nginx/conf.d/hpc-portal.conf"
-        local nginx_template="$PROJECT_ROOT/dashboard/nginx/hpc-portal.conf"
+        # Choose nginx configuration based on SSO setting
+        if [[ "$SSO_ENABLED" == "false" ]]; then
+            # SSO disabled: Use HTTP-only configuration (hpc-portal.conf)
+            log_info "SSO disabled: Generating HTTP-only nginx configuration (hpc-portal.conf)..."
+            local nginx_conf="/etc/nginx/conf.d/hpc-portal.conf"
+            local nginx_template="$PROJECT_ROOT/dashboard/nginx/hpc-portal.conf"
 
-        # Backup existing config if it exists
-        if [[ -f "$nginx_conf" ]]; then
-            cp "$nginx_conf" "${nginx_conf}.backup_$(date +%Y%m%d_%H%M%S)"
-        fi
+            # Backup existing config if it exists
+            if [[ -f "$nginx_conf" ]]; then
+                cp "$nginx_conf" "${nginx_conf}.backup_$(date +%Y%m%d_%H%M%S)"
+            fi
 
-        # Check if source template exists
-        if [[ -f "$nginx_template" ]]; then
-            # Copy template and replace placeholders
-            sed -e "s|server_name [0-9.]\+ localhost|server_name $PUBLIC_URL localhost|g" \
-                -e "s|alias /home/[^/]\+/claude/KooSlurmInstallAutomationRefactory/|alias $PROJECT_ROOT/|g" \
-                "$nginx_template" > "$nginx_conf"
-            log_success "Generated $nginx_conf with PUBLIC_URL=$PUBLIC_URL"
+            # Check if source template exists
+            if [[ -f "$nginx_template" ]]; then
+                # Copy template and replace placeholders
+                sed -e "s|server_name [0-9.]\+ localhost|server_name $PUBLIC_URL localhost|g" \
+                    -e "s|alias /home/[^/]\+/claude/KooSlurmInstallAutomationRefactory/|alias $PROJECT_ROOT/|g" \
+                    "$nginx_template" > "$nginx_conf"
+                log_success "Generated $nginx_conf with PUBLIC_URL=$PUBLIC_URL (HTTP only)"
+            else
+                log_error "Nginx template not found: $nginx_template"
+                return 1
+            fi
+
+            # Disable auth-portal.conf if it exists (conflicts with hpc-portal.conf)
+            if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
+                log_info "Disabling auth-portal.conf (SSO disabled, using HTTP-only config)"
+                mv /etc/nginx/conf.d/auth-portal.conf /etc/nginx/conf.d/auth-portal.conf.disabled_$(date +%Y%m%d_%H%M%S)
+            fi
         else
-            log_error "Nginx template not found: $nginx_template"
-            return 1
-        fi
+            # SSO enabled: Use HTTPS configuration (auth-portal.conf)
+            log_info "SSO enabled: Using HTTPS nginx configuration (auth-portal.conf)..."
+            local nginx_conf="/etc/nginx/conf.d/auth-portal.conf"
 
-        # Remove old auth-portal.conf if it exists (replaced by hpc-portal.conf)
-        if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
-            log_info "Removing old auth-portal.conf (replaced by hpc-portal.conf)"
-            mv /etc/nginx/conf.d/auth-portal.conf /etc/nginx/conf.d/auth-portal.conf.disabled_$(date +%Y%m%d_%H%M%S)
+            # auth-portal.conf should already exist from previous setup
+            # Just update server_name and paths if needed
+            if [[ -f "$nginx_conf" ]]; then
+                # Backup existing config
+                cp "$nginx_conf" "${nginx_conf}.backup_$(date +%Y%m%d_%H%M%S)"
+
+                # Update server_name and paths
+                sed -i -e "s|server_name [0-9.]\+ localhost|server_name $PUBLIC_URL localhost|g" \
+                       -e "s|alias /home/[^/]\+/claude/KooSlurmInstallAutomationRefactory/|alias $PROJECT_ROOT/|g" \
+                       "$nginx_conf"
+                log_success "Updated $nginx_conf with PUBLIC_URL=$PUBLIC_URL (HTTPS with SSO)"
+            else
+                log_warning "auth-portal.conf not found, SSO may not work properly"
+            fi
+
+            # Disable hpc-portal.conf if it exists (conflicts with auth-portal.conf)
+            if [[ -f "/etc/nginx/conf.d/hpc-portal.conf" ]]; then
+                log_info "Disabling hpc-portal.conf (SSO enabled, using HTTPS config)"
+                mv /etc/nginx/conf.d/hpc-portal.conf /etc/nginx/conf.d/hpc-portal.conf.disabled_$(date +%Y%m%d_%H%M%S)
+            fi
         fi
 
         # Ensure web_services symlink is disabled to avoid conflict
