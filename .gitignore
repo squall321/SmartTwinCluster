@@ -35,6 +35,11 @@ apptainers/
 *.rpm
 *.sif
 
+# Large archive split files
+offline_packages.tar.gz_part_*
+dashboard_split/
+*.tar.part_*
+
 # Sensitive
 *.key
 *.pem
