@@ -13,6 +13,18 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# Load public URL from YAML
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+YAML_FILE="$PROJECT_ROOT/my_multihead_cluster.yaml"
+if [[ -f "$YAML_FILE" ]]; then
+    PUBLIC_URL=$(python3 -c "import yaml; c=yaml.safe_load(open('$YAML_FILE')); print(c.get('web', {}).get('public_url', 'localhost'))" 2>/dev/null || echo "localhost")
+    SSO_ENABLED=$(python3 -c "import yaml; c=yaml.safe_load(open('$YAML_FILE')); print(str(c.get('sso', {}).get('enabled', True)).lower())" 2>/dev/null || echo "true")
+    PROTOCOL=$([[ "$SSO_ENABLED" == "true" ]] && echo "https" || echo "http")
+else
+    PUBLIC_URL="localhost"
+    PROTOCOL="http"
+fi
+
 MODE="${1:-production}"  # production or development
 
 if [ "$MODE" = "development" ]; then
@@ -35,7 +47,7 @@ if [ "$MODE" = "development" ]; then
 
 elif [ "$MODE" = "production" ]; then
     echo -e "${GREEN}🚀 App Service in PRODUCTION mode${NC}"
-    echo "  → Served by Nginx at: http://110.15.177.120/app/"
+    echo "  → Served by Nginx at: ${PROTOCOL}://${PUBLIC_URL}/app/"
     echo "  → Static files from: dist/"
 
     # Check if dist/ exists

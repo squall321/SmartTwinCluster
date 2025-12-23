@@ -12,9 +12,29 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Load public URL from YAML
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+YAML_FILE="$PROJECT_ROOT/my_multihead_cluster.yaml"
+if [[ -f "$YAML_FILE" ]]; then
+    PUBLIC_URL=$(python3 -c "import yaml; c=yaml.safe_load(open('$YAML_FILE')); print(c.get('web', {}).get('public_url', 'localhost'))" 2>/dev/null || echo "localhost")
+    SSO_ENABLED=$(python3 -c "import yaml; c=yaml.safe_load(open('$YAML_FILE')); print(str(c.get('sso', {}).get('enabled', True)).lower())" 2>/dev/null || echo "true")
+else
+    PUBLIC_URL="localhost"
+    SSO_ENABLED="true"
+fi
+
+# Determine protocol based on SSO
+if [[ "$SSO_ENABLED" == "true" ]]; then
+    PROTOCOL="https"
+else
+    PROTOCOL="http"
+fi
+
 echo "=========================================="
 echo "🔍 시스템 상태 확인"
 echo "=========================================="
+echo "Public URL: $PUBLIC_URL"
+echo "Protocol: $PROTOCOL"
 echo ""
 
 PASS=0
@@ -95,7 +115,7 @@ else
 fi
 
 # Nginx를 통한 접근 확인
-if curl -s http://110.15.177.120/ >/dev/null 2>&1; then
+if curl -s ${PROTOCOL}://${PUBLIC_URL}/ >/dev/null 2>&1; then
     echo -e "  ${GREEN}✅ Nginx 메인 포털 접근 가능${NC}"
     PASS=$((PASS + 1))
 else
@@ -112,10 +132,10 @@ if [ $FAIL -eq 0 ]; then
     echo "=========================================="
     echo ""
     echo "🔗 서비스 URL:"
-    echo "  • 메인 포털:    http://110.15.177.120/"
-    echo "  • Dashboard:    http://110.15.177.120/dashboard/"
-    echo "  • VNC Service:  http://110.15.177.120/vnc/"
-    echo "  • CAE Frontend: http://110.15.177.120/cae/"
+    echo "  • 메인 포털:    ${PROTOCOL}://${PUBLIC_URL}/"
+    echo "  • Dashboard:    ${PROTOCOL}://${PUBLIC_URL}/dashboard/"
+    echo "  • VNC Service:  ${PROTOCOL}://${PUBLIC_URL}/vnc/"
+    echo "  • CAE Frontend: ${PROTOCOL}://${PUBLIC_URL}/cae/"
     echo ""
     exit 0
 else
