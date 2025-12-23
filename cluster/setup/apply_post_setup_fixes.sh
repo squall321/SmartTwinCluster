@@ -29,6 +29,26 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Load SSO configuration from YAML to determine which nginx config to use
+CONFIG_FILE="${CONFIG_FILE:-$PROJECT_ROOT/my_multihead_cluster.yaml}"
+if [[ -f "$CONFIG_FILE" ]]; then
+    SSO_ENABLED=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(str(c.get('sso', {}).get('enabled', True)).lower())" 2>/dev/null || echo "true")
+    log_info "Loaded SSO configuration: enabled=$SSO_ENABLED"
+
+    # Determine which nginx config file to use
+    if [[ "$SSO_ENABLED" == "false" ]]; then
+        NGINX_CONF="/etc/nginx/conf.d/hpc-portal.conf"
+        log_info "Using HTTP-only nginx config: $NGINX_CONF"
+    else
+        NGINX_CONF="/etc/nginx/conf.d/auth-portal.conf"
+        log_info "Using HTTPS nginx config: $NGINX_CONF"
+    fi
+else
+    log_warning "Config file not found: $CONFIG_FILE, defaulting to auth-portal.conf"
+    NGINX_CONF="/etc/nginx/conf.d/auth-portal.conf"
+    SSO_ENABLED="true"
+fi
+
 ###################################################################################
 # Fix 8: Update App Session Service to use nginx proxy paths
 # (Defined early to be available for other functions)
@@ -90,8 +110,6 @@ fix_redis_password() {
 fix_nginx_cae_proxy() {
     log_info "=== Fix 2: Updating Nginx CAE backend proxy path ==="
 
-    local NGINX_CONF="/etc/nginx/conf.d/auth-portal.conf"
-
     if [[ ! -f "$NGINX_CONF" ]]; then
         log_warning "Nginx config not found: $NGINX_CONF (will be created by configure_nginx)"
         return 0
@@ -113,8 +131,6 @@ fix_nginx_cae_proxy() {
 fix_nginx_cae_alias() {
     log_info "=== Fix 3: Updating Nginx CAE frontend alias path ==="
 
-    local NGINX_CONF="/etc/nginx/conf.d/auth-portal.conf"
-
     # Check current alias
     local current_alias=$(grep -A1 "location /cae {" "$NGINX_CONF" | grep "alias" | awk '{print $2}' | tr -d ';')
 
@@ -132,8 +148,6 @@ fix_nginx_cae_alias() {
 ###################################################################################
 fix_nginx_cae_nocache() {
     log_info "=== Fix 4: Adding no-cache headers for CAE index.html ==="
-
-    local NGINX_CONF="/etc/nginx/conf.d/auth-portal.conf"
 
     # Check if no-cache location already exists
     if grep -q "location = /cae/index.html" "$NGINX_CONF"; then
@@ -208,8 +222,6 @@ fix_nginx_vnc_proxy() {
 
     fix_app_session_urls
     log_info "=== Fix 7: Adding VNC proxy location to nginx ==="
-
-    local NGINX_CONF="/etc/nginx/conf.d/auth-portal.conf"
 
     # Check if VNC proxy location already exists
     if grep -q "location.*vncproxy" "$NGINX_CONF"; then

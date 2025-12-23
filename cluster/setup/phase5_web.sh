@@ -1859,13 +1859,20 @@ fix_ssh_api_and_nginx() {
             fi
         fi
 
-        # 3. Fix Nginx auth-portal.conf dashboard path
-        if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
-            if grep -q "alias /var/www/html/frontend_3010" /etc/nginx/conf.d/auth-portal.conf; then
-                sed -i 's|alias /var/www/html/frontend_3010|alias /var/www/html/dashboard|g' /etc/nginx/conf.d/auth-portal.conf
-                log_success "Fixed auth-portal.conf dashboard path"
+        # 3. Fix Nginx config dashboard path (based on SSO setting)
+        local nginx_conf_file
+        if [[ "$SSO_ENABLED" == "false" ]]; then
+            nginx_conf_file="/etc/nginx/conf.d/hpc-portal.conf"
+        else
+            nginx_conf_file="/etc/nginx/conf.d/auth-portal.conf"
+        fi
+
+        if [[ -f "$nginx_conf_file" ]]; then
+            if grep -q "alias /var/www/html/frontend_3010" "$nginx_conf_file"; then
+                sed -i 's|alias /var/www/html/frontend_3010|alias /var/www/html/dashboard|g' "$nginx_conf_file"
+                log_success "Fixed $(basename $nginx_conf_file) dashboard path"
             else
-                log_info "auth-portal.conf dashboard path already correct"
+                log_info "$(basename $nginx_conf_file) dashboard path already correct"
             fi
         fi
 
@@ -1887,13 +1894,13 @@ fix_ssh_api_and_nginx() {
         fi
 
 
-        # 6. Add SocketIO proxy to Nginx auth-portal.conf
-        if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
-            if ! grep -q "location /socket.io/" /etc/nginx/conf.d/auth-portal.conf; then
+        # 6. Add SocketIO proxy to Nginx config (based on SSO setting)
+        if [[ -f "$nginx_conf_file" ]]; then
+            if ! grep -q "location /socket.io/" "$nginx_conf_file"; then
                 # Find the line number after "location /ws" block
-                local ws_end=$(grep -n "location /ws" /etc/nginx/conf.d/auth-portal.conf | head -1 | cut -d: -f1)
+                local ws_end=$(grep -n "location /ws" "$nginx_conf_file" | head -1 | cut -d: -f1)
                 ws_end=$((ws_end + 12))  # Skip to end of /ws block
-                
+
                 # Insert socket.io configuration
                 sed -i "${ws_end}a\\
 \\
@@ -1910,11 +1917,11 @@ fix_ssh_api_and_nginx() {
         proxy_set_header X-Forwarded-Proto \$scheme;\\
         proxy_read_timeout 86400s;\\
         proxy_send_timeout 86400s;\\
-    }" /etc/nginx/conf.d/auth-portal.conf
-                
-                log_success "Added SocketIO proxy to auth-portal.conf"
+    }" "$nginx_conf_file"
+
+                log_success "Added SocketIO proxy to $(basename $nginx_conf_file)"
             else
-                log_info "SocketIO proxy already exists in auth-portal.conf"
+                log_info "SocketIO proxy already exists in $(basename $nginx_conf_file)"
             fi
         fi
         log_success "SSH API and Nginx configuration fixed"
