@@ -182,6 +182,17 @@ class TemplateEditorWidget(QWidget):
         self.ntasks_spin.valueChanged.connect(self.on_config_changed)
         layout.addRow("Tasks (ntasks):", self.ntasks_spin)
 
+        # CPUs per Task (Optional)
+        self.cpus_per_task_spin = QSpinBox()
+        self.cpus_per_task_spin.setMinimum(0)
+        self.cpus_per_task_spin.setMaximum(64)
+        self.cpus_per_task_spin.setSpecialValueText("Not set")
+        self.cpus_per_task_spin.setToolTip("Number of CPUs per task (0 = not set)\n"
+                                          "Use for multi-threaded applications\n"
+                                          "Total CPUs = ntasks × cpus_per_task")
+        self.cpus_per_task_spin.valueChanged.connect(self.on_config_changed)
+        layout.addRow("CPUs per Task (optional):", self.cpus_per_task_spin)
+
         # Memory
         self.memory_edit = QLineEdit()
         self.memory_edit.setPlaceholderText("e.g., 32G, 64GB, 128G")
@@ -328,6 +339,7 @@ class TemplateEditorWidget(QWidget):
         self.partition_combo.setCurrentText(template_obj.slurm.partition)
         self.nodes_spin.setValue(template_obj.slurm.nodes)
         self.ntasks_spin.setValue(template_obj.slurm.ntasks)
+        self.cpus_per_task_spin.setValue(template_obj.slurm.cpus_per_task or 0)
         self.memory_edit.setText(template_obj.slurm.mem)
         self.time_edit.setText(template_obj.slurm.time)
         self.gpu_spin.setValue(template_obj.slurm.gpus or 0)

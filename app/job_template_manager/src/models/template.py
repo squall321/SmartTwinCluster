@@ -68,6 +68,15 @@ class ApptainerConfig:
     bind: List[str] = field(default_factory=list)
     env: Dict[str, str] = field(default_factory=dict)
 
+    def __post_init__(self):
+        """초기화 후 유효성 검증"""
+        valid_modes = ['fixed', 'partition', 'specific', 'any']
+        if self.mode not in valid_modes:
+            raise ValueError(
+                f"Invalid Apptainer mode: '{self.mode}'. "
+                f"Must be one of: {', '.join(valid_modes)}"
+            )
+
     def to_dict(self) -> dict:
         """딕셔너리로 변환"""
         return {
@@ -84,7 +93,9 @@ class FileDefinition:
     file_key: str
     name: str
     description: str = ""
-    validation: Dict = field(default_factory=dict)
+    pattern: str = "*"  # 웹 대시보드 호환: 파일 패턴 (예: "*.dat", "*.txt")
+    type: str = "file"  # 웹 대시보드 호환: "file" 또는 "directory"
+    validation: Dict = field(default_factory=dict)  # 추가 검증 규칙 (선택)
     max_size: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -93,6 +104,8 @@ class FileDefinition:
             'file_key': self.file_key,
             'name': self.name,
             'description': self.description,
+            'pattern': self.pattern,
+            'type': self.type,
         }
 
         if self.validation:
@@ -238,6 +251,8 @@ class Template:
                     file_key=file_def['file_key'],
                     name=file_def['name'],
                     description=file_def.get('description', ''),
+                    pattern=file_def.get('pattern', '*'),
+                    type=file_def.get('type', 'file'),
                     validation=file_def.get('validation', {}),
                     max_size=file_def.get('max_size'),
                 ))
@@ -248,6 +263,8 @@ class Template:
                     file_key=file_def['file_key'],
                     name=file_def['name'],
                     description=file_def.get('description', ''),
+                    pattern=file_def.get('pattern', '*'),
+                    type=file_def.get('type', 'file'),
                     validation=file_def.get('validation', {}),
                     max_size=file_def.get('max_size'),
                 ))

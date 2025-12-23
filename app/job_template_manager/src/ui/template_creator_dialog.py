@@ -182,6 +182,13 @@ class TemplateCreatorDialog(QDialog):
         self.ntasks_spin.setValue(4)
         layout.addRow("Tasks (ntasks) *:", self.ntasks_spin)
 
+        # CPUs per Task (optional)
+        self.cpus_per_task_spin = QSpinBox()
+        self.cpus_per_task_spin.setRange(0, 64)
+        self.cpus_per_task_spin.setValue(0)
+        self.cpus_per_task_spin.setSpecialValueText("Not set")
+        layout.addRow("CPUs per Task:", self.cpus_per_task_spin)
+
         # Memory
         self.mem_edit = QLineEdit()
         self.mem_edit.setText("32G")
@@ -367,6 +374,7 @@ class TemplateCreatorDialog(QDialog):
         self.partition_combo.setCurrentText(template.slurm.partition)
         self.nodes_spin.setValue(template.slurm.nodes)
         self.ntasks_spin.setValue(template.slurm.ntasks)
+        self.cpus_per_task_spin.setValue(template.slurm.cpus_per_task or 0)
         self.mem_edit.setText(template.slurm.mem)
         self.time_edit.setText(template.slurm.time)
         if template.slurm.gpus:
@@ -481,6 +489,7 @@ class TemplateCreatorDialog(QDialog):
             ntasks=self.ntasks_spin.value(),
             mem=self.mem_edit.text().strip(),
             time=self.time_edit.text().strip(),
+            cpus_per_task=self.cpus_per_task_spin.value() if self.cpus_per_task_spin.value() > 0 else None,
             gpus=self.gpu_spin.value() if self.gpu_spin.value() > 0 else None
         )
 
