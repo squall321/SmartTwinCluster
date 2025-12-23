@@ -395,10 +395,18 @@ load_config() {
     # Get all web controllers for upstream configuration
     WEB_CONTROLLERS=$(echo "$config_json" | jq -r '.[] | "\(.ip_address):\(.hostname)"')
 
+    # Load public URL for dashboard access
+    PUBLIC_URL=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web', {}).get('public_url', '127.0.0.1'))" 2>/dev/null || echo "127.0.0.1")
+    if [[ -z "$PUBLIC_URL" || "$PUBLIC_URL" == "null" ]]; then
+        log_warning "web.public_url not set in YAML, using current node IP: $CURRENT_NODE_IP"
+        PUBLIC_URL="$CURRENT_NODE_IP"
+    fi
+
     log_success "Configuration loaded successfully"
     log_info "Cluster: $CLUSTER_NAME"
     log_info "Domain: $DOMAIN"
     log_info "Current node: $CURRENT_NODE_IP"
+    log_info "Public URL: $PUBLIC_URL"
 }
 
 # Function to create web services user
@@ -768,6 +776,99 @@ EOF
     log_success "Redis session management setup complete"
 }
 
+# Function to generate frontend .env files from YAML configuration
+# This ensures all frontends use the correct public URL for API/WebSocket/Auth connections
+generate_frontend_env_files() {
+    local dashboard_dir=$1
+
+    log_info "Generating frontend .env files from YAML configuration..."
+
+    # Frontend services that need .env files
+    local frontends=(
+        "frontend_3010"      # Main dashboard
+        "auth_portal_4431"   # Auth portal
+        "vnc_service_8002"   # VNC service
+        "kooCAEWeb_5173"     # CAE web interface
+    )
+
+    for frontend in "${frontends[@]}"; do
+        local frontend_dir="$dashboard_dir/$frontend"
+        local env_file="$frontend_dir/.env"
+
+        if [[ ! -d "$frontend_dir" ]]; then
+            log_warning "Frontend directory not found: $frontend_dir, skipping..."
+            continue
+        fi
+
+        if [[ "$DRY_RUN" == false ]]; then
+            log_info "Generating .env for $frontend..."
+
+            # Backup existing .env if it exists
+            if [[ -f "$env_file" ]]; then
+                cp "$env_file" "${env_file}.backup_$(date +%Y%m%d_%H%M%S)"
+            fi
+
+            # Generate .env based on frontend type
+            case "$frontend" in
+                frontend_3010)
+                    # Main dashboard frontend
+                    cat > "$env_file" << EOF
+# ============================================================================
+# Dashboard Frontend (3010) Environment Variables
+# ============================================================================
+# Generated from my_multihead_cluster.yaml
+# Auto-generated on: $(date '+%Y-%m-%d %H:%M:%S')
+# ============================================================================
+
+# Vite Configuration
+VITE_API_URL=http://${PUBLIC_URL}:5010
+VITE_WS_URL=ws://${PUBLIC_URL}:5011/ws
+VITE_AUTH_URL=http://${PUBLIC_URL}:4430
+VITE_ENVIRONMENT=production
+EOF
+                    ;;
+
+                auth_portal_4431)
+                    # Auth portal frontend
+                    cat > "$env_file" << EOF
+# Auth Portal Frontend Environment
+# Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
+VITE_AUTH_URL=http://${PUBLIC_URL}:4430
+VITE_API_URL=http://${PUBLIC_URL}:5010
+EOF
+                    ;;
+
+                vnc_service_8002)
+                    # VNC service frontend
+                    cat > "$env_file" << EOF
+# VNC Service Frontend Environment
+# Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
+VITE_API_URL=http://${PUBLIC_URL}:5010
+VITE_AUTH_URL=http://${PUBLIC_URL}:4430
+EOF
+                    ;;
+
+                kooCAEWeb_5173)
+                    # CAE web frontend
+                    cat > "$env_file" << EOF
+# CAE Web Frontend Environment
+# Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
+VITE_API_URL=http://${PUBLIC_URL}:5000
+VITE_AUTH_URL=http://${PUBLIC_URL}:4430
+EOF
+                    ;;
+            esac
+
+            chmod 600 "$env_file"
+            log_success ".env generated for $frontend (PUBLIC_URL=$PUBLIC_URL)"
+        else
+            log_info "[DRY-RUN] Would generate .env for $frontend"
+        fi
+    done
+
+    log_success "All frontend .env files generated from YAML"
+}
+
 # Function to configure Auth Portal groups
 # Updates GROUP_PERMISSIONS in auth_portal_4430/config/config.py
 setup_auth_portal_groups() {
@@ -1104,6 +1205,9 @@ deploy_web_services() {
 
     log_info "Using dashboard directory: $dashboard_dir"
     log_info "Services will run directly from dashboard with existing venv"
+
+    # Generate frontend .env files from YAML (must be done BEFORE building)
+    generate_frontend_env_files "$dashboard_dir"
 
     # Setup Auth Portal groups
     setup_auth_portal_groups "$dashboard_dir"
@@ -1623,22 +1727,32 @@ configure_nginx() {
             log_info "WebSocket map directive already exists in nginx.conf"
         fi
 
-        # Check if auth-portal.conf exists (from dashboard setup)
-        if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
-            log_info "Using existing auth-portal.conf (from dashboard setup)"
-        else
-            log_warning "auth-portal.conf not found, creating from template..."
+        # Generate hpc-portal.conf from YAML configuration
+        log_info "Generating /etc/nginx/conf.d/hpc-portal.conf from YAML..."
+        local nginx_conf="/etc/nginx/conf.d/hpc-portal.conf"
+        local nginx_template="$PROJECT_ROOT/dashboard/nginx/hpc-portal.conf"
 
-            # Check if template exists
-            local template="$PROJECT_ROOT/cluster/config/nginx_auth-portal.conf"
-            if [[ -f "$template" ]]; then
-                cp "$template" /etc/nginx/conf.d/auth-portal.conf
-                log_success "Created auth-portal.conf from template"
-            else
-                log_error "Nginx template not found: $template"
-                log_info "Please ensure cluster/config/nginx_auth-portal.conf exists"
-                return 1
-            fi
+        # Backup existing config if it exists
+        if [[ -f "$nginx_conf" ]]; then
+            cp "$nginx_conf" "${nginx_conf}.backup_$(date +%Y%m%d_%H%M%S)"
+        fi
+
+        # Check if source template exists
+        if [[ -f "$nginx_template" ]]; then
+            # Copy template and replace placeholders
+            sed -e "s|server_name [0-9.]\+ localhost|server_name $PUBLIC_URL localhost|g" \
+                -e "s|alias /home/[^/]\+/claude/KooSlurmInstallAutomationRefactory/|alias $PROJECT_ROOT/|g" \
+                "$nginx_template" > "$nginx_conf"
+            log_success "Generated $nginx_conf with PUBLIC_URL=$PUBLIC_URL"
+        else
+            log_error "Nginx template not found: $nginx_template"
+            return 1
+        fi
+
+        # Remove old auth-portal.conf if it exists (replaced by hpc-portal.conf)
+        if [[ -f "/etc/nginx/conf.d/auth-portal.conf" ]]; then
+            log_info "Removing old auth-portal.conf (replaced by hpc-portal.conf)"
+            mv /etc/nginx/conf.d/auth-portal.conf /etc/nginx/conf.d/auth-portal.conf.disabled_$(date +%Y%m%d_%H%M%S)
         fi
 
         # Ensure web_services symlink is disabled to avoid conflict
