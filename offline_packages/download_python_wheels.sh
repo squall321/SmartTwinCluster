@@ -70,7 +70,7 @@ setup_wheels_dir() {
 # 모든 requirements 파일 찾기
 # 우선순위: requirements_actual.txt > requirements.txt > autowebserverrequirements.txt
 find_requirements_files() {
-    log_info "Finding all requirements files in dashboard..."
+    log_info "Finding all requirements files in dashboard..." >&2
 
     local requirements_files=()
     local processed_dirs=()
@@ -93,7 +93,7 @@ find_requirements_files() {
         local req_file=""
         if [[ -f "$service_dir/requirements_actual.txt" ]]; then
             req_file="$service_dir/requirements_actual.txt"
-            log_info "  Using requirements_actual.txt for $dir_name (actual installed packages)"
+            log_info "  Using requirements_actual.txt for $dir_name (actual installed packages)" >&2
         elif [[ -f "$service_dir/requirements.txt" ]]; then
             req_file="$service_dir/requirements.txt"
         elif [[ -f "$service_dir/autowebserverrequirements.txt" ]]; then
@@ -106,7 +106,8 @@ find_requirements_files() {
         fi
     done < <(find "${PROJECT_ROOT}/dashboard" -type d | grep -v -E "\.backup|/venv/|/node_modules/" | sort -u)
 
-    echo "${requirements_files[@]}"
+    # Return files separated by newlines to avoid word splitting issues
+    printf '%s\n' "${requirements_files[@]}"
 }
 
 # Python 버전별 Wheel 다운로드
@@ -116,40 +117,57 @@ download_wheels() {
 
     log_info "Downloading wheels for ${#requirements_files[@]} services..."
     log_info "Python versions: ${PYTHON_VERSIONS[*]}"
-    log_info "Strategy: Download each service separately to avoid version conflicts"
+    log_info "Strategy: Download using each service's venv pip"
     echo ""
 
     # Python 버전별로 다운로드
     for py_ver in "${PYTHON_VERSIONS[@]}"; do
         log_info "=== Python ${py_ver} ==="
-
-        local py_cmd="python${py_ver}"
         local ver_dir="${WHEELS_DIR}/python${py_ver}"
 
-        # Python 버전 확인
-        if ! command -v "$py_cmd" &> /dev/null; then
-            log_warning "  ⚠ Python ${py_ver} not found, skipping..."
+        # Python 버전에 맞는 서비스 필터링
+        local services_for_version=()
+        for req_file in "${requirements_files[@]}"; do
+            local service_dir=$(dirname "$req_file")
+
+            # venv의 Python 버전 확인
+            if [[ -f "$service_dir/venv/bin/python" ]]; then
+                local venv_py_ver=$("$service_dir/venv/bin/python" --version 2>&1 | grep -oP 'Python \K\d+\.\d+')
+                if [[ "$venv_py_ver" == "$py_ver" ]]; then
+                    services_for_version+=("$req_file")
+                fi
+            fi
+        done
+
+        if [[ ${#services_for_version[@]} -eq 0 ]]; then
+            log_warning "  ⚠ No services using Python ${py_ver}, skipping..."
             echo ""
             continue
         fi
 
-        log_info "  Using: $($py_cmd --version)"
+        log_info "  Found ${#services_for_version[@]} services using Python ${py_ver}"
         echo ""
 
         # 각 requirements 파일별로 다운로드
-        for req_file in "${requirements_files[@]}"; do
-            local service_name=$(basename $(dirname "$req_file"))
+        for req_file in "${services_for_version[@]}"; do
+            local service_dir=$(dirname "$req_file")
+            local service_name=$(basename "$service_dir")
             local req_basename=$(basename "$req_file")
+            local venv_pip="$service_dir/venv/bin/pip"
 
             log_info "  Downloading $service_name ($req_basename)..."
 
             cd "$ver_dir"
 
-            # pip download는 중복 파일을 자동으로 스킵함
-            if $py_cmd -m pip download -r "$req_file" --dest . >/dev/null 2>&1; then
-                log_success "    ✓ Downloaded for $service_name"
+            # venv의 pip 사용하여 다운로드
+            if [[ -f "$venv_pip" ]]; then
+                if $venv_pip download -r "$req_file" --dest . >/dev/null 2>&1; then
+                    log_success "    ✓ Downloaded for $service_name"
+                else
+                    log_warning "    ⚠ Some packages failed for $service_name"
+                fi
             else
-                log_warning "    ⚠ Some packages failed for $service_name"
+                log_warning "    ⚠ venv pip not found for $service_name"
             fi
         done
 
@@ -344,7 +362,8 @@ main() {
     setup_wheels_dir
 
     # 모든 requirements.txt 찾기
-    local requirements_files=($(find_requirements_files))
+    local requirements_files=()
+    mapfile -t requirements_files < <(find_requirements_files)
 
     if [[ ${#requirements_files[@]} -eq 0 ]]; then
         log_error "No requirements.txt files found in dashboard/"
