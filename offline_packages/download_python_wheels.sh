@@ -64,19 +64,44 @@ setup_wheels_dir() {
     log_success "Wheels directories ready"
 }
 
-# 모든 requirements.txt 찾기 (autowebserverrequirements.txt 등 포함)
+# 모든 requirements 파일 찾기
+# 우선순위: requirements_actual.txt > requirements.txt > autowebserverrequirements.txt
 find_requirements_files() {
-    log_info "Finding all requirements*.txt files in dashboard..."
+    log_info "Finding all requirements files in dashboard..."
 
     local requirements_files=()
+    local processed_dirs=()
 
-    # requirements.txt, autowebserverrequirements.txt 등 모든 패턴
-    while IFS= read -r req_file; do
-        # Backup 및 utf8 버전 제외
-        if [[ ! "$req_file" =~ \.backup ]] && [[ ! "$req_file" =~ _utf8 ]]; then
-            requirements_files+=("$req_file")
+    # 각 서비스 디렉토리별로 최적의 requirements 파일 선택
+    while IFS= read -r service_dir; do
+        local dir_name=$(basename "$service_dir")
+
+        # 이미 처리한 디렉토리 스킵
+        local skip=false
+        for processed in "${processed_dirs[@]}"; do
+            if [[ "$processed" == "$service_dir" ]]; then
+                skip=true
+                break
+            fi
+        done
+        [[ "$skip" == true ]] && continue
+
+        # 우선순위에 따라 requirements 파일 선택
+        local req_file=""
+        if [[ -f "$service_dir/requirements_actual.txt" ]]; then
+            req_file="$service_dir/requirements_actual.txt"
+            log_info "  Using requirements_actual.txt for $dir_name (actual installed packages)"
+        elif [[ -f "$service_dir/requirements.txt" ]]; then
+            req_file="$service_dir/requirements.txt"
+        elif [[ -f "$service_dir/autowebserverrequirements.txt" ]]; then
+            req_file="$service_dir/autowebserverrequirements.txt"
         fi
-    done < <(find "${PROJECT_ROOT}/dashboard" -name "*requirements*.txt" -type f | sort -u)
+
+        if [[ -n "$req_file" ]]; then
+            requirements_files+=("$req_file")
+            processed_dirs+=("$service_dir")
+        fi
+    done < <(find "${PROJECT_ROOT}/dashboard" -type d | grep -v -E "\.backup|/venv/|/node_modules/" | sort -u)
 
     echo "${requirements_files[@]}"
 }
