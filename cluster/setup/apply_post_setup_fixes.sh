@@ -348,8 +348,8 @@ main() {
     fix_nginx_websocket_map
     echo ""
 
-    fix_nginx_vnc_proxy
-    echo ""
+    # fix_nginx_vnc_proxy - DISABLED: VNC proxy is now included in hpc-portal.conf template
+    # echo ""
 
     fix_app_session_urls
     echo ""
