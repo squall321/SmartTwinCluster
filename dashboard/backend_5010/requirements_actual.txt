@@ -16,7 +16,7 @@ cryptography==46.0.3
 cycler==0.12.1
 et_xmlfile==2.0.0
 Flask==3.1.1
-Flask-Cors==6.0.1
+flask-cors==6.0.1
 Flask-SocketIO==5.5.1
 fonttools==4.60.1
 frozenlist==1.8.0
@@ -58,7 +58,7 @@ typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
 watchdog==6.0.0
-Werkzeug==3.0.1
+Werkzeug==3.1.4
 wsproto==1.2.0
 xlsxwriter==3.2.9
 yarl==1.22.0
