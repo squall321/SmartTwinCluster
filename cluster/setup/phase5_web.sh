@@ -1185,9 +1185,28 @@ setup_jwt_authentication() {
             if [[ -f "requirements.txt" ]]; then
                 log_info "Installing packages from requirements.txt for $service..."
                 source venv/bin/activate
-                pip install -r requirements.txt --quiet || {
-                    log_warning "Failed to install requirements in $service"
-                }
+
+                # Check if offline wheels are available
+                local project_root="$(dirname "$(dirname "$(dirname "$service_dir")")")"
+                local wheels_dir="${project_root}/offline_packages/python_wheels"
+                local py_version=$(python --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "3.12")
+                local wheels_subdir="${wheels_dir}/python${py_version}"
+
+                if [[ -d "$wheels_subdir" ]]; then
+                    log_info "  Using offline wheels from $wheels_subdir"
+                    pip install --no-index --find-links="$wheels_subdir" -r requirements.txt --quiet || {
+                        log_warning "Failed to install from offline wheels, trying online..."
+                        pip install -r requirements.txt --quiet || {
+                            log_warning "Failed to install requirements in $service"
+                        }
+                    }
+                else
+                    log_info "  No offline wheels found, installing from PyPI..."
+                    pip install -r requirements.txt --quiet || {
+                        log_warning "Failed to install requirements in $service"
+                    }
+                fi
+
                 deactivate
             fi
 
