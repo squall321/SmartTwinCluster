@@ -38,7 +38,10 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WHEELS_DIR="${SCRIPT_DIR}/python_wheels"
 
 # Python 버전 목록 (Dashboard 서비스들이 사용하는 버전)
-PYTHON_VERSIONS=("3.12" "3.13")
+# auth_portal_4430, websocket_5011, backend_moonlight: Python 3.10
+# backend_5010: Python 3.12
+# kooCAEWebServer_5000, kooCAEWebAutomationServer_5001: Python 3.13
+PYTHON_VERSIONS=("3.10" "3.12" "3.13")
 
 # 인터넷 연결 확인
 check_internet() {
@@ -267,21 +270,24 @@ This directory contains all Python package wheels needed for offline dashboard i
 
 ```
 python_wheels/
-├── python3.12/          # Wheels for Python 3.12 (backend_5010, etc.)
+├── python3.10/          # Wheels for Python 3.10 (auth_portal, websocket, moonlight)
 │   ├── *.whl
 │   └── *.tar.gz
-├── python3.13/          # Wheels for Python 3.13 (websocket_5011, etc.)
+├── python3.12/          # Wheels for Python 3.12 (backend_5010)
 │   ├── *.whl
 │   └── *.tar.gz
-├── combined_requirements.txt  # All unique packages
+├── python3.13/          # Wheels for Python 3.13 (CAE servers)
+│   ├── *.whl
+│   └── *.tar.gz
 ├── install_offline.sh   # Auto-detect Python version installer
 └── README.md            # This file
 ```
 
 ## Python Version Mapping
 
-- **Python 3.12**: auth_portal_4430, backend_5010, kooCAEWebServer_5000
-- **Python 3.13**: websocket_5011
+- **Python 3.10**: auth_portal_4430, websocket_5011, backend_moonlight_8004
+- **Python 3.12**: backend_5010
+- **Python 3.13**: kooCAEWebServer_5000, kooCAEWebAutomationServer_5001
 
 ## Usage
 
@@ -295,6 +301,11 @@ cd /path/to/service
 ```
 
 ### Method 2: Manual pip install
+
+For Python 3.10:
+```bash
+pip install --no-index --find-links=/opt/offline_packages/python_wheels/python3.10 -r requirements.txt
+```
 
 For Python 3.12:
 ```bash
