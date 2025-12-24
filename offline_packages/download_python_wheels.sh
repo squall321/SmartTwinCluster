@@ -107,31 +107,18 @@ find_requirements_files() {
 }
 
 # Python 버전별 Wheel 다운로드
+# 각 requirements 파일별로 따로 다운로드하여 버전 충돌 방지
 download_wheels() {
     local requirements_files=("$@")
 
-    log_info "Downloading wheels for ${#requirements_files[@]} requirements.txt files..."
+    log_info "Downloading wheels for ${#requirements_files[@]} services..."
     log_info "Python versions: ${PYTHON_VERSIONS[*]}"
-    echo ""
-
-    # 모든 requirements.txt를 합쳐서 unique한 패키지 목록 생성
-    local combined_requirements="${WHEELS_DIR}/combined_requirements.txt"
-    : > "$combined_requirements"  # 파일 초기화
-
-    for req_file in "${requirements_files[@]}"; do
-        cat "$req_file" >> "$combined_requirements"
-    done
-
-    # 중복 제거 및 주석 제거
-    sort "$combined_requirements" | uniq | grep -v "^#" | grep -v "^$" > "${combined_requirements}.tmp"
-    mv "${combined_requirements}.tmp" "$combined_requirements"
-
-    log_success "Combined $(wc -l < "$combined_requirements") unique packages from all requirements.txt"
+    log_info "Strategy: Download each service separately to avoid version conflicts"
     echo ""
 
     # Python 버전별로 다운로드
     for py_ver in "${PYTHON_VERSIONS[@]}"; do
-        log_info "Downloading for Python ${py_ver}..."
+        log_info "=== Python ${py_ver} ==="
 
         local py_cmd="python${py_ver}"
         local ver_dir="${WHEELS_DIR}/python${py_ver}"
@@ -139,25 +126,36 @@ download_wheels() {
         # Python 버전 확인
         if ! command -v "$py_cmd" &> /dev/null; then
             log_warning "  ⚠ Python ${py_ver} not found, skipping..."
+            echo ""
             continue
         fi
 
-        # 해당 Python 버전으로 wheel 다운로드
-        cd "$ver_dir"
-
         log_info "  Using: $($py_cmd --version)"
+        echo ""
 
-        if $py_cmd -m pip download -r "$combined_requirements" --dest . >/dev/null 2>&1; then
-            local wheel_count=$(find . -name "*.whl" -o -name "*.tar.gz" | wc -l)
-            log_success "  ✓ Downloaded $wheel_count packages for Python ${py_ver}"
-        else
-            log_warning "  ⚠ Some packages failed to download for Python ${py_ver}"
-        fi
+        # 각 requirements 파일별로 다운로드
+        for req_file in "${requirements_files[@]}"; do
+            local service_name=$(basename $(dirname "$req_file"))
+            local req_basename=$(basename "$req_file")
 
+            log_info "  Downloading $service_name ($req_basename)..."
+
+            cd "$ver_dir"
+
+            # pip download는 중복 파일을 자동으로 스킵함
+            if $py_cmd -m pip download -r "$req_file" --dest . >/dev/null 2>&1; then
+                log_success "    ✓ Downloaded for $service_name"
+            else
+                log_warning "    ⚠ Some packages failed for $service_name"
+            fi
+        done
+
+        local wheel_count=$(find "$ver_dir" -name "*.whl" -o -name "*.tar.gz" | wc -l)
+        log_success "  Total wheels for Python ${py_ver}: $wheel_count"
         echo ""
     done
 
-    log_success "Downloaded wheels for all Python versions"
+    log_success "All wheels downloaded"
 }
 
 # 중복 제거 및 요약
