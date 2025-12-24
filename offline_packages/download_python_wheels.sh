@@ -64,17 +64,19 @@ setup_wheels_dir() {
     log_success "Wheels directories ready"
 }
 
-# 모든 requirements.txt 찾기
+# 모든 requirements.txt 찾기 (autowebserverrequirements.txt 등 포함)
 find_requirements_files() {
-    log_info "Finding all requirements.txt files in dashboard..."
+    log_info "Finding all requirements*.txt files in dashboard..."
 
     local requirements_files=()
+
+    # requirements.txt, autowebserverrequirements.txt 등 모든 패턴
     while IFS= read -r req_file; do
-        # Backup 디렉토리 제외
-        if [[ ! "$req_file" =~ \.backup ]]; then
+        # Backup 및 utf8 버전 제외
+        if [[ ! "$req_file" =~ \.backup ]] && [[ ! "$req_file" =~ _utf8 ]]; then
             requirements_files+=("$req_file")
         fi
-    done < <(find "${PROJECT_ROOT}/dashboard" -name "requirements.txt" -type f)
+    done < <(find "${PROJECT_ROOT}/dashboard" -name "*requirements*.txt" -type f | sort -u)
 
     echo "${requirements_files[@]}"
 }
