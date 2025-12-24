@@ -1172,13 +1172,24 @@ setup_jwt_authentication() {
                 continue
             fi
 
-            # Install PyJWT package
+            # Ensure PyJWT is in requirements.txt
+            if [[ -f "$service_dir/requirements.txt" ]]; then
+                if ! grep -q "PyJWT" "$service_dir/requirements.txt"; then
+                    log_info "Adding PyJWT to $service requirements.txt"
+                    echo "PyJWT>=2.8.0" >> "$service_dir/requirements.txt"
+                fi
+            fi
+
+            # Install packages from requirements.txt (includes PyJWT)
             cd "$service_dir"
-            source venv/bin/activate
-            pip install PyJWT --quiet || {
-                log_warning "Failed to install PyJWT in $service"
-            }
-            deactivate
+            if [[ -f "requirements.txt" ]]; then
+                log_info "Installing packages from requirements.txt for $service..."
+                source venv/bin/activate
+                pip install -r requirements.txt --quiet || {
+                    log_warning "Failed to install requirements in $service"
+                }
+                deactivate
+            fi
 
             # Add JWT configuration to .env
             # Use JWT_SECRET from YAML config, fallback to default
