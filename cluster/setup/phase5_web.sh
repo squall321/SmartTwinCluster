@@ -1828,6 +1828,19 @@ configure_nginx() {
             nginx -t
             return 1
         fi
+
+        # Fix "Too many open files" issue by increasing nginx file descriptor limits
+        log_info "Configuring Nginx systemd limits to prevent 'Too many open files' errors..."
+        mkdir -p /etc/systemd/system/nginx.service.d/
+        cat > /etc/systemd/system/nginx.service.d/limits.conf << 'EOF'
+[Service]
+LimitNOFILE=65536
+EOF
+        log_success "Nginx file descriptor limit set to 65536"
+
+        # Reload systemd to apply changes
+        systemctl daemon-reload
+        log_info "Systemd configuration reloaded"
     else
         log_info "[DRY-RUN] Would check/create nginx configuration"
     fi
