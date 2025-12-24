@@ -824,6 +824,7 @@ generate_frontend_env_files() {
             fi
 
             # Generate .env based on frontend type
+            # All frontends use Nginx proxy paths (no port numbers)
             case "$frontend" in
                 frontend_3010)
                     # Main dashboard frontend
@@ -836,10 +837,10 @@ generate_frontend_env_files() {
 # SSO: $SSO_ENABLED | Protocol: $PROTOCOL
 # ============================================================================
 
-# Vite Configuration
-VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5010
-VITE_WS_URL=${WS_PROTOCOL}://${PUBLIC_URL}:5011/ws
-VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
+# Vite Configuration - Using Nginx proxy paths
+VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}/api
+VITE_WS_URL=${WS_PROTOCOL}://${PUBLIC_URL}/ws
+VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}/auth
 VITE_ENVIRONMENT=production
 EOF
                     ;;
@@ -850,8 +851,9 @@ EOF
 # Auth Portal Frontend Environment
 # Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
 # SSO: $SSO_ENABLED | Protocol: $PROTOCOL
-VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
-VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5010
+# Using Nginx proxy paths
+VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}/auth
+VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}/api
 EOF
                     ;;
 
@@ -861,19 +863,23 @@ EOF
 # VNC Service Frontend Environment
 # Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
 # SSO: $SSO_ENABLED | Protocol: $PROTOCOL
-VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5010
-VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
+# Using Nginx proxy paths
+VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}/api
+VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}/auth
 EOF
                     ;;
 
                 kooCAEWeb_5173)
-                    # CAE web frontend
+                    # CAE web frontend - uses relative paths
                     cat > "$env_file" << EOF
 # CAE Web Frontend Environment
 # Generated from my_multihead_cluster.yaml on $(date '+%Y-%m-%d %H:%M:%S')
 # SSO: $SSO_ENABLED | Protocol: $PROTOCOL
-VITE_API_URL=${PROTOCOL}://${PUBLIC_URL}:5000
-VITE_AUTH_URL=${PROTOCOL}://${PUBLIC_URL}:4430
+# Using relative paths (proxied by Nginx)
+VITE_API_URL=/cae/api
+VITE_AUTOMATION_URL=/cae/automation
+VITE_AUTH_URL=/auth
+VITE_ENVIRONMENT=production
 EOF
                     ;;
             esac
