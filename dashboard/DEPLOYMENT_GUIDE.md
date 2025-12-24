@@ -201,10 +201,47 @@ dashboard/kooCAEWeb_5173/.env
 2. Frontend .env 파일이 올바른 URL을 가지고 있는지 확인:
    ```bash
    cat dashboard/frontend_3010/.env
-   # VITE_API_URL이 올바른 IP를 가리키는지 확인
+   # VITE_API_URL이 nginx 프록시 경로를 사용하는지 확인: http://IP/api (NOT http://IP:5010)
    ```
 3. Frontend를 재빌드했는지 확인 (`.env` 변경 후 반드시 재빌드 필요)
 4. 브라우저 캐시 삭제
+
+### ERR_CONNECTION_REFUSED 에러
+
+브라우저에서 접속 시 연결이 거부되는 경우:
+
+**점검 방법:**
+
+1. **서버에서 로컬 접속 테스트:**
+   ```bash
+   curl http://localhost/
+   ```
+   - 성공하면 nginx는 정상이고 방화벽 문제
+   - 실패하면 nginx 설정 또는 서비스 문제
+
+2. **서비스 상태 확인:**
+   ```bash
+   systemctl status nginx
+   systemctl status dashboard_backend
+   systemctl status auth_backend
+   ```
+
+3. **포트 리스닝 확인:**
+   ```bash
+   netstat -tln | grep -E ':80|:4430|:5010'
+   ```
+
+4. **방화벽 설정:**
+   ```bash
+   # Ubuntu/Debian
+   sudo ufw status
+   sudo ufw allow 80/tcp
+
+   # CentOS/RHEL
+   sudo firewall-cmd --list-all
+   sudo firewall-cmd --permanent --add-port=80/tcp
+   sudo firewall-cmd --reload
+   ```
 
 ### Nginx 설정 오류
 
@@ -215,7 +252,20 @@ sudo nginx -t
 # 설정 파일 확인
 sudo cat /etc/nginx/conf.d/hpc-portal.conf | grep server_name
 sudo cat /etc/nginx/conf.d/hpc-portal.conf | grep alias
+
+# location 블록 구조 확인 (closing brace가 제대로 있는지)
+grep -n "^}" /etc/nginx/conf.d/hpc-portal.conf
 ```
+
+**흔한 에러:**
+
+1. **"location" directive is not allowed here**
+   - 원인: location 블록이 server 블록 밖에 있음
+   - 해결: 템플릿이 완전한지 확인, post-setup 스크립트가 올바르게 삽입하는지 확인
+
+2. **Duplicate location blocks**
+   - 원인: 같은 location이 여러 번 정의됨
+   - 해결: phase5_web.sh 재실행 전 기존 config 삭제
 
 ## 주의사항
 

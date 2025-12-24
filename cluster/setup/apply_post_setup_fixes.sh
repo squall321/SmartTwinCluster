@@ -227,32 +227,40 @@ fix_nginx_vnc_proxy() {
     if grep -q "location.*vncproxy" "$NGINX_CONF"; then
         log_info "VNC proxy location already exists in nginx config"
     else
-        # Add VNC proxy location block before the closing }
-        sudo bash -c "cat >> $NGINX_CONF" << 'EOF'
+        # Add VNC proxy location block BEFORE the closing } of server block
+        # Find the last } in the file (server block closing brace)
+        local last_brace_line=$(grep -n "^}" "$NGINX_CONF" | tail -1 | cut -d: -f1)
 
-    # VNC noVNC WebSocket Proxy (Dynamic Ports 6901-6999)
-    # Proxies /vncproxy/<port>/ to localhost:<port>/
-    location ~ ^/vncproxy/([0-9]+)/(.*)$ {
-        proxy_pass http://127.0.0.1:$1/$2$is_args$args;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket specific settings
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-
-        # Allow larger message sizes for VNC
-        client_max_body_size 100M;
-    }
-}
-EOF
-        log_info "Added VNC proxy location to nginx config"
+        if [[ -n "$last_brace_line" ]]; then
+            # Insert VNC proxy location before the last }
+            sudo sed -i "${last_brace_line}i\\
+\\
+    # VNC noVNC WebSocket Proxy (Dynamic Ports 6901-6999)\\
+    # Proxies /vncproxy/<port>/ to localhost:<port>/\\
+    location ~ ^/vncproxy/([0-9]+)/(.*)$ {\\
+        proxy_pass http://127.0.0.1:\$1/\$2\$is_args\$args;\\
+        proxy_http_version 1.1;\\
+        proxy_set_header Upgrade \$http_upgrade;\\
+        proxy_set_header Connection \$connection_upgrade;\\
+        proxy_set_header Host \$host;\\
+        proxy_set_header X-Real-IP \$remote_addr;\\
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\\
+        proxy_set_header X-Forwarded-Proto \$scheme;\\
+\\
+        # WebSocket specific settings\\
+        proxy_read_timeout 3600s;\\
+        proxy_send_timeout 3600s;\\
+        proxy_buffering off;\\
+\\
+        # Allow larger message sizes for VNC\\
+        client_max_body_size 100M;\\
+    }\\
+" "$NGINX_CONF"
+            log_info "Added VNC proxy location to nginx config"
+        else
+            log_error "Could not find server block closing brace in $NGINX_CONF"
+            return 1
+        fi
     fi
 }
 
