@@ -18,6 +18,49 @@ const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '';
 const AUTH_PORTAL_URL = (import.meta as any).env?.VITE_AUTH_PORTAL_URL || 'http://localhost:4431';
 
 // ============================================================================
+// SSO Configuration
+// ============================================================================
+
+interface AuthConfig {
+  sso_enabled: boolean;
+  jwt_required: boolean;
+  timestamp: string;
+}
+
+let ssoConfig: AuthConfig | null = null;
+
+/**
+ * Check SSO configuration from backend
+ */
+export async function checkSsoConfig(): Promise<AuthConfig> {
+  if (ssoConfig) {
+    return ssoConfig;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/config`);
+    if (response.ok) {
+      ssoConfig = await response.json();
+      console.log('[Auth] SSO config loaded:', ssoConfig);
+      return ssoConfig;
+    }
+  } catch (error) {
+    console.warn('[Auth] Failed to load SSO config, defaulting to SSO enabled:', error);
+  }
+
+  // Default: SSO enabled
+  ssoConfig = { sso_enabled: true, jwt_required: true, timestamp: new Date().toISOString() };
+  return ssoConfig;
+}
+
+/**
+ * Check if SSO is enabled
+ */
+export function isSsoEnabled(): boolean {
+  return ssoConfig?.sso_enabled !== false;
+}
+
+// ============================================================================
 // JWT Token Management
 // ============================================================================
 
@@ -46,8 +89,14 @@ export function clearJwtToken(): void {
 
 /**
  * Check if user is authenticated
+ * In SSO false mode, always authenticated
  */
 export function isAuthenticated(): boolean {
+  // SSO false mode: always authenticated
+  if (ssoConfig && !ssoConfig.sso_enabled) {
+    return true;
+  }
+
   return getJwtToken() !== null;
 }
 
@@ -83,9 +132,28 @@ export interface UserInfo {
 }
 
 /**
+ * Create mock admin user for SSO false mode
+ */
+function createMockAdminUser(): UserInfo {
+  return {
+    username: 'admin',
+    email: 'admin@local',
+    groups: ['admin', 'users', 'GPU-Users', 'HPC-Admins'],
+    permissions: ['admin', 'user', 'read', 'write', 'execute', 'delete'],
+    exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 1 year from now
+  };
+}
+
+/**
  * Get user information from JWT token
+ * In SSO false mode, returns mock admin user
  */
 export function getUserInfo(): UserInfo | null {
+  // SSO false mode: return mock admin user
+  if (ssoConfig && !ssoConfig.sso_enabled) {
+    return createMockAdminUser();
+  }
+
   const token = getJwtToken();
   if (!token) {
     return null;
@@ -107,8 +175,14 @@ export function getUserInfo(): UserInfo | null {
 
 /**
  * Check if token is expired
+ * In SSO false mode, token never expires
  */
 export function isTokenExpired(): boolean {
+  // SSO false mode: token never expires
+  if (ssoConfig && !ssoConfig.sso_enabled) {
+    return false;
+  }
+
   const userInfo = getUserInfo();
   if (!userInfo || !userInfo.exp) {
     return true;

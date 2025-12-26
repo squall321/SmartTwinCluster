@@ -329,6 +329,20 @@ def health_check():
         'timestamp': datetime.now().isoformat()
     })
 
+@app.route('/api/auth/config', methods=['GET'])
+def get_auth_config():
+    """
+    인증 설정 조회 (SSO 활성화 여부)
+    프론트엔드가 SSO false 모드를 감지하는 데 사용
+    """
+    from middleware.jwt_middleware import SSO_ENABLED
+
+    return jsonify({
+        'sso_enabled': SSO_ENABLED,
+        'jwt_required': SSO_ENABLED,
+        'timestamp': datetime.now().isoformat()
+    })
+
 # ==================== 실시간 모니터링 API ====================
 
 @app.route('/api/metrics/realtime', methods=['GET'])

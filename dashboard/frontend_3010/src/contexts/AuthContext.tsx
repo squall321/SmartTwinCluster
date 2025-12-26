@@ -1,10 +1,11 @@
 /**
  * Authentication Context
  * JWT 토큰 기반 사용자 인증 및 권한 관리
+ * SSO false 모드에서는 자동으로 admin 권한 부여
  */
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { getUserInfo, isTokenExpired, clearJwtToken, UserInfo } from '../utils/api';
+import { getUserInfo, isTokenExpired, clearJwtToken, UserInfo, checkSsoConfig } from '../utils/api';
 
 interface AuthContextType {
   user: UserInfo | null;
@@ -19,6 +20,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [ssoConfigLoaded, setSsoConfigLoaded] = useState(false);
 
   const loadUser = () => {
     try {
@@ -47,7 +49,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    loadUser();
+    // Load SSO config first, then load user
+    const initAuth = async () => {
+      try {
+        const config = await checkSsoConfig();
+        setSsoConfigLoaded(true);
+
+        if (!config.sso_enabled) {
+          console.log('[Auth] SSO disabled - granting full admin permissions');
+        }
+
+        // Load user after SSO config is loaded
+        loadUser();
+      } catch (error) {
+        console.error('[Auth] Error loading SSO config:', error);
+        setSsoConfigLoaded(true);
+        loadUser();
+      }
+    };
+
+    initAuth();
 
     // Check token expiration every minute
     const interval = setInterval(() => {
