@@ -1194,17 +1194,38 @@ setup_jwt_authentication() {
 
                 if [[ -d "$wheels_subdir" ]]; then
                     log_info "  Using offline wheels from $wheels_subdir"
-                    pip install --no-index --find-links="$wheels_subdir" -r requirements.txt --quiet || {
+                    if ! pip install --no-index --find-links="$wheels_subdir" -r requirements.txt --quiet; then
                         log_warning "Failed to install from offline wheels, trying online..."
-                        pip install -r requirements.txt --quiet || {
-                            log_warning "Failed to install requirements in $service"
-                        }
-                    }
+                        if ! pip install -r requirements.txt --quiet; then
+                            log_error "CRITICAL: Failed to install requirements for $service"
+                            log_error "Requirements file: $service_dir/requirements.txt"
+                            log_error "Tried: offline wheels and PyPI"
+                            echo ""
+                            log_error "--- pip install output (last attempt) ---"
+                            pip install -r requirements.txt 2>&1 | tail -50 || true
+                            echo ""
+                            deactivate
+                            exit 1
+                        fi
+                    fi
                 else
                     log_info "  No offline wheels found, installing from PyPI..."
-                    pip install -r requirements.txt --quiet || {
-                        log_warning "Failed to install requirements in $service"
-                    }
+                    if ! pip install -r requirements.txt --quiet; then
+                        log_error "CRITICAL: Failed to install requirements for $service from PyPI"
+                        log_error "Requirements file: $service_dir/requirements.txt"
+                        log_error "This is an OFFLINE installation - PyPI is not accessible!"
+                        echo ""
+                        log_error "Expected offline wheels location: $wheels_subdir"
+                        log_error "Please ensure offline packages are prepared:"
+                        log_error "  1. Run download_python_wheels.sh on an online machine"
+                        log_error "  2. Copy offline_packages/ directory to the offline server"
+                        echo ""
+                        log_error "--- pip install output ---"
+                        pip install -r requirements.txt 2>&1 | tail -50 || true
+                        echo ""
+                        deactivate
+                        exit 1
+                    fi
                 fi
 
                 deactivate
@@ -1654,6 +1675,36 @@ create_systemd_services() {
     log_info "Creating systemd services for production mode..."
 
     local dashboard_dir="$PROJECT_ROOT/dashboard"
+
+    # Verify Python venv existence for all services
+    log_info "Verifying Python virtual environments..."
+    local python_services=(
+        "auth_portal_4430"
+        "backend_5010"
+        "websocket_5011"
+        "kooCAEWebServer_5000"
+        "kooCAEWebAutomationServer_5001"
+    )
+
+    local venv_missing=false
+    for service in "${python_services[@]}"; do
+        local service_dir="$dashboard_dir/$service"
+        if [[ ! -f "$service_dir/venv/bin/activate" ]]; then
+            log_error "CRITICAL: Python venv not found for $service"
+            log_error "Expected: $service_dir/venv/bin/activate"
+            venv_missing=true
+        else
+            log_success "✓ venv exists for $service"
+        fi
+    done
+
+    if [[ "$venv_missing" == true ]]; then
+        echo ""
+        log_error "Python virtual environments are missing!"
+        log_error "Please ensure all services have been set up correctly."
+        log_error "Check if previous installation steps completed successfully."
+        exit 1
+    fi
 
     # Python Backend Services (5)
     create_systemd_service_direct "auth_backend" "python" 4430 "$dashboard_dir/auth_portal_4430" "source venv/bin/activate && python3 app.py"
@@ -2241,6 +2292,53 @@ verify_services() {
                     log_warning "$service_name is starting (systemd running, HTTP not ready yet after ${max_retries} attempts)"
                 else
                     log_error "$service_name is not responding (port $port) after ${max_retries} attempts"
+
+                    # 실패한 서비스 진단 정보 수집
+                    echo ""
+                    log_error "=========================================="
+                    log_error "Service Failure Diagnostic Information"
+                    log_error "=========================================="
+                    log_error "Service: $service_name"
+                    log_error "Port: $port"
+                    log_error "Health check endpoint: http://localhost:$port$path"
+                    log_error "Last HTTP code: $http_code"
+                    echo ""
+
+                    # systemd 상태
+                    log_error "--- systemd service status ---"
+                    systemctl status "$service_name.service" --no-pager -l 2>&1 || true
+                    echo ""
+
+                    # 최근 로그 (stderr)
+                    log_error "--- Recent error logs (last 30 lines) ---"
+                    if [[ -f "/var/log/web_services/$service_name.error.log" ]]; then
+                        tail -n 30 "/var/log/web_services/$service_name.error.log" 2>&1 || true
+                    else
+                        log_warning "Error log file not found: /var/log/web_services/$service_name.error.log"
+                    fi
+                    echo ""
+
+                    # 최근 로그 (stdout)
+                    log_error "--- Recent output logs (last 30 lines) ---"
+                    if [[ -f "/var/log/web_services/$service_name.log" ]]; then
+                        tail -n 30 "/var/log/web_services/$service_name.log" 2>&1 || true
+                    else
+                        log_warning "Output log file not found: /var/log/web_services/$service_name.log"
+                    fi
+                    echo ""
+
+                    # 포트 사용 확인
+                    log_error "--- Port usage check ---"
+                    netstat -tlnp 2>/dev/null | grep ":$port " || echo "Port $port is not listening"
+                    echo ""
+
+                    # 프로세스 확인
+                    log_error "--- Related processes ---"
+                    ps aux | grep -E "$service_name|python.*$port|node.*$port" | grep -v grep || echo "No related processes found"
+                    echo ""
+
+                    log_error "=========================================="
+
                     all_healthy=false
                 fi
             fi
@@ -2279,10 +2377,39 @@ verify_services() {
         fi
     fi
 
+    echo ""
+    echo "=========================================="
+    echo "Health Check Summary"
+    echo "=========================================="
+
     if [[ "$all_healthy" == true ]]; then
-        log_success "All services are healthy (PRODUCTION MODE)"
+        log_success "✅ All services are healthy (PRODUCTION MODE)"
+        echo ""
+        return 0
     else
-        log_warning "Some services are not healthy - check logs at /var/log/web_services/"
+        echo ""
+        log_error "❌ CRITICAL: Some services failed health check"
+        log_error ""
+        log_error "Next steps to debug:"
+        log_error "  1. Check the diagnostic information printed above"
+        log_error "  2. Review service logs: ls -lh /var/log/web_services/"
+        log_error "  3. Check systemd status: systemctl status <service_name>"
+        log_error "  4. Verify environment variables (especially SSO_ENABLED)"
+        log_error "  5. Check if required dependencies are installed"
+        log_error ""
+        log_error "Common issues:"
+        log_error "  - Missing Python/Node dependencies"
+        log_error "  - Port conflicts (check: netstat -tlnp)"
+        log_error "  - Permission errors (check log file ownership)"
+        log_error "  - SSO_ENABLED environment variable not set correctly"
+        log_error "  - YAML configuration file (my_multihead_cluster.yaml) not found"
+        log_error ""
+        log_error "Installation cannot proceed with unhealthy services."
+        echo "=========================================="
+        echo ""
+
+        # 설치 중단
+        exit 1
     fi
 }
 
