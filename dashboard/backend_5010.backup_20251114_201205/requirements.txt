@@ -41,5 +41,5 @@ reportlab>=4.0.0       # PDF 생성
 Pillow>=10.0.0         # 이미지 처리 (차트를 PDF에 삽입)
 matplotlib>=3.7.0      # 차트 생성 (선택적)
 xlsxwriter>=3.1.0      # Excel 고급 기능 (선택적, openpyxl 대안)
-PyJWT==2.8.0
+PyJWT==2.10.1
 python-dotenv==1.0.0

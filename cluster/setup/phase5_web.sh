@@ -1187,7 +1187,9 @@ setup_jwt_authentication() {
                 source venv/bin/activate
 
                 # Check if offline wheels are available
-                local project_root="$(dirname "$(dirname "$(dirname "$service_dir")")")"
+                # service_dir = /path/to/project/dashboard/service_name
+                # project_root = /path/to/project (2 levels up)
+                local project_root="$(dirname "$(dirname "$service_dir")")"
                 local wheels_dir="${project_root}/offline_packages/python_wheels"
                 local py_version=$(python --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "3.12")
                 local wheels_subdir="${wheels_dir}/python${py_version}"
