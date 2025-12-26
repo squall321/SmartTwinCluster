@@ -23,16 +23,44 @@ from storage_utils_async import (
 
 # SSO 설정 로드
 def _load_sso_config():
-    """Load SSO configuration from YAML"""
+    """
+    Load SSO configuration
+
+    우선순위:
+    1. 환경변수 SSO_ENABLED (true/false)
+    2. YAML 파일 (my_multihead_cluster.yaml)
+    3. 기본값: True (SSO enabled)
+    """
+    # 1. 환경변수 확인 (최우선)
+    env_sso = os.getenv('SSO_ENABLED', '').lower()
+    if env_sso in ('true', 'false'):
+        enabled = env_sso == 'true'
+        print(f"[WebSocket SSO] Loaded from environment: SSO_ENABLED={enabled}")
+        return enabled
+
+    # 2. YAML 파일 확인
     try:
-        yaml_path = Path(__file__).parent.parent.parent / 'my_multihead_cluster.yaml'
+        # 환경변수로 YAML 경로 지정 가능
+        yaml_path_str = os.getenv('CLUSTER_CONFIG_PATH')
+        if yaml_path_str:
+            yaml_path = Path(yaml_path_str)
+        else:
+            yaml_path = Path(__file__).parent.parent.parent / 'my_multihead_cluster.yaml'
+
         if yaml_path.exists():
             with open(yaml_path) as f:
                 config = yaml.safe_load(f)
-                return config.get('sso', {}).get('enabled', True)
-    except Exception:
-        pass
-    return True  # Default to SSO enabled
+                enabled = config.get('sso', {}).get('enabled', True)
+                print(f"[WebSocket SSO] Loaded from YAML ({yaml_path}): sso.enabled={enabled}")
+                return enabled
+        else:
+            print(f"[WebSocket SSO] YAML file not found: {yaml_path}")
+    except Exception as e:
+        print(f"[WebSocket SSO] Error loading YAML: {e}")
+
+    # 3. 기본값
+    print("[WebSocket SSO] Using default: SSO enabled")
+    return True
 
 SSO_ENABLED = _load_sso_config()
 

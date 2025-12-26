@@ -1,0 +1,37 @@
+[Unit]
+Description=Backend 5010 API Server (SSO Disabled via Environment Variable)
+After=network.target
+
+[Service]
+Type=simple
+User=koopark
+WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010
+
+# ===================================================================
+# 환경변수로 SSO 비활성화 (YAML 파일 없어도 작동)
+# ===================================================================
+Environment="SSO_ENABLED=false"
+
+# 선택사항: YAML 파일 경로 지정 (다른 위치에 있는 경우)
+# Environment="CLUSTER_CONFIG_PATH=/opt/cluster/config/my_multihead_cluster.yaml"
+
+# JWT 시크릿 (production에서는 강력한 키로 변경)
+Environment="JWT_SECRET_KEY=your-production-secret-key-here"
+Environment="JWT_ALGORITHM=HS256"
+
+# Python 가상환경 경로
+Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/venv/bin:/usr/bin:/bin"
+
+# 실행 명령
+ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/venv/bin/python app.py
+
+# 재시작 정책
+Restart=always
+RestartSec=10
+
+# 로그 출력
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

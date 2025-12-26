@@ -48,12 +48,24 @@ limit_request_field_size = 8190
 # Development / Production
 reload = False  # Set to True for development
 
+# Environment variables (SSO 설정 등)
+raw_env = []
+
+# SSO 설정을 환경변수로 추가 가능 (선택사항)
+# SSO_ENABLED = os.getenv('SSO_ENABLED', 'true')  # YAML에서 로드됨
+# if SSO_ENABLED:
+#     raw_env.append(f'SSO_ENABLED={SSO_ENABLED}')
+
 # Hooks
 def on_starting(server):
     """Called just before the master process is initialized."""
     print(f"[Dashboard Backend] Starting Gunicorn server on {bind}")
     print(f"[Dashboard Backend] Workers: {workers}, Threads: {threads}")
     print(f"[Dashboard Backend] CPU cores: {cpu_count}")
+
+    # SSO 설정 표시
+    sso_enabled = os.getenv('SSO_ENABLED', 'from_yaml')
+    print(f"[Dashboard Backend] SSO_ENABLED: {sso_enabled}")
 
 def when_ready(server):
     """Called just after the server is started."""
