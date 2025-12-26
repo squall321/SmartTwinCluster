@@ -9,6 +9,8 @@ import asyncio
 import json
 import os
 import sys
+import yaml
+from pathlib import Path
 from datetime import datetime
 from typing import Set, Dict, Any
 from aiohttp import web
@@ -19,8 +21,24 @@ from storage_utils_async import (
     clear_cache
 )
 
-# JWT 인증 활성화 여부 (기본: 비활성화, 호환성 유지)
-JWT_AUTH_ENABLED = os.getenv('WEBSOCKET_JWT_AUTH', 'false').lower() == 'true'
+# SSO 설정 로드
+def _load_sso_config():
+    """Load SSO configuration from YAML"""
+    try:
+        yaml_path = Path(__file__).parent.parent.parent / 'my_multihead_cluster.yaml'
+        if yaml_path.exists():
+            with open(yaml_path) as f:
+                config = yaml.safe_load(f)
+                return config.get('sso', {}).get('enabled', True)
+    except Exception:
+        pass
+    return True  # Default to SSO enabled
+
+SSO_ENABLED = _load_sso_config()
+
+# JWT 인증 활성화 여부
+# SSO가 비활성화되면 JWT 인증도 자동으로 비활성화
+JWT_AUTH_ENABLED = SSO_ENABLED and (os.getenv('WEBSOCKET_JWT_AUTH', 'false').lower() == 'true')
 
 # JWT 검증 함수 import (선택적)
 if JWT_AUTH_ENABLED:
@@ -80,8 +98,18 @@ async def websocket_handler(request):
             print(f"⚠️  Client {client_id} rejected: {str(e)}")
             return ws
     else:
-        # JWT 비활성화: 익명 사용자
-        user_info = {'username': f'anonymous_{client_id}', 'groups': [], 'permissions': []}
+        # JWT 비활성화 (SSO false 모드): 전체 권한 사용자
+        if not SSO_ENABLED:
+            # SSO false 모드: 전체 권한 부여
+            user_info = {
+                'username': 'admin',
+                'email': 'admin@local',
+                'groups': ['admin', 'users', 'GPU-Users', 'HPC-Admins'],
+                'permissions': ['admin', 'user', 'read', 'write', 'execute', 'delete']
+            }
+        else:
+            # 호환성 유지: 익명 사용자
+            user_info = {'username': f'anonymous_{client_id}', 'groups': [], 'permissions': []}
 
     # 클라이언트 추가 (user_info 포함)
     connected_clients[ws] = user_info
