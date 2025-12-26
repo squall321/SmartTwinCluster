@@ -204,6 +204,22 @@ echo ""
 # ==================== 6. Dashboard Backend (Gunicorn) ====================
 echo -e "${BLUE}[6/9] Dashboard Backend + WebSocket 시작 중...${NC}"
 
+# YAML 파일에서 SSO 설정 읽기
+YAML_CONFIG="../my_multihead_cluster.yaml"
+if [ -f "$YAML_CONFIG" ]; then
+    SSO_ENABLED=$(python3 -c "
+import yaml
+with open('$YAML_CONFIG') as f:
+    config = yaml.safe_load(f)
+    sso_enabled = config.get('sso', {}).get('enabled', True)
+    print('true' if sso_enabled else 'false')
+" 2>/dev/null)
+    echo -e "${BLUE}  → SSO 설정: SSO_ENABLED=$SSO_ENABLED (from YAML)${NC}"
+else
+    SSO_ENABLED="true"
+    echo -e "${YELLOW}  → YAML 파일 없음, SSO 기본값: true${NC}"
+fi
+
 # 기존 Dashboard Backend 프로세스 정리
 echo -e "${YELLOW}  → 기존 Dashboard Backend 프로세스 정리 중...${NC}"
 
@@ -246,9 +262,9 @@ if [ -f "logs/gunicorn.log" ]; then
 fi
 
 if [ -d "venv" ]; then
-    MOCK_MODE=false nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 else
-    MOCK_MODE=false nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 fi
 DB_BACKEND_PID=$!
 echo $DB_BACKEND_PID > logs/gunicorn.pid
@@ -279,9 +295,9 @@ cd websocket_5011
 mkdir -p logs
 rm -f websocket.log
 if [ -d "venv" ]; then
-    nohup venv/bin/python websocket_server_enhanced.py > websocket.log 2>&1 &
+    SSO_ENABLED=$SSO_ENABLED nohup venv/bin/python websocket_server_enhanced.py > websocket.log 2>&1 &
 else
-    nohup python3 websocket_server_enhanced.py > websocket.log 2>&1 &
+    SSO_ENABLED=$SSO_ENABLED nohup python3 websocket_server_enhanced.py > websocket.log 2>&1 &
 fi
 WS_PID=$!
 echo $WS_PID > .websocket.pid
