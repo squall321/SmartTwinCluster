@@ -1854,13 +1854,37 @@ configure_nginx() {
             # Check if source template exists
             if [[ -f "$nginx_template" ]]; then
                 # Copy template and replace placeholders
-                sed -e "s|server_name [0-9.]\+ localhost|server_name $PUBLIC_URL localhost|g" \
-                    -e "s|alias /home/[^/]\+/claude/KooSlurmInstallAutomationRefactory/|alias $PROJECT_ROOT/|g" \
+                # server_name: keep '_' wildcard to accept all hostnames/IPs
+                # Path patterns: replace hardcoded paths with actual PROJECT_ROOT
+                sed -e "s|/home/koopark/claude/KooSlurmInstallAutomationRefactory/|$PROJECT_ROOT/|g" \
+                    -e "s|/home/[^/]\+/claude/[^/]\+/|$PROJECT_ROOT/|g" \
                     "$nginx_template" > "$nginx_conf"
-                log_success "Generated $nginx_conf with PUBLIC_URL=$PUBLIC_URL (HTTP only)"
+                log_success "Generated $nginx_conf (accepts all hostnames via server_name _)"
             else
-                log_error "Nginx template not found: $nginx_template"
-                return 1
+                log_warning "Nginx template not found: $nginx_template"
+                # Fallback: Try to use generate_nginx_conf.sh
+                local generate_script="$PROJECT_ROOT/dashboard/nginx/generate_nginx_conf.sh"
+                if [[ -f "$generate_script" ]]; then
+                    log_info "Attempting to generate nginx config using $generate_script..."
+                    cd "$PROJECT_ROOT/dashboard/nginx"
+                    bash generate_nginx_conf.sh
+                    cd "$PROJECT_ROOT"
+
+                    # Check if config was generated in sites-available and symlink it
+                    if [[ -f "/etc/nginx/sites-available/hpc-portal.conf" ]]; then
+                        ln -sf /etc/nginx/sites-available/hpc-portal.conf /etc/nginx/sites-enabled/hpc-portal.conf
+                        log_success "Created symlink for generated hpc-portal.conf"
+                    elif [[ -f "/etc/nginx/sites-available/hpc_web_services.conf" ]]; then
+                        ln -sf /etc/nginx/sites-available/hpc_web_services.conf /etc/nginx/sites-enabled/hpc_web_services.conf
+                        log_success "Created symlink for generated hpc_web_services.conf"
+                    else
+                        log_error "No nginx config was generated"
+                        return 1
+                    fi
+                else
+                    log_error "No nginx template or generate script found"
+                    return 1
+                fi
             fi
 
             # Disable auth-portal.conf if it exists (conflicts with hpc-portal.conf)
@@ -1907,6 +1931,41 @@ configure_nginx() {
             rm -f "/etc/nginx/sites-enabled/default"
         fi
 
+        # Ensure nginx.conf includes conf.d directory
+        if ! grep -q 'include /etc/nginx/conf.d/\*.conf' /etc/nginx/nginx.conf 2>/dev/null; then
+            log_warning "nginx.conf does not include conf.d/*.conf, adding it..."
+
+            # Backup nginx.conf
+            cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.backup_conf_d_$(date +%Y%m%d_%H%M%S)
+
+            # Add include directive before the closing brace of http block
+            if grep -q 'include /etc/nginx/sites-enabled/' /etc/nginx/nginx.conf; then
+                # Add after sites-enabled include
+                sed -i '/include \/etc\/nginx\/sites-enabled\//a\    include /etc/nginx/conf.d/*.conf;' /etc/nginx/nginx.conf
+            else
+                # Add before closing brace of http block (last } in file)
+                sed -i '/^}$/i\    include /etc/nginx/conf.d/*.conf;' /etc/nginx/nginx.conf
+            fi
+            log_success "Added 'include /etc/nginx/conf.d/*.conf;' to nginx.conf"
+        else
+            log_info "nginx.conf already includes conf.d/*.conf"
+        fi
+
+        # Also handle case where config might be in sites-available but not enabled
+        # Check if our config exists in sites-available but we're using conf.d
+        if [[ -f "/etc/nginx/sites-available/hpc-portal.conf" ]] && [[ ! -L "/etc/nginx/sites-enabled/hpc-portal.conf" ]]; then
+            log_info "Found hpc-portal.conf in sites-available, creating symlink to sites-enabled..."
+            ln -sf /etc/nginx/sites-available/hpc-portal.conf /etc/nginx/sites-enabled/hpc-portal.conf
+            log_success "Created symlink for hpc-portal.conf in sites-enabled"
+        fi
+
+        # Same for hpc_web_services.conf (legacy name)
+        if [[ -f "/etc/nginx/sites-available/hpc_web_services.conf" ]] && [[ ! -L "/etc/nginx/sites-enabled/hpc_web_services.conf" ]]; then
+            log_info "Found hpc_web_services.conf in sites-available, creating symlink to sites-enabled..."
+            ln -sf /etc/nginx/sites-available/hpc_web_services.conf /etc/nginx/sites-enabled/hpc_web_services.conf
+            log_success "Created symlink for hpc_web_services.conf in sites-enabled"
+        fi
+
         # Test Nginx configuration
         if nginx -t 2>&1; then
             log_success "Nginx configuration valid"
@@ -1928,6 +1987,16 @@ EOF
         # Reload systemd to apply changes
         systemctl daemon-reload
         log_info "Systemd configuration reloaded"
+
+        # Reload nginx to apply new configuration
+        log_info "Reloading nginx to apply configuration..."
+        if systemctl is-active --quiet nginx; then
+            systemctl reload nginx || systemctl restart nginx
+            log_success "Nginx reloaded with new configuration"
+        else
+            systemctl start nginx
+            log_success "Nginx started with new configuration"
+        fi
     else
         log_info "[DRY-RUN] Would check/create nginx configuration"
     fi
