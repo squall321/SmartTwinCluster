@@ -19,6 +19,16 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# 동적 IP 감지
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YAML_PATH="${SCRIPT_DIR}/../../my_multihead_cluster.yaml"
+if [ -f "$YAML_PATH" ]; then
+    EXTERNAL_IP=$(python3 -c "import yaml; config=yaml.safe_load(open('$YAML_PATH')); print(config.get('network', {}).get('vip', {}).get('address', '') or config.get('web', {}).get('public_url', 'localhost'))" 2>/dev/null)
+fi
+if [ -z "$EXTERNAL_IP" ] || [ "$EXTERNAL_IP" = "localhost" ]; then
+    EXTERNAL_IP=$(hostname -I | awk '{print $1}')
+fi
+
 # 로그 함수
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -308,10 +318,10 @@ cat << EOF
    lsof -i :8004
 
 2. API 테스트:
-   curl -k https://110.15.177.120/api/moonlight/images
+   curl -k https://${EXTERNAL_IP}/api/moonlight/images
 
 3. 세션 생성 테스트:
-   curl -X POST -k https://110.15.177.120/api/moonlight/sessions \\
+   curl -X POST -k https://${EXTERNAL_IP}/api/moonlight/sessions \\
         -H "Content-Type: application/json" \\
         -H "X-Username: testuser" \\
         -d '{"image_id": "desktop"}'

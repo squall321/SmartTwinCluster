@@ -17,6 +17,16 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# 동적 IP 감지
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YAML_PATH="${SCRIPT_DIR}/../../my_multihead_cluster.yaml"
+if [ -f "$YAML_PATH" ]; then
+    EXTERNAL_IP=$(python3 -c "import yaml; config=yaml.safe_load(open('$YAML_PATH')); print(config.get('network', {}).get('vip', {}).get('address', '') or config.get('web', {}).get('public_url', 'localhost'))" 2>/dev/null)
+fi
+if [ -z "$EXTERNAL_IP" ] || [ "$EXTERNAL_IP" = "localhost" ]; then
+    EXTERNAL_IP=$(hostname -I | awk '{print $1}')
+fi
+
 # 로그 함수
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -388,7 +398,7 @@ log_info "  - /api/moonlight/ → http://127.0.0.1:8004"
 log_info "  - /moonlight/signaling → http://127.0.0.1:8005 (향후)"
 log_info ""
 log_info "테스트 명령어:"
-log_info "  curl -k https://110.15.177.120/api/moonlight/images"
+log_info "  curl -k https://${EXTERNAL_IP}/api/moonlight/images"
 log_info ""
 log_info "다음 단계:"
 log_info "  - Frontend 개발 시작"

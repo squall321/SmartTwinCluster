@@ -21,6 +21,15 @@ NC='\033[0m' # No Color
 OUTPUT_DIR="/opt/apptainers"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# 동적 IP 감지
+YAML_PATH="${SCRIPT_DIR}/../../my_multihead_cluster.yaml"
+if [ -f "$YAML_PATH" ]; then
+    EXTERNAL_IP=$(python3 -c "import yaml; config=yaml.safe_load(open('$YAML_PATH')); print(config.get('network', {}).get('vip', {}).get('address', '') or config.get('web', {}).get('public_url', 'localhost'))" 2>/dev/null)
+fi
+if [ -z "$EXTERNAL_IP" ] || [ "$EXTERNAL_IP" = "localhost" ]; then
+    EXTERNAL_IP=$(hostname -I | awk '{print $1}')
+fi
+
 # Image definitions
 declare -A IMAGES=(
     ["sunshine_desktop.def"]="sunshine_desktop.sif:XFCE4 Desktop:~600MB"
@@ -251,7 +260,7 @@ echo "   sudo vi /etc/nginx/conf.d/auth-portal.conf"
 echo "   # Add Moonlight routes from nginx_config_addition.conf"
 echo ""
 echo "4. Test session creation:"
-echo "   curl -X POST -k https://110.15.177.120/api/moonlight/sessions \\"
+echo "   curl -X POST -k https://${EXTERNAL_IP}/api/moonlight/sessions \\"
 echo "        -H 'Content-Type: application/json' \\"
 echo "        -H 'X-Username: testuser' \\"
 echo "        -d '{\"image_id\": \"desktop\"}'"

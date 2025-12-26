@@ -89,8 +89,49 @@ NODE_IP_MAP = {
     'node002': '192.168.122.103',
 }
 
-# 외부 접근용 IP 주소
-EXTERNAL_IP = os.getenv('EXTERNAL_IP', '110.15.177.120')
+# 외부 접근용 IP 주소 - 동적으로 감지
+def get_external_ip():
+    """Get external IP from environment, YAML config, or system detection."""
+    # 1. 환경변수에서 먼저 확인
+    if os.getenv('EXTERNAL_IP'):
+        return os.getenv('EXTERNAL_IP')
+
+    # 2. YAML 설정 파일에서 확인
+    yaml_paths = [
+        os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
+        '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
+    ]
+    for yaml_path in yaml_paths:
+        if os.path.exists(yaml_path):
+            try:
+                import yaml
+                with open(yaml_path) as f:
+                    config = yaml.safe_load(f)
+                    # controllers 섹션에서 현재 호스트의 public_ip 가져오기
+                    controllers = config.get('controllers', [])
+                    hostname = subprocess.getoutput('hostname').strip()
+                    for ctrl in controllers:
+                        if ctrl.get('hostname') == hostname and ctrl.get('public_ip'):
+                            return ctrl['public_ip']
+                    # network 섹션에서 public_ip 가져오기
+                    public_ip = config.get('network', {}).get('public_ip')
+                    if public_ip:
+                        return public_ip
+            except Exception:
+                pass
+
+    # 3. 시스템에서 기본 네트워크 인터페이스 IP 감지
+    try:
+        result = subprocess.getoutput("hostname -I | awk '{print $1}'").strip()
+        if result and result != '127.0.0.1':
+            return result
+    except Exception:
+        pass
+
+    # 4. Fallback - localhost
+    return 'localhost'
+
+EXTERNAL_IP = get_external_ip()
 
 # SSH 터널 관리 (PID 저장)
 SSH_TUNNEL_PIDS = {}  # {session_id: pid}

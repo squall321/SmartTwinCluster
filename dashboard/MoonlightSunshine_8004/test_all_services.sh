@@ -15,6 +15,16 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# 동적 IP 감지
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YAML_PATH="${SCRIPT_DIR}/../../my_multihead_cluster.yaml"
+if [ -f "$YAML_PATH" ]; then
+    EXTERNAL_IP=$(python3 -c "import yaml; config=yaml.safe_load(open('$YAML_PATH')); print(config.get('network', {}).get('vip', {}).get('address', '') or config.get('web', {}).get('public_url', 'localhost'))" 2>/dev/null)
+fi
+if [ -z "$EXTERNAL_IP" ] || [ "$EXTERNAL_IP" = "localhost" ]; then
+    EXTERNAL_IP=$(hostname -I | awk '{print $1}')
+fi
+
 # Test counter
 PASS=0
 FAIL=0
@@ -83,21 +93,21 @@ fi
 print_header "Test 3: 기존 API 엔드포인트 테스트"
 
 # Dashboard Backend Health
-if curl -s -f -k https://110.15.177.120/api/health > /dev/null; then
+if curl -s -f -k https://${EXTERNAL_IP}/api/health > /dev/null; then
     test_pass "Dashboard Backend API (/api/health) is accessible"
 else
     test_warn "Dashboard Backend API (/api/health) is NOT accessible"
 fi
 
 # VNC API
-if curl -s -f -k https://110.15.177.120/api/vnc/images > /dev/null; then
+if curl -s -f -k https://${EXTERNAL_IP}/api/vnc/images > /dev/null; then
     test_pass "VNC API (/api/vnc/images) is accessible"
 else
     test_warn "VNC API (/api/vnc/images) is NOT accessible"
 fi
 
 # CAE API
-if curl -s -f -k https://110.15.177.120/cae/api/standard-scenarios/health > /dev/null; then
+if curl -s -f -k https://${EXTERNAL_IP}/cae/api/standard-scenarios/health > /dev/null; then
     test_pass "CAE API (/cae/api/standard-scenarios/health) is accessible"
 else
     test_warn "CAE API is NOT accessible"
