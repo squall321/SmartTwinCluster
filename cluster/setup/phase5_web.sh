@@ -1686,8 +1686,12 @@ create_systemd_service_direct() {
 
     if [[ "$DRY_RUN" == false ]]; then
         local environment=""
+
+        # SSO 설정 가져오기 (환경변수 또는 기본값)
+        local sso_enabled="${SSO_ENABLED:-true}"
+
         if [[ "$service_type" == "python" ]]; then
-            environment="Environment=\"MOCK_MODE=false\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:/usr/local/bin:/usr/bin:/bin\"\nEnvironment=\"SLURM_BIN_DIR=/usr/local/slurm/bin\"\nEnvironmentFile=-$work_dir/.env"
+            environment="Environment=\"MOCK_MODE=false\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"SSO_ENABLED=$sso_enabled\"\nEnvironment=\"PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:/usr/local/bin:/usr/bin:/bin\"\nEnvironment=\"SLURM_BIN_DIR=/usr/local/slurm/bin\"\nEnvironmentFile=-$work_dir/.env"
         elif [[ "$service_type" == "node" ]]; then
             environment="Environment=\"NODE_ENV=development\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:/usr/local/bin:/usr/bin:/bin\"\nEnvironmentFile=-$work_dir/.env"
         else
@@ -2203,9 +2207,9 @@ verify_services() {
                     log_success "$service_name is healthy (dev mode)"
                 fi
             else
-                # For backend services - retry up to 10 times with 2s delay
-                local max_retries=10
-                local retry_delay=2
+                # For backend services - retry up to 15 times with 3s delay (45초 총 대기)
+                local max_retries=15
+                local retry_delay=3
 
                 for ((retry=1; retry<=max_retries; retry++)); do
                     http_code=$(curl -s -o /dev/null -w "%{http_code}" -m 3 "http://localhost:$port$path" 2>&1 || true)
@@ -2221,6 +2225,10 @@ verify_services() {
 
                     # If not last retry, wait and try again
                     if [[ $retry -lt $max_retries ]]; then
+                        # 진행상황 표시 (5번째 시도마다)
+                        if [[ $((retry % 5)) -eq 0 ]]; then
+                            log_info "Still waiting for $service_name... (attempt $retry/$max_retries, HTTP: $http_code)"
+                        fi
                         sleep $retry_delay
                     fi
                 done
