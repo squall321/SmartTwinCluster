@@ -279,6 +279,12 @@ try:
                 print(f"export {key}='{safe_value}'")
         print("# Environment variables loaded from YAML", file=sys.stderr)
 
+    # SSO 설정 환경변수 추가 (Dashboard 서비스용)
+    sso_config = config.get('sso', {})
+    sso_enabled = sso_config.get('enabled', True)
+    print(f"export SSO_ENABLED={'true' if sso_enabled else 'false'}")
+    print(f"# SSO_ENABLED={sso_enabled} (from YAML sso.enabled)", file=sys.stderr)
+
 except FileNotFoundError:
     print(f"# Error: {config_file} not found", file=sys.stderr)
     sys.exit(1)
