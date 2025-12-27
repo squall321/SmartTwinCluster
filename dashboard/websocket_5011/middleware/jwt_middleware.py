@@ -5,12 +5,65 @@ Validates JWT tokens from Auth Portal for API access
 from functools import wraps
 from flask import request, jsonify, g
 import jwt
+import yaml
 import os
+from pathlib import Path
 from typing import Dict, Optional
 
 # JWT 설정 (Auth Portal과 동일한 SECRET_KEY 사용)
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'dev-jwt-secret-please-change')
 JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
+
+# SSO 설정 로드
+def _load_sso_config():
+    """
+    Load SSO configuration
+
+    우선순위:
+    1. 환경변수 SSO_ENABLED (true/false)
+    2. YAML 파일 (my_multihead_cluster.yaml)
+    3. 기본값: True (SSO enabled)
+    """
+    # 1. 환경변수 확인 (최우선)
+    env_sso = os.getenv('SSO_ENABLED', '').lower()
+    if env_sso in ('true', 'false'):
+        enabled = env_sso == 'true'
+        print(f"[WebSocket SSO Config] Loaded from environment variable: SSO_ENABLED={enabled}")
+        return enabled
+
+    # 2. YAML 파일 확인
+    try:
+        # 환경변수로 YAML 경로 지정 가능
+        yaml_path_str = os.getenv('CLUSTER_CONFIG_PATH')
+        if yaml_path_str:
+            yaml_path = Path(yaml_path_str)
+        else:
+            yaml_path = Path(__file__).parent.parent.parent.parent / 'my_multihead_cluster.yaml'
+
+        if yaml_path.exists():
+            with open(yaml_path) as f:
+                config = yaml.safe_load(f)
+                enabled = config.get('sso', {}).get('enabled', True)
+                print(f"[WebSocket SSO Config] Loaded from YAML ({yaml_path}): sso.enabled={enabled}")
+                return enabled
+        else:
+            print(f"[WebSocket SSO Config] YAML file not found: {yaml_path}")
+    except Exception as e:
+        print(f"[WebSocket SSO Config] Error loading YAML: {e}")
+
+    # 3. 기본값
+    print("[WebSocket SSO Config] Using default: SSO enabled")
+    return True  # Default to SSO enabled
+
+SSO_ENABLED = _load_sso_config()
+
+# SSO false 모드에서 사용할 전체 권한 사용자
+FULL_ACCESS_USER = {
+    'username': 'admin',
+    'email': 'admin@local',
+    'groups': ['admin', 'users', 'GPU-Users', 'HPC-Admins'],
+    'permissions': ['admin', 'user', 'read', 'write', 'execute', 'delete']
+}
 
 
 def verify_jwt_token(token: str) -> Optional[Dict]:
@@ -54,9 +107,17 @@ def jwt_required(f):
     """
     JWT 토큰 검증 데코레이터
     Authorization 헤더에서 Bearer 토큰을 추출하고 검증
+
+    SSO가 비활성화된 경우, 모든 요청에 전체 권한 부여
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # SSO가 비활성화된 경우, 전체 권한 사용자로 자동 로그인
+        if not SSO_ENABLED:
+            g.user = FULL_ACCESS_USER.copy()
+            return f(*args, **kwargs)
+
+        # SSO 활성화 모드: JWT 검증 진행
         # Authorization 헤더 확인
         auth_header = request.headers.get('Authorization')
 
@@ -196,6 +257,8 @@ def optional_jwt(f):
     토큰이 있으면 검증하지만, 없어도 요청을 허용
     토큰이 있으면 g.user에 사용자 정보 저장
 
+    SSO가 비활성화된 경우, 항상 전체 권한 사용자로 설정
+
     Usage:
         @app.route('/api/public/data')
         @optional_jwt
@@ -209,6 +272,12 @@ def optional_jwt(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # SSO가 비활성화된 경우, 전체 권한 사용자로 자동 설정
+        if not SSO_ENABLED:
+            g.user = FULL_ACCESS_USER.copy()
+            return f(*args, **kwargs)
+
+        # SSO 활성화 모드: 선택적 JWT 검증
         auth_header = request.headers.get('Authorization')
 
         if auth_header and auth_header.startswith('Bearer '):
