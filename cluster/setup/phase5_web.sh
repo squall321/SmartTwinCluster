@@ -1975,6 +1975,31 @@ configure_nginx() {
             return 1
         fi
 
+        # Set proper permissions for nginx to access static files
+        log_info "Setting permissions for nginx to access frontend files..."
+
+        # Ensure project directory is accessible (execute permission on directories)
+        local project_dir="$PROJECT_ROOT"
+        local current_dir="$project_dir"
+
+        # Set execute permission on all parent directories up to /home
+        while [[ "$current_dir" != "/" && "$current_dir" != "/home" ]]; do
+            if [[ -d "$current_dir" ]]; then
+                chmod o+x "$current_dir" 2>/dev/null || true
+            fi
+            current_dir=$(dirname "$current_dir")
+        done
+        chmod o+x /home 2>/dev/null || true
+
+        # Set read permission on dashboard directory and subdirectories
+        if [[ -d "$PROJECT_ROOT/dashboard" ]]; then
+            # Make all directories accessible
+            find "$PROJECT_ROOT/dashboard" -type d -exec chmod o+rx {} \; 2>/dev/null || true
+            # Make all files readable
+            find "$PROJECT_ROOT/dashboard" -type f -exec chmod o+r {} \; 2>/dev/null || true
+            log_success "Frontend directories are now accessible by nginx"
+        fi
+
         # Fix "Too many open files" issue by increasing nginx file descriptor limits
         log_info "Configuring Nginx systemd limits to prevent 'Too many open files' errors..."
         mkdir -p /etc/systemd/system/nginx.service.d/
