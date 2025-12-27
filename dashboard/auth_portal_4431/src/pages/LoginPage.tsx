@@ -1,10 +1,71 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import '../styles/LoginPage.css';
 
 const LoginPage: React.FC = () => {
   const [showTestLogin, setShowTestLogin] = useState(false);
   const [username, setUsername] = useState('koopark');
   const [group, setGroup] = useState('HPC-Admins');
+  const [ssoEnabled, setSsoEnabled] = useState<boolean | null>(null);
+  const [autoLoginInProgress, setAutoLoginInProgress] = useState(false);
+
+  // Check SSO configuration and auto-login if SSO is disabled
+  useEffect(() => {
+    const checkSsoAndAutoLogin = async () => {
+      // Already have token? Go to services
+      const existingToken = localStorage.getItem('jwt_token');
+      if (existingToken) {
+        window.location.href = '/auth_portal/services';
+        return;
+      }
+
+      try {
+        // Check SSO configuration from backend
+        const response = await fetch('/auth/info');
+        const data = await response.json();
+
+        setSsoEnabled(data.sso_enabled);
+
+        // If SSO is disabled, automatically perform test login
+        if (!data.sso_enabled && !autoLoginInProgress) {
+          setAutoLoginInProgress(true);
+          console.log('[Auth] SSO disabled - performing automatic admin login');
+
+          // Perform auto login with admin credentials
+          const loginResponse = await fetch('/auth/test/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: 'admin',
+              email: 'admin@hpc.local',
+              groups: ['HPC-Admins', 'GPU-Users', 'admin']
+            })
+          });
+
+          const loginData = await loginResponse.json();
+          if (loginData.success && loginData.token) {
+            // Store token and user info
+            localStorage.setItem('jwt_token', loginData.token);
+            localStorage.setItem('user_info', JSON.stringify({
+              sub: loginData.user.username,
+              email: loginData.user.email,
+              groups: loginData.user.groups,
+              permissions: ['admin', 'user', 'read', 'write', 'execute', 'delete']
+            }));
+            // Redirect to service menu
+            window.location.href = '/auth_portal/services';
+          } else {
+            console.error('[Auth] Auto login failed:', loginData);
+            setAutoLoginInProgress(false);
+          }
+        }
+      } catch (error) {
+        console.error('[Auth] Error checking SSO config:', error);
+        setSsoEnabled(true); // Default to SSO enabled on error
+      }
+    };
+
+    checkSsoAndAutoLogin();
+  }, [autoLoginInProgress]);
 
   const handleLogin = () => {
     // Redirect to SAML SSO login
@@ -28,7 +89,7 @@ const LoginPage: React.FC = () => {
         // Store token
         localStorage.setItem('jwt_token', data.token);
         // Redirect to service menu
-        window.location.href = '/services';
+        window.location.href = '/auth_portal/services';
       } else {
         alert('Test login failed');
       }
@@ -37,6 +98,24 @@ const LoginPage: React.FC = () => {
       alert('Test login error');
     }
   };
+
+  // Show loading screen during auto-login for SSO disabled mode
+  if (autoLoginInProgress || ssoEnabled === null) {
+    return (
+      <div className="login-container">
+        <div className="login-card">
+          <div className="login-header">
+            <h1>HPC Cluster Portal</h1>
+            <p className="subtitle">Initializing...</p>
+          </div>
+          <div className="login-body" style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '20px' }}>⏳</div>
+            <p>Preparing your session...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-container">

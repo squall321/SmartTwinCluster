@@ -7,7 +7,7 @@ import './App.css';
 
 function App() {
   return (
-    <Router>
+    <Router basename="/auth_portal">
       <Routes>
         <Route path="/" element={<LoginPage />} />
         <Route path="/auth/callback" element={<CallbackPage />} />

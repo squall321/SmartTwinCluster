@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    base: '/auth_portal/',
     server: {
       port: 4431,
       host: '0.0.0.0',

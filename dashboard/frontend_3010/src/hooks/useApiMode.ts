@@ -15,7 +15,7 @@ export const useApiMode = () => {
   useEffect(() => {
     const checkMode = async () => {
       try {
-        const response = await fetch('/dashboardapi/health');
+        const response = await fetch('/api/health');
         const data: HealthCheckResponse = await response.json();
         setMode(data.mode as ApiMode);
       } catch (error) {
