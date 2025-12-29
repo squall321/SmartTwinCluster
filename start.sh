@@ -139,7 +139,9 @@ fi
 # ============================================================================
 setup_logs_directories() {
     local dashboard_dir="$PROJECT_ROOT/dashboard"
-    local current_user=$(whoami)
+    # sudo로 실행 시 실제 사용자 찾기 (SUDO_USER 또는 whoami)
+    local current_user="${SUDO_USER:-$(whoami)}"
+    local current_group=$(id -gn "$current_user" 2>/dev/null || echo "$current_user")
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📁 logs 디렉토리 준비..."
@@ -185,7 +187,7 @@ setup_logs_directories() {
             # 디렉토리 권한 확인 및 수정
             if [[ ! -w "$logs_dir" ]]; then
                 sudo chmod 755 "$logs_dir" 2>/dev/null || chmod 755 "$logs_dir" 2>/dev/null || true
-                sudo chown "$current_user:$current_user" "$logs_dir" 2>/dev/null || true
+                sudo chown "$current_user:$current_group" "$logs_dir" 2>/dev/null || true
                 echo "  🔧 $service/logs 디렉토리 권한 수정됨"
             fi
         fi
