@@ -45,17 +45,13 @@ setup_python_venvs() {
         fi
 
         # venv가 없거나 gunicorn이 없거나 --force-install 옵션이 있으면 설치 필요
-        local force_install=false
-        for arg in "$@"; do
-            if [[ "$arg" == "--force-install" ]]; then
-                force_install=true
-                break
-            fi
-        done
-
-        if [[ ! -d "$service_dir/venv" ]] || [[ ! -f "$service_dir/venv/bin/gunicorn" ]] || [[ "$force_install" == true ]]; then
+        if [[ ! -d "$service_dir/venv" ]] || [[ ! -f "$service_dir/venv/bin/gunicorn" ]] || [[ "$FORCE_INSTALL" == true ]]; then
             need_install=true
-            echo "  ⚠️  $service: venv 또는 gunicorn 없음 → 설치 필요"
+            if [[ "$FORCE_INSTALL" == true ]]; then
+                echo "  🔄 $service: 강제 재설치 (--force-install)"
+            else
+                echo "  ⚠️  $service: venv 또는 gunicorn 없음 → 설치 필요"
+            fi
 
             # Python 명령어 결정
             local python_cmd="python3"
@@ -122,12 +118,15 @@ setup_python_venvs() {
     echo ""
 }
 
-# venv 체크 실행 (--skip-venv 옵션으로 건너뛸 수 있음)
+# venv 관련 옵션 파싱
 SKIP_VENV=false
+FORCE_INSTALL=false
 for arg in "$@"; do
     if [[ "$arg" == "--skip-venv" ]]; then
         SKIP_VENV=true
-        break
+    fi
+    if [[ "$arg" == "--force-install" ]]; then
+        FORCE_INSTALL=true
     fi
 done
 
