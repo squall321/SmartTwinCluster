@@ -70,6 +70,9 @@ RESET_DB=false
 RESET_REDIS=false
 RESET_GLUSTER=false
 
+# Phase 시작 옵션 (start_multihead.sh로 전달됨)
+START_PHASE=""
+
 # 로그 파일
 LOG_FILE="/tmp/setup_cluster_full_multihead_offline_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOG_FILE")
@@ -92,8 +95,9 @@ usage() {
     --install-apt           오프라인 APT 패키지 설치 (기본: 설치 안함)
     --use-apt-mirror        로컬 APT 미러 사용
     --dry-run               실제 실행 없이 계획만 표시
-    --skip-base             기본 시스템 설정 건너뛰기
+    --skip-base             기본 시스템 설정 건너뛰기 (Slurm/Munge 설치 스킵)
     --skip-multihead        멀티헤드 서비스 설정 건너뛰기
+    --start-phase N         특정 Phase부터 시작 (0-9, 예: --start-phase 6 = 웹 서비스부터)
     --auto-confirm          사용자 확인 없이 자동으로 진행
     --help                  이 도움말 표시
 
@@ -122,6 +126,13 @@ usage() {
 
     # 계획만 확인 (실제 실행 안함)
     sudo ./setup_cluster_full_multihead_offline.sh --dry-run
+
+    # 웹 서비스(Phase 6)만 실행 (Slurm 등 기본 설정 스킵)
+    sudo ./setup_cluster_full_multihead_offline.sh --start-phase 6
+
+Phase 번호 참조:
+    0=infrastructure, 1=storage, 2=database, 3=redis, 4=slurm
+    5=keepalived, 6=web, 7=backup, 8=containers, 9=software
 
 실행 순서:
     1. Controller 1에서 실행 (bootstrap)
@@ -197,6 +208,11 @@ while [[ $# -gt 0 ]]; do
         --reset-gluster)
             RESET_GLUSTER=true
             shift
+            ;;
+        --start-phase)
+            START_PHASE="$2"
+            SKIP_BASE_SETUP=true  # Phase 지정 시 기본 설정도 스킵
+            shift 2
             ;;
         --help)
             usage
@@ -705,6 +721,12 @@ if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
         if [ "$RESET_GLUSTER" = true ]; then
             MULTIHEAD_OPTS="$MULTIHEAD_OPTS --reset-gluster"
             log_warning "⚠️  GlusterFS 볼륨 완전 초기화 옵션 활성화"
+        fi
+
+        # Phase 시작 옵션 전달
+        if [ -n "$START_PHASE" ]; then
+            MULTIHEAD_OPTS="$MULTIHEAD_OPTS --phase $START_PHASE"
+            log_info "📌 Phase $START_PHASE 부터 시작합니다"
         fi
 
         echo "🚀 실행 명령: bash $MULTIHEAD_SCRIPT $MULTIHEAD_OPTS"
