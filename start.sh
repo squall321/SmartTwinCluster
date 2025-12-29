@@ -10,6 +10,115 @@
 ################################################################################
 
 cd "$(dirname "$0")"
+PROJECT_ROOT="$(pwd)"
+
+# ============================================================================
+# Python venv 체크 및 설치 (오프라인 환경 지원)
+# ============================================================================
+setup_python_venvs() {
+    local dashboard_dir="$PROJECT_ROOT/dashboard"
+    local wheels_base="$PROJECT_ROOT/offline_packages/python_wheels"
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🐍 Python venv 체크 및 설치..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # Service to Python version mapping
+    local service_python_map=(
+        "auth_portal_4430:3.10"
+        "backend_5010:3.12"
+        "websocket_5011:3.10"
+        "kooCAEWebServer_5000:3.13"
+        "kooCAEWebAutomationServer_5001:3.13"
+        "MoonlightSunshine_8004/backend_moonlight_8004:3.10"
+    )
+
+    local need_install=false
+
+    for mapping in "${service_python_map[@]}"; do
+        local service="${mapping%%:*}"
+        local py_version="${mapping##*:}"
+        local service_dir="$dashboard_dir/$service"
+
+        if [[ ! -d "$service_dir" ]]; then
+            continue
+        fi
+
+        # venv가 없거나 gunicorn이 없으면 설치 필요
+        if [[ ! -d "$service_dir/venv" ]] || [[ ! -f "$service_dir/venv/bin/gunicorn" ]]; then
+            need_install=true
+            echo "  ⚠️  $service: venv 또는 gunicorn 없음 → 설치 필요"
+
+            # Python 명령어 결정
+            local python_cmd="python3"
+            if command -v "python${py_version}" &>/dev/null; then
+                python_cmd="python${py_version}"
+            elif command -v "python3.${py_version#3.}" &>/dev/null; then
+                python_cmd="python3.${py_version#3.}"
+            fi
+
+            # venv 생성
+            if [[ ! -d "$service_dir/venv" ]]; then
+                echo "     → venv 생성 중 ($python_cmd)..."
+                if ! $python_cmd -m venv "$service_dir/venv" 2>/dev/null; then
+                    echo "     ❌ venv 생성 실패: $service"
+                    continue
+                fi
+            fi
+
+            # requirements.txt에서 패키지 설치
+            if [[ -f "$service_dir/requirements.txt" ]]; then
+                local actual_version=$("$service_dir/venv/bin/python" --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "$py_version")
+                local wheels_dir="${wheels_base}/python${actual_version}"
+
+                echo "     → 패키지 설치 중 (Python ${actual_version})..."
+
+                if [[ -d "$wheels_dir" ]]; then
+                    # 오프라인 설치 시도
+                    if "$service_dir/venv/bin/pip" install --no-index --find-links="$wheels_dir" -r "$service_dir/requirements.txt" --quiet 2>/dev/null; then
+                        echo "     ✅ 오프라인 설치 완료"
+                    else
+                        # 온라인 fallback
+                        echo "     ⚠️  오프라인 실패, 온라인 시도..."
+                        if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" --quiet 2>/dev/null; then
+                            echo "     ✅ 온라인 설치 완료"
+                        else
+                            echo "     ❌ 설치 실패: $service"
+                        fi
+                    fi
+                else
+                    # wheels 디렉토리 없으면 온라인 설치
+                    echo "     ⚠️  오프라인 wheels 없음, 온라인 시도..."
+                    if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" --quiet 2>/dev/null; then
+                        echo "     ✅ 온라인 설치 완료"
+                    else
+                        echo "     ❌ 설치 실패: $service"
+                    fi
+                fi
+            fi
+        else
+            echo "  ✅ $service: venv 준비됨"
+        fi
+    done
+
+    if [[ "$need_install" == false ]]; then
+        echo "  ✅ 모든 서비스 venv 준비 완료"
+    fi
+    echo ""
+}
+
+# venv 체크 실행 (--skip-venv 옵션으로 건너뛸 수 있음)
+SKIP_VENV=false
+for arg in "$@"; do
+    if [[ "$arg" == "--skip-venv" ]]; then
+        SKIP_VENV=true
+        break
+    fi
+done
+
+if [[ "$SKIP_VENV" == false ]]; then
+    setup_python_venvs
+fi
 
 # 도움말 출력
 show_help() {
@@ -21,6 +130,7 @@ show_help() {
     echo "  ./start.sh                 Production Mode (기본, 빌드 건너뛰기)"
     echo "  ./start.sh --rebuild       Production Mode (프론트엔드 재빌드)"
     echo "  ./start.sh --skip-build    Production Mode (명시적으로 빌드 건너뛰기)"
+    echo "  ./start.sh --skip-venv     venv 체크/설치 건너뛰기"
     echo "  ./start.sh --dev           Development Mode (Flask dev server)"
     echo "  ./start.sh --mock          Mock Mode (테스트용)"
     echo "  ./start.sh --help          이 도움말 표시"
