@@ -8,7 +8,7 @@ import subprocess
 from typing import List, Optional
 
 # Slurm 설치 경로 (환경변수로 override 가능)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
 
 # 명령어 경로
 SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')

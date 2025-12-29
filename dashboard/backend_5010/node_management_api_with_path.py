@@ -23,8 +23,9 @@ node_bp = Blueprint('node_management', __name__, url_prefix='/api')
 MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
 
 # Slurm 명령어 경로 설정
-SCONTROL_PATH = '/usr/local/slurm/bin/scontrol'
-SINFO_PATH = SCONTROL_PATH.replace('scontrol', 'sinfo')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SCONTROL_PATH = os.path.join(SLURM_BIN_DIR, 'scontrol')
+SINFO_PATH = os.path.join(SLURM_BIN_DIR, 'sinfo')
 
 # 데이터베이스 (간단한 인메모리 저장소, 추후 SQLite로 확장)
 node_history = []
