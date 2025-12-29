@@ -171,24 +171,22 @@ setup_logs_directories() {
 
         # 권한 수정 (현재 사용자가 쓸 수 있도록)
         if [[ -d "$logs_dir" ]]; then
-            # 디렉토리 또는 파일에 쓰기 권한이 없으면 전체 수정
-            local needs_fix=false
+            # 쓰기 불가능한 파일이 있으면 삭제 후 재생성 (소유자 문제 해결)
+            local unwritable_files=$(find "$logs_dir" -type f ! -writable 2>/dev/null)
+            if [[ -n "$unwritable_files" ]]; then
+                echo "  🔧 $service/logs: 쓰기 불가 파일 삭제 중..."
+                # sudo로 삭제 시도, 실패하면 일반 삭제
+                for f in $unwritable_files; do
+                    sudo rm -f "$f" 2>/dev/null || rm -f "$f" 2>/dev/null || true
+                done
+                echo "  ✅ $service/logs: 권한 문제 해결됨"
+            fi
 
-            # 디렉토리 자체 권한 확인
+            # 디렉토리 권한 확인 및 수정
             if [[ ! -w "$logs_dir" ]]; then
-                needs_fix=true
-            fi
-
-            # 디렉토리 안의 파일 권한 확인
-            if [[ -n "$(find "$logs_dir" -type f ! -writable 2>/dev/null)" ]]; then
-                needs_fix=true
-            fi
-
-            if [[ "$needs_fix" == true ]]; then
-                chmod -R 755 "$logs_dir" 2>/dev/null || true
-                # 파일은 644로 설정
-                find "$logs_dir" -type f -exec chmod 644 {} \; 2>/dev/null || true
-                echo "  🔧 $service/logs 권한 수정됨"
+                sudo chmod 755 "$logs_dir" 2>/dev/null || chmod 755 "$logs_dir" 2>/dev/null || true
+                sudo chown "$current_user:$current_user" "$logs_dir" 2>/dev/null || true
+                echo "  🔧 $service/logs 디렉토리 권한 수정됨"
             fi
         fi
     done
