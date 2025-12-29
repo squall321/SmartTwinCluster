@@ -12,9 +12,56 @@
 cd "$(dirname "$0")"
 PROJECT_ROOT="$(pwd)"
 
+echo ""
+echo "============================================"
+echo "  HPC 웹 서비스 시작 스크립트"
+echo "  시작 시간: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "============================================"
+echo ""
+
 # sudo로 실행 시 실제 사용자 찾기
 RUN_USER="${SUDO_USER:-$(whoami)}"
 RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
+
+# ============================================================================
+# PID 파일 정리 (stale PID 문제 방지) - 가장 먼저 실행됨
+# ============================================================================
+cleanup_pid_files() {
+    local dashboard_dir="$PROJECT_ROOT/dashboard"
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🧹 기존 PID 파일 정리 중..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # 모든 gunicorn PID 파일 경로
+    local pid_files=(
+        "$dashboard_dir/auth_portal_4430/logs/gunicorn.pid"
+        "$dashboard_dir/backend_5010/logs/gunicorn.pid"
+        "$dashboard_dir/kooCAEWebServer_5000/logs/gunicorn.pid"
+        "$dashboard_dir/kooCAEWebAutomationServer_5001/logs/gunicorn.pid"
+        "$dashboard_dir/MoonlightSunshine_8004/backend_moonlight_8004/logs/gunicorn.pid"
+        "$dashboard_dir/websocket_5011/.websocket.pid"
+    )
+
+    local cleaned=0
+    for pid_file in "${pid_files[@]}"; do
+        if [[ -f "$pid_file" ]]; then
+            rm -f "$pid_file" 2>/dev/null || sudo rm -f "$pid_file" 2>/dev/null || true
+            echo "  🗑️  삭제: ${pid_file#$dashboard_dir/}"
+            ((cleaned++))
+        fi
+    done
+
+    if [[ $cleaned -eq 0 ]]; then
+        echo "  ✅ 정리할 PID 파일 없음"
+    else
+        echo "  ✅ $cleaned 개 PID 파일 정리 완료"
+    fi
+    echo ""
+}
+
+# PID 파일 정리 실행 (가장 먼저 실행)
+cleanup_pid_files
 
 # ============================================================================
 # Python venv 체크 및 설치 (오프라인 환경 지원)
