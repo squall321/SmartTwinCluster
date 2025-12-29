@@ -138,7 +138,8 @@ build_frontend() {
         sudo rm -rf "$nginx_path" 2>/dev/null || true
         sudo mkdir -p "$nginx_path"
         sudo cp -r dist/* "$nginx_path/"
-        sudo chown -R www-data:www-data "$nginx_path"
+        sudo chown -R www-data:www-data "$nginx_path" 2>/dev/null || sudo chown -R nginx:nginx "$nginx_path" 2>/dev/null || true
+        sudo chmod -R 755 "$nginx_path"
         echo -e "${GREEN}  ✅ 배포 완료: $nginx_path${NC}"
     else
         echo -e "${RED}❌ $frontend 빌드 실패${NC}"

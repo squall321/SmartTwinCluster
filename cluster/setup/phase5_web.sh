@@ -218,6 +218,61 @@ check_prerequisites() {
     log_success "Prerequisites check passed"
 }
 
+# Function to stop existing services before setup
+stop_existing_services() {
+    log_info "Stopping existing services before setup..."
+
+    if [[ "$DRY_RUN" == false ]]; then
+        # Stop nginx if running
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            log_info "Stopping nginx..."
+            systemctl stop nginx 2>/dev/null || true
+            sleep 1
+            log_success "nginx stopped"
+        fi
+
+        # Stop redis if running
+        if systemctl is-active --quiet redis-server 2>/dev/null; then
+            log_info "Stopping redis-server..."
+            systemctl stop redis-server 2>/dev/null || true
+            sleep 1
+            log_success "redis-server stopped"
+        elif systemctl is-active --quiet redis 2>/dev/null; then
+            log_info "Stopping redis..."
+            systemctl stop redis 2>/dev/null || true
+            sleep 1
+            log_success "redis stopped"
+        elif pgrep -x redis-server > /dev/null 2>&1; then
+            log_info "Stopping redis-server (manual)..."
+            pkill -TERM redis-server 2>/dev/null || true
+            sleep 1
+            pkill -KILL redis-server 2>/dev/null || true
+            log_success "redis-server stopped"
+        fi
+
+        # Stop gunicorn processes
+        if pgrep -f "gunicorn" > /dev/null 2>&1; then
+            log_info "Stopping gunicorn processes..."
+            pkill -TERM -f "gunicorn" 2>/dev/null || true
+            sleep 2
+            pkill -KILL -f "gunicorn" 2>/dev/null || true
+            log_success "gunicorn processes stopped"
+        fi
+
+        # Stop any running backend services
+        local services=("auth_portal_4430" "backend_5010" "websocket_5011" "kooCAEWebServer_5000" "kooCAEWebAutomationServer_5001")
+        for svc in "${services[@]}"; do
+            if pgrep -f "$svc" > /dev/null 2>&1; then
+                log_info "Stopping $svc..."
+                pkill -TERM -f "$svc" 2>/dev/null || true
+                sleep 1
+            fi
+        done
+    else
+        log_info "[DRY-RUN] Would stop nginx, redis, and backend services"
+    fi
+}
+
 # Function to stop conflicting manual web services
 stop_manual_web_services() {
     log_info "Checking for manually running web services on common ports..."
@@ -1753,6 +1808,16 @@ build_all_frontends() {
         fi
     done
 
+    # Set proper permissions on /var/www/html for nginx access
+    if [[ "$DRY_RUN" == false ]]; then
+        log_info "Setting permissions on /var/www/html for nginx access..."
+        if [[ -d "/var/www/html" ]]; then
+            chown -R www-data:www-data /var/www/html 2>/dev/null || chown -R nginx:nginx /var/www/html 2>/dev/null || true
+            chmod -R 755 /var/www/html 2>/dev/null || true
+            log_success "Permissions set on /var/www/html"
+        fi
+    fi
+
     log_success "All frontends built"
 }
 
@@ -2793,6 +2858,7 @@ main() {
 
     check_root
     check_prerequisites
+    stop_existing_services      # Stop nginx, redis, and backend services first
     stop_manual_web_services
     load_config
     create_web_user
