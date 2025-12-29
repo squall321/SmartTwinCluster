@@ -95,14 +95,10 @@ setup_python_venvs() {
             continue
         fi
 
-        # venv가 없거나 gunicorn이 없거나 --force-install 옵션이 있으면 설치 필요
-        if [[ ! -d "$service_dir/venv" ]] || [[ ! -f "$service_dir/venv/bin/gunicorn" ]] || [[ "$FORCE_INSTALL" == true ]]; then
+        # venv가 없거나 gunicorn이 없으면 설치 필요
+        if [[ ! -d "$service_dir/venv" ]] || [[ ! -f "$service_dir/venv/bin/gunicorn" ]]; then
             need_install=true
-            if [[ "$FORCE_INSTALL" == true ]]; then
-                echo "  🔄 $service: 강제 재설치 (--force-install)"
-            else
-                echo "  ⚠️  $service: venv 또는 gunicorn 없음 → 설치 필요"
-            fi
+            echo "  ⚠️  $service: venv 또는 gunicorn 없음 → 설치 필요"
 
             # Python 명령어 결정
             local python_cmd="python3"
@@ -171,13 +167,17 @@ setup_python_venvs() {
 
 # venv 관련 옵션 파싱
 SKIP_VENV=false
-FORCE_INSTALL=false
 for arg in "$@"; do
     if [[ "$arg" == "--skip-venv" ]]; then
         SKIP_VENV=true
     fi
-    if [[ "$arg" == "--force-install" ]]; then
-        FORCE_INSTALL=true
+done
+
+# systemd 서비스 설치 옵션이 있으면 venv 체크 건너뛰기 (install_services.sh가 담당)
+for arg in "$@"; do
+    if [[ "$arg" == "--install" ]] || [[ "$arg" == "--reinstall" ]]; then
+        SKIP_VENV=true
+        break
     fi
 done
 
@@ -259,14 +259,18 @@ show_help() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "사용법:"
-    echo "  ./start.sh                 Production Mode (기본, 빌드 건너뛰기)"
-    echo "  ./start.sh --rebuild       Production Mode (프론트엔드 재빌드)"
-    echo "  ./start.sh --skip-build    Production Mode (명시적으로 빌드 건너뛰기)"
-    echo "  ./start.sh --skip-venv     venv 체크/설치 건너뛰기"
-    echo "  ./start.sh --force-install 모든 venv 패키지 강제 재설치"
-    echo "  ./start.sh --dev           Development Mode (Flask dev server)"
-    echo "  ./start.sh --mock          Mock Mode (테스트용)"
-    echo "  ./start.sh --help          이 도움말 표시"
+    echo "  ./start.sh                    Production Mode (기본)"
+    echo ""
+    echo "Production Mode 옵션:"
+    echo "  ./start.sh --install          systemd 서비스 최초 설치"
+    echo "  ./start.sh --reinstall        venv 재설치 + 서비스 설치"
+    echo "  ./start.sh --rebuild          프론트엔드 재빌드"
+    echo "  ./start.sh --skip-build       프론트엔드 빌드 건너뛰기"
+    echo ""
+    echo "기타 옵션:"
+    echo "  ./start.sh --dev              Development Mode (Flask dev server)"
+    echo "  ./start.sh --mock             Mock Mode (테스트용)"
+    echo "  ./start.sh --help             이 도움말 표시"
     echo ""
     echo "모드 설명:"
     echo "  🏭 Production Mode (기본):"
@@ -310,12 +314,12 @@ for arg in "$@"; do
             MODE="production"
             shift
             ;;
-        --rebuild|--skip-build)
+        --rebuild|--skip-build|--install|--reinstall)
             # Production 모드 전용 플래그는 start_production.sh로 전달
             EXTRA_ARGS+=("$arg")
             shift
             ;;
-        --skip-venv|--force-install)
+        --skip-venv)
             # start.sh에서만 처리하는 옵션 (이미 위에서 파싱됨, 전달하지 않음)
             shift
             ;;
