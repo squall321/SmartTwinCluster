@@ -375,9 +375,9 @@ cd websocket_5011
 mkdir -p logs
 rm -f websocket.log
 if [ -d "venv" ]; then
-    SSO_ENABLED=$SSO_ENABLED nohup venv/bin/python websocket_server_enhanced.py > websocket.log 2>&1 &
+    SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/python websocket_server_enhanced.py > websocket.log 2>&1 &
 else
-    SSO_ENABLED=$SSO_ENABLED nohup python3 websocket_server_enhanced.py > websocket.log 2>&1 &
+    SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup python3 websocket_server_enhanced.py > websocket.log 2>&1 &
 fi
 WS_PID=$!
 echo $WS_PID > .websocket.pid

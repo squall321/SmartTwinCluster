@@ -6,6 +6,7 @@ import redis
 import json
 import time
 import hashlib
+import os
 from typing import Optional, Any, Callable, List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
@@ -16,9 +17,10 @@ logger = logging.getLogger(__name__)
 # Redis 연결 (없으면 None)
 try:
     redis_client = redis.Redis(
-        host='localhost',
-        port=6379,
-        db=0,
+        host=os.getenv('REDIS_HOST', 'localhost'),
+        port=int(os.getenv('REDIS_PORT', 6379)),
+        db=int(os.getenv('REDIS_DB', 0)),
+        password=os.getenv('REDIS_PASSWORD', None) or None,
         decode_responses=True,
         socket_connect_timeout=2,
         socket_timeout=2
