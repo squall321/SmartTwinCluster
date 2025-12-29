@@ -4,7 +4,7 @@ After=network.target redis.service auth-backend.service
 Wants=redis.service
 
 [Service]
-Type=notify
+Type=simple
 User=koopark
 Group=koopark
 WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010

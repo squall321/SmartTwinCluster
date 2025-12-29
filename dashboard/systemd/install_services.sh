@@ -263,7 +263,7 @@ StandardError=append:$full_path/logs/websocket_error.log
 WantedBy=multi-user.target
 EOF
     else
-        # gunicorn 서비스
+        # gunicorn 서비스 (Type=simple 사용 - notify보다 안정적)
         cat > "$service_file" << EOF
 [Unit]
 Description=HPC Backend - $service_name
@@ -271,7 +271,7 @@ After=network.target redis.service
 Wants=redis.service
 
 [Service]
-Type=notify
+Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$full_path
