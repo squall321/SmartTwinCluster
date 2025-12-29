@@ -245,7 +245,25 @@ if pgrep -f "gunicorn.*auth_portal_4430" > /dev/null; then
         echo -e "${YELLOW}⚠  Auth Backend 시작됨 but API 응답 없음${NC}"
     fi
 else
-    echo -e "${RED}❌ Auth Backend 시작 실패 - logs/gunicorn.log 확인 필요${NC}"
+    echo -e "${RED}❌ Auth Backend 시작 실패${NC}"
+    echo -e "${RED}   로그 파일: $SCRIPT_DIR/auth_portal_4430/logs/gunicorn.log${NC}"
+    if [ -f "$SCRIPT_DIR/auth_portal_4430/logs/gunicorn.log" ]; then
+        echo -e "${YELLOW}   === 최근 로그 (마지막 20줄) ===${NC}"
+        tail -20 "$SCRIPT_DIR/auth_portal_4430/logs/gunicorn.log" 2>/dev/null || echo "   (로그 읽기 실패)"
+        echo -e "${YELLOW}   ================================${NC}"
+    else
+        echo -e "${YELLOW}   로그 파일이 없습니다. venv 또는 gunicorn 설치 확인 필요${NC}"
+        # venv 존재 확인
+        if [ ! -d "$SCRIPT_DIR/auth_portal_4430/venv" ]; then
+            echo -e "${RED}   ⚠ venv 디렉토리가 없습니다!${NC}"
+        fi
+        # gunicorn 설치 확인
+        if [ -d "$SCRIPT_DIR/auth_portal_4430/venv" ]; then
+            if ! "$SCRIPT_DIR/auth_portal_4430/venv/bin/pip" show gunicorn > /dev/null 2>&1; then
+                echo -e "${RED}   ⚠ gunicorn이 설치되지 않았습니다!${NC}"
+            fi
+        fi
+    fi
 fi
 echo ""
 
@@ -361,7 +379,18 @@ if pgrep -f "gunicorn.*backend_5010" > /dev/null; then
         echo -e "${YELLOW}⚠  Dashboard Backend 시작됨 but API 응답 없음${NC}"
     fi
 else
-    echo -e "${RED}❌ Dashboard Backend 시작 실패 - logs/gunicorn.log 확인 필요${NC}"
+    echo -e "${RED}❌ Dashboard Backend 시작 실패${NC}"
+    echo -e "${RED}   로그 파일: $SCRIPT_DIR/backend_5010/logs/gunicorn.log${NC}"
+    if [ -f "$SCRIPT_DIR/backend_5010/logs/gunicorn.log" ]; then
+        echo -e "${YELLOW}   === 최근 로그 (마지막 20줄) ===${NC}"
+        tail -20 "$SCRIPT_DIR/backend_5010/logs/gunicorn.log" 2>/dev/null || echo "   (로그 읽기 실패)"
+        echo -e "${YELLOW}   ================================${NC}"
+    else
+        echo -e "${YELLOW}   로그 파일이 없습니다. venv 또는 gunicorn 설치 확인 필요${NC}"
+        if [ ! -d "$SCRIPT_DIR/backend_5010/venv" ]; then
+            echo -e "${RED}   ⚠ venv 디렉토리가 없습니다!${NC}"
+        fi
+    fi
 fi
 
 # WebSocket Server (Flask dev - WebSocket용)
@@ -475,7 +504,18 @@ if [ -d "MoonlightSunshine_8004/backend_moonlight_8004" ]; then
             echo -e "${YELLOW}⚠  Moonlight Backend 시작됨 but API 응답 없음 - 확인 필요${NC}"
         fi
     else
-        echo -e "${RED}❌ Moonlight Backend 시작 실패 - logs/gunicorn.log 확인 필요${NC}"
+        echo -e "${RED}❌ Moonlight Backend 시작 실패${NC}"
+        echo -e "${RED}   로그 파일: $SCRIPT_DIR/MoonlightSunshine_8004/backend_moonlight_8004/logs/gunicorn.log${NC}"
+        if [ -f "logs/gunicorn.log" ]; then
+            echo -e "${YELLOW}   === 최근 로그 (마지막 15줄) ===${NC}"
+            tail -15 logs/gunicorn.log 2>/dev/null || echo "   (로그 읽기 실패)"
+            echo -e "${YELLOW}   ================================${NC}"
+        else
+            echo -e "${YELLOW}   로그 파일이 없습니다. venv 또는 gunicorn 설치 확인 필요${NC}"
+            if [ ! -d "venv" ]; then
+                echo -e "${RED}   ⚠ venv 디렉토리가 없습니다!${NC}"
+            fi
+        fi
     fi
     cd "$SCRIPT_DIR"
 else
@@ -542,7 +582,18 @@ if [ -d "kooCAEWebServer_5000" ]; then
     if pgrep -f "gunicorn.*kooCAEWebServer_5000" > /dev/null; then
         echo -e "${GREEN}✅ CAE Backend 시작됨 (Gunicorn, PID: $CAE_BACKEND_PID, Port: 5000)${NC}"
     else
-        echo -e "${RED}❌ CAE Backend 시작 실패 - logs/gunicorn.log 확인 필요${NC}"
+        echo -e "${RED}❌ CAE Backend 시작 실패${NC}"
+        echo -e "${RED}   로그 파일: $SCRIPT_DIR/kooCAEWebServer_5000/logs/gunicorn.log${NC}"
+        if [ -f "$SCRIPT_DIR/kooCAEWebServer_5000/logs/gunicorn.log" ]; then
+            echo -e "${YELLOW}   === 최근 로그 (마지막 15줄) ===${NC}"
+            tail -15 "$SCRIPT_DIR/kooCAEWebServer_5000/logs/gunicorn.log" 2>/dev/null || echo "   (로그 읽기 실패)"
+            echo -e "${YELLOW}   ================================${NC}"
+        else
+            echo -e "${YELLOW}   로그 파일이 없습니다. venv 또는 gunicorn 설치 확인 필요${NC}"
+            if [ ! -d "$SCRIPT_DIR/kooCAEWebServer_5000/venv" ]; then
+                echo -e "${RED}   ⚠ venv 디렉토리가 없습니다!${NC}"
+            fi
+        fi
     fi
 fi
 
@@ -602,7 +653,18 @@ if [ -d "kooCAEWebAutomationServer_5001" ]; then
     if pgrep -f "gunicorn.*kooCAEWebAutomationServer_5001" > /dev/null; then
         echo -e "${GREEN}✅ CAE Automation 시작됨 (Gunicorn, PID: $CAE_AUTO_PID, Port: 5001)${NC}"
     else
-        echo -e "${RED}❌ CAE Automation 시작 실패 - logs/gunicorn.log 확인 필요${NC}"
+        echo -e "${RED}❌ CAE Automation 시작 실패${NC}"
+        echo -e "${RED}   로그 파일: $SCRIPT_DIR/kooCAEWebAutomationServer_5001/logs/gunicorn.log${NC}"
+        if [ -f "$SCRIPT_DIR/kooCAEWebAutomationServer_5001/logs/gunicorn.log" ]; then
+            echo -e "${YELLOW}   === 최근 로그 (마지막 15줄) ===${NC}"
+            tail -15 "$SCRIPT_DIR/kooCAEWebAutomationServer_5001/logs/gunicorn.log" 2>/dev/null || echo "   (로그 읽기 실패)"
+            echo -e "${YELLOW}   ================================${NC}"
+        else
+            echo -e "${YELLOW}   로그 파일이 없습니다. venv 또는 gunicorn 설치 확인 필요${NC}"
+            if [ ! -d "$SCRIPT_DIR/kooCAEWebAutomationServer_5001/venv" ]; then
+                echo -e "${RED}   ⚠ venv 디렉토리가 없습니다!${NC}"
+            fi
+        fi
     fi
 fi
 echo ""
