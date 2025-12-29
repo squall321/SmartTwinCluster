@@ -284,15 +284,26 @@ fi
 
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
 # venv/bin/gunicorn 직접 실행 (activate 불필요)
+echo "  → gunicorn 실행 시도..."
 if [ -d "venv" ]; then
-    REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    sleep 1
+    echo "  → 명령: REDIS_PASSWORD=*** venv/bin/gunicorn -c gunicorn_config.py app:app"
+    REDIS_PASSWORD="$REDIS_PASSWORD" venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+    GUNICORN_EXIT=$?
+    sleep 2
+    echo "  → gunicorn 종료 코드: $GUNICORN_EXIT"
     BACKEND_PID=$(pgrep -f "gunicorn.*auth_portal_4430" | head -1)
+    echo "  → 찾은 PID: ${BACKEND_PID:-없음}"
     # 로그 파일 소유권 수정
     chown "$RUN_USER:$RUN_GROUP" logs/*.log logs/*.pid 2>/dev/null || true
+    # 에러 로그 출력
+    if [ -z "$BACKEND_PID" ] && [ -f "logs/gunicorn.log" ]; then
+        echo "  → gunicorn.log 내용:"
+        tail -20 logs/gunicorn.log
+    fi
 else
-    REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    sleep 1
+    echo "  → venv 없음, 시스템 gunicorn 사용"
+    REDIS_PASSWORD="$REDIS_PASSWORD" gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+    sleep 2
     BACKEND_PID=$(pgrep -f "gunicorn.*auth_portal_4430" | head -1)
 fi
 cd "$SCRIPT_DIR"
