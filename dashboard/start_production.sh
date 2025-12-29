@@ -342,9 +342,9 @@ if [ -f "logs/gunicorn.log" ]; then
 fi
 
 if [ -d "venv" ]; then
-    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 else
-    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 fi
 DB_BACKEND_PID=$!
 echo $DB_BACKEND_PID > logs/gunicorn.pid
@@ -529,9 +529,9 @@ if [ -d "kooCAEWebServer_5000" ]; then
     fi
 
     if [ -d "venv" ]; then
-        nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
     else
-        nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
     fi
     CAE_BACKEND_PID=$!
     echo $CAE_BACKEND_PID > logs/gunicorn.pid

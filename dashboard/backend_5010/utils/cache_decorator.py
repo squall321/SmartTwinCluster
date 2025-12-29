@@ -6,16 +6,18 @@ Redis Caching Decorator for Backend API
 import functools
 import json
 import hashlib
+import os
 import redis
 from typing import Any, Callable, Optional
 from flask import request, has_request_context
 
-# Redis 클라이언트 초기화
+# Redis 클라이언트 초기화 (환경변수 지원)
 try:
     redis_client = redis.Redis(
-        host='localhost',
-        port=6379,
-        db=0,
+        host=os.getenv('REDIS_HOST', 'localhost'),
+        port=int(os.getenv('REDIS_PORT', 6379)),
+        db=int(os.getenv('REDIS_DB', 0)),
+        password=os.getenv('REDIS_PASSWORD', None) or None,
         decode_responses=True,
         socket_connect_timeout=2,
         socket_timeout=2
