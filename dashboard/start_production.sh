@@ -262,6 +262,8 @@ for i in {1..5}; do
 done
 
 cd auth_portal_4430
+echo "  [DEBUG] 현재 디렉토리: $(pwd)"
+echo "  [DEBUG] 사용자: $(whoami), RUN_USER=$RUN_USER"
 mkdir -p logs
 
 # Python 캐시 삭제
@@ -273,39 +275,85 @@ if [ -f "logs/gunicorn.log" ]; then
     mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
 fi
 
+# 환경 검사
+echo "  [DEBUG] === 환경 검사 ==="
+echo "  [DEBUG] venv 존재: $([ -d 'venv' ] && echo 'YES' || echo 'NO')"
+echo "  [DEBUG] venv/bin/python 존재: $([ -f 'venv/bin/python' ] && echo 'YES' || echo 'NO')"
+echo "  [DEBUG] venv/bin/gunicorn 존재: $([ -f 'venv/bin/gunicorn' ] && echo 'YES' || echo 'NO')"
+echo "  [DEBUG] gunicorn_config.py 존재: $([ -f 'gunicorn_config.py' ] && echo 'YES' || echo 'NO')"
+echo "  [DEBUG] app.py 존재: $([ -f 'app.py' ] && echo 'YES' || echo 'NO')"
+echo "  [DEBUG] logs 디렉토리 쓰기 가능: $([ -w 'logs' ] && echo 'YES' || echo 'NO')"
+if [ -d "venv" ]; then
+    echo "  [DEBUG] Python 버전: $(venv/bin/python --version 2>&1)"
+    echo "  [DEBUG] gunicorn 버전: $(venv/bin/gunicorn --version 2>&1 || echo 'NOT INSTALLED')"
+fi
+echo "  [DEBUG] =================="
+
 # Python import 테스트
 if [ -d "venv" ]; then
     echo "  → Python import 테스트 중..."
     if ! venv/bin/python -c "from app import app; print('OK')" 2>logs/import_error.log; then
         echo -e "${RED}   ❌ Python import 실패:${NC}"
         cat logs/import_error.log
+    else
+        echo "  [DEBUG] Python import 성공"
     fi
 fi
 
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
-# venv/bin/gunicorn 직접 실행 (activate 불필요)
-echo "  → gunicorn 실행 시도..."
+echo "  [DEBUG] === gunicorn 실행 시작 ==="
+echo "  [DEBUG] REDIS_PASSWORD 설정: $([ -n \"$REDIS_PASSWORD\" ] && echo 'YES' || echo 'NO')"
 if [ -d "venv" ]; then
-    echo "  → 명령: REDIS_PASSWORD=*** venv/bin/gunicorn -c gunicorn_config.py app:app"
+    GUNICORN_CMD="venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app"
+    echo "  [DEBUG] 실행 명령: REDIS_PASSWORD=*** $GUNICORN_CMD"
+    echo "  [DEBUG] 백그라운드 실행 시작..."
+
+    # 실행 전 상태
+    echo "  [DEBUG] 실행 전 gunicorn 프로세스: $(pgrep -f 'gunicorn.*auth_portal_4430' | wc -l)개"
+
     REDIS_PASSWORD="$REDIS_PASSWORD" venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    GUNICORN_EXIT=$?
-    sleep 2
-    echo "  → gunicorn 종료 코드: $GUNICORN_EXIT"
+    GUNICORN_BG_PID=$!
+    echo "  [DEBUG] 백그라운드 PID: $GUNICORN_BG_PID"
+
+    # 잠시 대기
+    echo "  [DEBUG] 3초 대기 중..."
+    sleep 3
+
+    # 실행 후 상태
+    echo "  [DEBUG] 실행 후 gunicorn 프로세스: $(pgrep -f 'gunicorn.*auth_portal_4430' | wc -l)개"
+    echo "  [DEBUG] 프로세스 목록:"
+    pgrep -af "gunicorn.*auth_portal_4430" 2>/dev/null || echo "  [DEBUG]   (없음)"
+
+    # PID 파일 확인
+    echo "  [DEBUG] PID 파일 존재: $([ -f 'logs/gunicorn.pid' ] && echo 'YES' || echo 'NO')"
+    if [ -f "logs/gunicorn.pid" ]; then
+        echo "  [DEBUG] PID 파일 내용: $(cat logs/gunicorn.pid)"
+    fi
+
     BACKEND_PID=$(pgrep -f "gunicorn.*auth_portal_4430" | head -1)
-    echo "  → 찾은 PID: ${BACKEND_PID:-없음}"
+    echo "  [DEBUG] 최종 PID: ${BACKEND_PID:-없음}"
+
     # 로그 파일 소유권 수정
     chown "$RUN_USER:$RUN_GROUP" logs/*.log logs/*.pid 2>/dev/null || true
-    # 에러 로그 출력
-    if [ -z "$BACKEND_PID" ] && [ -f "logs/gunicorn.log" ]; then
-        echo "  → gunicorn.log 내용:"
-        tail -20 logs/gunicorn.log
+
+    # 로그 파일 확인
+    echo "  [DEBUG] gunicorn.log 존재: $([ -f 'logs/gunicorn.log' ] && echo 'YES' || echo 'NO')"
+    if [ -f "logs/gunicorn.log" ]; then
+        LOG_SIZE=$(wc -c < logs/gunicorn.log)
+        echo "  [DEBUG] gunicorn.log 크기: ${LOG_SIZE}바이트"
+        if [ "$LOG_SIZE" -gt 0 ]; then
+            echo "  [DEBUG] === gunicorn.log 내용 (전체) ==="
+            cat logs/gunicorn.log
+            echo "  [DEBUG] ==================================="
+        fi
     fi
 else
-    echo "  → venv 없음, 시스템 gunicorn 사용"
+    echo "  [DEBUG] venv 없음, 시스템 gunicorn 사용"
     REDIS_PASSWORD="$REDIS_PASSWORD" gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    sleep 2
+    sleep 3
     BACKEND_PID=$(pgrep -f "gunicorn.*auth_portal_4430" | head -1)
 fi
+echo "  [DEBUG] === gunicorn 실행 완료 ==="
 cd "$SCRIPT_DIR"
 
 # 시작 확인
