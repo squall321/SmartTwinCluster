@@ -30,7 +30,7 @@ proc_name = "auth_backend_4430"
 
 # Server mechanics
 daemon = False
-pidfile = None  # PID 파일 사용 안함 (stale PID 문제 방지)
+pidfile = "logs/gunicorn.pid"
 user = None
 group = None
 tmp_upload_dir = None

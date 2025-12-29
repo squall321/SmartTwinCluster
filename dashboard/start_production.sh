@@ -235,17 +235,17 @@ if [ -d "venv" ]; then
     fi
 fi
 
-# PID 파일 삭제 (gunicorn 시작 직전)
-rm -f logs/gunicorn.pid
-
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
+# --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
 if [ -d "venv" ]; then
-    (source venv/bin/activate && REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
+    source venv/bin/activate
+    REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+    BACKEND_PID=$!
+    deactivate 2>/dev/null || true
 else
-    REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+    BACKEND_PID=$!
 fi
-BACKEND_PID=$!
-echo $BACKEND_PID > logs/gunicorn.pid
 cd "$SCRIPT_DIR"
 
 # 시작 확인
@@ -384,16 +384,17 @@ if [ -d "venv" ]; then
     fi
 fi
 
-# PID 파일 삭제 (gunicorn 시작 직전)
-rm -f logs/gunicorn.pid
-
+# Dashboard Backend 시작
+# --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
 if [ -d "venv" ]; then
-    (source venv/bin/activate && MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
+    source venv/bin/activate
+    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+    DB_BACKEND_PID=$!
+    deactivate 2>/dev/null || true
 else
-    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+    DB_BACKEND_PID=$!
 fi
-DB_BACKEND_PID=$!
-echo $DB_BACKEND_PID > logs/gunicorn.pid
 cd "$SCRIPT_DIR"
 
 # 시작 확인
@@ -523,16 +524,17 @@ if [ -d "MoonlightSunshine_8004/backend_moonlight_8004" ]; then
         fi
     fi
 
-    # PID 파일 삭제 (gunicorn 시작 직전)
-    rm -f logs/gunicorn.pid
-
+    # Moonlight Backend 시작
+    # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
     if [ -d "venv" ]; then
-        (source venv/bin/activate && REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
+        source venv/bin/activate
+        REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+        MOONLIGHT_PID=$!
+        deactivate 2>/dev/null || true
     else
-        REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+        MOONLIGHT_PID=$!
     fi
-    MOONLIGHT_PID=$!
-    echo $MOONLIGHT_PID > logs/gunicorn.pid
 
     # 시작 확인 (프로세스 + API 테스트)
     sleep 3
@@ -621,17 +623,17 @@ if [ -d "kooCAEWebServer_5000" ]; then
         fi
     fi
 
-    # PID 파일 삭제 (gunicorn 시작 직전)
-    rm -f logs/gunicorn.pid
-
-    # CAE app.py는 create_app() 팩토리 패턴 사용
+    # CAE Backend 시작 (create_app() 팩토리 패턴)
+    # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
     if [ -d "venv" ]; then
-        (source venv/bin/activate && REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1) &
+        source venv/bin/activate
+        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid 'app:create_app()' > logs/gunicorn.log 2>&1 &
+        CAE_BACKEND_PID=$!
+        deactivate 2>/dev/null || true
     else
-        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid 'app:create_app()' > logs/gunicorn.log 2>&1 &
+        CAE_BACKEND_PID=$!
     fi
-    CAE_BACKEND_PID=$!
-    echo $CAE_BACKEND_PID > logs/gunicorn.pid
     cd "$SCRIPT_DIR"
 
     # 시작 확인
@@ -707,16 +709,17 @@ if [ -d "kooCAEWebAutomationServer_5001" ]; then
         fi
     fi
 
-    # PID 파일 삭제 (gunicorn 시작 직전)
-    rm -f logs/gunicorn.pid
-
+    # CAE Automation 시작
+    # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
     if [ -d "venv" ]; then
-        (source venv/bin/activate && nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
+        source venv/bin/activate
+        nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+        CAE_AUTO_PID=$!
+        deactivate 2>/dev/null || true
     else
-        nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+        CAE_AUTO_PID=$!
     fi
-    CAE_AUTO_PID=$!
-    echo $CAE_AUTO_PID > logs/gunicorn.pid
     cd "$SCRIPT_DIR"
 
     # 시작 확인

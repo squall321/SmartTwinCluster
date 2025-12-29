@@ -30,7 +30,7 @@ proc_name = "moonlight_8004"  # ✅ VNC(backend_5010)와 다른 이름
 
 # Server mechanics
 daemon = False
-pidfile = None  # PID 파일 사용 안함 (stale PID 문제 방지)
+pidfile = "logs/gunicorn.pid"
 user = None
 group = None
 tmp_upload_dir = None
