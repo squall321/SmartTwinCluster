@@ -235,7 +235,7 @@ fi
 
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
 if [ -d "venv" ]; then
-    REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    (source venv/bin/activate && REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
 else
     REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 fi
@@ -378,7 +378,7 @@ if [ -d "venv" ]; then
 fi
 
 if [ -d "venv" ]; then
-    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    (source venv/bin/activate && MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
 else
     MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 fi
@@ -512,7 +512,7 @@ if [ -d "MoonlightSunshine_8004/backend_moonlight_8004" ]; then
     fi
 
     if [ -d "venv" ]; then
-        REDIS_PASSWORD=$REDIS_PASSWORD nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        (source venv/bin/activate && REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
     else
         REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
     fi
@@ -606,7 +606,7 @@ if [ -d "kooCAEWebServer_5000" ]; then
 
     # CAE app.py는 create_app() 팩토리 패턴 사용
     if [ -d "venv" ]; then
-        REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1 &
+        (source venv/bin/activate && REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1) &
     else
         REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1 &
     fi
@@ -686,7 +686,7 @@ if [ -d "kooCAEWebAutomationServer_5001" ]; then
     fi
 
     if [ -d "venv" ]; then
-        nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        (source venv/bin/activate && nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
     else
         nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
     fi
