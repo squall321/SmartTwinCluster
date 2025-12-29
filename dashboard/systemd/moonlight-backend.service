@@ -1,0 +1,25 @@
+[Unit]
+Description=HPC Moonlight Backend (Gunicorn)
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=notify
+User=koopark
+Group=koopark
+WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004
+Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/venv/bin"
+EnvironmentFile=-/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/.env
+ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/venv/bin/gunicorn -c gunicorn_config.py app:app
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/logs/gunicorn.log
+StandardError=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/logs/gunicorn_error.log
+
+[Install]
+WantedBy=multi-user.target

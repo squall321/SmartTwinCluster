@@ -1,0 +1,25 @@
+[Unit]
+Description=HPC CAE Backend (Gunicorn)
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=notify
+User=koopark
+Group=koopark
+WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/kooCAEWebServer_5000
+Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/kooCAEWebServer_5000/venv/bin"
+EnvironmentFile=-/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/kooCAEWebServer_5000/.env
+ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/kooCAEWebServer_5000/venv/bin/gunicorn -c gunicorn_config.py 'app:create_app()'
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/kooCAEWebServer_5000/logs/gunicorn.log
+StandardError=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/kooCAEWebServer_5000/logs/gunicorn_error.log
+
+[Install]
+WantedBy=multi-user.target

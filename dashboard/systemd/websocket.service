@@ -1,0 +1,24 @@
+[Unit]
+Description=HPC WebSocket Server
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=koopark
+Group=koopark
+WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/websocket_5011
+Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/websocket_5011/venv/bin"
+EnvironmentFile=-/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/websocket_5011/.env
+ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/websocket_5011/venv/bin/python websocket_server_enhanced.py
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/websocket_5011/logs/websocket.log
+StandardError=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/websocket_5011/logs/websocket_error.log
+
+[Install]
+WantedBy=multi-user.target
