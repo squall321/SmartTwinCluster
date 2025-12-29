@@ -303,17 +303,41 @@ fi
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
 echo "  [DEBUG] === gunicorn 실행 시작 ==="
 echo "  [DEBUG] REDIS_PASSWORD 설정: $([ -n \"$REDIS_PASSWORD\" ] && echo 'YES' || echo 'NO')"
+
+# 포트 사용 확인
+echo "  [DEBUG] 포트 4430 사용 상태:"
+fuser 4430/tcp 2>/dev/null && echo "  [DEBUG]   포트 사용 중!" || echo "  [DEBUG]   포트 사용 안함 (OK)"
+
 if [ -d "venv" ]; then
     GUNICORN_CMD="venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app"
     echo "  [DEBUG] 실행 명령: REDIS_PASSWORD=*** $GUNICORN_CMD"
+
+    # 먼저 포그라운드로 테스트 실행 (에러 확인용, 1초 타임아웃)
+    echo "  [DEBUG] === 포그라운드 테스트 실행 (에러 확인) ==="
+    timeout 2 bash -c "REDIS_PASSWORD='$REDIS_PASSWORD' venv/bin/gunicorn -c gunicorn_config.py app:app --check-config" 2>&1 || true
+    echo "  [DEBUG] === 테스트 완료 ==="
+
     echo "  [DEBUG] 백그라운드 실행 시작..."
 
     # 실행 전 상태
     echo "  [DEBUG] 실행 전 gunicorn 프로세스: $(pgrep -f 'gunicorn.*auth_portal_4430' | wc -l)개"
 
+    # 백그라운드 실행 (stderr도 캡처)
     REDIS_PASSWORD="$REDIS_PASSWORD" venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
     GUNICORN_BG_PID=$!
     echo "  [DEBUG] 백그라운드 PID: $GUNICORN_BG_PID"
+
+    # 프로세스 상태 확인
+    echo "  [DEBUG] 프로세스 $GUNICORN_BG_PID 상태:"
+    ps -p $GUNICORN_BG_PID -o pid,stat,command 2>/dev/null || echo "  [DEBUG]   프로세스가 이미 종료됨"
+
+    # wait로 종료 코드 확인 (비블로킹)
+    if ! kill -0 $GUNICORN_BG_PID 2>/dev/null; then
+        echo "  [DEBUG] ⚠ 프로세스가 즉시 종료됨! wait로 종료 코드 확인..."
+        wait $GUNICORN_BG_PID 2>/dev/null
+        EXIT_CODE=$?
+        echo "  [DEBUG] 종료 코드: $EXIT_CODE"
+    fi
 
     # 잠시 대기
     echo "  [DEBUG] 3초 대기 중..."
@@ -327,7 +351,10 @@ if [ -d "venv" ]; then
     # PID 파일 확인
     echo "  [DEBUG] PID 파일 존재: $([ -f 'logs/gunicorn.pid' ] && echo 'YES' || echo 'NO')"
     if [ -f "logs/gunicorn.pid" ]; then
-        echo "  [DEBUG] PID 파일 내용: $(cat logs/gunicorn.pid)"
+        PID_CONTENT=$(cat logs/gunicorn.pid)
+        echo "  [DEBUG] PID 파일 내용: $PID_CONTENT"
+        echo "  [DEBUG] PID $PID_CONTENT 프로세스 상태:"
+        ps -p $PID_CONTENT -o pid,stat,command 2>/dev/null || echo "  [DEBUG]   해당 PID 프로세스 없음"
     fi
 
     BACKEND_PID=$(pgrep -f "gunicorn.*auth_portal_4430" | head -1)
@@ -345,7 +372,16 @@ if [ -d "venv" ]; then
             echo "  [DEBUG] === gunicorn.log 내용 (전체) ==="
             cat logs/gunicorn.log
             echo "  [DEBUG] ==================================="
+        else
+            echo "  [DEBUG] ⚠ 로그가 비어있음 - gunicorn이 시작 직후 죽었을 가능성"
         fi
+    fi
+
+    # gunicorn_prev.log도 확인
+    if [ -f "logs/gunicorn_prev.log" ]; then
+        echo "  [DEBUG] === 이전 gunicorn.log (참고용) ==="
+        tail -10 logs/gunicorn_prev.log
+        echo "  [DEBUG] =================================="
     fi
 else
     echo "  [DEBUG] venv 없음, 시스템 gunicorn 사용"
