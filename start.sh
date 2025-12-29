@@ -157,9 +157,23 @@ setup_logs_directories() {
 
         # 권한 수정 (현재 사용자가 쓸 수 있도록)
         if [[ -d "$logs_dir" ]]; then
-            # 쓰기 권한이 없으면 수정 시도
+            # 디렉토리 또는 파일에 쓰기 권한이 없으면 전체 수정
+            local needs_fix=false
+
+            # 디렉토리 자체 권한 확인
             if [[ ! -w "$logs_dir" ]]; then
+                needs_fix=true
+            fi
+
+            # 디렉토리 안의 파일 권한 확인
+            if [[ -n "$(find "$logs_dir" -type f ! -writable 2>/dev/null)" ]]; then
+                needs_fix=true
+            fi
+
+            if [[ "$needs_fix" == true ]]; then
                 chmod -R 755 "$logs_dir" 2>/dev/null || true
+                # 파일은 644로 설정
+                find "$logs_dir" -type f -exec chmod 644 {} \; 2>/dev/null || true
                 echo "  🔧 $service/logs 권한 수정됨"
             fi
         fi
