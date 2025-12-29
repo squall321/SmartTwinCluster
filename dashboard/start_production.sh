@@ -204,8 +204,8 @@ echo ""
 # ==================== 6. Dashboard Backend (Gunicorn) ====================
 echo -e "${BLUE}[6/9] Dashboard Backend + WebSocket 시작 중...${NC}"
 
-# YAML 파일에서 SSO 설정 읽기
-YAML_CONFIG="../my_multihead_cluster.yaml"
+# YAML 파일에서 SSO 및 Redis 설정 읽기
+YAML_CONFIG="$SCRIPT_DIR/../my_multihead_cluster.yaml"
 if [ -f "$YAML_CONFIG" ]; then
     SSO_ENABLED=$(python3 -c "
 import yaml
@@ -214,10 +214,20 @@ with open('$YAML_CONFIG') as f:
     sso_enabled = config.get('sso', {}).get('enabled', True)
     print('true' if sso_enabled else 'false')
 " 2>/dev/null)
+    REDIS_PASSWORD=$(python3 -c "
+import yaml
+with open('$YAML_CONFIG') as f:
+    config = yaml.safe_load(f)
+    # redis.cluster.password 또는 redis.password 사용
+    password = config.get('redis', {}).get('cluster', {}).get('password', '') or config.get('redis', {}).get('password', '')
+    print(password if password else 'changeme')
+" 2>/dev/null)
     echo -e "${BLUE}  → SSO 설정: SSO_ENABLED=$SSO_ENABLED (from YAML)${NC}"
+    echo -e "${BLUE}  → Redis 설정: REDIS_PASSWORD 로드됨 (from YAML)${NC}"
 else
     SSO_ENABLED="true"
-    echo -e "${YELLOW}  → YAML 파일 없음, SSO 기본값: true${NC}"
+    REDIS_PASSWORD="changeme"
+    echo -e "${YELLOW}  → YAML 파일 없음, 기본값 사용${NC}"
 fi
 
 # 기존 Dashboard Backend 프로세스 정리
@@ -376,9 +386,9 @@ if [ -d "MoonlightSunshine_8004/backend_moonlight_8004" ]; then
     fi
 
     if [ -d "venv" ]; then
-        REDIS_PASSWORD=changeme nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD=$REDIS_PASSWORD nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
     else
-        REDIS_PASSWORD=changeme nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
     fi
     MOONLIGHT_PID=$!
     echo $MOONLIGHT_PID > logs/gunicorn.pid
@@ -539,7 +549,7 @@ echo "=========================================="
 echo ""
 
 # 외부 접속 주소를 YAML에서 동적으로 읽기
-YAML_PATH="../my_multihead_cluster.yaml"
+YAML_PATH="$SCRIPT_DIR/../my_multihead_cluster.yaml"
 if [ -f "$YAML_PATH" ]; then
     # web.public_url 우선, 없으면 network.vip.address 사용
     PUBLIC_URL=$(python3 -c "
