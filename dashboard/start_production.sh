@@ -202,6 +202,8 @@ if [ -f "auth_portal_4430/logs/gunicorn.pid" ]; then
         kill -9 $OLD_PID 2>/dev/null || true
         sleep 1
     fi
+    # Stale PID 파일 삭제 (프로세스 유무와 관계없이)
+    rm -f auth_portal_4430/logs/gunicorn.pid
 fi
 
 # 4. 포트가 완전히 해제될 때까지 대기 (최대 5초)
@@ -346,6 +348,8 @@ if [ -f "backend_5010/logs/gunicorn.pid" ]; then
         kill -9 $OLD_PID 2>/dev/null || true
         sleep 1
     fi
+    # Stale PID 파일 삭제 (프로세스 유무와 관계없이)
+    rm -f backend_5010/logs/gunicorn.pid
 fi
 
 # 4. 포트가 완전히 해제될 때까지 대기 (최대 5초)
@@ -478,6 +482,8 @@ if [ -f "MoonlightSunshine_8004/backend_moonlight_8004/logs/gunicorn.pid" ]; the
         kill -9 $OLD_PID 2>/dev/null || true
         sleep 1
     fi
+    # Stale PID 파일 삭제 (프로세스 유무와 관계없이)
+    rm -f MoonlightSunshine_8004/backend_moonlight_8004/logs/gunicorn.pid
 fi
 
 # 4. 포트가 완전히 해제될 때까지 대기 (최대 5초)
@@ -572,6 +578,8 @@ if [ -f "kooCAEWebServer_5000/logs/gunicorn.pid" ]; then
         kill -9 $OLD_PID 2>/dev/null || true
         sleep 1
     fi
+    # Stale PID 파일 삭제 (프로세스 유무와 관계없이)
+    rm -f kooCAEWebServer_5000/logs/gunicorn.pid
 fi
 
 # 4. 포트가 완전히 해제될 때까지 대기 (최대 5초)
@@ -653,6 +661,8 @@ if [ -f "kooCAEWebAutomationServer_5001/logs/gunicorn.pid" ]; then
         kill -9 $OLD_PID 2>/dev/null || true
         sleep 1
     fi
+    # Stale PID 파일 삭제 (프로세스 유무와 관계없이)
+    rm -f kooCAEWebAutomationServer_5001/logs/gunicorn.pid
 fi
 
 # 4. 포트가 완전히 해제될 때까지 대기 (최대 5초)
