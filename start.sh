@@ -263,6 +263,10 @@ for arg in "$@"; do
             EXTRA_ARGS+=("$arg")
             shift
             ;;
+        --skip-venv|--force-install)
+            # start.sh에서만 처리하는 옵션 (이미 위에서 파싱됨, 전달하지 않음)
+            shift
+            ;;
         --help|-h)
             show_help
             exit 0
