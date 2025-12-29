@@ -204,6 +204,11 @@ parse_args() {
                 ;;
         esac
     done
+
+    # Convert CONFIG_PATH to absolute path (important for cd operations later)
+    if [[ -n "$CONFIG_PATH" && "${CONFIG_PATH:0:1}" != "/" ]]; then
+        CONFIG_PATH="$(cd "$(dirname "$CONFIG_PATH")" 2>/dev/null && pwd)/$(basename "$CONFIG_PATH")"
+    fi
 }
 
 # Function to check if running as root
