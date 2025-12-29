@@ -1253,6 +1253,97 @@ EOFPY
     fi
 }
 
+# Function to setup Python virtual environments for all services
+# This function creates venvs with the correct Python version for each service
+# and installs requirements from offline wheels
+setup_python_venvs() {
+    local dashboard_dir=$1
+    local project_root="$(dirname "$dashboard_dir")"
+    local wheels_base="${project_root}/offline_packages/python_wheels"
+
+    log_info "Setting up Python virtual environments for all services..."
+
+    # Service to Python version mapping
+    # Format: "service_name:python_version"
+    local service_python_map=(
+        "auth_portal_4430:3.10"
+        "backend_5010:3.12"
+        "websocket_5011:3.10"
+        "kooCAEWebServer_5000:3.13"
+        "kooCAEWebAutomationServer_5001:3.13"
+        "MoonlightSunshine_8004/backend_moonlight_8004:3.10"
+    )
+
+    for mapping in "${service_python_map[@]}"; do
+        local service="${mapping%%:*}"
+        local py_version="${mapping##*:}"
+        local service_dir="$dashboard_dir/$service"
+
+        if [[ ! -d "$service_dir" ]]; then
+            log_warning "Service directory not found: $service, skipping..."
+            continue
+        fi
+
+        log_info "Processing $service (Python $py_version)..."
+
+        if [[ "$DRY_RUN" == false ]]; then
+            # Determine Python command
+            local python_cmd="python3"
+            if command -v "python${py_version}" &>/dev/null; then
+                python_cmd="python${py_version}"
+            elif command -v "python3.${py_version#3.}" &>/dev/null; then
+                python_cmd="python3.${py_version#3.}"
+            fi
+
+            # Create venv if not exists
+            if [[ ! -d "$service_dir/venv" ]]; then
+                log_info "  Creating venv with $python_cmd..."
+                if ! $python_cmd -m venv "$service_dir/venv"; then
+                    log_error "  Failed to create venv for $service"
+                    continue
+                fi
+                log_success "  venv created"
+            else
+                log_info "  venv already exists"
+            fi
+
+            # Install requirements from offline wheels
+            if [[ -f "$service_dir/requirements.txt" ]]; then
+                cd "$service_dir"
+                source venv/bin/activate
+
+                # Get actual Python version in venv
+                local actual_version=$(python --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "$py_version")
+                local wheels_dir="${wheels_base}/python${actual_version}"
+
+                log_info "  Installing requirements (wheels: python${actual_version})..."
+
+                if [[ -d "$wheels_dir" ]]; then
+                    if pip install --no-index --find-links="$wheels_dir" -r requirements.txt --quiet 2>/dev/null; then
+                        log_success "  Requirements installed from offline wheels"
+                    else
+                        log_warning "  Offline install failed, trying with dependencies..."
+                        if ! pip install --find-links="$wheels_dir" -r requirements.txt --quiet 2>/dev/null; then
+                            log_error "  Failed to install requirements for $service"
+                            log_error "  Try: pip install -r requirements.txt (online)"
+                        fi
+                    fi
+                else
+                    log_warning "  No offline wheels found at $wheels_dir"
+                    log_warning "  Please prepare offline packages or install online"
+                fi
+
+                deactivate
+                cd "$dashboard_dir"
+            fi
+        else
+            log_info "[DRY-RUN] Would create venv and install requirements for $service"
+        fi
+    done
+
+    log_success "Python virtual environments setup complete"
+}
+
 # Function to setup JWT authentication
 # This function configures JWT-based authentication for all dashboard services
 # Prerequisites:
@@ -1302,10 +1393,40 @@ setup_jwt_authentication() {
             # Copy JWT middleware
             cp "$source_middleware" "$service_dir/middleware/jwt_middleware.py"
 
-            # Check if venv exists
+            # Check if venv exists, create if not
             if [[ ! -d "$service_dir/venv" ]]; then
-                log_warning "No venv found for $service, skipping PyJWT installation"
-                continue
+                log_info "Creating venv for $service..."
+                # Determine Python version for each service
+                local python_cmd="python3"
+                case "$service" in
+                    "backend_5010")
+                        # Python 3.12 preferred
+                        if command -v python3.12 &>/dev/null; then
+                            python_cmd="python3.12"
+                        fi
+                        ;;
+                    "kooCAEWebServer_5000"|"kooCAEWebAutomationServer_5001")
+                        # Python 3.13 preferred
+                        if command -v python3.13 &>/dev/null; then
+                            python_cmd="python3.13"
+                        elif command -v python3.12 &>/dev/null; then
+                            python_cmd="python3.12"
+                        fi
+                        ;;
+                    *)
+                        # Default: Python 3.10
+                        if command -v python3.10 &>/dev/null; then
+                            python_cmd="python3.10"
+                        fi
+                        ;;
+                esac
+
+                log_info "  Using $python_cmd for $service"
+                if ! $python_cmd -m venv "$service_dir/venv"; then
+                    log_error "Failed to create venv for $service with $python_cmd"
+                    continue
+                fi
+                log_success "venv created for $service"
             fi
 
             # Ensure PyJWT is in requirements.txt
@@ -1431,6 +1552,9 @@ deploy_web_services() {
 
     # Setup SAML IdP test users (creates config.js)
     setup_saml_idp_users "$dashboard_dir"
+
+    # Setup Python virtual environments and install requirements
+    setup_python_venvs "$dashboard_dir"
 
     # Setup Redis session management
     setup_redis_session_management "$dashboard_dir"

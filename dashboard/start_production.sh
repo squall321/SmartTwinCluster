@@ -568,10 +568,11 @@ if [ -d "kooCAEWebServer_5000" ]; then
         mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
     fi
 
+    # CAE app.py는 create_app() 팩토리 패턴 사용
     if [ -d "venv" ]; then
-        REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1 &
     else
-        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1 &
     fi
     CAE_BACKEND_PID=$!
     echo $CAE_BACKEND_PID > logs/gunicorn.pid
