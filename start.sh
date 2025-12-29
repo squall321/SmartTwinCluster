@@ -44,8 +44,16 @@ setup_python_venvs() {
             continue
         fi
 
-        # venv가 없거나 gunicorn이 없으면 설치 필요
-        if [[ ! -d "$service_dir/venv" ]] || [[ ! -f "$service_dir/venv/bin/gunicorn" ]]; then
+        # venv가 없거나 gunicorn이 없거나 --force-install 옵션이 있으면 설치 필요
+        local force_install=false
+        for arg in "$@"; do
+            if [[ "$arg" == "--force-install" ]]; then
+                force_install=true
+                break
+            fi
+        done
+
+        if [[ ! -d "$service_dir/venv" ]] || [[ ! -f "$service_dir/venv/bin/gunicorn" ]] || [[ "$force_install" == true ]]; then
             need_install=true
             echo "  ⚠️  $service: venv 또는 gunicorn 없음 → 설치 필요"
 
@@ -75,24 +83,31 @@ setup_python_venvs() {
 
                 if [[ -d "$wheels_dir" ]]; then
                     # 오프라인 설치 시도
-                    if "$service_dir/venv/bin/pip" install --no-index --find-links="$wheels_dir" -r "$service_dir/requirements.txt" --quiet 2>/dev/null; then
+                    local pip_log="$service_dir/logs/pip_install.log"
+                    mkdir -p "$service_dir/logs"
+                    if "$service_dir/venv/bin/pip" install --no-index --find-links="$wheels_dir" -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log" | grep -q "Successfully installed\|already satisfied"; then
                         echo "     ✅ 오프라인 설치 완료"
                     else
                         # 온라인 fallback
                         echo "     ⚠️  오프라인 실패, 온라인 시도..."
-                        if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" --quiet 2>/dev/null; then
+                        echo "     ⚠️  오프라인 에러 로그: $pip_log"
+                        if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log"; then
                             echo "     ✅ 온라인 설치 완료"
                         else
                             echo "     ❌ 설치 실패: $service"
+                            echo "     ❌ 에러 로그: $pip_log"
                         fi
                     fi
                 else
                     # wheels 디렉토리 없으면 온라인 설치
-                    echo "     ⚠️  오프라인 wheels 없음, 온라인 시도..."
-                    if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" --quiet 2>/dev/null; then
+                    echo "     ⚠️  오프라인 wheels 없음 ($wheels_dir), 온라인 시도..."
+                    local pip_log="$service_dir/logs/pip_install.log"
+                    mkdir -p "$service_dir/logs"
+                    if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log"; then
                         echo "     ✅ 온라인 설치 완료"
                     else
                         echo "     ❌ 설치 실패: $service"
+                        echo "     ❌ 에러 로그: $pip_log"
                     fi
                 fi
             fi
@@ -197,6 +212,7 @@ show_help() {
     echo "  ./start.sh --rebuild       Production Mode (프론트엔드 재빌드)"
     echo "  ./start.sh --skip-build    Production Mode (명시적으로 빌드 건너뛰기)"
     echo "  ./start.sh --skip-venv     venv 체크/설치 건너뛰기"
+    echo "  ./start.sh --force-install 모든 venv 패키지 강제 재설치"
     echo "  ./start.sh --dev           Development Mode (Flask dev server)"
     echo "  ./start.sh --mock          Mock Mode (테스트용)"
     echo "  ./start.sh --help          이 도움말 표시"
