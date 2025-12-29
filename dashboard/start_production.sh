@@ -84,14 +84,83 @@ fi
 echo -e "${GREEN}✅ 기존 서비스 종료 완료${NC}"
 echo ""
 
-# ==================== 2. Redis 확인 ====================
-echo -e "${BLUE}[2/9] Redis 확인 중...${NC}"
-if pgrep -x redis-server > /dev/null; then
-    echo -e "${GREEN}✅ Redis 실행 중${NC}"
+# ==================== 2. Redis 확인 및 강제 설정 ====================
+echo -e "${BLUE}[2/9] Redis 확인 및 설정 중...${NC}"
+
+# YAML에서 Redis 비밀번호 읽기
+YAML_CONFIG="$SCRIPT_DIR/../my_multihead_cluster.yaml"
+if [ -f "$YAML_CONFIG" ]; then
+    REDIS_PASSWORD=$(python3 -c "
+import yaml
+with open('$YAML_CONFIG') as f:
+    config = yaml.safe_load(f)
+    password = config.get('redis', {}).get('cluster', {}).get('password', '') or config.get('redis', {}).get('password', '')
+    print(password if password else '')
+" 2>/dev/null)
+    echo -e "${BLUE}  → YAML에서 Redis 비밀번호 로드됨${NC}"
 else
-    echo -e "${YELLOW}⚠  Redis가 실행되지 않음. 시작을 시도합니다...${NC}"
-    redis-server --daemonize yes 2>/dev/null || echo -e "${RED}❌ Redis 시작 실패${NC}"
+    REDIS_PASSWORD=""
+    echo -e "${YELLOW}  → YAML 파일 없음, Redis 비밀번호 없이 진행${NC}"
 fi
+
+# Redis 설정 파일 업데이트 (비밀번호 강제 설정)
+REDIS_CONF="/etc/redis/redis.conf"
+if [ -f "$REDIS_CONF" ] && [ -n "$REDIS_PASSWORD" ]; then
+    echo -e "${BLUE}  → Redis 비밀번호 설정 업데이트 중...${NC}"
+    # 기존 requirepass 라인 제거 및 새로 추가
+    sudo sed -i '/^requirepass /d' "$REDIS_CONF" 2>/dev/null || true
+    sudo sed -i '/^# requirepass /d' "$REDIS_CONF" 2>/dev/null || true
+    echo "requirepass $REDIS_PASSWORD" | sudo tee -a "$REDIS_CONF" > /dev/null 2>&1 || true
+fi
+
+# Redis 상태 확인 및 시작/재시작
+if pgrep -x redis-server > /dev/null; then
+    echo -e "${YELLOW}  → Redis 재시작 중 (비밀번호 설정 적용)...${NC}"
+    sudo systemctl restart redis-server 2>/dev/null || {
+        # systemd 실패 시 수동 재시작
+        pkill redis-server 2>/dev/null || true
+        sleep 1
+        if [ -n "$REDIS_PASSWORD" ]; then
+            redis-server --daemonize yes --requirepass "$REDIS_PASSWORD" 2>/dev/null
+        else
+            redis-server --daemonize yes 2>/dev/null
+        fi
+    }
+    sleep 2
+else
+    echo -e "${YELLOW}  → Redis 시작 중...${NC}"
+    # systemd로 시작 시도
+    if sudo systemctl start redis-server 2>/dev/null; then
+        sleep 2
+        echo -e "${GREEN}  → Redis (systemd) 시작됨${NC}"
+    else
+        # 수동 시작 (비밀번호 포함)
+        if [ -n "$REDIS_PASSWORD" ]; then
+            redis-server --daemonize yes --requirepass "$REDIS_PASSWORD" 2>/dev/null
+        else
+            redis-server --daemonize yes 2>/dev/null
+        fi
+        sleep 1
+    fi
+fi
+
+# Redis 연결 테스트
+if [ -n "$REDIS_PASSWORD" ]; then
+    if redis-cli -a "$REDIS_PASSWORD" ping 2>/dev/null | grep -q "PONG"; then
+        echo -e "${GREEN}✅ Redis 연결 확인됨 (인증 성공)${NC}"
+    else
+        echo -e "${RED}❌ Redis 연결 실패 - 수동 확인 필요${NC}"
+    fi
+else
+    if redis-cli ping 2>/dev/null | grep -q "PONG"; then
+        echo -e "${GREEN}✅ Redis 연결 확인됨 (비밀번호 없음)${NC}"
+    else
+        echo -e "${RED}❌ Redis 연결 실패${NC}"
+    fi
+fi
+
+# REDIS_PASSWORD를 전역으로 export (다른 서비스들이 사용)
+export REDIS_PASSWORD
 echo ""
 
 # ==================== 3. SAML-IdP 시작 ====================
@@ -155,10 +224,11 @@ if [ -f "logs/gunicorn.log" ]; then
     mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
 fi
 
+# Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
 if [ -d "venv" ]; then
-    nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 else
-    nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
+    REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 fi
 BACKEND_PID=$!
 echo $BACKEND_PID > logs/gunicorn.pid

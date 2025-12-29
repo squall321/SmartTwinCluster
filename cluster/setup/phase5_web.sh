@@ -2437,6 +2437,59 @@ setup_letsencrypt_ssl() {
 start_services() {
     log_info "Starting web services (PRODUCTION MODE: backends only)..."
 
+    # =========================================================================
+    # Redis 시작 및 비밀번호 설정 (다른 서비스보다 먼저)
+    # =========================================================================
+    log_info "Starting Redis with password from YAML..."
+    if [[ "$DRY_RUN" == false ]]; then
+        # Redis 설정 파일에 비밀번호 설정
+        local redis_conf="/etc/redis/redis.conf"
+        if [[ -f "$redis_conf" ]] && [[ -n "$REDIS_PASSWORD" ]]; then
+            log_info "Configuring Redis password..."
+            sed -i '/^requirepass /d' "$redis_conf" 2>/dev/null || true
+            sed -i '/^# requirepass /d' "$redis_conf" 2>/dev/null || true
+            echo "requirepass $REDIS_PASSWORD" >> "$redis_conf"
+        fi
+
+        # Redis 시작/재시작
+        if systemctl is-active --quiet redis-server 2>/dev/null; then
+            log_info "Restarting redis-server with new password..."
+            systemctl restart redis-server
+        elif systemctl is-active --quiet redis 2>/dev/null; then
+            log_info "Restarting redis with new password..."
+            systemctl restart redis
+        else
+            log_info "Starting redis-server..."
+            systemctl enable redis-server 2>/dev/null || systemctl enable redis 2>/dev/null || true
+            systemctl start redis-server 2>/dev/null || systemctl start redis 2>/dev/null || {
+                # Fallback: 수동 시작
+                if [[ -n "$REDIS_PASSWORD" ]]; then
+                    redis-server --daemonize yes --requirepass "$REDIS_PASSWORD" 2>/dev/null
+                else
+                    redis-server --daemonize yes 2>/dev/null
+                fi
+            }
+        fi
+        sleep 2
+
+        # Redis 연결 테스트
+        if [[ -n "$REDIS_PASSWORD" ]]; then
+            if redis-cli -a "$REDIS_PASSWORD" ping 2>/dev/null | grep -q "PONG"; then
+                log_success "Redis started (authentication enabled)"
+            else
+                log_warning "Redis started but authentication failed"
+            fi
+        else
+            if redis-cli ping 2>/dev/null | grep -q "PONG"; then
+                log_success "Redis started (no authentication)"
+            else
+                log_warning "Redis ping failed"
+            fi
+        fi
+    else
+        log_info "[DRY-RUN] Would start and configure Redis"
+    fi
+
     # Note: auth_frontend (auth_portal_4431) is built and served by Nginx as static files
     # No systemd service needed for frontend
     local services=(
