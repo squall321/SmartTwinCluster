@@ -12,6 +12,10 @@
 cd "$(dirname "$0")"
 PROJECT_ROOT="$(pwd)"
 
+# sudo로 실행 시 실제 사용자 찾기
+RUN_USER="${SUDO_USER:-$(whoami)}"
+RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
+
 # ============================================================================
 # Python venv 체크 및 설치 (오프라인 환경 지원)
 # ============================================================================
@@ -61,10 +65,10 @@ setup_python_venvs() {
                 python_cmd="python3.${py_version#3.}"
             fi
 
-            # venv 생성
+            # venv 생성 (실제 사용자로 실행)
             if [[ ! -d "$service_dir/venv" ]]; then
                 echo "     → venv 생성 중 ($python_cmd)..."
-                if ! $python_cmd -m venv "$service_dir/venv" 2>/dev/null; then
+                if ! sudo -u "$RUN_USER" $python_cmd -m venv "$service_dir/venv" 2>/dev/null; then
                     echo "     ❌ venv 생성 실패: $service"
                     continue
                 fi
@@ -78,16 +82,16 @@ setup_python_venvs() {
                 echo "     → 패키지 설치 중 (Python ${actual_version})..."
 
                 if [[ -d "$wheels_dir" ]]; then
-                    # 오프라인 설치 시도
+                    # 오프라인 설치 시도 (실제 사용자로 실행)
                     local pip_log="$service_dir/logs/pip_install.log"
-                    mkdir -p "$service_dir/logs"
-                    if "$service_dir/venv/bin/pip" install --no-index --find-links="$wheels_dir" -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log" | grep -q "Successfully installed\|already satisfied"; then
+                    sudo -u "$RUN_USER" mkdir -p "$service_dir/logs"
+                    if sudo -u "$RUN_USER" "$service_dir/venv/bin/pip" install --no-index --find-links="$wheels_dir" -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log" | grep -q "Successfully installed\|already satisfied"; then
                         echo "     ✅ 오프라인 설치 완료"
                     else
                         # 온라인 fallback
                         echo "     ⚠️  오프라인 실패, 온라인 시도..."
                         echo "     ⚠️  오프라인 에러 로그: $pip_log"
-                        if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log"; then
+                        if sudo -u "$RUN_USER" "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log"; then
                             echo "     ✅ 온라인 설치 완료"
                         else
                             echo "     ❌ 설치 실패: $service"
@@ -95,11 +99,11 @@ setup_python_venvs() {
                         fi
                     fi
                 else
-                    # wheels 디렉토리 없으면 온라인 설치
+                    # wheels 디렉토리 없으면 온라인 설치 (실제 사용자로 실행)
                     echo "     ⚠️  오프라인 wheels 없음 ($wheels_dir), 온라인 시도..."
                     local pip_log="$service_dir/logs/pip_install.log"
-                    mkdir -p "$service_dir/logs"
-                    if "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log"; then
+                    sudo -u "$RUN_USER" mkdir -p "$service_dir/logs"
+                    if sudo -u "$RUN_USER" "$service_dir/venv/bin/pip" install -r "$service_dir/requirements.txt" 2>&1 | tee "$pip_log"; then
                         echo "     ✅ 온라인 설치 완료"
                     else
                         echo "     ❌ 설치 실패: $service"
@@ -165,9 +169,10 @@ setup_logs_directories() {
             continue
         fi
 
-        # logs 디렉토리 생성
+        # logs 디렉토리 생성 (실제 사용자로 실행)
         if [[ ! -d "$logs_dir" ]]; then
-            mkdir -p "$logs_dir"
+            sudo -u "$current_user" mkdir -p "$logs_dir" 2>/dev/null || mkdir -p "$logs_dir"
+            sudo chown "$current_user:$current_group" "$logs_dir" 2>/dev/null || true
             echo "  ✅ $service/logs 생성됨"
         fi
 
