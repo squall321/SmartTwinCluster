@@ -30,7 +30,7 @@ proc_name = "dashboard_backend_5010"
 
 # Server mechanics
 daemon = False
-pidfile = "logs/gunicorn.pid"
+pidfile = None  # PID 파일 사용 안함 (stale PID 문제 방지)
 user = None
 group = None
 tmp_upload_dir = None

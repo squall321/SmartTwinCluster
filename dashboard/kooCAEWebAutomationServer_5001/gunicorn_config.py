@@ -1,22 +1,22 @@
-# Gunicorn Configuration for Moonlight Backend (Port 8004)
-# 기존 backend_5010과 완전 독립
+# Gunicorn Configuration for CAE Automation Server (Port 5001)
+# Based on resource_limits.yaml
 
 import multiprocessing
 import os
 
 # Server socket
-bind = "127.0.0.1:8004"  # ✅ VNC(5010)와 다른 포트
+bind = "127.0.0.1:5001"
 backlog = 2048
 
 # Worker processes
-workers = 2
+workers = 4  # CPU quota: 200% (2 cores)
 worker_class = "gthread"
 threads = 2
 worker_connections = 1000
-max_requests = 1000
+max_requests = 500  # CAE automation tasks are heavy
 max_requests_jitter = 50
-timeout = 120
-graceful_timeout = 30
+timeout = 300  # Longer timeout for automation operations
+graceful_timeout = 60
 keepalive = 5
 
 # Logging
@@ -26,7 +26,7 @@ loglevel = "info"
 access_log_format = '%({X-Forwarded-For}i)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
 # Process naming
-proc_name = "moonlight_8004"  # ✅ VNC(backend_5010)와 다른 이름
+proc_name = "cae_automation_5001"
 
 # Server mechanics
 daemon = False
@@ -37,15 +37,7 @@ tmp_upload_dir = None
 
 # Performance
 worker_tmp_dir = "/dev/shm"
-preload_app = False  # ❌ Disabled: Redis connections don't work well with preload_app
-
-# Environment variables
-raw_env = [
-    'REDIS_HOST=localhost',
-    'REDIS_PORT=6379',
-    'REDIS_DB=0',
-    'REDIS_PASSWORD=changeme',
-]
+preload_app = True
 
 # Security
 limit_request_line = 4096
@@ -58,12 +50,12 @@ reload = False  # Set to True for development
 # Hooks
 def on_starting(server):
     """Called just before the master process is initialized."""
-    print(f"[Moonlight Backend] Starting Gunicorn server on {bind}")
+    print(f"[CAE Automation] Starting Gunicorn server on {bind}")
 
 def when_ready(server):
     """Called just after the server is started."""
-    print(f"[Moonlight Backend] Gunicorn server is ready. PID: {os.getpid()}")
+    print(f"[CAE Automation] Gunicorn server is ready. PID: {os.getpid()}")
 
 def on_exit(server):
     """Called just before exiting Gunicorn."""
-    print("[Moonlight Backend] Shutting down Gunicorn server")
+    print("[CAE Automation] Shutting down Gunicorn server")
