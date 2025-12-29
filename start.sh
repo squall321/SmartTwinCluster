@@ -120,6 +120,58 @@ if [[ "$SKIP_VENV" == false ]]; then
     setup_python_venvs
 fi
 
+# ============================================================================
+# logs 디렉토리 생성 및 권한 수정
+# ============================================================================
+setup_logs_directories() {
+    local dashboard_dir="$PROJECT_ROOT/dashboard"
+    local current_user=$(whoami)
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📁 logs 디렉토리 준비..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # 모든 백엔드 서비스 목록
+    local services=(
+        "auth_portal_4430"
+        "backend_5010"
+        "websocket_5011"
+        "kooCAEWebServer_5000"
+        "kooCAEWebAutomationServer_5001"
+        "MoonlightSunshine_8004/backend_moonlight_8004"
+    )
+
+    for service in "${services[@]}"; do
+        local service_dir="$dashboard_dir/$service"
+        local logs_dir="$service_dir/logs"
+
+        if [[ ! -d "$service_dir" ]]; then
+            continue
+        fi
+
+        # logs 디렉토리 생성
+        if [[ ! -d "$logs_dir" ]]; then
+            mkdir -p "$logs_dir"
+            echo "  ✅ $service/logs 생성됨"
+        fi
+
+        # 권한 수정 (현재 사용자가 쓸 수 있도록)
+        if [[ -d "$logs_dir" ]]; then
+            # 쓰기 권한이 없으면 수정 시도
+            if [[ ! -w "$logs_dir" ]]; then
+                chmod -R 755 "$logs_dir" 2>/dev/null || true
+                echo "  🔧 $service/logs 권한 수정됨"
+            fi
+        fi
+    done
+
+    echo "  ✅ logs 디렉토리 준비 완료"
+    echo ""
+}
+
+# logs 디렉토리 준비 실행
+setup_logs_directories
+
 # 도움말 출력
 show_help() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
