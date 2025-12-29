@@ -13,6 +13,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# sudo로 실행 시 실제 사용자 찾기
+RUN_USER="${SUDO_USER:-$(whoami)}"
+RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -237,14 +241,15 @@ fi
 
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
 # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
+# sudo -u로 실제 사용자로 실행 (root 실행 방지)
 if [ -d "venv" ]; then
-    source venv/bin/activate
-    REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    BACKEND_PID=$!
-    deactivate 2>/dev/null || true
+    sudo -u "$RUN_USER" bash -c "cd $(pwd) && source venv/bin/activate && REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+    sleep 1
+    BACKEND_PID=$(pgrep -f "gunicorn.*auth_portal_4430" | head -1)
 else
-    REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    BACKEND_PID=$!
+    sudo -u "$RUN_USER" bash -c "cd $(pwd) && REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+    sleep 1
+    BACKEND_PID=$(pgrep -f "gunicorn.*auth_portal_4430" | head -1)
 fi
 cd "$SCRIPT_DIR"
 
@@ -386,14 +391,15 @@ fi
 
 # Dashboard Backend 시작
 # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
+# sudo -u로 실제 사용자로 실행 (root 실행 방지)
 if [ -d "venv" ]; then
-    source venv/bin/activate
-    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    DB_BACKEND_PID=$!
-    deactivate 2>/dev/null || true
+    sudo -u "$RUN_USER" bash -c "cd $(pwd) && source venv/bin/activate && MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+    sleep 1
+    DB_BACKEND_PID=$(pgrep -f "gunicorn.*backend_5010" | head -1)
 else
-    MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-    DB_BACKEND_PID=$!
+    sudo -u "$RUN_USER" bash -c "cd $(pwd) && MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+    sleep 1
+    DB_BACKEND_PID=$(pgrep -f "gunicorn.*backend_5010" | head -1)
 fi
 cd "$SCRIPT_DIR"
 
@@ -432,12 +438,14 @@ fi
 cd websocket_5011
 mkdir -p logs
 rm -f websocket.log
+# sudo -u로 실제 사용자로 실행 (root 실행 방지)
 if [ -d "venv" ]; then
-    SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/python websocket_server_enhanced.py > websocket.log 2>&1 &
+    sudo -u "$RUN_USER" bash -c "cd $(pwd) && SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD='$REDIS_PASSWORD' nohup venv/bin/python websocket_server_enhanced.py > websocket.log 2>&1 &"
 else
-    SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup python3 websocket_server_enhanced.py > websocket.log 2>&1 &
+    sudo -u "$RUN_USER" bash -c "cd $(pwd) && SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD='$REDIS_PASSWORD' nohup python3 websocket_server_enhanced.py > websocket.log 2>&1 &"
 fi
-WS_PID=$!
+sleep 1
+WS_PID=$(pgrep -f "websocket_5011.*python" | head -1)
 echo $WS_PID > .websocket.pid
 cd "$SCRIPT_DIR"
 echo -e "${GREEN}✅ WebSocket Server 시작됨 (PID: $WS_PID, Port: 5011)${NC}"
@@ -526,14 +534,15 @@ if [ -d "MoonlightSunshine_8004/backend_moonlight_8004" ]; then
 
     # Moonlight Backend 시작
     # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
+    # sudo -u로 실제 사용자로 실행 (root 실행 방지)
     if [ -d "venv" ]; then
-        source venv/bin/activate
-        REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-        MOONLIGHT_PID=$!
-        deactivate 2>/dev/null || true
+        sudo -u "$RUN_USER" bash -c "cd $(pwd) && source venv/bin/activate && REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+        sleep 1
+        MOONLIGHT_PID=$(pgrep -f "gunicorn.*backend_moonlight_8004" | head -1)
     else
-        REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-        MOONLIGHT_PID=$!
+        sudo -u "$RUN_USER" bash -c "cd $(pwd) && REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+        sleep 1
+        MOONLIGHT_PID=$(pgrep -f "gunicorn.*backend_moonlight_8004" | head -1)
     fi
 
     # 시작 확인 (프로세스 + API 테스트)
@@ -625,14 +634,15 @@ if [ -d "kooCAEWebServer_5000" ]; then
 
     # CAE Backend 시작 (create_app() 팩토리 패턴)
     # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
+    # sudo -u로 실제 사용자로 실행 (root 실행 방지)
     if [ -d "venv" ]; then
-        source venv/bin/activate
-        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid 'app:create_app()' > logs/gunicorn.log 2>&1 &
-        CAE_BACKEND_PID=$!
-        deactivate 2>/dev/null || true
+        sudo -u "$RUN_USER" bash -c "cd $(pwd) && source venv/bin/activate && REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid 'app:create_app()' > logs/gunicorn.log 2>&1 &"
+        sleep 1
+        CAE_BACKEND_PID=$(pgrep -f "gunicorn.*kooCAEWebServer_5000" | head -1)
     else
-        REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid 'app:create_app()' > logs/gunicorn.log 2>&1 &
-        CAE_BACKEND_PID=$!
+        sudo -u "$RUN_USER" bash -c "cd $(pwd) && REDIS_PASSWORD='$REDIS_PASSWORD' nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid 'app:create_app()' > logs/gunicorn.log 2>&1 &"
+        sleep 1
+        CAE_BACKEND_PID=$(pgrep -f "gunicorn.*kooCAEWebServer_5000" | head -1)
     fi
     cd "$SCRIPT_DIR"
 
@@ -711,14 +721,15 @@ if [ -d "kooCAEWebAutomationServer_5001" ]; then
 
     # CAE Automation 시작
     # --pid 옵션으로 PID 파일 직접 지정 (stale PID 자동 처리)
+    # sudo -u로 실제 사용자로 실행 (root 실행 방지)
     if [ -d "venv" ]; then
-        source venv/bin/activate
-        nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-        CAE_AUTO_PID=$!
-        deactivate 2>/dev/null || true
+        sudo -u "$RUN_USER" bash -c "cd $(pwd) && source venv/bin/activate && nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+        sleep 1
+        CAE_AUTO_PID=$(pgrep -f "gunicorn.*kooCAEWebAutomationServer_5001" | head -1)
     else
-        nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
-        CAE_AUTO_PID=$!
+        sudo -u "$RUN_USER" bash -c "cd $(pwd) && nohup gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &"
+        sleep 1
+        CAE_AUTO_PID=$(pgrep -f "gunicorn.*kooCAEWebAutomationServer_5001" | head -1)
     fi
     cd "$SCRIPT_DIR"
 
