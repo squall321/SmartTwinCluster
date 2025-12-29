@@ -235,6 +235,9 @@ if [ -d "venv" ]; then
     fi
 fi
 
+# PID 파일 삭제 (gunicorn 시작 직전)
+rm -f logs/gunicorn.pid
+
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
 if [ -d "venv" ]; then
     (source venv/bin/activate && REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
@@ -381,6 +384,9 @@ if [ -d "venv" ]; then
     fi
 fi
 
+# PID 파일 삭제 (gunicorn 시작 직전)
+rm -f logs/gunicorn.pid
+
 if [ -d "venv" ]; then
     (source venv/bin/activate && MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
 else
@@ -517,6 +523,9 @@ if [ -d "MoonlightSunshine_8004/backend_moonlight_8004" ]; then
         fi
     fi
 
+    # PID 파일 삭제 (gunicorn 시작 직전)
+    rm -f logs/gunicorn.pid
+
     if [ -d "venv" ]; then
         (source venv/bin/activate && REDIS_PASSWORD=$REDIS_PASSWORD nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
     else
@@ -612,6 +621,9 @@ if [ -d "kooCAEWebServer_5000" ]; then
         fi
     fi
 
+    # PID 파일 삭제 (gunicorn 시작 직전)
+    rm -f logs/gunicorn.pid
+
     # CAE app.py는 create_app() 팩토리 패턴 사용
     if [ -d "venv" ]; then
         (source venv/bin/activate && REDIS_PASSWORD="$REDIS_PASSWORD" nohup gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1) &
@@ -694,6 +706,9 @@ if [ -d "kooCAEWebAutomationServer_5001" ]; then
             cat logs/import_error.log
         fi
     fi
+
+    # PID 파일 삭제 (gunicorn 시작 직전)
+    rm -f logs/gunicorn.pid
 
     if [ -d "venv" ]; then
         (source venv/bin/activate && nohup gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1) &
