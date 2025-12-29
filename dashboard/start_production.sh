@@ -323,8 +323,8 @@ if [ -d "venv" ]; then
     # 실행 전 상태
     echo "  [DEBUG] 실행 전 gunicorn 프로세스: $(pgrep -f 'gunicorn.*auth_portal_4430' | wc -l)개"
 
-    # 백그라운드 실행 (stderr도 캡처)
-    REDIS_PASSWORD="$REDIS_PASSWORD" venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
+    # 백그라운드 실행 (nohup + setsid로 세션 분리, 환경변수 인라인 전달)
+    REDIS_PASSWORD="$REDIS_PASSWORD" nohup setsid venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app > logs/gunicorn.log 2>&1 &
     GUNICORN_BG_PID=$!
     echo "  [DEBUG] 백그라운드 PID: $GUNICORN_BG_PID"
 
