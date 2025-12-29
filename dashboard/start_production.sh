@@ -312,10 +312,11 @@ if [ -d "venv" ]; then
     GUNICORN_CMD="venv/bin/gunicorn -c gunicorn_config.py --pid logs/gunicorn.pid app:app"
     echo "  [DEBUG] 실행 명령: REDIS_PASSWORD=*** $GUNICORN_CMD"
 
-    # 먼저 포그라운드로 테스트 실행 (에러 확인용, 1초 타임아웃)
-    echo "  [DEBUG] === 포그라운드 테스트 실행 (에러 확인) ==="
-    timeout 2 bash -c "REDIS_PASSWORD='$REDIS_PASSWORD' venv/bin/gunicorn -c gunicorn_config.py app:app --check-config" 2>&1 || true
-    echo "  [DEBUG] === 테스트 완료 ==="
+    # 포그라운드로 직접 실행해서 에러 확인 (5초 타임아웃)
+    echo "  [DEBUG] === 포그라운드 테스트 실행 (실제 에러 확인) ==="
+    echo "  [DEBUG] 5초간 포그라운드 실행 후 종료..."
+    timeout 5 bash -c "REDIS_PASSWORD='$REDIS_PASSWORD' venv/bin/gunicorn -c gunicorn_config.py app:app --log-level debug" 2>&1 | head -50 || true
+    echo "  [DEBUG] === 테스트 완료 (타임아웃 또는 에러) ==="
 
     echo "  [DEBUG] 백그라운드 실행 시작..."
 
