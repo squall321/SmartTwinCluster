@@ -224,6 +224,15 @@ if [ -f "logs/gunicorn.log" ]; then
     mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
 fi
 
+# Python import 테스트
+if [ -d "venv" ]; then
+    echo "  → Python import 테스트 중..."
+    if ! venv/bin/python -c "from app import app; print('OK')" 2>logs/import_error.log; then
+        echo -e "${RED}   ❌ Python import 실패:${NC}"
+        cat logs/import_error.log
+    fi
+fi
+
 # Auth Backend 시작 (REDIS_PASSWORD 환경변수 전달)
 if [ -d "venv" ]; then
     REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
@@ -359,6 +368,15 @@ if [ -f "logs/gunicorn.log" ]; then
     mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
 fi
 
+# Python import 테스트
+if [ -d "venv" ]; then
+    echo "  → Python import 테스트 중..."
+    if ! venv/bin/python -c "from app import app; print('OK')" 2>logs/import_error.log; then
+        echo -e "${RED}   ❌ Python import 실패:${NC}"
+        cat logs/import_error.log
+    fi
+fi
+
 if [ -d "venv" ]; then
     MOCK_MODE=false SSO_ENABLED=$SSO_ENABLED REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
 else
@@ -484,6 +502,15 @@ if [ -d "MoonlightSunshine_8004/backend_moonlight_8004" ]; then
         mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
     fi
 
+    # Python import 테스트
+    if [ -d "venv" ]; then
+        echo "  → Python import 테스트 중..."
+        if ! venv/bin/python -c "from app import app; print('OK')" 2>logs/import_error.log; then
+            echo -e "${RED}   ❌ Python import 실패:${NC}"
+            cat logs/import_error.log
+        fi
+    fi
+
     if [ -d "venv" ]; then
         REDIS_PASSWORD=$REDIS_PASSWORD nohup venv/bin/gunicorn -c gunicorn_config.py app:app > logs/gunicorn.log 2>&1 &
     else
@@ -568,6 +595,15 @@ if [ -d "kooCAEWebServer_5000" ]; then
         mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
     fi
 
+    # Python import 테스트
+    if [ -d "venv" ]; then
+        echo "  → Python import 테스트 중..."
+        if ! venv/bin/python -c "from app import create_app; print('OK')" 2>logs/import_error.log; then
+            echo -e "${RED}   ❌ Python import 실패:${NC}"
+            cat logs/import_error.log
+        fi
+    fi
+
     # CAE app.py는 create_app() 팩토리 패턴 사용
     if [ -d "venv" ]; then
         REDIS_PASSWORD="$REDIS_PASSWORD" nohup venv/bin/gunicorn -c gunicorn_config.py 'app:create_app()' > logs/gunicorn.log 2>&1 &
@@ -638,6 +674,15 @@ if [ -d "kooCAEWebAutomationServer_5001" ]; then
     # 기존 로그 백업
     if [ -f "logs/gunicorn.log" ]; then
         mv logs/gunicorn.log logs/gunicorn_prev.log 2>/dev/null || true
+    fi
+
+    # Python import 테스트
+    if [ -d "venv" ]; then
+        echo "  → Python import 테스트 중..."
+        if ! venv/bin/python -c "from app import app; print('OK')" 2>logs/import_error.log; then
+            echo -e "${RED}   ❌ Python import 실패:${NC}"
+            cat logs/import_error.log
+        fi
     fi
 
     if [ -d "venv" ]; then
