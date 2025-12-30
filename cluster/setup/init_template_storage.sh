@@ -25,6 +25,11 @@ readonly NC='\033[0m' # No Color
 # Template storage path
 TEMPLATE_DIR="/shared/templates"
 
+# Service user/group (can be set via environment or command line)
+# 기본값: 현재 실행 중인 사용자
+SERVICE_USER="${SERVICE_USER:-$(whoami)}"
+SERVICE_GROUP="${SERVICE_GROUP:-$(id -gn)}"
+
 # Logging functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -68,7 +73,7 @@ set_permissions() {
     log_info "Setting permissions..."
 
     # Base directory: readable by all
-    chown -R koopark:koopark "$TEMPLATE_DIR"
+    chown -R "$SERVICE_USER:$SERVICE_GROUP" "$TEMPLATE_DIR"
     chmod 755 "$TEMPLATE_DIR"
 
     # Official: read-only for users, writable by admin

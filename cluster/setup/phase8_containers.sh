@@ -240,7 +240,7 @@ try:
     for node in viz_nodes:
         hostname = node.get('hostname', '')
         ip = node.get('ip_address', '')
-        user = node.get('ssh_user', 'koopark')
+        user = node.get('ssh_user', 'root')
 
         if hostname and ip:
             print(f"{hostname}|{ip}|{user}")
@@ -273,7 +273,7 @@ try:
     for node in compute_nodes:
         hostname = node.get('hostname', '')
         ip = node.get('ip_address', '')
-        user = node.get('ssh_user', 'koopark')
+        user = node.get('ssh_user', 'root')
 
         if hostname and ip:
             print(f"{hostname}|{ip}|{user}")

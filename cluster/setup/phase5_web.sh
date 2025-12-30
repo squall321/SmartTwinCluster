@@ -477,26 +477,37 @@ load_config() {
 create_web_user() {
     log_info "Creating web services user..."
 
+    # YAML에서 service_user 읽기 (기본값: webservice)
+    local service_user="webservice"
+    if [[ -f "$CONFIG_PATH" ]]; then
+        local yaml_service_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+        if [[ -n "$yaml_service_user" ]]; then
+            service_user="$yaml_service_user"
+        fi
+    fi
+
+    # 이미 존재하는 사용자라면 (koopark 등) 새로 생성하지 않음
+    if id "$service_user" &>/dev/null; then
+        local existing_uid=$(id -u "$service_user")
+        log_info "Service user '$service_user' already exists (UID=$existing_uid)"
+        return 0
+    fi
+
     # Get UID/GID from YAML config (default to 64010 to avoid conflicts)
     local target_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web',{}).get('user_uid', 64010))" 2>/dev/null || echo 64010)
     local target_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web',{}).get('user_gid', 64010))" 2>/dev/null || echo 64010)
 
-    if id "webservice" &>/dev/null; then
-        local existing_uid=$(id -u webservice)
-        log_info "User 'webservice' already exists (UID=$existing_uid)"
-    else
-        if [[ "$DRY_RUN" == false ]]; then
-            # Create group first
-            if ! getent group webservice &>/dev/null; then
-                groupadd -g "$target_gid" webservice 2>/dev/null || groupadd webservice
-            fi
-            # Create user with specific UID if possible
-            useradd -r -u "$target_uid" -g webservice -s /bin/false -d "$WEB_SERVICES_DIR" webservice 2>/dev/null || \
-                useradd -r -g webservice -s /bin/false -d "$WEB_SERVICES_DIR" webservice
-            log_success "User 'webservice' created (UID=$(id -u webservice))"
-        else
-            log_info "[DRY-RUN] Would create user 'webservice' with UID=$target_uid"
+    if [[ "$DRY_RUN" == false ]]; then
+        # Create group first
+        if ! getent group "$service_user" &>/dev/null; then
+            groupadd -g "$target_gid" "$service_user" 2>/dev/null || groupadd "$service_user"
         fi
+        # Create user with specific UID if possible
+        useradd -r -u "$target_uid" -g "$service_user" -s /bin/false -d "$WEB_SERVICES_DIR" "$service_user" 2>/dev/null || \
+            useradd -r -g "$service_user" -s /bin/false -d "$WEB_SERVICES_DIR" "$service_user"
+        log_success "User '$service_user' created (UID=$(id -u "$service_user"))"
+    else
+        log_info "[DRY-RUN] Would create user '$service_user' with UID=$target_uid"
     fi
 }
 
@@ -572,8 +583,16 @@ deploy_real_dashboard_service() {
             # Create logs directory
             mkdir -p "$target_dir/logs"
 
-            # Set ownership
-            chown -R webservice:webservice "$target_dir"
+            # Set ownership (use service_user from YAML or current user)
+            local owner_user="${SERVICE_USER:-$(whoami)}"
+            local owner_group="${SERVICE_GROUP:-$(id -gn)}"
+            if [[ -f "$CONFIG_PATH" ]]; then
+                local yaml_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                local yaml_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                [[ -n "$yaml_user" ]] && owner_user="$yaml_user"
+                [[ -n "$yaml_group" ]] && owner_group="$yaml_group"
+            fi
+            chown -R "$owner_user:$owner_group" "$target_dir"
 
             log_success "$service_name files copied successfully"
         else
@@ -729,8 +748,16 @@ EOF
             log_success "$service_name built successfully"
         fi
 
-        # Set ownership
-        chown -R webservice:webservice "$service_dir"
+        # Set ownership (use service_user from YAML or current user)
+        local owner_user="${SERVICE_USER:-$(whoami)}"
+        local owner_group="${SERVICE_GROUP:-$(id -gn)}"
+        if [[ -f "$CONFIG_PATH" ]]; then
+            local yaml_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+            local yaml_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+            [[ -n "$yaml_user" ]] && owner_user="$yaml_user"
+            [[ -n "$yaml_group" ]] && owner_group="$yaml_group"
+        fi
+        chown -R "$owner_user:$owner_group" "$service_dir"
 
         log_success "$service_name skeleton deployed"
     else
@@ -805,7 +832,16 @@ REDIS_PORT=6379
 REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
 DEFAULT_SESSION_TTL=7200
 EOF
-                chown webservice:webservice "$service_dir/.env"
+                # Set ownership (use service_user from YAML or current user)
+                local env_owner="${SERVICE_USER:-$(whoami)}"
+                local env_group="${SERVICE_GROUP:-$(id -gn)}"
+                if [[ -f "$CONFIG_PATH" ]]; then
+                    local yaml_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    local yaml_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    [[ -n "$yaml_user" ]] && env_owner="$yaml_user"
+                    [[ -n "$yaml_group" ]] && env_group="$yaml_group"
+                fi
+                chown "$env_owner:$env_group" "$service_dir/.env"
                 log_success ".env file created for $service"
             else
                 log_info ".env file already exists for $service"
@@ -1528,7 +1564,16 @@ setup_jwt_authentication() {
 JWT_SECRET_KEY=${jwt_value}
 JWT_ALGORITHM=HS256
 EOF
-                chown webservice:webservice "$service_dir/.env"
+                # Set ownership (use service_user from YAML or current user)
+                local jwt_owner="${SERVICE_USER:-$(whoami)}"
+                local jwt_group="${SERVICE_GROUP:-$(id -gn)}"
+                if [[ -f "$CONFIG_PATH" ]]; then
+                    local yaml_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    local yaml_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    [[ -n "$yaml_user" ]] && jwt_owner="$yaml_user"
+                    [[ -n "$yaml_group" ]] && jwt_group="$yaml_group"
+                fi
+                chown "$jwt_owner:$jwt_group" "$service_dir/.env"
                 log_success ".env file created with JWT configuration"
             fi
 
@@ -1592,6 +1637,20 @@ create_systemd_service() {
     local work_dir="$WEB_SERVICES_DIR/$service_name"
 
     if [[ "$DRY_RUN" == false ]]; then
+        # YAML에서 service_user/service_group 읽기 (기본값: 현재 사용자)
+        local service_user="${SERVICE_USER:-$(whoami)}"
+        local service_group="${SERVICE_GROUP:-$(id -gn)}"
+        if [[ -f "$CONFIG_PATH" ]]; then
+            local yaml_service_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+            local yaml_service_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+            if [[ -n "$yaml_service_user" ]]; then
+                service_user="$yaml_service_user"
+            fi
+            if [[ -n "$yaml_service_group" ]]; then
+                service_group="$yaml_service_group"
+            fi
+        fi
+
         # Different ExecStart based on service type
         local exec_start=""
         local environment=""
@@ -1614,8 +1673,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=webservice
-Group=webservice
+User=$service_user
+Group=$service_group
 WorkingDirectory=$work_dir
 
 # Environment
