@@ -340,6 +340,106 @@ setup_logs_directories() {
 setup_logs_directories
 
 # ============================================================================
+# 기존 프로세스 정리 (포트 기반)
+# ============================================================================
+cleanup_existing_processes() {
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🧹 기존 프로세스 정리..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # 서비스별 포트 정의 (백엔드 + 프론트엔드 dev 서버 포함)
+    local SERVICE_PORTS=(
+        # 백엔드 서비스
+        "4430:auth_portal_backend"
+        "5010:backend"
+        "5000:cae_server"
+        "5001:cae_automation"
+        "5011:websocket"
+        "9090:prometheus"
+        "9100:node_exporter"
+        # 프론트엔드 dev 서버 (vite)
+        "3010:frontend_dev"
+        "4431:auth_portal_frontend_dev"
+        "5173:kooCAEWeb_dev"
+        "5174:app_dev"
+        # 기타 서비스
+        "7000:saml_idp"
+        "8001:cae_service"
+        "8002:vnc_service"
+        "8003:moonlight_frontend"
+        "8004:moonlight_backend"
+        "8005:webrtc_nvenc"
+    )
+
+    # 1단계: 프로세스 이름 기반 정리
+    echo "  → 프로세스 이름 기반 정리..."
+    pkill -f "gunicorn.*auth_portal" 2>/dev/null || true
+    pkill -f "gunicorn.*backend_5010" 2>/dev/null || true
+    pkill -f "gunicorn.*kooCAEWebServer" 2>/dev/null || true
+    pkill -f "gunicorn.*kooCAEWebAutomation" 2>/dev/null || true
+    pkill -f "websocket_server_enhanced" 2>/dev/null || true
+    pkill -f "vite.*3010" 2>/dev/null || true
+    pkill -f "vite.*4431" 2>/dev/null || true
+    pkill -f "vite.*5173" 2>/dev/null || true
+    pkill -f "vite.*5174" 2>/dev/null || true
+    pkill -f "node.*vite" 2>/dev/null || true
+
+    # 2단계: 포트 기반 정리
+    echo "  → 포트 기반 정리..."
+    for port_info in "${SERVICE_PORTS[@]}"; do
+        local port="${port_info%%:*}"
+        local name="${port_info##*:}"
+
+        local pids=$(lsof -t -i :$port 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            echo "    포트 $port ($name): PID $pids 종료 중..."
+            for pid in $pids; do
+                kill $pid 2>/dev/null || sudo kill $pid 2>/dev/null || true
+            done
+        fi
+    done
+
+    sleep 2
+
+    # 3단계: 강제 종료 (아직 남아있는 경우)
+    echo "  → 잔여 프로세스 강제 종료..."
+    for port_info in "${SERVICE_PORTS[@]}"; do
+        local port="${port_info%%:*}"
+        local pids=$(lsof -t -i :$port 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            for pid in $pids; do
+                kill -9 $pid 2>/dev/null || sudo kill -9 $pid 2>/dev/null || true
+            done
+        fi
+    done
+
+    sleep 1
+
+    # 4단계: 클린 상태 확인
+    echo "  → 클린 상태 확인..."
+    local clean_state=true
+    local occupied_ports=()
+    for port_info in "${SERVICE_PORTS[@]}"; do
+        local port="${port_info%%:*}"
+        local name="${port_info##*:}"
+
+        if lsof -i :$port > /dev/null 2>&1; then
+            occupied_ports+=("$port($name)")
+            clean_state=false
+        fi
+    done
+
+    if [[ "$clean_state" == true ]]; then
+        echo "  ✅ 모든 서비스 포트 정리 완료"
+    else
+        echo "  ⚠️  일부 포트가 여전히 사용 중: ${occupied_ports[*]}"
+        echo "     계속 진행합니다..."
+    fi
+    echo ""
+}
+
+# ============================================================================
 # 서비스 상태 체크 및 테스트
 # ============================================================================
 check_services_health() {
@@ -691,6 +791,7 @@ case $MODE in
     development)
         if [ -f "dashboard/start_dev.sh" ]; then
             echo "🔧 HPC 웹 서비스 시작 중 (Development Mode - Flask)..."
+            cleanup_existing_processes
             ./dashboard/start_dev.sh
         else
             echo "❌ 오류: dashboard/start_dev.sh 파일을 찾을 수 없습니다."
@@ -701,6 +802,7 @@ case $MODE in
     mock)
         if [ -f "dashboard/start_mock.sh" ]; then
             echo "🎭 HPC 웹 서비스 시작 중 (Mock Mode - Flask)..."
+            cleanup_existing_processes
             ./dashboard/start_mock.sh
         else
             echo "❌ 오류: dashboard/start_mock.sh 파일을 찾을 수 없습니다."
@@ -711,6 +813,10 @@ case $MODE in
     production)
         if [ -f "dashboard/start_production.sh" ]; then
             echo "🏭 HPC 웹 서비스 시작 중 (Production Mode - Gunicorn)..."
+
+            # 기존 프로세스 정리 (start.sh 단독 실행 또는 --skip-cleanup 없을 때)
+            cleanup_existing_processes
+
             ./dashboard/start_production.sh "${EXTRA_ARGS[@]}"
 
             # 서비스 시작 후 상태 체크

@@ -176,15 +176,28 @@ echo ""
 # ==================== 3. 기존 프로세스 정리 ====================
 echo -e "${BLUE}[3/6] 기존 백그라운드 프로세스 정리...${NC}"
 
-# 서비스별 포트 정의
+# 서비스별 포트 정의 (백엔드 + 프론트엔드 dev 서버 포함)
 SERVICE_PORTS=(
-    "4430:auth_portal"
+    # 백엔드 서비스
+    "4430:auth_portal_backend"
     "5010:backend"
     "5000:cae_server"
     "5001:cae_automation"
     "5011:websocket"
     "9090:prometheus"
     "9100:node_exporter"
+    # 프론트엔드 dev 서버 (vite)
+    "3010:frontend_dev"
+    "4431:auth_portal_frontend_dev"
+    "5173:kooCAEWeb_dev"
+    "5174:app_dev"
+    # 기타 서비스
+    "7000:saml_idp"
+    "8001:cae_service"
+    "8002:vnc_service"
+    "8003:moonlight_frontend"
+    "8004:moonlight_backend"
+    "8005:webrtc_nvenc"
 )
 
 # PID 파일 정리
