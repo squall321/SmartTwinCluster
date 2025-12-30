@@ -526,6 +526,20 @@ fi
 
 echo ""
 echo "📦 설치 중..."
+
+# 실행 중인 Slurm 서비스 중지 (text file busy 에러 방지)
+echo "  ⏹️  기존 Slurm 서비스 중지 중..."
+sudo systemctl stop slurmd 2>/dev/null || true
+sudo systemctl stop slurmctld 2>/dev/null || true
+sudo systemctl stop slurmdbd 2>/dev/null || true
+# 프로세스가 완전히 종료될 때까지 대기
+sleep 2
+# 혹시 남아있는 프로세스 강제 종료
+sudo pkill -9 slurmd 2>/dev/null || true
+sudo pkill -9 slurmctld 2>/dev/null || true
+sudo pkill -9 slurmdbd 2>/dev/null || true
+sleep 1
+
 sudo make install
 
 if [ $? -eq 0 ]; then
