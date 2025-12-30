@@ -3,8 +3,17 @@
 """
 
 import subprocess
+import os
 import re
 from typing import List, Dict, Any
+
+# Slurm 설치 경로 (환경변수로 override 가능)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
+DEFAULT_TIMEOUT = 10  # 기본 타임아웃 10초
+
+def get_slurm_command(cmd: str) -> str:
+    """Slurm 명령어의 전체 경로 반환"""
+    return os.path.join(SLURM_BIN_DIR, cmd)
 
 def get_slurm_nodes() -> List[Dict[str, Any]]:
     """
@@ -18,10 +27,11 @@ def get_slurm_nodes() -> List[Dict[str, Any]]:
         # %T: State
         # %P: Partition
         result = subprocess.run(
-            ['sinfo', '-N', '-o', '%N|%C|%m|%T|%P', '--noheader'],
+            [get_slurm_command('sinfo'), '-N', '-o', '%N|%C|%m|%T|%P', '--noheader'],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=DEFAULT_TIMEOUT
         )
         
         nodes = []
@@ -82,6 +92,9 @@ def get_slurm_nodes() -> List[Dict[str, Any]]:
         
         return nodes
         
+    except subprocess.TimeoutExpired as e:
+        print(f"Timeout running sinfo (>{DEFAULT_TIMEOUT}s): {e}")
+        return []
     except subprocess.CalledProcessError as e:
         print(f"Error running sinfo: {e}")
         return []
@@ -96,11 +109,11 @@ def get_node_ip_address(hostname: str) -> str:
     """
     try:
         result = subprocess.run(
-            ['scontrol', 'show', 'node', hostname],
+            [get_slurm_command('scontrol'), 'show', 'node', hostname],
             capture_output=True,
             text=True,
             check=True,
-            timeout=5
+            timeout=DEFAULT_TIMEOUT
         )
         
         # NodeAddr 파싱
@@ -122,10 +135,11 @@ def get_node_details(hostname: str) -> Dict[str, Any]:
     """
     try:
         result = subprocess.run(
-            ['scontrol', 'show', 'node', hostname],
+            [get_slurm_command('scontrol'), 'show', 'node', hostname],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=DEFAULT_TIMEOUT
         )
         
         output = result.stdout
@@ -196,10 +210,11 @@ def get_partitions() -> List[Dict[str, Any]]:
     """
     try:
         result = subprocess.run(
-            ['sinfo', '-o', '%P|%a|%l|%D|%T|%N', '--noheader'],
+            [get_slurm_command('sinfo'), '-o', '%P|%a|%l|%D|%T|%N', '--noheader'],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=DEFAULT_TIMEOUT
         )
         
         partitions = []
@@ -229,7 +244,13 @@ def get_partitions() -> List[Dict[str, Any]]:
             })
         
         return partitions
-        
+
+    except subprocess.TimeoutExpired as e:
+        print(f"Timeout getting partitions (>{DEFAULT_TIMEOUT}s): {e}")
+        return []
+    except subprocess.CalledProcessError as e:
+        print(f"Error running sinfo for partitions: {e}")
+        return []
     except Exception as e:
         print(f"Error getting partitions: {e}")
         return []

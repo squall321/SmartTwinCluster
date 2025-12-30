@@ -504,6 +504,20 @@ create_web_user() {
 create_directories() {
     log_info "Creating directory structure..."
 
+    # YAML에서 service_user/service_group 읽기 (기본값: 현재 사용자)
+    local service_user="${SERVICE_USER:-$(whoami)}"
+    local service_group="${SERVICE_GROUP:-$(id -gn)}"
+    if [[ -f "$CONFIG_PATH" ]]; then
+        local yaml_service_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+        local yaml_service_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+        if [[ -n "$yaml_service_user" ]]; then
+            service_user="$yaml_service_user"
+        fi
+        if [[ -n "$yaml_service_group" ]]; then
+            service_group="$yaml_service_group"
+        fi
+    fi
+
     local dirs=(
         "$WEB_SERVICES_DIR"
         "$WEB_SERVICES_DIR/dashboard"
@@ -522,7 +536,7 @@ create_directories() {
     for dir in "${dirs[@]}"; do
         if [[ "$DRY_RUN" == false ]]; then
             mkdir -p "$dir"
-            chown -R webservice:webservice "$dir"
+            chown -R "$service_user:$service_group" "$dir" 2>/dev/null || true
         else
             log_info "[DRY-RUN] Would create directory: $dir"
         fi
@@ -2016,12 +2030,37 @@ create_systemd_service_direct() {
         # SSO 설정 가져오기 (환경변수 또는 기본값)
         local sso_enabled="${SSO_ENABLED:-true}"
 
+        # YAML에서 service_user/service_group 읽기 (기본값: 현재 사용자)
+        local service_user="${SERVICE_USER:-$(whoami)}"
+        local service_group="${SERVICE_GROUP:-$(id -gn)}"
+        if [[ -f "$CONFIG_PATH" ]]; then
+            local yaml_service_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+            local yaml_service_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+            if [[ -n "$yaml_service_user" ]]; then
+                service_user="$yaml_service_user"
+            fi
+            if [[ -n "$yaml_service_group" ]]; then
+                service_group="$yaml_service_group"
+            fi
+        fi
+
+        # YAML에서 Slurm bin_path 읽기 (기본값: /usr/local/slurm/bin)
+        local slurm_bin_path="/usr/local/slurm/bin"
+        local slurm_sbin_path="/usr/local/slurm/sbin"
+        if [[ -f "$CONFIG_PATH" ]]; then
+            local yaml_bin_path=$(grep -E "^\s+bin_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+            if [[ -n "$yaml_bin_path" ]]; then
+                slurm_bin_path="$yaml_bin_path"
+                slurm_sbin_path="${yaml_bin_path%/bin}/sbin"
+            fi
+        fi
+
         if [[ "$service_type" == "python" ]]; then
-            environment="Environment=\"MOCK_MODE=false\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"SSO_ENABLED=$sso_enabled\"\nEnvironment=\"PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:/usr/local/bin:/usr/bin:/bin\"\nEnvironment=\"SLURM_BIN_DIR=/usr/local/slurm/bin\"\nEnvironmentFile=-$work_dir/.env"
+            environment="Environment=\"MOCK_MODE=false\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"SSO_ENABLED=$sso_enabled\"\nEnvironment=\"PATH=$slurm_bin_path:$slurm_sbin_path:/usr/local/bin:/usr/bin:/bin\"\nEnvironment=\"SLURM_BIN_DIR=$slurm_bin_path\"\nEnvironmentFile=-$work_dir/.env"
         elif [[ "$service_type" == "node" ]]; then
-            environment="Environment=\"NODE_ENV=development\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:/usr/local/bin:/usr/bin:/bin\"\nEnvironmentFile=-$work_dir/.env"
+            environment="Environment=\"NODE_ENV=development\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"PATH=$slurm_bin_path:$slurm_sbin_path:/usr/local/bin:/usr/bin:/bin\"\nEnvironmentFile=-$work_dir/.env"
         else
-            environment="Environment=\"PORT=$port\"\nEnvironment=\"PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:/usr/local/bin:/usr/bin:/bin\""
+            environment="Environment=\"PORT=$port\"\nEnvironment=\"PATH=$slurm_bin_path:$slurm_sbin_path:/usr/local/bin:/usr/bin:/bin\""
         fi
 
         cat > "$service_file" << EOF
@@ -2032,8 +2071,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=koopark
-Group=koopark
+User=$service_user
+Group=$service_group
 WorkingDirectory=$work_dir
 
 # Environment

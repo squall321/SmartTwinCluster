@@ -622,6 +622,8 @@ slurm_config:
 # ============================================================================
 web_services:
   enabled: true
+  service_user: koopark              # 웹 서비스 실행 사용자 (systemd User/Group)
+  service_group: koopark             # 웹 서비스 실행 그룹
   shared_config_path: /mnt/gluster/config
   frontend_build_path: /mnt/gluster/frontend_builds
   services:

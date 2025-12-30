@@ -27,6 +27,12 @@ def query_prometheus(endpoint: str, params: dict = None):
         response = requests.get(url, params=params, timeout=5)
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.ConnectionError as e:
+        print(f"⚠️ Prometheus not reachable at {PROMETHEUS_URL}: {e}")
+        return {'status': 'error', 'errorType': 'connection', 'error': 'Prometheus not available', 'data': {'result': []}}
+    except requests.exceptions.Timeout as e:
+        print(f"⚠️ Prometheus timeout: {e}")
+        return {'status': 'error', 'errorType': 'timeout', 'error': 'Prometheus query timeout', 'data': {'result': []}}
     except Exception as e:
         print(f"❌ Prometheus query error: {e}")
         return None
@@ -363,10 +369,10 @@ def instant_query():
         params['time'] = time
     
     data = query_prometheus('query', params)
-    
+
     if data is None:
-        return jsonify({'error': 'Failed to query Prometheus'}), 500
-    
+        return jsonify({'status': 'error', 'error': 'Failed to query Prometheus', 'data': {'result': []}}), 503
+
     return jsonify(data)
 
 # ============================================
@@ -407,7 +413,7 @@ def range_query():
     data = query_prometheus('query_range', params)
     
     if data is None:
-        return jsonify({'error': 'Failed to query Prometheus'}), 500
+        return jsonify({'status': 'error', 'error': 'Failed to query Prometheus', 'data': {'result': []}}), 503
     
     return jsonify(data)
 
@@ -427,7 +433,7 @@ def get_labels():
     data = query_prometheus('labels')
     
     if data is None:
-        return jsonify({'error': 'Failed to get labels'}), 500
+        return jsonify({'status': 'error', 'error': 'Failed to get labels', 'data': []}), 503
     
     return jsonify(data)
 
@@ -453,7 +459,7 @@ def get_label_values(label_name):
     data = query_prometheus(f'label/{label_name}/values')
     
     if data is None:
-        return jsonify({'error': f'Failed to get values for label {label_name}'}), 500
+        return jsonify({'status': 'error', 'error': f'Failed to get values for label {label_name}', 'data': []}), 503
     
     return jsonify(data)
 
@@ -506,7 +512,7 @@ def get_series():
     data = query_prometheus('series', params)
     
     if data is None:
-        return jsonify({'error': 'Failed to get series'}), 500
+        return jsonify({'status': 'error', 'error': 'Failed to get series', 'data': []}), 503
     
     return jsonify(data)
 
@@ -566,7 +572,7 @@ def get_targets():
     data = query_prometheus('targets')
     
     if data is None:
-        return jsonify({'error': 'Failed to get targets'}), 500
+        return jsonify({'status': 'error', 'error': 'Failed to get targets', 'data': {'activeTargets': [], 'droppedTargets': []}}), 503
     
     return jsonify(data)
 
@@ -610,7 +616,7 @@ def get_rules():
     data = query_prometheus('rules')
     
     if data is None:
-        return jsonify({'error': 'Failed to get rules'}), 500
+        return jsonify({'status': 'error', 'error': 'Failed to get rules', 'data': {'groups': []}}), 503
     
     return jsonify(data)
 
@@ -647,7 +653,7 @@ def get_alerts():
     data = query_prometheus('alerts')
     
     if data is None:
-        return jsonify({'error': 'Failed to get alerts'}), 500
+        return jsonify({'status': 'error', 'error': 'Failed to get alerts', 'data': {'alerts': []}}), 503
     
     return jsonify(data)
 
@@ -669,7 +675,7 @@ def get_config():
     data = query_prometheus('status/config')
     
     if data is None:
-        return jsonify({'error': 'Failed to get config'}), 500
+        return jsonify({'status': 'error', 'error': 'Failed to get config', 'data': {}}), 503
     
     return jsonify(data)
 

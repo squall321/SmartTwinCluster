@@ -91,6 +91,7 @@ time_synchronization:
 slurm_config:
   version: 22.05.8
   install_path: /usr/local/slurm
+  bin_path: /usr/local/slurm/bin      # 명령어 경로 (실제 위치가 다르면 심볼릭 링크 생성)
   config_path: /usr/local/slurm/etc
   log_path: /var/log/slurm
   spool_path: /var/spool/slurm
