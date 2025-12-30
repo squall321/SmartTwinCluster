@@ -2225,12 +2225,18 @@ configure_nginx() {
             # Check if source template exists
             if [[ -f "$nginx_template" ]]; then
                 # Copy template and replace placeholders
-                # server_name: keep '_' wildcard to accept all hostnames/IPs
+                # server_name: use PUBLIC_URL from YAML (IP or hostname)
                 # Path patterns: replace hardcoded paths with actual PROJECT_ROOT
+                local server_hostname="${PUBLIC_URL:-localhost}"
+                # Remove protocol prefix if present
+                server_hostname="${server_hostname#http://}"
+                server_hostname="${server_hostname#https://}"
+
                 sed -e "s|/home/koopark/claude/KooSlurmInstallAutomationRefactory/|$PROJECT_ROOT/|g" \
                     -e "s|/home/[^/]\+/claude/[^/]\+/|$PROJECT_ROOT/|g" \
+                    -e "s|server_name localhost;|server_name $server_hostname localhost;|g" \
                     "$nginx_template" > "$nginx_conf"
-                log_success "Generated $nginx_conf (accepts all hostnames via server_name _)"
+                log_success "Generated $nginx_conf (server_name: $server_hostname localhost)"
             else
                 log_warning "Nginx template not found: $nginx_template"
                 # Fallback: Try to use generate_nginx_conf.sh
@@ -2277,11 +2283,17 @@ configure_nginx() {
             # Use template if available, otherwise try to update existing
             if [[ -f "$nginx_template" ]]; then
                 # Copy template and replace placeholders
+                # server_name: use PUBLIC_URL from YAML (IP or hostname)
+                local server_hostname="${PUBLIC_URL:-localhost}"
+                # Remove protocol prefix if present
+                server_hostname="${server_hostname#http://}"
+                server_hostname="${server_hostname#https://}"
+
                 sed -e "s|/home/koopark/claude/KooSlurmInstallAutomationRefactory/|$PROJECT_ROOT/|g" \
                     -e "s|/home/[^/]\+/claude/[^/]\+/|$PROJECT_ROOT/|g" \
-                    -e "s|server_name [0-9.]\+ localhost|server_name $PUBLIC_URL localhost|g" \
+                    -e "s|server_name auth.hpc.local;|server_name $server_hostname;|g" \
                     "$nginx_template" > "$nginx_conf"
-                log_success "Generated $nginx_conf from template (HTTPS with SSO)"
+                log_success "Generated $nginx_conf from template (HTTPS with SSO, server_name: $server_hostname)"
             elif [[ -f "$nginx_conf" ]]; then
                 # Fallback: Update existing config
                 sed -i -e "s|server_name [0-9.]\+ localhost|server_name $PUBLIC_URL localhost|g" \
