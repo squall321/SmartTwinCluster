@@ -176,6 +176,17 @@ echo ""
 # ==================== 3. 기존 프로세스 정리 ====================
 echo -e "${BLUE}[3/6] 기존 백그라운드 프로세스 정리...${NC}"
 
+# 서비스별 포트 정의
+SERVICE_PORTS=(
+    "4430:auth_portal"
+    "5010:backend"
+    "5000:cae_server"
+    "5001:cae_automation"
+    "5011:websocket"
+    "9090:prometheus"
+    "9100:node_exporter"
+)
+
 # PID 파일 정리
 PID_FILES=(
     "auth_portal_4430/logs/gunicorn.pid"
@@ -184,6 +195,8 @@ PID_FILES=(
     "kooCAEWebAutomationServer_5001/logs/gunicorn.pid"
     "MoonlightSunshine_8004/backend_moonlight_8004/logs/gunicorn.pid"
     "websocket_5011/.websocket.pid"
+    "prometheus_9090/.prometheus.pid"
+    "node_exporter_9100/.node_exporter.pid"
 )
 
 for pid_file in "${PID_FILES[@]}"; do
@@ -192,15 +205,68 @@ for pid_file in "${PID_FILES[@]}"; do
     fi
 done
 
-# 기존 수동 프로세스 종료
+# 1단계: 프로세스 이름 기반 정리
+echo "  → 프로세스 이름 기반 정리..."
 pkill -f "gunicorn.*auth_portal_4430" 2>/dev/null || true
 pkill -f "gunicorn.*backend_5010" 2>/dev/null || true
 pkill -f "gunicorn.*kooCAEWebServer_5000" 2>/dev/null || true
 pkill -f "gunicorn.*kooCAEWebAutomationServer_5001" 2>/dev/null || true
 pkill -f "gunicorn.*backend_moonlight_8004" 2>/dev/null || true
 pkill -f "websocket_5011.*python" 2>/dev/null || true
+pkill -f "websocket_server_enhanced" 2>/dev/null || true
 
-echo -e "${GREEN}✅ 정리 완료${NC}"
+# 2단계: 포트 기반 정리 (다른 방식으로 실행된 프로세스도 정리)
+echo "  → 포트 기반 정리..."
+for port_info in "${SERVICE_PORTS[@]}"; do
+    port="${port_info%%:*}"
+    name="${port_info##*:}"
+
+    # 해당 포트를 사용하는 프로세스 찾기
+    pids=$(lsof -t -i :$port 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        echo "    포트 $port ($name): PID $pids 종료 중..."
+        for pid in $pids; do
+            kill $pid 2>/dev/null || sudo kill $pid 2>/dev/null || true
+        done
+    fi
+done
+
+# 프로세스가 종료될 시간 확보
+sleep 2
+
+# 3단계: 강제 종료 (아직 남아있는 경우)
+echo "  → 잔여 프로세스 강제 종료..."
+for port_info in "${SERVICE_PORTS[@]}"; do
+    port="${port_info%%:*}"
+    pids=$(lsof -t -i :$port 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        for pid in $pids; do
+            kill -9 $pid 2>/dev/null || sudo kill -9 $pid 2>/dev/null || true
+        done
+    fi
+done
+
+sleep 1
+
+# 4단계: 클린 상태 확인
+echo "  → 클린 상태 확인..."
+clean_state=true
+for port_info in "${SERVICE_PORTS[@]}"; do
+    port="${port_info%%:*}"
+    name="${port_info##*:}"
+
+    if lsof -i :$port > /dev/null 2>&1; then
+        echo -e "    ${RED}⚠️  포트 $port ($name) 여전히 사용 중${NC}"
+        lsof -i :$port 2>/dev/null | head -3
+        clean_state=false
+    fi
+done
+
+if [[ "$clean_state" == true ]]; then
+    echo -e "${GREEN}✅ 모든 포트 정리 완료${NC}"
+else
+    echo -e "${YELLOW}⚠️  일부 포트가 정리되지 않았습니다. 계속 진행합니다...${NC}"
+fi
 echo ""
 
 # ==================== 4. Backend 서비스 시작 (systemd) ====================
@@ -227,20 +293,44 @@ echo ""
 # ==================== 5. Prometheus & Node Exporter ====================
 echo -e "${BLUE}[5/6] 모니터링 서비스...${NC}"
 
-# Prometheus
-if [ -d "prometheus_9090" ] && [ -f "prometheus_9090/start.sh" ]; then
-    cd prometheus_9090
-    ./start.sh > /dev/null 2>&1
-    cd "$SCRIPT_DIR"
-    echo -e "${GREEN}✅ Prometheus 시작됨 (Port: 9090)${NC}"
+# Prometheus (systemd로 관리되는 경우 건너뜀)
+if systemctl is-active --quiet prometheus 2>/dev/null; then
+    echo -e "${GREEN}✅ Prometheus 이미 실행 중 (systemd)${NC}"
+elif [ -d "prometheus_9090" ] && [ -f "prometheus_9090/start.sh" ]; then
+    # 이미 실행 중인지 확인
+    if nc -z localhost 9090 2>/dev/null; then
+        echo -e "${GREEN}✅ Prometheus 이미 실행 중 (Port: 9090)${NC}"
+    else
+        cd prometheus_9090
+        ./start.sh > /dev/null 2>&1
+        cd "$SCRIPT_DIR"
+        sleep 1
+        if nc -z localhost 9090 2>/dev/null; then
+            echo -e "${GREEN}✅ Prometheus 시작됨 (Port: 9090)${NC}"
+        else
+            echo -e "${RED}❌ Prometheus 시작 실패${NC}"
+        fi
+    fi
 fi
 
-# Node Exporter
-if [ -d "node_exporter_9100" ] && [ -f "node_exporter_9100/start.sh" ]; then
-    cd node_exporter_9100
-    ./start.sh > /dev/null 2>&1
-    cd "$SCRIPT_DIR"
-    echo -e "${GREEN}✅ Node Exporter 시작됨 (Port: 9100)${NC}"
+# Node Exporter (systemd로 관리되는 경우 건너뜀)
+if systemctl is-active --quiet node_exporter 2>/dev/null; then
+    echo -e "${GREEN}✅ Node Exporter 이미 실행 중 (systemd)${NC}"
+elif [ -d "node_exporter_9100" ] && [ -f "node_exporter_9100/start.sh" ]; then
+    # 이미 실행 중인지 확인
+    if nc -z localhost 9100 2>/dev/null; then
+        echo -e "${GREEN}✅ Node Exporter 이미 실행 중 (Port: 9100)${NC}"
+    else
+        cd node_exporter_9100
+        ./start.sh > /dev/null 2>&1
+        cd "$SCRIPT_DIR"
+        sleep 1
+        if nc -z localhost 9100 2>/dev/null; then
+            echo -e "${GREEN}✅ Node Exporter 시작됨 (Port: 9100)${NC}"
+        else
+            echo -e "${RED}❌ Node Exporter 시작 실패${NC}"
+        fi
+    fi
 fi
 echo ""
 
