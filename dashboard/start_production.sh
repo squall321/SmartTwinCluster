@@ -80,14 +80,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# systemd 서비스 목록
+# systemd 서비스 목록 (phase5_web.sh에서 생성하는 실제 서비스 이름과 일치)
 BACKEND_SERVICES=(
-    "hpc-auth-backend"
-    "hpc-dashboard-backend"
-    "hpc-websocket"
-    "hpc-cae-backend"
-    "hpc-cae-automation"
-    "hpc-moonlight-backend"
+    "auth_backend"
+    "dashboard_backend"
+    "websocket_service"
+    "cae_backend"
+    "cae_automation"
 )
 
 echo "=========================================="
@@ -301,8 +300,8 @@ for service in "${BACKEND_SERVICES[@]}"; do
 done
 echo ""
 echo "🔧 관리 명령어:"
-echo "  sudo systemctl status hpc-auth-backend"
-echo "  sudo systemctl restart hpc-dashboard-backend"
-echo "  journalctl -u hpc-websocket -f"
+echo "  sudo systemctl status auth_backend"
+echo "  sudo systemctl restart dashboard_backend"
+echo "  journalctl -u websocket_service -f"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

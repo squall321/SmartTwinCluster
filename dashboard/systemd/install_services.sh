@@ -33,13 +33,13 @@ RUN_USER="${SUDO_USER:-$(whoami)}"
 RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
 
 # 서비스 정의 (서비스명:디렉토리:Python버전:앱모듈)
+# phase5_web.sh에서 생성하는 실제 서비스 이름과 일치
 declare -A SERVICES=(
-    ["hpc-auth-backend"]="auth_portal_4430:3.10:app:app"
-    ["hpc-dashboard-backend"]="backend_5010:3.10:app:app"
-    ["hpc-websocket"]="websocket_5011:3.10:websocket_server_enhanced:py"
-    ["hpc-cae-backend"]="kooCAEWebServer_5000:3.10:app:create_app()"
-    ["hpc-cae-automation"]="kooCAEWebAutomationServer_5001:3.10:app:app"
-    ["hpc-moonlight-backend"]="MoonlightSunshine_8004/backend_moonlight_8004:3.10:app:app"
+    ["auth_backend"]="auth_portal_4430:3.10:app:app"
+    ["dashboard_backend"]="backend_5010:3.10:app:app"
+    ["websocket_service"]="websocket_5011:3.10:websocket_server_enhanced:py"
+    ["cae_backend"]="kooCAEWebServer_5000:3.10:app:create_app()"
+    ["cae_automation"]="kooCAEWebAutomationServer_5001:3.10:app:app"
 )
 
 # 옵션 파싱
@@ -333,12 +333,11 @@ echo -e "${BLUE}[5/5] 서비스 시작...${NC}"
 
 # 시작 순서: Redis → Auth → 나머지
 START_ORDER=(
-    "hpc-auth-backend"
-    "hpc-dashboard-backend"
-    "hpc-websocket"
-    "hpc-cae-backend"
-    "hpc-cae-automation"
-    "hpc-moonlight-backend"
+    "auth_backend"
+    "dashboard_backend"
+    "websocket_service"
+    "cae_backend"
+    "cae_automation"
 )
 
 for service_name in "${START_ORDER[@]}"; do
@@ -373,8 +372,8 @@ for service_name in "${!SERVICES[@]}"; do
 done
 echo ""
 echo "🔧 관리 명령어:"
-echo "  sudo systemctl status hpc-auth-backend"
-echo "  sudo systemctl restart hpc-dashboard-backend"
-echo "  sudo systemctl stop hpc-websocket"
-echo "  journalctl -u hpc-cae-backend -f"
+echo "  sudo systemctl status auth_backend"
+echo "  sudo systemctl restart dashboard_backend"
+echo "  sudo systemctl stop websocket_service"
+echo "  journalctl -u cae_backend -f"
 echo ""

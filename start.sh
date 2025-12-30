@@ -460,21 +460,21 @@ diagnose_service_failure() {
     echo "     │ 📋 $name 진단 정보"
     echo "     ├─────────────────────────────────────────────────"
 
-    # 서비스 디렉토리 매핑
+    # 서비스 디렉토리 매핑 (phase5_web.sh에서 생성하는 실제 서비스 이름과 일치)
     local service_dir=""
     local systemd_name=""
     case "$name" in
         "Auth Portal")
             service_dir="$dashboard_dir/auth_portal_4430"
-            systemd_name="auth-portal"
+            systemd_name="auth_backend"
             ;;
         "Backend API")
             service_dir="$dashboard_dir/backend_5010"
-            systemd_name="dashboard-backend"
+            systemd_name="dashboard_backend"
             ;;
         "WebSocket")
             service_dir="$dashboard_dir/websocket_5011"
-            systemd_name="websocket-service"
+            systemd_name="websocket_service"
             ;;
         "Prometheus")
             service_dir="$dashboard_dir/prometheus_9090"
@@ -486,11 +486,11 @@ diagnose_service_failure() {
             ;;
         "CAE Server")
             service_dir="$dashboard_dir/kooCAEWebServer_5000"
-            systemd_name="cae-server"
+            systemd_name="cae_backend"
             ;;
         "CAE Automation")
             service_dir="$dashboard_dir/kooCAEWebAutomationServer_5001"
-            systemd_name="cae-automation"
+            systemd_name="cae_automation"
             ;;
     esac
 
