@@ -438,8 +438,13 @@ class SlurmConfigManager:
             return []
 
 
+# Slurm 설정 파일 경로 (환경변수로 override 가능)
+# 기본값: /etc/slurm/slurm.conf (apt/yum 패키지 설치 환경)
+# 소스 빌드: /usr/local/slurm/etc/slurm.conf
+SLURM_CONF_PATH = os.getenv('SLURM_CONF_PATH', '/etc/slurm/slurm.conf')
+
 # 전역 인스턴스
-slurm_config = SlurmConfigManager(slurm_conf_path='/usr/local/slurm/etc/slurm.conf')
+slurm_config = SlurmConfigManager(slurm_conf_path=SLURM_CONF_PATH)
 
 
 # 편의 함수들
