@@ -74,7 +74,8 @@ if ps -p $(cat .backend.pid) > /dev/null 2>&1; then
         MAX_WAIT=30
         WAIT_COUNT=0
         while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-            HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PORT}/api/health 2>/dev/null)
+            # localhost 대신 127.0.0.1 사용 (IPv6 문제 방지)
+            HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${PORT}/api/health 2>/dev/null)
             if [ "$HEALTH_CHECK" = "200" ]; then
                 break
             fi
@@ -85,7 +86,8 @@ if ps -p $(cat .backend.pid) > /dev/null 2>&1; then
         if [ "$HEALTH_CHECK" = "200" ]; then
             # YAML 노드 그룹 초기화 API 호출 (localhost 전용 엔드포인트)
             # 이 API는 DB 그룹 저장 + Slurm 파티션 동기화를 함께 수행
-            INIT_RESULT=$(curl -s -X POST http://localhost:${PORT}/api/yaml/init-startup \
+            # localhost 대신 127.0.0.1 사용 (IPv6 문제 방지)
+            INIT_RESULT=$(curl -s -X POST http://127.0.0.1:${PORT}/api/yaml/init-startup \
                 -H "Content-Type: application/json" 2>/dev/null)
 
             if echo "$INIT_RESULT" | grep -q '"success": true\|"success":true'; then
