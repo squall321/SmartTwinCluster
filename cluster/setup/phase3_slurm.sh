@@ -1707,11 +1707,22 @@ generate_slurm_config() {
         log INFO "[DRY-RUN] Config preview (first 50 lines):"
         echo "$config_content" | head -50
     else
+        # Write to /etc/slurm/slurm.conf (primary location)
         mkdir -p "$(dirname "$SLURM_CONFIG")"
         echo -e "$config_content" > "$SLURM_CONFIG"
         chmod 644 "$SLURM_CONFIG"
         chown slurm:slurm "$SLURM_CONFIG"
         log SUCCESS "Slurm configuration written to $SLURM_CONFIG"
+
+        # Also copy to /usr/local/slurm/etc/ for source-built Slurm compatibility
+        local LOCAL_SLURM_ETC="/usr/local/slurm/etc"
+        if [[ -d "$LOCAL_SLURM_ETC" ]] || [[ -d "/usr/local/slurm" ]]; then
+            mkdir -p "$LOCAL_SLURM_ETC"
+            cp "$SLURM_CONFIG" "$LOCAL_SLURM_ETC/slurm.conf"
+            chmod 644 "$LOCAL_SLURM_ETC/slurm.conf"
+            chown slurm:slurm "$LOCAL_SLURM_ETC/slurm.conf"
+            log SUCCESS "Slurm configuration also copied to $LOCAL_SLURM_ETC/slurm.conf"
+        fi
     fi
 }
 
