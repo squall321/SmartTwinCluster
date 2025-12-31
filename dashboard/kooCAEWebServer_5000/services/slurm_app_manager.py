@@ -10,7 +10,7 @@ import re
 from typing import Optional, Dict
 
 # 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SBATCH = os.path.join(SLURM_BIN_DIR, 'sbatch')
 SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
 SCANCEL = os.path.join(SLURM_BIN_DIR, 'scancel')

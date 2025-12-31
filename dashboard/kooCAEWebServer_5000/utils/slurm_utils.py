@@ -6,7 +6,8 @@ import random
 MOCK_MODE = os.environ.get("MOCK_SLURM") == "1"
 
 # 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+# Slurm 23.11.10 소스 빌드 기본 경로 (apt 패키지는 /usr/bin)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
 SBATCH = os.path.join(SLURM_BIN_DIR, 'sbatch')

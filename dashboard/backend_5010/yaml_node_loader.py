@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify, request
 from middleware.jwt_middleware import jwt_required, permission_required
 
 # Slurm 명령어 경로
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
 
 # sudo 사용 여부 (scontrol 명령에 필요한 권한)

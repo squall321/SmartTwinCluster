@@ -12,8 +12,9 @@ from datetime import datetime
 import re
 
 # 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
-SQUEUE = '/usr/bin/squeue'
-SINFO = '/usr/bin/sinfo'
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
+SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
+SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 FIND = '/usr/bin/find'
 
 search_bp = Blueprint('search', __name__)

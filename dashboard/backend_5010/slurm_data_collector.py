@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 
 # Slurm 명령어 절대 경로 (systemd 환경에서 PATH 제한)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SACCT = os.path.join(SLURM_BIN_DIR, 'sacct')
 SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')

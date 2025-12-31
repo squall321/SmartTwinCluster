@@ -822,8 +822,8 @@ setup_redis_session_management() {
             }
             deactivate
 
-            # YAML에서 Slurm bin_path 읽기 (기본값: /usr/bin)
-            local slurm_bin_path="/usr/bin"
+            # YAML에서 Slurm bin_path 읽기 (기본값: /usr/local/slurm/bin for Slurm 23.11.10 source build)
+            local slurm_bin_path="/usr/local/slurm/bin"
             if [[ -f "$CONFIG_PATH" ]]; then
                 local yaml_bin_path=$(grep -E "^\s+bin_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
                 if [[ -n "$yaml_bin_path" ]]; then
@@ -2129,9 +2129,9 @@ create_systemd_service_direct() {
         fi
 
         # YAML에서 Slurm 경로 읽기 (우선순위: bin_path > install_path/bin > 기본값)
-        # 기본값: /usr/bin (apt/yum 패키지 설치 환경)
-        local slurm_bin_path="/usr/bin"
-        local slurm_sbin_path="/usr/sbin"
+        # 기본값: /usr/local/slurm/bin (Slurm 23.11.10 소스 빌드)
+        local slurm_bin_path="/usr/local/slurm/bin"
+        local slurm_sbin_path="/usr/local/slurm/sbin"
         if [[ -f "$CONFIG_PATH" ]]; then
             # 1. bin_path 직접 지정 확인
             local yaml_bin_path=$(grep -E "^\s+bin_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')

@@ -14,7 +14,7 @@ from database import get_db_connection
 from middleware.jwt_middleware import jwt_required, permission_required
 
 # Slurm 명령어 경로
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
 USE_SUDO_FOR_SLURM = os.getenv('USE_SUDO_FOR_SLURM', 'true').lower() == 'true'
 

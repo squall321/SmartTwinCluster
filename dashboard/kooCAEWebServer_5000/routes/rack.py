@@ -3,7 +3,8 @@ import subprocess, re, os
 import utils.slurm_utils as slurm_utils  # ✅ 전체 모듈을 import
 
 # 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+# Slurm 23.11.10 소스 빌드 기본 경로 (apt 패키지는 /usr/bin)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
 
 rack_bp = Blueprint("rack", __name__)

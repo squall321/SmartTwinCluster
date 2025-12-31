@@ -15,7 +15,8 @@ import os
 try:
     from slurm_commands import SINFO
 except ImportError:
-    SINFO = '/usr/bin/sinfo'
+    SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
+    SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 
 logger = logging.getLogger(__name__)
 

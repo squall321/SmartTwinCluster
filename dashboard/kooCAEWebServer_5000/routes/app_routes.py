@@ -10,7 +10,7 @@ import traceback
 import os
 
 # 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
 
 app_bp = Blueprint('app', __name__, url_prefix='/api/app')

@@ -25,7 +25,7 @@ MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
 # Slurm 명령어 경로 설정
 # 기본값: /usr/bin (apt/yum 패키지 설치 환경)
 # 소스 빌드: /usr/local/slurm/bin
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SCONTROL_PATH = os.path.join(SLURM_BIN_DIR, 'scontrol')
 SINFO_PATH = os.path.join(SLURM_BIN_DIR, 'sinfo')
 

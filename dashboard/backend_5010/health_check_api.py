@@ -18,7 +18,7 @@ health_bp = Blueprint('health', __name__, url_prefix='/api/health')
 MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
 
 # Slurm 명령어 경로 설정
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SCONTROL_PATH = os.path.join(SLURM_BIN_DIR, 'scontrol')
 
 # ============================================
