@@ -84,6 +84,7 @@ if ps -p $(cat .backend.pid) > /dev/null 2>&1; then
 
         if [ "$HEALTH_CHECK" = "200" ]; then
             # YAML 노드 그룹 초기화 API 호출 (localhost 전용 엔드포인트)
+            # 이 API는 DB 그룹 저장 + Slurm 파티션 동기화를 함께 수행
             INIT_RESULT=$(curl -s -X POST http://localhost:${PORT}/api/yaml/init-startup \
                 -H "Content-Type: application/json" 2>/dev/null)
 
@@ -93,7 +94,23 @@ if ps -p $(cat .backend.pid) > /dev/null 2>&1; then
                 GROUPS_COUNT=$(echo "$INIT_RESULT" | grep -o '"groups_count":[0-9]*' | grep -o '[0-9]*')
                 COMPUTE_NODES=$(echo "$INIT_RESULT" | grep -o '"compute_nodes":[0-9]*' | grep -o '[0-9]*')
                 VIZ_NODES=$(echo "$INIT_RESULT" | grep -o '"viz_nodes":[0-9]*' | grep -o '[0-9]*')
-                echo -e "   그룹: ${GROUPS_COUNT:-0}개, Compute: ${COMPUTE_NODES:-0}개, Viz: ${VIZ_NODES:-0}개"
+                echo -e "   📊 DB 그룹: ${GROUPS_COUNT:-0}개"
+                echo -e "   💻 Compute 노드: ${COMPUTE_NODES:-0}개"
+                echo -e "   🖥️  Viz 노드: ${VIZ_NODES:-0}개"
+
+                # Slurm 파티션 동기화 결과 표시
+                if echo "$INIT_RESULT" | grep -q '"slurm_available": true\|"slurm_available":true'; then
+                    echo -e "${GREEN}   ✅ Slurm 파티션 동기화 완료${NC}"
+                    # 파티션별 상태 표시
+                    if echo "$INIT_RESULT" | grep -q '"compute"'; then
+                        echo -e "      - compute 파티션: ${COMPUTE_NODES:-0} 노드"
+                    fi
+                    if echo "$INIT_RESULT" | grep -q '"viz"'; then
+                        echo -e "      - viz 파티션: ${VIZ_NODES:-0} 노드"
+                    fi
+                else
+                    echo -e "${YELLOW}   ⚠️  Slurm 미설치 - 파티션 동기화 건너뜀${NC}"
+                fi
             else
                 echo -e "${YELLOW}⚠️  YAML 노드 그룹 초기화 건너뜀${NC}"
                 # 오류 메시지 출력

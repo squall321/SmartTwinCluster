@@ -1,0 +1,21 @@
+template:
+  id: test-template-copy
+  name: Test Template (Copy)
+  description: This is an updated description
+  category: custom
+  version: 1.0.0
+  source: custom
+  tags: []
+  is_public: false
+  created_at: '2025-12-21T20:22:57.900133'
+  updated_at: '2025-12-21T20:22:57.900145'
+slurm:
+  partition: compute
+  nodes: 1
+  ntasks: 4
+  mem: 32G
+  time: 01:00:00
+script:
+  pre_exec: echo 'Starting test job...'
+  main_exec: echo 'Running test job...'
+  post_exec: echo 'Test job completed.'
