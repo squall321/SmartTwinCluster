@@ -66,9 +66,9 @@ common:
     partition_gpu: "gpu"
     partition_vnc: "gpu"
     # Slurm 명령어 경로 (sinfo, scontrol 등)
+    # - apt/yum 패키지: /usr/bin (기본값)
     # - 소스 빌드: /usr/local/slurm/bin
-    # - apt/yum 패키지: /usr/bin
-    bin_dir: "/usr/local/slurm/bin"
+    bin_dir: "/usr/bin"
 
 # ============================================================================
 # 서비스 정의
@@ -226,7 +226,7 @@ services:
         SLURM_CONTROL_NODE: "gpu-master"
         SLURM_PARTITION_CPU: "compute"
         SLURM_PARTITION_GPU: "gpu"
-        SLURM_BIN_DIR: "/usr/local/slurm/bin"
+        SLURM_BIN_DIR: "/usr/bin"
 
         # Monitoring
         PROMETHEUS_URL: "http://localhost:9090"
@@ -250,7 +250,7 @@ services:
         SLURM_CONTROL_NODE: "gpu-master"
         SLURM_PARTITION_CPU: "compute"
         SLURM_PARTITION_GPU: "gpu"
-        SLURM_BIN_DIR: "/usr/local/slurm/bin"
+        SLURM_BIN_DIR: "/usr/bin"
 
         PROMETHEUS_URL: "http://localhost:9090"
         NODE_EXPORTER_URL: "http://localhost:9100"
@@ -361,7 +361,7 @@ services:
         # Slurm
         SLURM_CONTROL_NODE: "gpu-master"
         SLURM_PARTITION: "compute"
-        SLURM_BIN_DIR: "/usr/local/slurm/bin"
+        SLURM_BIN_DIR: "/usr/bin"
 
         # CAE 특화 설정
         CAE_WORK_DIR: "/scratch/cae_simulations"
@@ -378,7 +378,7 @@ services:
 
         SLURM_CONTROL_NODE: "gpu-master"
         SLURM_PARTITION: "compute"
-        SLURM_BIN_DIR: "/usr/local/slurm/bin"
+        SLURM_BIN_DIR: "/usr/bin"
 
         CAE_WORK_DIR: "/scratch/cae_simulations"
         CAE_AUTOMATION_URL: "http://localhost:5001"

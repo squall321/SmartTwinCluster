@@ -585,12 +585,12 @@ redis:
 # ============================================================================
 slurm_config:
   version: 23.02.7
-  install_path: /usr/local/slurm
+  install_path: /usr
   # Slurm 명령어 경로 (sinfo, scontrol 등)
+  # - apt/yum 패키지: /usr/bin (기본값)
   # - 소스 빌드: /usr/local/slurm/bin
-  # - apt/yum 패키지: /usr/bin
-  bin_path: /usr/local/slurm/bin
-  config_path: /usr/local/slurm/etc
+  bin_path: /usr/bin
+  config_path: /etc/slurm
   log_path: /mnt/gluster/slurm/logs
   spool_path: /var/spool/slurm
   state_save_location: /mnt/gluster/slurm/state
