@@ -1090,17 +1090,88 @@ case $MODE in
                 INIT_RESULT=$(curl -s -X POST http://127.0.0.1:5010/api/yaml/init-startup 2>&1)
 
                 if echo "$INIT_RESULT" | grep -q '"success": true\|"success":true'; then
-                    echo "  ✅ 노드 그룹 초기화 완료"
+                    echo ""
+                    echo "  ┌─ 노드 그룹 초기화 결과 ─────────────────────"
+
+                    # YAML 파일 경로 출력
+                    YAML_PATH=$(echo "$INIT_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('yaml_path',''))" 2>/dev/null)
+                    if [[ -n "$YAML_PATH" ]]; then
+                        echo "  │ 📄 YAML 파일: $YAML_PATH"
+                    fi
+
+                    # 노드 그룹 정보 출력
+                    echo "$INIT_RESULT" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    groups = d.get('groups', [])
+    if groups:
+        print(f'  │ 📊 노드 그룹: {len(groups)}개')
+        for g in groups:
+            name = g.get('name', 'Unknown')
+            partition = g.get('partitionName', '-')
+            nodes = g.get('nodes', [])
+            color = g.get('color', '')
+            print(f'  │    • {name} (파티션: {partition}, 노드: {len(nodes)}개)')
+except:
+    pass
+" 2>/dev/null
+
+                    # 총 노드 수 출력
+                    echo "$INIT_RESULT" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    summary = d.get('summary', {})
+    total = summary.get('totalNodes', 0)
+    compute = summary.get('computeNodes', 0)
+    viz = summary.get('vizNodes', 0)
+    controller = summary.get('controllerNodes', 0)
+    if total > 0:
+        print(f'  │ 🖥️  총 노드: {total}개 (Compute: {compute}, VIZ: {viz}, Controller: {controller})')
+except:
+    pass
+" 2>/dev/null
+
+                    echo "  │"
+
                     # Slurm 동기화 결과 확인
                     if echo "$INIT_RESULT" | grep -q '"slurm_available": true\|"slurm_available":true'; then
-                        PARTITION_COUNT=$(echo "$INIT_RESULT" | grep -o '"partitions"' | wc -l)
-                        echo "  ✅ Slurm 파티션 동기화 완료"
+                        echo "  │ ✅ Slurm 파티션 동기화"
+
+                        # 파티션별 상세 결과 출력
+                        echo "$INIT_RESULT" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    slurm = d.get('slurm_sync', {})
+    partitions = slurm.get('partitions', {})
+    for name, info in partitions.items():
+        success = info.get('success', False)
+        message = info.get('message', '')
+        nodes = info.get('nodes', 0)
+        status = '✅' if success else '❌'
+        print(f'  │    {status} {name}: {message}')
+except:
+    pass
+" 2>/dev/null
                     elif echo "$INIT_RESULT" | grep -q 'Slurm not available'; then
-                        echo "  ⚠️  Slurm이 사용 불가능 - 파티션 동기화 건너뜀"
+                        echo "  │ ⚠️  Slurm이 설치되지 않았거나 사용 불가능"
+                        echo "  │    파티션 동기화를 건너뜁니다"
+                    else
+                        echo "  │ ℹ️  Slurm 동기화 정보 없음"
                     fi
+
+                    echo "  └───────────────────────────────────────────"
                 else
                     echo "  ⚠️  초기화 실패 또는 YAML 파일 없음"
-                    echo "     응답: ${INIT_RESULT:0:100}..."
+                    # 에러 상세 출력
+                    ERROR_MSG=$(echo "$INIT_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
+                    if [[ -n "$ERROR_MSG" ]]; then
+                        echo "     에러: $ERROR_MSG"
+                    else
+                        echo "     응답: ${INIT_RESULT:0:200}"
+                    fi
                 fi
             else
                 echo "  ⚠️  Backend API (5010) 응답 없음 - 초기화 건너뜀"
