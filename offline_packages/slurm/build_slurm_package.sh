@@ -334,21 +334,57 @@ mkdir -p "$CONFIG_DIR"
 chown -R slurm:slurm /var/log/slurm /var/spool/slurm "$CONFIG_DIR"
 chmod 755 /var/log/slurm /var/spool/slurm
 
-# 기존 /etc/slurm/slurm.conf와 호환성 유지 (apt 패키지로 이미 설치된 경우)
+# slurm.conf 호환성 설정
 # Slurm 23.02+ 버전은 DNS SRV 레코드 검색 시도로 오프라인 환경에서 에러 발생
-# 해결: 기존 설정 파일을 소스 빌드 경로에 심볼릭 링크
+# 해결: 소스 빌드 경로의 설정 파일이 있으면 이를 우선 사용
 log_info "Configuring slurm.conf compatibility..."
+
+# 케이스 1: /etc/slurm/slurm.conf만 있고 $CONFIG_DIR/slurm.conf가 없는 경우
+#          -> /etc/slurm/slurm.conf를 $CONFIG_DIR로 링크
 if [[ -f /etc/slurm/slurm.conf && ! -f "$CONFIG_DIR/slurm.conf" ]]; then
     ln -sf /etc/slurm/slurm.conf "$CONFIG_DIR/slurm.conf"
     log_success "Linked /etc/slurm/slurm.conf -> $CONFIG_DIR/slurm.conf"
+
+# 케이스 2: $CONFIG_DIR/slurm.conf만 있고 /etc/slurm/slurm.conf가 없는 경우
+#          -> $CONFIG_DIR/slurm.conf를 /etc/slurm으로 링크 (Slurm 23이 이 경로도 참조)
+elif [[ -f "$CONFIG_DIR/slurm.conf" && ! -f /etc/slurm/slurm.conf ]]; then
+    mkdir -p /etc/slurm
+    ln -sf "$CONFIG_DIR/slurm.conf" /etc/slurm/slurm.conf
+    log_success "Linked $CONFIG_DIR/slurm.conf -> /etc/slurm/slurm.conf"
+
+# 케이스 3: 두 파일 모두 존재하는 경우
+#          -> NodeName 정의가 있는 파일을 우선 사용
 elif [[ -f /etc/slurm/slurm.conf && -f "$CONFIG_DIR/slurm.conf" ]]; then
-    log_info "Both config files exist. Using $CONFIG_DIR/slurm.conf"
+    # NodeName 정의 유무 확인
+    ETC_HAS_NODES=$(grep -c "^NodeName=" /etc/slurm/slurm.conf 2>/dev/null || echo 0)
+    CONFIG_HAS_NODES=$(grep -c "^NodeName=" "$CONFIG_DIR/slurm.conf" 2>/dev/null || echo 0)
+
+    if [[ "$CONFIG_HAS_NODES" -gt 0 && "$ETC_HAS_NODES" -eq 0 ]]; then
+        # $CONFIG_DIR에 노드 정의가 있고 /etc/slurm에 없으면 -> $CONFIG_DIR 사용
+        log_warning "/etc/slurm/slurm.conf has no NodeName definitions"
+        log_info "Backing up /etc/slurm/slurm.conf to /etc/slurm/slurm.conf.bak"
+        mv /etc/slurm/slurm.conf /etc/slurm/slurm.conf.bak
+        ln -sf "$CONFIG_DIR/slurm.conf" /etc/slurm/slurm.conf
+        log_success "Using $CONFIG_DIR/slurm.conf (has NodeName definitions)"
+    elif [[ "$ETC_HAS_NODES" -gt 0 ]]; then
+        # /etc/slurm에 노드 정의가 있으면 -> /etc/slurm 사용
+        ln -sf /etc/slurm/slurm.conf "$CONFIG_DIR/slurm.conf"
+        log_success "Using /etc/slurm/slurm.conf (has NodeName definitions)"
+    else
+        # 둘 다 노드 정의가 없으면 경고
+        log_warning "Neither config file has NodeName definitions!"
+        log_info "Using $CONFIG_DIR/slurm.conf by default"
+    fi
 fi
 
 # slurmdbd.conf도 동일하게 처리
 if [[ -f /etc/slurm/slurmdbd.conf && ! -f "$CONFIG_DIR/slurmdbd.conf" ]]; then
     ln -sf /etc/slurm/slurmdbd.conf "$CONFIG_DIR/slurmdbd.conf"
     log_success "Linked /etc/slurm/slurmdbd.conf -> $CONFIG_DIR/slurmdbd.conf"
+elif [[ -f "$CONFIG_DIR/slurmdbd.conf" && ! -f /etc/slurm/slurmdbd.conf ]]; then
+    mkdir -p /etc/slurm
+    ln -sf "$CONFIG_DIR/slurmdbd.conf" /etc/slurm/slurmdbd.conf
+    log_success "Linked $CONFIG_DIR/slurmdbd.conf -> /etc/slurm/slurmdbd.conf"
 fi
 
 # 권한 설정
