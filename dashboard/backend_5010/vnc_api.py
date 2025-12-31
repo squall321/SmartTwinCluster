@@ -82,12 +82,97 @@ VNC_IMAGES = {
     }
 }
 
-# 노드명 -> IP 매핑 (DNS가 없는 경우를 위한 하드코딩)
-NODE_IP_MAP = {
-    'viz-node001': '192.168.122.252',
-    'node001': '192.168.122.90',
-    'node002': '192.168.122.103',
-}
+# 노드명 -> IP 매핑 (YAML에서 동적으로 로드)
+def load_node_ip_map():
+    """YAML 설정에서 노드 IP 매핑 로드"""
+    node_map = {}
+    yaml_paths = [
+        os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
+        '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
+    ]
+    for yaml_path in yaml_paths:
+        if os.path.exists(yaml_path):
+            try:
+                import yaml
+                with open(yaml_path) as f:
+                    config = yaml.safe_load(f)
+                    nodes_config = config.get('nodes', {})
+
+                    # compute_nodes에서 노드 정보 추출
+                    for node in nodes_config.get('compute_nodes', []):
+                        hostname = node.get('hostname')
+                        ip = node.get('ip_address')
+                        if hostname and ip:
+                            node_map[hostname] = ip
+
+                    # visualization nodes (node_type: viz)
+                    for node in nodes_config.get('compute_nodes', []):
+                        if node.get('node_type') == 'viz':
+                            hostname = node.get('hostname')
+                            ip = node.get('ip_address')
+                            if hostname and ip:
+                                node_map[hostname] = ip
+
+                    # controllers도 추가
+                    for ctrl in nodes_config.get('controllers', []):
+                        hostname = ctrl.get('hostname')
+                        ip = ctrl.get('ip_address')
+                        if hostname and ip:
+                            node_map[hostname] = ip
+
+                    if node_map:
+                        print(f"✅ Loaded {len(node_map)} nodes from YAML")
+                        return node_map
+            except Exception as e:
+                print(f"⚠️  Failed to load node IP map from YAML: {e}")
+
+    # Fallback: 기본 하드코딩 값
+    print("⚠️  Using fallback node IP map")
+    return {
+        'viz-node001': '192.168.122.252',
+        'node001': '192.168.122.90',
+        'node002': '192.168.122.103',
+    }
+
+NODE_IP_MAP = load_node_ip_map()
+
+# Visualization 노드 목록 (YAML에서 동적으로 로드)
+def get_viz_nodes():
+    """YAML 설정에서 viz 노드 목록 가져오기"""
+    viz_nodes = []
+    yaml_paths = [
+        os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
+        '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
+    ]
+    for yaml_path in yaml_paths:
+        if os.path.exists(yaml_path):
+            try:
+                import yaml
+                with open(yaml_path) as f:
+                    config = yaml.safe_load(f)
+                    nodes_config = config.get('nodes', {})
+
+                    # node_type: viz인 노드 추출
+                    for node in nodes_config.get('compute_nodes', []):
+                        if node.get('node_type') == 'viz':
+                            viz_nodes.append({
+                                'hostname': node.get('hostname'),
+                                'ip_address': node.get('ip_address'),
+                                'hardware': node.get('hardware', {})
+                            })
+
+                    if viz_nodes:
+                        print(f"✅ Found {len(viz_nodes)} viz nodes from YAML")
+                        return viz_nodes
+            except Exception as e:
+                print(f"⚠️  Failed to load viz nodes from YAML: {e}")
+
+    # Fallback
+    print("⚠️  Using fallback viz node")
+    return [{'hostname': 'viz-node001', 'ip_address': '192.168.122.252', 'hardware': {}}]
+
+VIZ_NODES = get_viz_nodes()
+DEFAULT_VIZ_NODE = VIZ_NODES[0]['hostname'] if VIZ_NODES else 'viz-node001'
 
 # 외부 접근용 IP 주소 - 동적으로 감지
 def get_external_ip():
@@ -142,7 +227,7 @@ vnc_bp = Blueprint('vnc', __name__, url_prefix='/api/vnc')
 
 # ==================== Helper Functions ====================
 
-def check_image_exists_on_remote_node(sif_path, node='viz-node001', partition='viz'):
+def check_image_exists_on_remote_node(sif_path, node=None, partition='viz'):
     """
     원격 노드에서 이미지 파일 존재 확인
 
@@ -159,6 +244,9 @@ def check_image_exists_on_remote_node(sif_path, node='viz-node001', partition='v
         - Compute 이미지는 compute-node에 존재
         - Backend(headnode)에는 메타데이터(JSON)만 존재
     """
+    if node is None:
+        node = DEFAULT_VIZ_NODE
+
     try:
         # SSH로 원격 노드에서 파일 존재 확인
         # timeout 5초로 빠르게 확인
@@ -602,8 +690,8 @@ def create_vnc_session():
 
     # SIF 이미지 파일 존재 확인 (viz-node에서 확인)
     # Headnode에는 메타데이터(JSON)만 있고, 실제 .sif 파일은 viz-node에만 존재
-    if not check_image_exists_on_remote_node(sif_image_path, node='viz-node001', partition='viz'):
-        return jsonify({'error': f'Image file not found on viz-node: {sif_image_path}'}), 500
+    if not check_image_exists_on_remote_node(sif_image_path, node=DEFAULT_VIZ_NODE, partition='viz'):
+        return jsonify({'error': f'Image file not found on viz-node ({DEFAULT_VIZ_NODE}): {sif_image_path}'}), 500
 
     # 세션 ID 생성
     timestamp = int(time.time())
@@ -914,7 +1002,7 @@ def list_vnc_images():
         # (Headnode에는 메타데이터(JSON)만 존재)
         image_available = check_image_exists_on_remote_node(
             config['sif_path'],
-            node='viz-node001',
+            node=DEFAULT_VIZ_NODE,
             partition='viz'
         )
 
@@ -929,6 +1017,23 @@ def list_vnc_images():
         images_list.append(image_info)
 
     return jsonify({'images': images_list}), 200
+
+
+# ==================== Nodes Endpoints ====================
+
+@vnc_bp.route('/nodes', methods=['GET'])
+@jwt_required
+def list_viz_nodes():
+    """
+    사용 가능한 Visualization 노드 목록 조회
+    YAML 설정에서 동적으로 로드
+    """
+    return jsonify({
+        'success': True,
+        'nodes': VIZ_NODES,
+        'default_node': DEFAULT_VIZ_NODE,
+        'count': len(VIZ_NODES)
+    })
 
 
 # ==================== Admin Endpoints ====================
