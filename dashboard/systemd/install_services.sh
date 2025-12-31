@@ -165,8 +165,9 @@ setup_venv() {
     if [ "$REINSTALL_VENV" = true ] || [ ! -d "$full_path/venv" ]; then
         echo "    → venv 생성 중 ($python_cmd)..."
 
-        # 기존 venv 삭제
+        # 기존 venv 삭제 (권한 문제 방지를 위해 소유권 먼저 변경)
         if [ -d "$full_path/venv" ]; then
+            chown -R "$RUN_USER:$RUN_GROUP" "$full_path/venv" 2>/dev/null || true
             rm -rf "$full_path/venv"
         fi
 
