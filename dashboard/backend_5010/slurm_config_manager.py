@@ -26,12 +26,14 @@ CHOWN = '/bin/chown'
 
 class SlurmConfigManager:
     """Slurm 설정 관리 클래스"""
-    
+
     def __init__(self, slurm_conf_path: str = '/etc/slurm/slurm.conf'):
         self.slurm_conf_path = slurm_conf_path
+        # 소스 빌드 Slurm의 설정 파일 경로 (동기화용)
+        self.local_slurm_conf_path = '/usr/local/slurm/etc/slurm.conf'
         # Use user-writable backup directory
         self.backup_dir = os.path.expanduser('~/.slurm_backups')
-        
+
         # 백업 디렉토리 생성
         os.makedirs(self.backup_dir, exist_ok=True)
     
@@ -227,7 +229,7 @@ class SlurmConfigManager:
             try:
                 temp_file.writelines(new_lines)
                 temp_file.close()
-                
+
                 # Copy temp file to slurm.conf with sudo (절대 경로 사용)
                 subprocess.run(
                     [SUDO, '-n', CP, '-p', temp_file.name, self.slurm_conf_path],
@@ -246,6 +248,25 @@ class SlurmConfigManager:
                     check=True,
                     capture_output=True
                 )
+
+                # 소스 빌드 Slurm 설정 파일도 동기화 (존재하는 경우)
+                if os.path.exists(os.path.dirname(self.local_slurm_conf_path)):
+                    subprocess.run(
+                        [SUDO, '-n', CP, '-p', temp_file.name, self.local_slurm_conf_path],
+                        check=True,
+                        capture_output=True
+                    )
+                    subprocess.run(
+                        [SUDO, '-n', CHMOD, '644', self.local_slurm_conf_path],
+                        check=True,
+                        capture_output=True
+                    )
+                    subprocess.run(
+                        [SUDO, '-n', CHOWN, 'slurm:slurm', self.local_slurm_conf_path],
+                        check=True,
+                        capture_output=True
+                    )
+                    print(f"✅ Also synced to {self.local_slurm_conf_path}")
             finally:
                 # Clean up temp file
                 os.unlink(temp_file.name)

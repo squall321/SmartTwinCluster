@@ -35,6 +35,10 @@ class SlurmConfigFromYAML:
         slurm_cfg = self.config['slurm_config']
         users = self.config['users']
         
+        # Get install path for PluginDir
+        install_path = slurm_cfg.get('install_path', '/usr/local/slurm')
+        plugin_dir = f"{install_path}/lib/slurm"
+
         # Header
         slurm_conf = f"""# slurm.conf
 # Auto-generated from {self.yaml_file}
@@ -46,6 +50,7 @@ class SlurmConfigFromYAML:
 #######################################################################
 ClusterName={cluster_info['cluster_name']}
 SlurmctldHost={controller['hostname']}({controller['ip_address']})
+PluginDir={plugin_dir}
 
 #######################################################################
 # USER CONFIGURATION
