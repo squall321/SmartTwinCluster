@@ -1,50 +1,64 @@
-# ============================================
-# Dashboard 기본 환경 패키지
-# 작성일: 2025-10-07
-# 버전: v3.2.1 (Reports Advanced)
-# ============================================
-
-# Flask 웹 프레임워크
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.0
+aiohttp-cors==0.8.1
+aiosignal==1.4.0
+asyncssh==2.21.1
+attrs==25.4.0
+bcrypt==5.0.0
+bidict==0.23.1
+blinker==1.9.0
+certifi==2025.10.5
+cffi==2.0.0
+charset-normalizer==3.4.4
+click==8.3.0
+contourpy==1.3.3
+cryptography==46.0.3
+cycler==0.12.1
+et_xmlfile==2.0.0
 Flask==3.1.1
 flask-cors==6.0.1
-Werkzeug==3.1.3
-markupsafe>=2.1.0      # Flask 종속성 (명시적 설치)
-requests>=2.31.0
-
-# 비동기 처리
-asyncssh>=2.13.0
-aiohttp>=3.9.0
-aiohttp-cors>=0.7.0
-
-# 모니터링
-prometheus_client>=0.19.0
-psutil>=5.9.0
-
-# 유틸리티
-python-dotenv==1.1.1
-watchdog>=3.0.0         # 파일 시스템 감시 (Phase 2: Template Hot Reload)
-PyYAML>=6.0.0           # YAML 파싱 (Phase 2: Template Management)
-
-# ============================================
-# v3.2.0: Reports 기능 (기본)
-# Python 3.9+ 필요
-# ============================================
-pandas>=2.0.0          # 데이터 분석
-numpy>=1.24.0          # 수치 연산
-openpyxl>=3.1.0        # Excel 파일 생성
-
-# ============================================
-# v3.2.1: Reports 고도화
-# PDF/Excel/Email 기능
-# ============================================
-reportlab>=4.0.0       # PDF 생성
-Pillow>=10.0.0         # 이미지 처리 (차트를 PDF에 삽입)
-matplotlib>=3.7.0      # 차트 생성 (선택적)
-xlsxwriter>=3.1.0      # Excel 고급 기능 (선택적, openpyxl 대안)
-PyJWT==2.10.1
+Flask-SocketIO==5.5.1
+fonttools==4.60.1
+frozenlist==1.8.0
 gunicorn==21.2.0
-
-# ============================================
-# 성능 최적화 (v4.0.0)
-# ============================================
-redis>=4.6.0           # Redis 캐싱
+h11==0.16.0
+idna==3.11
+invoke==2.2.1
+itsdangerous==2.2.0
+Jinja2==3.1.6
+kiwisolver==1.4.9
+MarkupSafe==3.0.3
+matplotlib==3.10.7
+multidict==6.7.0
+numpy==2.3.4
+openpyxl==3.1.5
+packaging==25.0
+pandas==2.3.3
+paramiko==4.0.0
+pillow==12.0.0
+prometheus_client==0.23.1
+propcache==0.4.1
+psutil==7.1.0
+pycparser==2.23
+PyJWT==2.10.1
+PyNaCl==1.6.0
+pyparsing==3.2.5
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.0
+python-engineio==4.12.3
+python-socketio==5.14.2
+pytz==2025.2
+PyYAML==6.0.3
+redis==7.0.1
+reportlab==4.4.4
+requests==2.32.5
+simple-websocket==1.1.0
+six==1.17.0
+typing_extensions==4.15.0
+tzdata==2025.2
+urllib3==2.5.0
+watchdog==6.0.0
+Werkzeug==3.1.4
+wsproto==1.2.0
+xlsxwriter==3.2.9
+yarl==1.22.0
