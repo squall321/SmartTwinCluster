@@ -143,6 +143,9 @@ from lsdyna_submit_api import lsdyna_submit_bp
 # v4.7.0 신규 기능 Blueprint 임포트 (Phase 3 Production - File Listing API)
 from file_listing_api import file_listing_bp
 
+# v5.1.0 신규 기능 Blueprint 임포트 (YAML Node Group Loader)
+from yaml_node_loader import yaml_loader_bp
+
 app = Flask(__name__)
 CORS(app)
 
@@ -289,6 +292,10 @@ print("✅ LS-DYNA Submit API registered: /api/slurm/submit-lsdyna-jobs")
 # v4.7.0 신규 기능 Blueprint 등록 (Phase 3 Production - File Listing API)
 app.register_blueprint(file_listing_bp)
 print("✅ File Listing API registered: /api/files")
+
+# v5.1.0 신규 기능 Blueprint 등록 (YAML Node Group Loader)
+app.register_blueprint(yaml_loader_bp)
+print("✅ YAML Node Loader API registered: /api/yaml")
 
 # Initialize template watcher (Hot Reload)
 try:

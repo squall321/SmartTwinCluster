@@ -64,6 +64,52 @@ if ps -p $(cat .backend.pid) > /dev/null 2>&1; then
     sleep 1
     echo -e "${BLUE}=== Backend 시작 로그 ===${NC}"
     tail -20 logs/backend.log
+
+    # 🆕 YAML 노드 그룹 초기화 (Production 모드에서만)
+    if [ "$MOCK_MODE" != "true" ]; then
+        echo ""
+        echo -e "${YELLOW}🔄 YAML 기반 노드 그룹 초기화 중...${NC}"
+
+        # 서버가 완전히 준비될 때까지 대기
+        MAX_WAIT=30
+        WAIT_COUNT=0
+        while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+            HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PORT}/api/health 2>/dev/null)
+            if [ "$HEALTH_CHECK" = "200" ]; then
+                break
+            fi
+            sleep 1
+            WAIT_COUNT=$((WAIT_COUNT + 1))
+        done
+
+        if [ "$HEALTH_CHECK" = "200" ]; then
+            # YAML 노드 그룹 초기화 API 호출 (localhost 전용 엔드포인트)
+            INIT_RESULT=$(curl -s -X POST http://localhost:${PORT}/api/yaml/init-startup \
+                -H "Content-Type: application/json" 2>/dev/null)
+
+            if echo "$INIT_RESULT" | grep -q '"success": true\|"success":true'; then
+                echo -e "${GREEN}✅ YAML 노드 그룹 초기화 완료${NC}"
+                # 결과에서 그룹 수와 노드 수 추출
+                GROUPS_COUNT=$(echo "$INIT_RESULT" | grep -o '"groups_count":[0-9]*' | grep -o '[0-9]*')
+                COMPUTE_NODES=$(echo "$INIT_RESULT" | grep -o '"compute_nodes":[0-9]*' | grep -o '[0-9]*')
+                VIZ_NODES=$(echo "$INIT_RESULT" | grep -o '"viz_nodes":[0-9]*' | grep -o '[0-9]*')
+                echo -e "   그룹: ${GROUPS_COUNT:-0}개, Compute: ${COMPUTE_NODES:-0}개, Viz: ${VIZ_NODES:-0}개"
+            else
+                echo -e "${YELLOW}⚠️  YAML 노드 그룹 초기화 건너뜀${NC}"
+                # 오류 메시지 출력
+                ERROR_MSG=$(echo "$INIT_RESULT" | grep -o '"error"[^,}]*' | head -1)
+                if [ ! -z "$ERROR_MSG" ]; then
+                    echo -e "   ${ERROR_MSG}"
+                fi
+                echo -e "   힌트: my_multihead_cluster.yaml 파일이 있는지 확인하세요"
+            fi
+        else
+            echo -e "${RED}⚠️  서버 준비 대기 시간 초과${NC}"
+        fi
+    else
+        echo ""
+        echo -e "${YELLOW}📝 Mock 모드 - YAML 노드 초기화 건너뜀${NC}"
+    fi
 else
     echo -e "${RED}❌ Backend 시작 실패${NC}"
     echo -e "${RED}=== 에러 로그 ===${NC}"
