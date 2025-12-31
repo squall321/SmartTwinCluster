@@ -5,8 +5,16 @@ Slurm 데이터 수집 유틸리티
 
 import subprocess
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
+
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
+SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
+SACCT = os.path.join(SLURM_BIN_DIR, 'sacct')
+SREPORT = os.path.join(SLURM_BIN_DIR, 'sreport')
 
 def run_slurm_command(command: List[str]) -> str:
     """Slurm 명령어 실행"""
@@ -38,7 +46,7 @@ def get_slurm_jobs_data(start_date: datetime, end_date: datetime) -> Dict[str, A
     
     # sacct로 작업 정보 수집
     command = [
-        'sacct',
+        SACCT,
         '-S', start_str,
         '-E', end_str,
         '--format=JobID,JobName,User,State,AllocCPUS,AllocNodes,Elapsed,TotalCPU,Start,End',
@@ -116,7 +124,7 @@ def get_slurm_usage_by_user(start_date: datetime, end_date: datetime) -> List[Di
     
     # sreport로 사용자별 사용량 수집
     command = [
-        'sreport',
+        SREPORT,
         'cluster',
         'UserUtilizationByAccount',
         'Start=' + start_str,
@@ -166,7 +174,7 @@ def get_current_cluster_state() -> Dict[str, Any]:
     sinfo, squeue 사용
     """
     # 노드 정보
-    sinfo_output = run_slurm_command(['sinfo', '-h', '-o', '%D|%C'])
+    sinfo_output = run_slurm_command([SINFO, '-h', '-o', '%D|%C'])
     total_nodes = 0
     total_cpus = 0
     used_cpus = 0
@@ -188,7 +196,7 @@ def get_current_cluster_state() -> Dict[str, Any]:
     cpu_utilization = (used_cpus / total_cpus * 100) if total_cpus > 0 else 0
     
     # 실행 중인 작업
-    squeue_output = run_slurm_command(['squeue', '-h', '-o', '%T'])
+    squeue_output = run_slurm_command([SQUEUE, '-h', '-o', '%T'])
     running_jobs = 0
     pending_jobs = 0
     
@@ -201,7 +209,7 @@ def get_current_cluster_state() -> Dict[str, Any]:
                 pending_jobs += 1
     
     # 사용자 수 (활성)
-    users_output = run_slurm_command(['squeue', '-h', '-o', '%u'])
+    users_output = run_slurm_command([SQUEUE, '-h', '-o', '%u'])
     active_users = len(set(users_output.strip().split('\n'))) if users_output else 0
     
     return {
