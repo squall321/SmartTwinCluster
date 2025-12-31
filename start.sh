@@ -643,11 +643,25 @@ diagnose_service_failure() {
             ;;
         "Prometheus")
             service_dir="$dashboard_dir/prometheus_9090"
-            systemd_name="prometheus"
+            # 여러 가능한 서비스 이름 체크
+            for svc in "prometheus" "prometheus-server"; do
+                if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                    systemd_name="$svc"
+                    break
+                fi
+            done
+            [[ -z "$systemd_name" ]] && systemd_name="prometheus"
             ;;
         "Node Exporter")
             service_dir="$dashboard_dir/node_exporter_9100"
-            systemd_name="node_exporter"
+            # apt 설치 시 prometheus-node-exporter 이름 사용
+            for svc in "node_exporter" "prometheus-node-exporter" "node-exporter"; do
+                if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                    systemd_name="$svc"
+                    break
+                fi
+            done
+            [[ -z "$systemd_name" ]] && systemd_name="node_exporter"
             ;;
         "CAE Server")
             service_dir="$dashboard_dir/kooCAEWebServer_5000"

@@ -25,6 +25,15 @@ fi
 [ -f ".prometheus.pid" ] && kill $(cat .prometheus.pid) 2>/dev/null && rm -f .prometheus.pid
 
 mkdir -p data
+
+# WAL 및 손상 데이터 정리 (시작 전)
+echo -e "${YELLOW}WAL 데이터 정리 중...${NC}"
+rm -rf data/wal/* 2>/dev/null || true
+rm -rf data/chunks_head/* 2>/dev/null || true
+rm -f data/lock 2>/dev/null || true
+find data -type d -name "*.tmp-for-deletion" -exec rm -rf {} + 2>/dev/null || true
+echo -e "${GREEN}✅ WAL 정리 완료${NC}"
+
 nohup ./prometheus --config.file=prometheus.yml --storage.tsdb.path=./data > prometheus.log 2>&1 &
 echo $! > .prometheus.pid
 sleep 1

@@ -306,44 +306,60 @@ echo ""
 # ==================== 5. Prometheus & Node Exporter ====================
 echo -e "${BLUE}[5/6] 모니터링 서비스...${NC}"
 
-# Prometheus (systemd로 관리되는 경우 건너뜀)
-if systemctl is-active --quiet prometheus 2>/dev/null; then
-    echo -e "${GREEN}✅ Prometheus 이미 실행 중 (systemd)${NC}"
-elif [ -d "prometheus_9090" ] && [ -f "prometheus_9090/start.sh" ]; then
-    # 이미 실행 중인지 확인
-    if nc -z localhost 9090 2>/dev/null; then
-        echo -e "${GREEN}✅ Prometheus 이미 실행 중 (Port: 9090)${NC}"
-    else
-        cd prometheus_9090
-        ./start.sh > /dev/null 2>&1
-        cd "$SCRIPT_DIR"
-        sleep 1
-        if nc -z localhost 9090 2>/dev/null; then
-            echo -e "${GREEN}✅ Prometheus 시작됨 (Port: 9090)${NC}"
-        else
-            echo -e "${RED}❌ Prometheus 시작 실패${NC}"
-        fi
+# Node Exporter - 시스템 서비스 확인 (apt 설치된 경우 prometheus-node-exporter)
+# 여러 가능한 서비스 이름 체크
+NODE_EXPORTER_SYSTEMD=""
+for svc_name in "node_exporter" "prometheus-node-exporter" "node-exporter"; do
+    if systemctl is-active --quiet "$svc_name" 2>/dev/null; then
+        NODE_EXPORTER_SYSTEMD="$svc_name"
+        break
     fi
+done
+
+if [ -n "$NODE_EXPORTER_SYSTEMD" ]; then
+    echo -e "${GREEN}✅ Node Exporter 실행 중 (systemd: $NODE_EXPORTER_SYSTEMD)${NC}"
+elif nc -z localhost 9100 2>/dev/null; then
+    echo -e "${GREEN}✅ Node Exporter 이미 실행 중 (Port: 9100)${NC}"
+elif [ -d "node_exporter_9100" ] && [ -f "node_exporter_9100/start.sh" ]; then
+    cd node_exporter_9100
+    ./start.sh
+    cd "$SCRIPT_DIR"
+    sleep 1
+    if nc -z localhost 9100 2>/dev/null; then
+        echo -e "${GREEN}✅ Node Exporter 시작됨 (Port: 9100)${NC}"
+    else
+        echo -e "${RED}❌ Node Exporter 시작 실패${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Node Exporter 없음 (선택적)${NC}"
 fi
 
-# Node Exporter (systemd로 관리되는 경우 건너뜀)
-if systemctl is-active --quiet node_exporter 2>/dev/null; then
-    echo -e "${GREEN}✅ Node Exporter 이미 실행 중 (systemd)${NC}"
-elif [ -d "node_exporter_9100" ] && [ -f "node_exporter_9100/start.sh" ]; then
-    # 이미 실행 중인지 확인
-    if nc -z localhost 9100 2>/dev/null; then
-        echo -e "${GREEN}✅ Node Exporter 이미 실행 중 (Port: 9100)${NC}"
-    else
-        cd node_exporter_9100
-        ./start.sh > /dev/null 2>&1
-        cd "$SCRIPT_DIR"
-        sleep 1
-        if nc -z localhost 9100 2>/dev/null; then
-            echo -e "${GREEN}✅ Node Exporter 시작됨 (Port: 9100)${NC}"
-        else
-            echo -e "${RED}❌ Node Exporter 시작 실패${NC}"
-        fi
+# Prometheus - 시스템 서비스 확인
+PROMETHEUS_SYSTEMD=""
+for svc_name in "prometheus" "prometheus-server"; do
+    if systemctl is-active --quiet "$svc_name" 2>/dev/null; then
+        PROMETHEUS_SYSTEMD="$svc_name"
+        break
     fi
+done
+
+if [ -n "$PROMETHEUS_SYSTEMD" ]; then
+    echo -e "${GREEN}✅ Prometheus 실행 중 (systemd: $PROMETHEUS_SYSTEMD)${NC}"
+elif nc -z localhost 9090 2>/dev/null; then
+    echo -e "${GREEN}✅ Prometheus 이미 실행 중 (Port: 9090)${NC}"
+elif [ -d "prometheus_9090" ] && [ -f "prometheus_9090/start.sh" ]; then
+    cd prometheus_9090
+    ./start.sh
+    cd "$SCRIPT_DIR"
+    sleep 2
+    if nc -z localhost 9090 2>/dev/null; then
+        echo -e "${GREEN}✅ Prometheus 시작됨 (Port: 9090)${NC}"
+    else
+        echo -e "${RED}❌ Prometheus 시작 실패${NC}"
+        echo "  → 로그 확인: tail -50 prometheus_9090/prometheus.log"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Prometheus 없음 (선택적)${NC}"
 fi
 echo ""
 
