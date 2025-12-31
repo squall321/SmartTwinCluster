@@ -87,9 +87,9 @@ MOCK_GROUPS = [
 # ==================== Slurm 파티션 동기화 ====================
 
 def _build_slurm_cmd(base_cmd: List[str]) -> List[str]:
-    """Slurm 명령어에 sudo prefix 추가 (필요한 경우)"""
+    """Slurm 명령어에 sudo prefix 추가 (필요한 경로)"""
     if USE_SUDO_FOR_SLURM:
-        return ['sudo', '-n'] + base_cmd
+        return ['/usr/bin/sudo', '-n'] + base_cmd
     return base_cmd
 
 

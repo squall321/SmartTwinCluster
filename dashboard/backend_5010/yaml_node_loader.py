@@ -210,7 +210,7 @@ def _build_slurm_cmd(base_cmd: List[str]) -> List[str]:
     Slurm 명령어에 sudo prefix 추가 (필요한 경우)
     """
     if USE_SUDO_FOR_SLURM:
-        return ['sudo', '-n'] + base_cmd  # -n: non-interactive (password 없이)
+        return ['/usr/bin/sudo', '-n'] + base_cmd  # -n: non-interactive (password 없이)
     return base_cmd
 
 
