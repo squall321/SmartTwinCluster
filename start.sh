@@ -64,12 +64,14 @@ cleanup_pid_files() {
 cleanup_pid_files
 
 # ============================================================================
-# Slurm 경로 통합 (심볼릭 링크 생성)
-# /usr/bin에 Slurm이 설치된 경우 /usr/local/slurm/bin으로 심볼릭 링크 생성
+# Slurm 경로 확인 및 버전 검증
+# 소스 빌드된 Slurm 23.x가 /usr/local/slurm/bin에 있어야 함
+# /usr/bin의 apt 패키지 버전(21.x)은 사용하지 않음
 # ============================================================================
 setup_slurm_paths() {
     local target_bin_path="/usr/local/slurm/bin"
     local source_bin_path="/usr/bin"
+    local required_major_version="23"
 
     # YAML에서 bin_path 읽기 시도
     if [[ -f "$PROJECT_ROOT/my_cluster.yaml" ]]; then
@@ -80,71 +82,66 @@ setup_slurm_paths() {
     fi
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "🔧 Slurm 경로 확인 및 통합..."
+    echo "🔧 Slurm 경로 확인 및 버전 검증..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  대상 경로: $target_bin_path"
+    echo "  필요 버전: $required_major_version.x 이상"
 
-    # Slurm 명령어 목록
-    local slurm_commands=("sinfo" "squeue" "sbatch" "scancel" "scontrol" "sacct" "sacctmgr" "sreport" "srun")
-
-    # 대상 경로에 이미 Slurm이 있는지 확인
+    # 대상 경로에 Slurm이 있는지 확인
     if [[ -x "$target_bin_path/sinfo" ]]; then
-        echo "  ✅ Slurm이 $target_bin_path에 이미 존재함"
-        echo ""
-        return 0
+        # 버전 확인
+        local version_output=$("$target_bin_path/sinfo" --version 2>/dev/null | head -1)
+        local major_version=$(echo "$version_output" | grep -oP 'slurm \K[0-9]+' | head -1)
+
+        if [[ "$major_version" -ge "$required_major_version" ]]; then
+            echo "  ✅ Slurm $version_output 확인됨 ($target_bin_path)"
+            echo ""
+            return 0
+        else
+            echo "  ⚠️  Slurm 버전이 낮음: $version_output"
+            echo "     필요 버전: ${required_major_version}.x 이상"
+            echo "     → Slurm을 다시 빌드하여 설치하세요."
+            echo ""
+            return 1
+        fi
     fi
 
-    # /usr/bin에 Slurm이 있는지 확인
+    # /usr/bin에 Slurm이 있는지 확인 (apt 패키지)
     if [[ -x "$source_bin_path/sinfo" ]]; then
-        echo "  ⚠️  Slurm이 $source_bin_path에 설치됨 (패키지 설치 방식)"
-        echo "  → $target_bin_path로 심볼릭 링크 생성 중..."
+        local apt_version=$("$source_bin_path/sinfo" --version 2>/dev/null | head -1)
+        local apt_major=$(echo "$apt_version" | grep -oP 'slurm \K[0-9]+' | head -1)
 
-        # 대상 디렉토리 생성
-        if [[ ! -d "$target_bin_path" ]]; then
-            sudo mkdir -p "$target_bin_path" 2>/dev/null || {
-                echo "  ❌ 디렉토리 생성 실패 (sudo 권한 필요): $target_bin_path"
-                echo ""
-                return 1
-            }
-        fi
+        echo "  ⚠️  apt 패키지 Slurm 발견: $apt_version ($source_bin_path)"
 
-        local linked=0
-        local failed=0
-        for cmd in "${slurm_commands[@]}"; do
-            if [[ -x "$source_bin_path/$cmd" ]]; then
-                if [[ ! -e "$target_bin_path/$cmd" ]]; then
-                    if sudo ln -sf "$source_bin_path/$cmd" "$target_bin_path/$cmd" 2>/dev/null; then
-                        ((linked++))
-                    else
-                        ((failed++))
-                    fi
-                fi
-            fi
-        done
-
-        # sbin 명령어도 처리 (slurmctld, slurmd 등)
-        local sbin_commands=("slurmctld" "slurmd" "slurmdbd")
-        local target_sbin_path="${target_bin_path%/bin}/sbin"
-        if [[ ! -d "$target_sbin_path" ]]; then
-            sudo mkdir -p "$target_sbin_path" 2>/dev/null || true
-        fi
-        for cmd in "${sbin_commands[@]}"; do
-            if [[ -x "/usr/sbin/$cmd" ]] && [[ ! -e "$target_sbin_path/$cmd" ]]; then
-                sudo ln -sf "/usr/sbin/$cmd" "$target_sbin_path/$cmd" 2>/dev/null || true
-            fi
-        done
-
-        if [[ $linked -gt 0 ]]; then
-            echo "  ✅ $linked개 심볼릭 링크 생성 완료"
-        fi
-        if [[ $failed -gt 0 ]]; then
-            echo "  ⚠️  $failed개 링크 생성 실패 (권한 문제일 수 있음)"
+        if [[ "$apt_major" -lt "$required_major_version" ]]; then
+            echo "  ❌ 버전이 호환되지 않음 (${apt_major}.x < ${required_major_version}.x)"
+            echo ""
+            echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  📋 해결 방법:"
+            echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  1. Slurm ${required_major_version}.11.10을 소스에서 빌드하여 설치:"
+            echo "     ./install_slurm_binary.sh"
+            echo ""
+            echo "  2. 또는 오프라인 패키지 사용:"
+            echo "     ./offline_packages/slurm/build_slurm_package.sh"
+            echo ""
+            echo "  3. 설치 후 PATH 설정 확인:"
+            echo "     source /etc/profile.d/slurm.sh"
+            echo "     which sinfo  # /usr/local/slurm/bin/sinfo 출력 확인"
+            echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            # 심볼릭 링크 생성하지 않음 - 버전 불일치 시 오류 발생 원인
+            return 1
         fi
     else
-        echo "  ❌ Slurm을 찾을 수 없음 ($source_bin_path, $target_bin_path)"
-        echo "     Slurm이 설치되지 않았거나 다른 경로에 있습니다."
+        echo "  ❌ Slurm을 찾을 수 없음"
+        echo "     $target_bin_path 또는 $source_bin_path에 Slurm이 설치되지 않았습니다."
+        echo ""
+        echo "  📋 Slurm 설치 방법:"
+        echo "     ./install_slurm_binary.sh"
     fi
     echo ""
+    return 0
 }
 
 # Slurm 경로 통합 실행
