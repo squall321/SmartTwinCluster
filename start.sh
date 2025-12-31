@@ -176,11 +176,11 @@ setup_slurm_conf() {
         return 0
     fi
 
-    # NodeName 정의 확인
+    # NodeName 정의 확인 (tr -d로 개행 제거)
     local etc_nodes=0
     local local_nodes=0
-    [[ "$etc_exists" == true ]] && etc_nodes=$(grep -c "^NodeName=" "$ETC_CONF" 2>/dev/null || echo 0)
-    [[ "$local_exists" == true ]] && local_nodes=$(grep -c "^NodeName=" "$LOCAL_CONF" 2>/dev/null || echo 0)
+    [[ "$etc_exists" == true ]] && etc_nodes=$(grep -c "^NodeName=" "$ETC_CONF" 2>/dev/null | tr -d '\n' || echo 0)
+    [[ "$local_exists" == true ]] && local_nodes=$(grep -c "^NodeName=" "$LOCAL_CONF" 2>/dev/null | tr -d '\n' || echo 0)
 
     echo "  /etc/slurm/slurm.conf: $([ "$etc_exists" == true ] && echo "존재 (NodeName: ${etc_nodes}개)" || echo "없음")"
     echo "  $LOCAL_CONF: $([ "$local_exists" == true ] && echo "존재 (NodeName: ${local_nodes}개)" || echo "없음")"

@@ -355,9 +355,9 @@ elif [[ -f "$CONFIG_DIR/slurm.conf" && ! -f /etc/slurm/slurm.conf ]]; then
 # 케이스 3: 두 파일 모두 존재하는 경우
 #          -> NodeName 정의가 있는 파일을 우선 사용
 elif [[ -f /etc/slurm/slurm.conf && -f "$CONFIG_DIR/slurm.conf" ]]; then
-    # NodeName 정의 유무 확인
-    ETC_HAS_NODES=$(grep -c "^NodeName=" /etc/slurm/slurm.conf 2>/dev/null || echo 0)
-    CONFIG_HAS_NODES=$(grep -c "^NodeName=" "$CONFIG_DIR/slurm.conf" 2>/dev/null || echo 0)
+    # NodeName 정의 유무 확인 (tr -d로 개행 제거)
+    ETC_HAS_NODES=$(grep -c "^NodeName=" /etc/slurm/slurm.conf 2>/dev/null | tr -d '\n' || echo 0)
+    CONFIG_HAS_NODES=$(grep -c "^NodeName=" "$CONFIG_DIR/slurm.conf" 2>/dev/null | tr -d '\n' || echo 0)
 
     if [[ "$CONFIG_HAS_NODES" -gt 0 && "$ETC_HAS_NODES" -eq 0 ]]; then
         # $CONFIG_DIR에 노드 정의가 있고 /etc/slurm에 없으면 -> $CONFIG_DIR 사용
