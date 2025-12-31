@@ -1076,6 +1076,36 @@ case $MODE in
             # 서비스 시작 후 상태 체크
             echo ""
             check_services_health
+
+            # YAML 기반 Slurm 파티션 초기화
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔧 YAML 기반 노드 그룹 및 Slurm 파티션 초기화..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            sleep 2  # 백엔드 서비스가 완전히 시작될 때까지 대기
+
+            # Backend API가 응답하는지 확인
+            if curl -s --connect-timeout 5 http://127.0.0.1:5010/api/health > /dev/null 2>&1; then
+                # YAML 기반 초기화 API 호출
+                INIT_RESULT=$(curl -s -X POST http://127.0.0.1:5010/api/yaml/init-startup 2>&1)
+
+                if echo "$INIT_RESULT" | grep -q '"success": true\|"success":true'; then
+                    echo "  ✅ 노드 그룹 초기화 완료"
+                    # Slurm 동기화 결과 확인
+                    if echo "$INIT_RESULT" | grep -q '"slurm_available": true\|"slurm_available":true'; then
+                        PARTITION_COUNT=$(echo "$INIT_RESULT" | grep -o '"partitions"' | wc -l)
+                        echo "  ✅ Slurm 파티션 동기화 완료"
+                    elif echo "$INIT_RESULT" | grep -q 'Slurm not available'; then
+                        echo "  ⚠️  Slurm이 사용 불가능 - 파티션 동기화 건너뜀"
+                    fi
+                else
+                    echo "  ⚠️  초기화 실패 또는 YAML 파일 없음"
+                    echo "     응답: ${INIT_RESULT:0:100}..."
+                fi
+            else
+                echo "  ⚠️  Backend API (5010) 응답 없음 - 초기화 건너뜀"
+            fi
+            echo ""
         else
             echo "❌ 오류: dashboard/start_production.sh 파일을 찾을 수 없습니다."
             echo "   현재 디렉토리: $(pwd)"
