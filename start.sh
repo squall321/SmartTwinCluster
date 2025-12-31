@@ -524,8 +524,8 @@ check_services_health() {
         "Auth Portal:4430:/health:인증 서비스"
         "Backend API:5010:/api/health:메인 백엔드"
         "WebSocket:5011:/health:WebSocket 서비스"
-        "Prometheus:9090/-/healthy:모니터링"
-        "Node Exporter:9100/metrics:노드 메트릭"
+        "Prometheus:9090:/-/healthy:모니터링"
+        "Node Exporter:9100:/metrics:노드 메트릭"
         "CAE Server:5000:/health:CAE 웹서버"
         "CAE Automation:5001:/health:CAE 자동화"
     )
