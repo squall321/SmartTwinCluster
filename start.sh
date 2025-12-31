@@ -160,14 +160,14 @@ setup_slurm_conf() {
     local LOCAL_CONF="$CONFIG_DIR/slurm.conf"
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📋 Slurm 설정 파일 검증..."
+    echo "📋 Slurm 설정 파일 검증 및 동기화..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    # 두 설정 파일 모두 존재하는지 확인
+    # 두 설정 파일 존재 여부 확인
     local etc_exists=false
     local local_exists=false
-    [[ -f "$ETC_CONF" ]] && etc_exists=true
-    [[ -f "$LOCAL_CONF" ]] && local_exists=true
+    [[ -f "$ETC_CONF" || -L "$ETC_CONF" ]] && etc_exists=true
+    [[ -f "$LOCAL_CONF" || -L "$LOCAL_CONF" ]] && local_exists=true
 
     if [[ "$etc_exists" == false && "$local_exists" == false ]]; then
         echo "  ⚠️  slurm.conf 파일이 없습니다"
@@ -185,64 +185,55 @@ setup_slurm_conf() {
     echo "  /etc/slurm/slurm.conf: $([ "$etc_exists" == true ] && echo "존재 (NodeName: ${etc_nodes}개)" || echo "없음")"
     echo "  $LOCAL_CONF: $([ "$local_exists" == true ] && echo "존재 (NodeName: ${local_nodes}개)" || echo "없음")"
 
-    # 심볼릭 링크 여부 확인
-    local etc_is_link=false
-    local local_is_link=false
-    [[ -L "$ETC_CONF" ]] && etc_is_link=true
-    [[ -L "$LOCAL_CONF" ]] && local_is_link=true
-
     # 케이스 1: /etc/slurm에 NodeName이 없고, /usr/local/slurm/etc에 있는 경우
+    #          -> /usr/local/slurm/etc/slurm.conf를 /etc/slurm/으로 복사
     if [[ "$etc_exists" == true && "$local_exists" == true &&
-          "$etc_nodes" -eq 0 && "$local_nodes" -gt 0 &&
-          "$etc_is_link" == false ]]; then
+          "$etc_nodes" -eq 0 && "$local_nodes" -gt 0 ]]; then
         echo ""
         echo "  ⚠️  /etc/slurm/slurm.conf에 NodeName 정의가 없습니다!"
-        echo "  → $LOCAL_CONF 사용하도록 심볼릭 링크 설정 중..."
+        echo "  → $LOCAL_CONF를 /etc/slurm/으로 복사 중..."
+        sudo mv "$ETC_CONF" "${ETC_CONF}.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+        sudo cp "$LOCAL_CONF" "$ETC_CONF"
+        sudo chown slurm:slurm "$ETC_CONF" 2>/dev/null || true
+        echo "  ✅ 복사 완료: $LOCAL_CONF -> $ETC_CONF"
 
-        # sudo 권한 확인
-        if sudo -n true 2>/dev/null; then
-            sudo mv "$ETC_CONF" "${ETC_CONF}.bak.$(date +%Y%m%d_%H%M%S)"
-            sudo ln -sf "$LOCAL_CONF" "$ETC_CONF"
-            echo "  ✅ 심볼릭 링크 생성: $ETC_CONF -> $LOCAL_CONF"
-            echo "  ✅ 기존 파일 백업됨: ${ETC_CONF}.bak.*"
+    # 케이스 2: /etc/slurm에 NodeName이 있고, /usr/local/slurm/etc에 없거나 다른 경우
+    #          -> /etc/slurm/slurm.conf를 /usr/local/slurm/etc/로 복사
+    elif [[ "$etc_exists" == true && "$etc_nodes" -gt 0 ]]; then
+        echo ""
+        if [[ "$local_exists" == false ]]; then
+            echo "  → /etc/slurm/slurm.conf를 $CONFIG_DIR/로 복사 중..."
+            sudo mkdir -p "$CONFIG_DIR"
+            sudo cp "$ETC_CONF" "$LOCAL_CONF"
+            sudo chown slurm:slurm "$LOCAL_CONF" 2>/dev/null || true
+            echo "  ✅ 복사 완료: $ETC_CONF -> $LOCAL_CONF"
+        elif [[ "$local_nodes" -eq 0 ]]; then
+            echo "  → /etc/slurm/slurm.conf를 $CONFIG_DIR/로 복사 중..."
+            sudo mv "$LOCAL_CONF" "${LOCAL_CONF}.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+            sudo cp "$ETC_CONF" "$LOCAL_CONF"
+            sudo chown slurm:slurm "$LOCAL_CONF" 2>/dev/null || true
+            echo "  ✅ 복사 완료: $ETC_CONF -> $LOCAL_CONF"
         else
-            echo "  ❌ sudo 권한 없음 - 수동으로 실행하세요:"
-            echo "     sudo mv $ETC_CONF ${ETC_CONF}.bak"
-            echo "     sudo ln -sf $LOCAL_CONF $ETC_CONF"
+            echo "  ✅ 양쪽 모두 NodeName 정의가 있습니다"
         fi
 
-    # 케이스 2: /etc/slurm만 있고 NodeName 없음
+    # 케이스 3: /etc/slurm만 있고 NodeName 없음
     elif [[ "$etc_exists" == true && "$local_exists" == false && "$etc_nodes" -eq 0 ]]; then
         echo ""
         echo "  ⚠️  /etc/slurm/slurm.conf에 NodeName 정의가 없습니다!"
-        echo "     PartitionName=debug만 있을 수 있습니다"
         echo "     올바른 slurm.conf를 $LOCAL_CONF에 배치하세요"
 
-    # 케이스 3: 이미 심볼릭 링크로 연결됨
-    elif [[ "$etc_is_link" == true ]]; then
-        local link_target=$(readlink -f "$ETC_CONF")
-        echo ""
-        echo "  ✅ /etc/slurm/slurm.conf는 심볼릭 링크입니다"
-        echo "     -> $link_target"
-
-    # 케이스 4: /etc/slurm에 NodeName이 있음
-    elif [[ "$etc_nodes" -gt 0 ]]; then
-        echo ""
-        echo "  ✅ /etc/slurm/slurm.conf에 NodeName 정의가 있습니다"
-
-    # 케이스 5: /usr/local/slurm/etc만 있음
+    # 케이스 4: /usr/local/slurm/etc만 있음
+    #          -> /etc/slurm/으로 복사
     elif [[ "$etc_exists" == false && "$local_exists" == true ]]; then
         echo ""
         echo "  ℹ️  $LOCAL_CONF만 존재합니다"
         if [[ "$local_nodes" -gt 0 ]]; then
-            echo "  → /etc/slurm에 심볼릭 링크 생성 중..."
-            if sudo -n true 2>/dev/null; then
-                sudo mkdir -p /etc/slurm
-                sudo ln -sf "$LOCAL_CONF" "$ETC_CONF"
-                echo "  ✅ 심볼릭 링크 생성: $ETC_CONF -> $LOCAL_CONF"
-            else
-                echo "  ❌ sudo 권한 없음"
-            fi
+            echo "  → /etc/slurm/으로 복사 중..."
+            sudo mkdir -p /etc/slurm
+            sudo cp "$LOCAL_CONF" "$ETC_CONF"
+            sudo chown slurm:slurm "$ETC_CONF" 2>/dev/null || true
+            echo "  ✅ 복사 완료: $LOCAL_CONF -> $ETC_CONF"
         fi
     fi
 
