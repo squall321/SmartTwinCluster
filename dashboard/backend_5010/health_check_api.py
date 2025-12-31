@@ -17,6 +17,10 @@ health_bp = Blueprint('health', __name__, url_prefix='/api/health')
 # Mock 모드 설정
 MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
 
+# Slurm 명령어 경로 설정
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SCONTROL_PATH = os.path.join(SLURM_BIN_DIR, 'scontrol')
+
 # ============================================
 # 유틸리티 함수
 # ============================================
@@ -219,9 +223,9 @@ def check_slurm() -> Dict[str, Any]:
         }
     
     try:
-        # scontrol ping으로 Slurm 상태 확인
+        # scontrol ping으로 Slurm 상태 확인 (전체 경로 사용)
         result = subprocess.run(
-            ['scontrol', 'ping'],
+            [SCONTROL_PATH, 'ping'],
             capture_output=True,
             text=True,
             timeout=5

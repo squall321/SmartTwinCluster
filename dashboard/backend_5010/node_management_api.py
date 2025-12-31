@@ -47,9 +47,9 @@ def run_slurm_command(command, mock_response=None, use_sudo=False):
         return True, mock_response, ""
     
     try:
-        # sudo 권한이 필요한 경우
+        # sudo 권한이 필요한 경우 (절대 경로 사용)
         if use_sudo:
-            command = ['sudo', '-n'] + command  # -n: 비밀번호 없이 실행
+            command = ['/usr/bin/sudo', '-n'] + command  # -n: 비밀번호 없이 실행
             logger.info(f"Running with sudo: {' '.join(command)}")
         
         result = subprocess.run(
