@@ -94,87 +94,8 @@ echo "🚀 HPC Cluster Production 모드 시작 (systemd)"
 echo "=========================================="
 echo ""
 
-# ==================== 0. 프론트엔드 빌드 ====================
-echo -e "${BLUE}[0/6] 프론트엔드 빌드 확인 중...${NC}"
-if [ "$REBUILD_FRONTENDS" = true ]; then
-    echo "  → 프론트엔드 재빌드 진행 (--rebuild 플래그 사용)"
-    if [ -f "./build_all_frontends.sh" ]; then
-        ./build_all_frontends.sh
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}❌ 프론트엔드 빌드 실패. 계속 진행합니다...${NC}"
-        fi
-    else
-        echo -e "${RED}❌ build_all_frontends.sh를 찾을 수 없습니다${NC}"
-    fi
-else
-    echo "  → 프론트엔드 빌드 건너뛰기 (기존 빌드 파일 사용)"
-    echo "  → 재빌드가 필요하면: ./start_production.sh --rebuild"
-fi
-echo ""
-
-# ==================== 1. systemd 서비스 설치 확인 ====================
-echo -e "${BLUE}[1/6] systemd 서비스 상태 확인...${NC}"
-
-# 서비스가 설치되어 있는지 확인
-SERVICES_INSTALLED=true
-for service in "${BACKEND_SERVICES[@]}"; do
-    if [ ! -f "/etc/systemd/system/${service}.service" ]; then
-        SERVICES_INSTALLED=false
-        break
-    fi
-done
-
-if [ "$SERVICES_INSTALLED" = false ] || [ "$INSTALL_SERVICES" = true ]; then
-    echo -e "${YELLOW}  → systemd 서비스 설치가 필요합니다.${NC}"
-
-    if [ "$EUID" -ne 0 ]; then
-        echo -e "${RED}❌ 서비스 설치에는 root 권한이 필요합니다.${NC}"
-        echo "  sudo $0 --install"
-        exit 1
-    fi
-
-    echo "  → systemd 서비스 설치 중..."
-    if [ "$REINSTALL_VENV" = true ]; then
-        "$SCRIPT_DIR/systemd/install_services.sh" --reinstall
-    else
-        "$SCRIPT_DIR/systemd/install_services.sh"
-    fi
-
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}❌ 서비스 설치 실패${NC}"
-        exit 1
-    fi
-
-    echo -e "${GREEN}✅ systemd 서비스 설치 완료${NC}"
-else
-    echo -e "${GREEN}✅ systemd 서비스 설치됨${NC}"
-fi
-echo ""
-
-# ==================== 2. Redis 확인 ====================
-echo -e "${BLUE}[2/6] Redis 상태 확인...${NC}"
-
-if pgrep -x redis-server > /dev/null; then
-    echo -e "${GREEN}✅ Redis 실행 중${NC}"
-else
-    echo -e "${YELLOW}  → Redis 시작 중...${NC}"
-    if sudo systemctl start redis-server 2>/dev/null; then
-        echo -e "${GREEN}✅ Redis 시작됨${NC}"
-    else
-        # 수동 시작 시도
-        redis-server --daemonize yes 2>/dev/null || true
-        sleep 1
-        if pgrep -x redis-server > /dev/null; then
-            echo -e "${GREEN}✅ Redis 시작됨 (수동)${NC}"
-        else
-            echo -e "${RED}❌ Redis 시작 실패${NC}"
-        fi
-    fi
-fi
-echo ""
-
-# ==================== 3. 기존 프로세스 정리 ====================
-echo -e "${BLUE}[3/6] 기존 백그라운드 프로세스 정리...${NC}"
+# ==================== 1. 기존 프로세스 정리 (가장 먼저) ====================
+echo -e "${BLUE}[1/7] 기존 백그라운드 프로세스 정리...${NC}"
 
 # 서비스별 포트 정의 (백엔드 + 프론트엔드 dev 서버 포함)
 SERVICE_PORTS=(
@@ -282,8 +203,87 @@ else
 fi
 echo ""
 
-# ==================== 4. Backend 서비스 시작 (systemd) ====================
-echo -e "${BLUE}[4/6] Backend 서비스 시작 (systemd)...${NC}"
+# ==================== 2. 프론트엔드 빌드 ====================
+echo -e "${BLUE}[2/7] 프론트엔드 빌드 확인 중...${NC}"
+if [ "$REBUILD_FRONTENDS" = true ]; then
+    echo "  → 프론트엔드 재빌드 진행 (--rebuild 플래그 사용)"
+    if [ -f "./build_all_frontends.sh" ]; then
+        ./build_all_frontends.sh
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ 프론트엔드 빌드 실패. 계속 진행합니다...${NC}"
+        fi
+    else
+        echo -e "${RED}❌ build_all_frontends.sh를 찾을 수 없습니다${NC}"
+    fi
+else
+    echo "  → 프론트엔드 빌드 건너뛰기 (기존 빌드 파일 사용)"
+    echo "  → 재빌드가 필요하면: ./start_production.sh --rebuild"
+fi
+echo ""
+
+# ==================== 3. systemd 서비스 설치 확인 ====================
+echo -e "${BLUE}[3/7] systemd 서비스 상태 확인...${NC}"
+
+# 서비스가 설치되어 있는지 확인
+SERVICES_INSTALLED=true
+for service in "${BACKEND_SERVICES[@]}"; do
+    if [ ! -f "/etc/systemd/system/${service}.service" ]; then
+        SERVICES_INSTALLED=false
+        break
+    fi
+done
+
+if [ "$SERVICES_INSTALLED" = false ] || [ "$INSTALL_SERVICES" = true ]; then
+    echo -e "${YELLOW}  → systemd 서비스 설치가 필요합니다.${NC}"
+
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${RED}❌ 서비스 설치에는 root 권한이 필요합니다.${NC}"
+        echo "  sudo $0 --install"
+        exit 1
+    fi
+
+    echo "  → systemd 서비스 설치 중..."
+    if [ "$REINSTALL_VENV" = true ]; then
+        "$SCRIPT_DIR/systemd/install_services.sh" --reinstall
+    else
+        "$SCRIPT_DIR/systemd/install_services.sh"
+    fi
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ 서비스 설치 실패${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✅ systemd 서비스 설치 완료${NC}"
+else
+    echo -e "${GREEN}✅ systemd 서비스 설치됨${NC}"
+fi
+echo ""
+
+# ==================== 4. Redis 확인 ====================
+echo -e "${BLUE}[4/7] Redis 상태 확인...${NC}"
+
+if pgrep -x redis-server > /dev/null; then
+    echo -e "${GREEN}✅ Redis 실행 중${NC}"
+else
+    echo -e "${YELLOW}  → Redis 시작 중...${NC}"
+    if sudo systemctl start redis-server 2>/dev/null; then
+        echo -e "${GREEN}✅ Redis 시작됨${NC}"
+    else
+        # 수동 시작 시도
+        redis-server --daemonize yes 2>/dev/null || true
+        sleep 1
+        if pgrep -x redis-server > /dev/null; then
+            echo -e "${GREEN}✅ Redis 시작됨 (수동)${NC}"
+        else
+            echo -e "${RED}❌ Redis 시작 실패${NC}"
+        fi
+    fi
+fi
+echo ""
+
+# ==================== 5. Backend 서비스 시작 (systemd) ====================
+echo -e "${BLUE}[5/7] Backend 서비스 시작 (systemd)...${NC}"
 
 for service in "${BACKEND_SERVICES[@]}"; do
     echo -n "  → $service: "
@@ -303,8 +303,8 @@ for service in "${BACKEND_SERVICES[@]}"; do
 done
 echo ""
 
-# ==================== 5. Prometheus & Node Exporter ====================
-echo -e "${BLUE}[5/6] 모니터링 서비스...${NC}"
+# ==================== 6. Prometheus & Node Exporter ====================
+echo -e "${BLUE}[6/7] 모니터링 서비스...${NC}"
 
 # Node Exporter - 시스템 서비스 확인 (apt 설치된 경우 prometheus-node-exporter)
 # 여러 가능한 서비스 이름 체크
@@ -363,8 +363,8 @@ else
 fi
 echo ""
 
-# ==================== 6. Nginx 재시작 ====================
-echo -e "${BLUE}[6/6] Nginx 재시작...${NC}"
+# ==================== 7. Nginx 재시작 ====================
+echo -e "${BLUE}[7/7] Nginx 재시작...${NC}"
 if sudo nginx -t > /dev/null 2>&1; then
     sudo systemctl reload nginx
     echo -e "${GREEN}✅ Nginx 재시작 완료${NC}"
