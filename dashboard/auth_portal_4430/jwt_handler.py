@@ -4,22 +4,52 @@ Generates and validates JWT tokens for authenticated users
 """
 import jwt
 import redis
+import logging
 from datetime import datetime, timedelta
 from config.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 class JWTHandler:
     """JWT token generation and validation"""
 
     def __init__(self):
-        """Initialize Redis connection"""
-        self.redis_client = redis.Redis(
-            host=Config.REDIS_HOST,
-            port=Config.REDIS_PORT,
-            db=Config.REDIS_DB,
-            password=Config.REDIS_PASSWORD if Config.REDIS_PASSWORD else None,
-            decode_responses=True
-        )
+        """Initialize Redis connection (lazy, with fallback)"""
+        self._redis_client = None
+        self._redis_available = None  # None = not checked, True/False = checked
+
+    @property
+    def redis_client(self):
+        """Lazy Redis connection with fallback"""
+        if self._redis_client is None:
+            try:
+                self._redis_client = redis.Redis(
+                    host=Config.REDIS_HOST,
+                    port=Config.REDIS_PORT,
+                    db=Config.REDIS_DB,
+                    password=Config.REDIS_PASSWORD if Config.REDIS_PASSWORD else None,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2
+                )
+                # Test connection
+                self._redis_client.ping()
+                self._redis_available = True
+                logger.info("Redis connection established")
+            except Exception as e:
+                logger.warning(f"Redis connection failed: {e}. Running without token revocation support.")
+                self._redis_available = False
+                self._redis_client = None
+        return self._redis_client
+
+    @property
+    def redis_available(self):
+        """Check if Redis is available"""
+        if self._redis_available is None:
+            # Trigger lazy connection check
+            _ = self.redis_client
+        return self._redis_available
 
     def create_token(self, user_info):
         """
@@ -52,8 +82,9 @@ class JWTHandler:
 
         token = jwt.encode(payload, Config.JWT_SECRET_KEY, algorithm=Config.JWT_ALGORITHM)
 
-        # Store token in Redis with expiration
-        self._store_token(user_info['username'], token)
+        # Store token in Redis with expiration (if available)
+        if self.redis_available:
+            self._store_token(user_info['username'], token)
 
         return token
 
@@ -74,12 +105,13 @@ class JWTHandler:
                 algorithms=[Config.JWT_ALGORITHM]
             )
 
-            # Check if token exists in Redis
-            username = payload.get('sub')
-            stored_token = self.redis_client.get(f"jwt:{username}")
+            # Check if token exists in Redis (if available)
+            if self.redis_available:
+                username = payload.get('sub')
+                stored_token = self.redis_client.get(f"jwt:{username}")
 
-            if stored_token != token:
-                return None
+                if stored_token != token:
+                    return None
 
             return payload
 
@@ -98,6 +130,10 @@ class JWTHandler:
         Returns:
             bool: True if revoked successfully
         """
+        if not self.redis_available:
+            logger.warning("Redis not available, token revocation skipped")
+            return True  # Return True anyway since token is not stored
+
         try:
             payload = jwt.decode(
                 token,
@@ -138,4 +174,6 @@ class JWTHandler:
         Returns:
             str: JWT token or None
         """
+        if not self.redis_available:
+            return None
         return self.redis_client.get(f"jwt:{username}")

@@ -10,6 +10,20 @@ from jwt_handler import JWTHandler
 import logging
 import os
 
+# Ensure log directory exists before setting up logging
+os.makedirs('logs', exist_ok=True)
+
+# Setup logging first
+logging.basicConfig(
+    level=logging.DEBUG if os.getenv('FLASK_DEBUG', 'False') == 'True' else logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/auth_portal.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 # Initialize Flask app
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -21,17 +35,6 @@ CORS(app, supports_credentials=True)
 # Initialize handlers
 jwt_handler = JWTHandler()
 AuthHandler.init_app(app)
-
-# Setup logging
-logging.basicConfig(
-    level=logging.DEBUG if Config.DEBUG else logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/auth_portal.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 
 # ============================================================================
