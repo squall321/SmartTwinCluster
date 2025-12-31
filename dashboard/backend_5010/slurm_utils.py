@@ -8,7 +8,9 @@ import re
 from typing import List, Dict, Any
 
 # Slurm 설치 경로 (환경변수로 override 가능)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
+# 기본값: /usr/bin (apt/yum 패키지 설치 환경)
+# 소스 빌드: /usr/local/slurm/bin
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
 DEFAULT_TIMEOUT = 10  # 기본 타임아웃 10초
 
 def get_slurm_command(cmd: str) -> str:

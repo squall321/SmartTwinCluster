@@ -22,8 +22,10 @@ node_bp = Blueprint('node_management', __name__, url_prefix='/api')
 # Mock 모드 확인
 MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
 
-# Slurm 명령어 경로 설정 (start.sh에서 심볼릭 링크 생성됨)
-SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
+# Slurm 명령어 경로 설정
+# 기본값: /usr/bin (apt/yum 패키지 설치 환경)
+# 소스 빌드: /usr/local/slurm/bin
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
 SCONTROL_PATH = os.path.join(SLURM_BIN_DIR, 'scontrol')
 SINFO_PATH = os.path.join(SLURM_BIN_DIR, 'sinfo')
 
