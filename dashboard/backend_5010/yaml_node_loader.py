@@ -217,8 +217,10 @@ def _build_slurm_cmd(base_cmd: List[str]) -> List[str]:
 def check_slurm_available() -> bool:
     """Slurm이 사용 가능한지 확인"""
     try:
+        # sudo로 실행하여 올바른 권한 및 환경 적용
+        cmd = _build_slurm_cmd([SCONTROL, '--version'])
         result = subprocess.run(
-            [SCONTROL, '--version'],
+            cmd,
             capture_output=True,
             text=True,
             timeout=5
