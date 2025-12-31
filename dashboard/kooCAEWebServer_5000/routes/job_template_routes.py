@@ -276,7 +276,7 @@ def get_job_history():
                                 else:
                                     # 실제 SLURM에서 상태 확인
                                     try:
-                                        squeue_output = slurm_utils.run_command(f"squeue -h -j {job_id} -o '%T'")
+                                        squeue_output = slurm_utils.run_command(f"{slurm_utils.SQUEUE} -h -j {job_id} -o '%T'")
                                         if squeue_output and squeue_output != "[MOCK]":
                                             status = squeue_output.strip()
                                         else:
