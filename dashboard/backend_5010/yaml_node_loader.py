@@ -15,6 +15,9 @@ from middleware.jwt_middleware import jwt_required, permission_required
 SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
 SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
 
+# sudo 사용 여부 (scontrol 명령에 필요한 권한)
+USE_SUDO_FOR_SLURM = os.getenv('USE_SUDO_FOR_SLURM', 'true').lower() == 'true'
+
 # Blueprint 생성
 yaml_loader_bp = Blueprint('yaml_loader', __name__, url_prefix='/api/yaml')
 
@@ -202,6 +205,15 @@ def get_cluster_info_from_yaml() -> Dict[str, Any]:
 
 # ==================== Slurm 파티션 동기화 ====================
 
+def _build_slurm_cmd(base_cmd: List[str]) -> List[str]:
+    """
+    Slurm 명령어에 sudo prefix 추가 (필요한 경우)
+    """
+    if USE_SUDO_FOR_SLURM:
+        return ['sudo', '-n'] + base_cmd  # -n: non-interactive (password 없이)
+    return base_cmd
+
+
 def check_slurm_available() -> bool:
     """Slurm이 사용 가능한지 확인"""
     try:
@@ -271,7 +283,7 @@ def create_or_update_partition(
     try:
         if partition_name in existing_partitions:
             # 기존 파티션 업데이트
-            cmd = [
+            base_cmd = [
                 SCONTROL, 'update',
                 f'PartitionName={partition_name}',
                 f'Nodes={node_list}',
@@ -279,8 +291,10 @@ def create_or_update_partition(
                 f'State={state}'
             ]
             if default:
-                cmd.append('Default=YES')
+                base_cmd.append('Default=YES')
 
+            cmd = _build_slurm_cmd(base_cmd)
+            print(f"🔧 Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
             if result.returncode == 0:
@@ -289,7 +303,7 @@ def create_or_update_partition(
                 return False, f"Failed to update partition: {result.stderr}"
         else:
             # 새 파티션 생성
-            cmd = [
+            base_cmd = [
                 SCONTROL, 'create',
                 f'PartitionName={partition_name}',
                 f'Nodes={node_list}',
@@ -297,8 +311,10 @@ def create_or_update_partition(
                 f'State={state}'
             ]
             if default:
-                cmd.append('Default=YES')
+                base_cmd.append('Default=YES')
 
+            cmd = _build_slurm_cmd(base_cmd)
+            print(f"🔧 Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
             if result.returncode == 0:
@@ -595,10 +611,22 @@ def initialize_from_yaml_startup():
 
 
 @yaml_loader_bp.route('/sync-partitions', methods=['POST'])
+@jwt_required
+@permission_required('admin')
 def sync_partitions_endpoint():
     """
     수동으로 Slurm 파티션 동기화 실행
-    localhost에서만 접근 가능 (인증 불필요)
+    admin 권한 필요
+    """
+    result = sync_slurm_partitions_from_yaml()
+    return jsonify(result)
+
+
+@yaml_loader_bp.route('/sync-partitions-local', methods=['POST'])
+def sync_partitions_local_endpoint():
+    """
+    Slurm 파티션 동기화 (localhost 전용)
+    start.sh 등에서 서버 시작 시 사용
     """
     remote_addr = request.remote_addr
     if remote_addr not in ['127.0.0.1', 'localhost', '::1']:

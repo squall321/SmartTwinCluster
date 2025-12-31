@@ -151,6 +151,175 @@ setup_slurm_paths() {
 setup_slurm_paths
 
 # ============================================================================
+# Nginx 설정 검증 및 수정 (default_server 충돌 방지)
+# ============================================================================
+setup_nginx_default_server() {
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🌐 Nginx 설정 검증 및 수정..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # nginx 설치 확인
+    if ! command -v nginx &>/dev/null; then
+        echo "  ⚠️  nginx가 설치되지 않음 - 건너뜀"
+        echo ""
+        return 0
+    fi
+
+    local changed=false
+
+    # 1. 충돌하는 sites-enabled 사이트 비활성화
+    local CONFLICTING_SITES=("default" "ubuntu-mirror")
+    for site in "${CONFLICTING_SITES[@]}"; do
+        if [ -L "/etc/nginx/sites-enabled/$site" ] || [ -f "/etc/nginx/sites-enabled/$site" ]; then
+            echo "  ⚠️  충돌 사이트 발견: $site - 비활성화 중..."
+            sudo rm -f "/etc/nginx/sites-enabled/$site" 2>/dev/null || true
+            echo "  ✅ $site 비활성화 완료"
+            changed=true
+        fi
+    done
+
+    # 2. hpc-portal.conf가 conf.d에 있는지 확인
+    local HPC_CONF_SRC="$PROJECT_ROOT/dashboard/nginx/hpc-portal.conf"
+    local HPC_CONF_DST="/etc/nginx/conf.d/hpc-portal.conf"
+
+    if [ -f "$HPC_CONF_SRC" ]; then
+        # 소스 파일에 default_server가 있는지 확인
+        if grep -q "default_server" "$HPC_CONF_SRC"; then
+            # conf.d에 복사 (최신 버전 유지)
+            if ! diff -q "$HPC_CONF_SRC" "$HPC_CONF_DST" &>/dev/null 2>&1; then
+                echo "  → hpc-portal.conf를 /etc/nginx/conf.d/에 복사 중..."
+                sudo cp "$HPC_CONF_SRC" "$HPC_CONF_DST" 2>/dev/null || true
+                changed=true
+            fi
+        else
+            echo "  ⚠️  hpc-portal.conf에 default_server가 없음"
+            echo "     ./dashboard/setup_nginx_symlink.sh 실행을 권장합니다"
+        fi
+    fi
+
+    # 3. 프로젝트 디렉토리 권한 설정 (www-data가 static 파일 접근 가능하도록)
+    # nginx가 alias로 프로젝트 내 dist/ 디렉토리를 서빙하므로 실행 권한 필요
+    echo "  → 프로젝트 디렉토리 권한 확인..."
+    local dir_path="$PROJECT_ROOT"
+    while [ "$dir_path" != "/" ]; do
+        if [ ! -x "$dir_path" ]; then
+            echo "    → $dir_path 실행 권한 추가..."
+            sudo chmod o+x "$dir_path" 2>/dev/null || true
+            changed=true
+        fi
+        dir_path=$(dirname "$dir_path")
+    done
+
+    # dashboard 하위 dist 디렉토리들도 권한 확인
+    for dist_dir in "$PROJECT_ROOT/dashboard"/*/dist; do
+        if [ -d "$dist_dir" ]; then
+            if [ ! -r "$dist_dir" ] || [ ! -x "$dist_dir" ]; then
+                echo "    → $(basename $(dirname $dist_dir))/dist 권한 수정..."
+                sudo chmod -R o+rx "$dist_dir" 2>/dev/null || true
+                changed=true
+            fi
+        fi
+    done
+
+    # 4. 설정 변경이 있었으면 nginx 리로드
+    if [ "$changed" = true ]; then
+        echo "  → nginx 설정 테스트 중..."
+        if sudo nginx -t &>/dev/null; then
+            echo "  → nginx 리로드 중..."
+            sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reload 2>/dev/null || true
+            echo "  ✅ nginx 설정 적용 완료"
+        else
+            echo "  ❌ nginx 설정 오류 - 수동 확인 필요"
+            sudo nginx -t
+        fi
+    else
+        echo "  ✅ nginx 설정 정상"
+    fi
+    echo ""
+}
+
+# Nginx 설정 검증 및 수정 실행
+setup_nginx_default_server
+
+# ============================================================================
+# Slurm sudoers 설정 (scontrol 명령 실행 권한)
+# ============================================================================
+setup_slurm_sudoers() {
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🔐 Slurm sudoers 설정 확인..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # scontrol 경로 찾기
+    local SCONTROL_PATH=""
+    for path in /usr/bin/scontrol /usr/local/bin/scontrol /usr/local/slurm/bin/scontrol; do
+        if [ -x "$path" ]; then
+            SCONTROL_PATH="$path"
+            break
+        fi
+    done
+
+    if [ -z "$SCONTROL_PATH" ]; then
+        echo "  ⚠️  scontrol을 찾을 수 없음 - Slurm이 설치되지 않았거나 경로가 다름"
+        echo ""
+        return 0
+    fi
+
+    echo "  scontrol 경로: $SCONTROL_PATH"
+    echo "  웹 서버 사용자: $RUN_USER"
+
+    # sudoers 파일 경로
+    local SUDOERS_FILE="/etc/sudoers.d/slurm-web"
+
+    # 이미 설정되어 있는지 확인
+    if [ -f "$SUDOERS_FILE" ] && grep -q "$RUN_USER" "$SUDOERS_FILE" 2>/dev/null; then
+        echo "  ✅ sudoers 설정 이미 존재함"
+        echo ""
+        return 0
+    fi
+
+    # sudo 권한 확인
+    if ! sudo -n true 2>/dev/null; then
+        echo "  ⚠️  sudo 권한 없음 - sudoers 설정 건너뜀"
+        echo "     수동으로 실행: sudo ./dashboard/setup_slurm_sudoers.sh $RUN_USER"
+        echo ""
+        return 0
+    fi
+
+    echo "  → sudoers 설정 생성 중..."
+
+    # sudoers 파일 생성
+    local SUDOERS_CONTENT="# Allow web server user to manage Slurm partitions without password
+# Created by start.sh at $(date)
+
+# scontrol commands for partition management
+$RUN_USER ALL=(ALL) NOPASSWD: $SCONTROL_PATH create *
+$RUN_USER ALL=(ALL) NOPASSWD: $SCONTROL_PATH update *
+$RUN_USER ALL=(ALL) NOPASSWD: $SCONTROL_PATH delete *
+"
+
+    # 임시 파일에 작성 후 검증
+    local TEMP_FILE=$(mktemp)
+    echo "$SUDOERS_CONTENT" > "$TEMP_FILE"
+    chmod 440 "$TEMP_FILE"
+
+    # visudo로 문법 검증
+    if sudo visudo -c -f "$TEMP_FILE" &>/dev/null; then
+        sudo cp "$TEMP_FILE" "$SUDOERS_FILE"
+        sudo chmod 440 "$SUDOERS_FILE"
+        echo "  ✅ sudoers 설정 완료"
+        echo "     $RUN_USER 사용자가 scontrol 명령을 실행할 수 있습니다"
+    else
+        echo "  ❌ sudoers 문법 오류 - 설정 실패"
+    fi
+
+    rm -f "$TEMP_FILE"
+    echo ""
+}
+
+# Slurm sudoers 설정 실행
+setup_slurm_sudoers
+
+# ============================================================================
 # Python venv 체크 및 설치 (오프라인 환경 지원)
 # ============================================================================
 setup_python_venvs() {
