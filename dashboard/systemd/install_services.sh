@@ -34,12 +34,16 @@ RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
 
 # 서비스 정의 (서비스명:디렉토리:Python버전:앱모듈)
 # phase5_web.sh에서 생성하는 실제 서비스 이름과 일치
+# Python 버전:
+#   - auth_portal_4430, websocket_5011: Python 3.10
+#   - backend_5010: Python 3.12 (pandas/numpy 최적화)
+#   - kooCAEWebServer_5000, kooCAEWebAutomationServer_5001: Python 3.13
 declare -A SERVICES=(
     ["auth_backend"]="auth_portal_4430:3.10:app:app"
-    ["dashboard_backend"]="backend_5010:3.10:app:app"
+    ["dashboard_backend"]="backend_5010:3.12:app:app"
     ["websocket_service"]="websocket_5011:3.10:websocket_server_enhanced:py"
-    ["cae_backend"]="kooCAEWebServer_5000:3.10:app:create_app()"
-    ["cae_automation"]="kooCAEWebAutomationServer_5001:3.10:app:app"
+    ["cae_backend"]="kooCAEWebServer_5000:3.13:app:create_app()"
+    ["cae_automation"]="kooCAEWebAutomationServer_5001:3.13:app:app"
 )
 
 # 옵션 파싱

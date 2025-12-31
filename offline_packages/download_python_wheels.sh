@@ -111,70 +111,63 @@ find_requirements_files() {
 }
 
 # Python 버전별 Wheel 다운로드
-# 각 requirements 파일별로 따로 다운로드하여 버전 충돌 방지
+# 각 서비스의 venv Python 버전을 존중하여 다운로드
 download_wheels() {
     local requirements_files=("$@")
 
     log_info "Downloading wheels for ${#requirements_files[@]} services..."
     log_info "Python versions: ${PYTHON_VERSIONS[*]}"
-    log_info "Strategy: Download using each service's venv pip"
+    log_info "Strategy: Use each service's venv pip to download (respects actual Python version)"
     echo ""
 
-    # Python 버전별로 다운로드
-    for py_ver in "${PYTHON_VERSIONS[@]}"; do
-        log_info "=== Python ${py_ver} ==="
-        local ver_dir="${WHEELS_DIR}/python${py_ver}"
+    # 각 서비스별로 다운로드 (서비스의 실제 Python 버전 사용)
+    for req_file in "${requirements_files[@]}"; do
+        local service_dir=$(dirname "$req_file")
+        local service_name=$(basename "$service_dir")
+        local req_basename=$(basename "$req_file")
+        local venv_pip="$service_dir/venv/bin/pip"
+        local venv_python="$service_dir/venv/bin/python"
 
-        # Python 버전에 맞는 서비스 필터링
-        local services_for_version=()
-        for req_file in "${requirements_files[@]}"; do
-            local service_dir=$(dirname "$req_file")
-
-            # venv의 Python 버전 확인
-            if [[ -f "$service_dir/venv/bin/python" ]]; then
-                local venv_py_ver=$("$service_dir/venv/bin/python" --version 2>&1 | grep -oP 'Python \K\d+\.\d+')
-                if [[ "$venv_py_ver" == "$py_ver" ]]; then
-                    services_for_version+=("$req_file")
-                fi
-            fi
-        done
-
-        if [[ ${#services_for_version[@]} -eq 0 ]]; then
-            log_warning "  ⚠ No services using Python ${py_ver}, skipping..."
-            echo ""
+        # venv 존재 확인
+        if [[ ! -f "$venv_pip" ]]; then
+            log_warning "  ⚠ venv not found for $service_name, skipping..."
             continue
         fi
 
-        log_info "  Found ${#services_for_version[@]} services using Python ${py_ver}"
-        echo ""
+        # 실제 Python 버전 감지
+        local py_ver=$("$venv_python" --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "unknown")
+        local ver_dir="${WHEELS_DIR}/python${py_ver}"
 
-        # 각 requirements 파일별로 다운로드
-        for req_file in "${services_for_version[@]}"; do
-            local service_dir=$(dirname "$req_file")
-            local service_name=$(basename "$service_dir")
-            local req_basename=$(basename "$req_file")
-            local venv_pip="$service_dir/venv/bin/pip"
+        log_info "=== $service_name (Python ${py_ver}) ==="
+        log_info "  Requirements: $req_basename"
 
-            log_info "  Downloading $service_name ($req_basename)..."
+        mkdir -p "$ver_dir"
+        cd "$ver_dir"
 
-            cd "$ver_dir"
+        # venv의 pip 사용하여 다운로드 (실제 서비스에서 사용하는 pip)
+        if $venv_pip download -r "$req_file" --dest . >/dev/null 2>&1; then
+            log_success "  ✓ Downloaded for $service_name"
+        else
+            log_warning "  ⚠ Some packages may have failed for $service_name"
+            # 실패한 경우에도 부분적으로 다운로드된 패키지가 있을 수 있음
+        fi
 
-            # venv의 pip 사용하여 다운로드
-            if [[ -f "$venv_pip" ]]; then
-                if $venv_pip download -r "$req_file" --dest . >/dev/null 2>&1; then
-                    log_success "    ✓ Downloaded for $service_name"
-                else
-                    log_warning "    ⚠ Some packages failed for $service_name"
-                fi
-            else
-                log_warning "    ⚠ venv pip not found for $service_name"
-            fi
-        done
-
-        local wheel_count=$(find "$ver_dir" -name "*.whl" -o -name "*.tar.gz" | wc -l)
-        log_success "  Total wheels for Python ${py_ver}: $wheel_count"
+        local wheel_count=$(find "$ver_dir" -name "*.whl" -o -name "*.tar.gz" 2>/dev/null | wc -l)
+        log_info "  Wheels in python${py_ver}/: $wheel_count"
         echo ""
     done
+
+    # 최종 요약
+    echo ""
+    log_info "Download summary by Python version:"
+    for py_ver in "${PYTHON_VERSIONS[@]}"; do
+        local ver_dir="${WHEELS_DIR}/python${py_ver}"
+        if [[ -d "$ver_dir" ]]; then
+            local wheel_count=$(find "$ver_dir" -name "*.whl" -o -name "*.tar.gz" 2>/dev/null | wc -l)
+            log_info "  Python ${py_ver}: $wheel_count packages"
+        fi
+    done
+    echo ""
 
     log_success "All wheels downloaded"
 }

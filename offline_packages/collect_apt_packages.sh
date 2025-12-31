@@ -204,6 +204,15 @@ define_package_lists() {
         python3-jwt
     )
 
+    # Python 패키지 빌드 의존성 (xmlsec, lxml 등 C 확장 빌드에 필요)
+    PYTHON_BUILD_DEPS=(
+        libxml2-dev
+        libxmlsec1-dev
+        libxmlsec1-openssl
+        libxslt1-dev
+        pkg-config
+    )
+
     # HPC 패키지 (MPI, 컨테이너)
     HPC_PACKAGES=(
         # OpenMPI
@@ -233,6 +242,7 @@ select_packages() {
                 "${KEEPALIVED_PACKAGES[@]}"
                 "${WEB_PACKAGES[@]}"
                 "${PYTHON_PACKAGES[@]}"
+                "${PYTHON_BUILD_DEPS[@]}"
                 "${HPC_PACKAGES[@]}"
             )
             ;;
@@ -263,6 +273,7 @@ select_packages() {
             packages+=(
                 "${WEB_PACKAGES[@]}"
                 "${PYTHON_PACKAGES[@]}"
+                "${PYTHON_BUILD_DEPS[@]}"
             )
             ;;
         *)

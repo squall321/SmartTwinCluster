@@ -595,8 +595,11 @@ diagnose_service_failure() {
     esac
 
     # 1. 프로세스 확인
-    local pid_count=$(lsof -i :$port 2>/dev/null | grep -c LISTEN || echo "0")
-    if [[ "$pid_count" -eq 0 ]]; then
+    local pid_count
+    pid_count=$(lsof -i :"$port" 2>/dev/null | grep -c LISTEN 2>/dev/null || true)
+    pid_count=${pid_count:-0}
+    pid_count=$(echo "$pid_count" | tr -d '[:space:]')
+    if [[ -z "$pid_count" ]] || [[ "$pid_count" -eq 0 ]]; then
         echo "     │ ❌ 원인: 프로세스가 실행되지 않음"
     else
         echo "     │ ✓ 프로세스 실행 중 (${pid_count}개)"
