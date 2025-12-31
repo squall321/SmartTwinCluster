@@ -340,6 +340,71 @@ setup_logs_directories() {
 setup_logs_directories
 
 # ============================================================================
+# Prometheus 데이터 정리 (WAL 손상 방지)
+# ============================================================================
+cleanup_prometheus_data() {
+    local prometheus_dir="$PROJECT_ROOT/dashboard/prometheus_9090"
+    local data_dir="$prometheus_dir/data"
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🔧 Prometheus 데이터 정리..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    if [[ ! -d "$data_dir" ]]; then
+        echo "  ℹ️  Prometheus 데이터 디렉토리 없음 (새로운 설치)"
+        echo ""
+        return 0
+    fi
+
+    # WAL 및 chunks_head 정리 (손상 방지)
+    local cleaned=0
+
+    # WAL 디렉토리 정리
+    if [[ -d "$data_dir/wal" ]]; then
+        local wal_count=$(find "$data_dir/wal" -type f 2>/dev/null | wc -l)
+        if [[ $wal_count -gt 0 ]]; then
+            echo "  → WAL 파일 정리 중 ($wal_count 개 파일)..."
+            rm -rf "$data_dir/wal"/* 2>/dev/null || sudo rm -rf "$data_dir/wal"/* 2>/dev/null || true
+            ((cleaned++))
+        fi
+    fi
+
+    # chunks_head 디렉토리 정리
+    if [[ -d "$data_dir/chunks_head" ]]; then
+        local chunks_count=$(find "$data_dir/chunks_head" -type f 2>/dev/null | wc -l)
+        if [[ $chunks_count -gt 0 ]]; then
+            echo "  → chunks_head 파일 정리 중 ($chunks_count 개 파일)..."
+            rm -rf "$data_dir/chunks_head"/* 2>/dev/null || sudo rm -rf "$data_dir/chunks_head"/* 2>/dev/null || true
+            ((cleaned++))
+        fi
+    fi
+
+    # lock 파일 정리
+    if [[ -f "$data_dir/lock" ]]; then
+        echo "  → lock 파일 정리..."
+        rm -f "$data_dir/lock" 2>/dev/null || sudo rm -f "$data_dir/lock" 2>/dev/null || true
+        ((cleaned++))
+    fi
+
+    # 임시 삭제 디렉토리 정리 (.tmp-for-deletion)
+    local tmp_dirs=$(find "$data_dir" -type d -name "*.tmp-for-deletion" 2>/dev/null)
+    if [[ -n "$tmp_dirs" ]]; then
+        echo "  → 임시 삭제 디렉토리 정리..."
+        echo "$tmp_dirs" | while read dir; do
+            rm -rf "$dir" 2>/dev/null || sudo rm -rf "$dir" 2>/dev/null || true
+        done
+        ((cleaned++))
+    fi
+
+    if [[ $cleaned -eq 0 ]]; then
+        echo "  ✅ 정리할 데이터 없음"
+    else
+        echo "  ✅ Prometheus 데이터 정리 완료"
+    fi
+    echo ""
+}
+
+# ============================================================================
 # 기존 프로세스 정리 (포트 기반)
 # ============================================================================
 cleanup_existing_processes() {
@@ -819,6 +884,9 @@ case $MODE in
 
             # 기존 프로세스 정리 (start.sh 단독 실행 또는 --skip-cleanup 없을 때)
             cleanup_existing_processes
+
+            # Prometheus 데이터 정리 (WAL 손상 방지)
+            cleanup_prometheus_data
 
             ./dashboard/start_production.sh "${EXTRA_ARGS[@]}"
 
