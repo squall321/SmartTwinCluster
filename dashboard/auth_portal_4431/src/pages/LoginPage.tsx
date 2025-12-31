@@ -11,11 +11,29 @@ const LoginPage: React.FC = () => {
   // Check SSO configuration and auto-login if SSO is disabled
   useEffect(() => {
     const checkSsoAndAutoLogin = async () => {
-      // Already have token? Go to services
+      // Already have token? Verify it first
       const existingToken = localStorage.getItem('jwt_token');
       if (existingToken) {
-        window.location.href = '/auth_portal/services';
-        return;
+        try {
+          // Verify token is still valid
+          const verifyResponse = await fetch('/auth/services', {
+            headers: { 'Authorization': `Bearer ${existingToken}` }
+          });
+          if (verifyResponse.ok) {
+            // Token is valid, go to services
+            window.location.href = '/auth_portal/services';
+            return;
+          } else {
+            // Token is invalid, clear localStorage
+            console.log('[Auth] Existing token is invalid, clearing...');
+            localStorage.removeItem('jwt_token');
+            localStorage.removeItem('user_info');
+          }
+        } catch (error) {
+          console.error('[Auth] Token verification failed:', error);
+          localStorage.removeItem('jwt_token');
+          localStorage.removeItem('user_info');
+        }
       }
 
       try {

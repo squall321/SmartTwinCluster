@@ -43,17 +43,29 @@ const ServiceMenuPage: React.FC = () => {
       }
     })
       .then(response => {
+        if (response.status === 401) {
+          // Token expired or invalid - clear localStorage and redirect to login
+          localStorage.removeItem('jwt_token');
+          localStorage.removeItem('user_info');
+          navigate('/');
+          return null;
+        }
         if (!response.ok) {
           throw new Error('Failed to fetch services');
         }
         return response.json();
       })
       .then(data => {
-        setServices(data.services);
-        setLoading(false);
+        if (data) {
+          setServices(data.services);
+          setLoading(false);
+        }
       })
       .catch(err => {
         console.error('Error fetching services:', err);
+        // Clear localStorage on any error to prevent infinite loop
+        localStorage.removeItem('jwt_token');
+        localStorage.removeItem('user_info');
         setLoading(false);
         navigate('/');
       });
