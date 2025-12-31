@@ -16,6 +16,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+RSYNC = '/usr/bin/rsync'
+SCP = '/usr/bin/scp'
+SSH = '/usr/bin/ssh'
+
 # 설정
 MAX_CHUNK_SIZE = 8 * 1024 * 1024  # 8MB chunks
 UPLOAD_TEMP_DIR = '/tmp/dashboard_uploads'
@@ -167,7 +172,7 @@ class RemoteFileTransfer:
             if use_rsync:
                 # rsync로 전송 (재개 가능, 진행률 표시)
                 cmd = [
-                    'rsync',
+                    RSYNC,
                     '-avz',
                     '--progress',
                     local_path,
@@ -176,7 +181,7 @@ class RemoteFileTransfer:
             else:
                 # scp로 전송
                 cmd = [
-                    'scp',
+                    SCP,
                     '-r',
                     local_path,
                     f'{node}:{remote_path}'
@@ -228,7 +233,7 @@ class RemoteFileTransfer:
             
             if use_rsync:
                 cmd = [
-                    'rsync',
+                    RSYNC,
                     '-avz',
                     '--progress',
                     f'{node}:{remote_path}',
@@ -236,7 +241,7 @@ class RemoteFileTransfer:
                 ]
             else:
                 cmd = [
-                    'scp',
+                    SCP,
                     '-r',
                     f'{node}:{remote_path}',
                     local_path
@@ -282,11 +287,10 @@ class RemoteFileTransfer:
     def get_transfer_progress(node: str, pid: int) -> Dict:
         """전송 진행률 조회"""
         try:
-            # rsync 프로세스 상태 확인
-            cmd = f"ssh {node} 'ps -p {pid} -o pid,pcpu,rss,etime'"
+            # rsync 프로세스 상태 확인 (절대 경로 사용)
+            cmd = [SSH, node, f'ps -p {pid} -o pid,pcpu,rss,etime']
             result = subprocess.run(
                 cmd,
-                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=5

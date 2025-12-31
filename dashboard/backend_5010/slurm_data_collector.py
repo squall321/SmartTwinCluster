@@ -5,8 +5,15 @@ Slurm 데이터 수집 유틸리티
 
 import subprocess
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
+
+# Slurm 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SACCT = os.path.join(SLURM_BIN_DIR, 'sacct')
+SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
+SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
 
 def run_slurm_command(command: List[str]) -> str:
     """Slurm 명령어 실행"""
@@ -36,9 +43,9 @@ def get_slurm_jobs_data(start_date: datetime, end_date: datetime) -> Dict[str, A
     start_str = start_date.strftime('%Y-%m-%d')
     end_str = end_date.strftime('%Y-%m-%d')
     
-    # sacct로 작업 정보 수집
+    # sacct로 작업 정보 수집 (절대 경로 사용)
     command = [
-        'sacct',
+        SACCT,
         '-S', start_str,
         '-E', end_str,
         '--format=JobID,JobName,User,State,AllocCPUS,AllocNodes,Elapsed,TotalCPU,Start,End',
@@ -165,8 +172,8 @@ def get_current_cluster_state() -> Dict[str, Any]:
     현재 클러스터 상태 수집
     sinfo, squeue 사용
     """
-    # 노드 정보
-    sinfo_output = run_slurm_command(['sinfo', '-h', '-o', '%D|%C'])
+    # 노드 정보 (절대 경로 사용)
+    sinfo_output = run_slurm_command([SINFO, '-h', '-o', '%D|%C'])
     total_nodes = 0
     total_cpus = 0
     used_cpus = 0
@@ -187,8 +194,8 @@ def get_current_cluster_state() -> Dict[str, Any]:
     
     cpu_utilization = (used_cpus / total_cpus * 100) if total_cpus > 0 else 0
     
-    # 실행 중인 작업
-    squeue_output = run_slurm_command(['squeue', '-h', '-o', '%T'])
+    # 실행 중인 작업 (절대 경로 사용)
+    squeue_output = run_slurm_command([SQUEUE, '-h', '-o', '%T'])
     running_jobs = 0
     pending_jobs = 0
     
@@ -200,8 +207,8 @@ def get_current_cluster_state() -> Dict[str, Any]:
             elif state == 'PENDING' or state == 'PD':
                 pending_jobs += 1
     
-    # 사용자 수 (활성)
-    users_output = run_slurm_command(['squeue', '-h', '-o', '%u'])
+    # 사용자 수 (활성) - 절대 경로 사용
+    users_output = run_slurm_command([SQUEUE, '-h', '-o', '%u'])
     active_users = len(set(users_output.strip().split('\n'))) if users_output else 0
     
     return {

@@ -1056,9 +1056,10 @@ def get_slurm_status():
                 'timestamp': datetime.now().isoformat()
             })
         else:
-            # 실제 sinfo 명령 실행
+            # 실제 sinfo 명령 실행 (절대 경로 사용)
+            from slurm_commands import SINFO
             result = subprocess.run(
-                ['sinfo', '-h', '-o', '%P %a %l %D %T %N'],
+                [SINFO, '-h', '-o', '%P %a %l %D %T %N'],
                 capture_output=True,
                 text=True,
                 check=True

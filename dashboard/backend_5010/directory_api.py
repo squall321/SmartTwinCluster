@@ -7,6 +7,9 @@ from flask import Blueprint, jsonify, request
 import os
 import subprocess
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+FIND = '/usr/bin/find'
+
 # Optional: performance 모듈 (Redis)
 try:
     from performance import cache_result
@@ -86,7 +89,7 @@ def calculate_directory_size():
         
         # 파일/디렉토리 카운트
         find_result = subprocess.run(
-            ['find', path, '-maxdepth', '5'],
+            [FIND, path, '-maxdepth', '5'],
             capture_output=True,
             text=True,
             timeout=30

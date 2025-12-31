@@ -9,6 +9,9 @@ import signal
 from typing import Optional, Dict
 import time
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+APPTAINER = '/usr/bin/apptainer'
+
 
 class ApptainerManager:
     """Apptainer 컨테이너 관리"""
@@ -58,7 +61,7 @@ class ApptainerManager:
 
         # Apptainer 실행 명령
         cmd = [
-            'apptainer', 'run',
+            APPTAINER, 'run',
             '--cleanenv',  # 깨끗한 환경
             '--env', f'VNC_PORT={vnc_port}',
             '--env', f'WEBSOCKIFY_PORT={websocket_port}',

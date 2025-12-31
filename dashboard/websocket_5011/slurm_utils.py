@@ -3,8 +3,15 @@
 """
 
 import subprocess
+import os
 import re
 from typing import List, Dict, Any
+
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
+SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
+
 
 def get_slurm_nodes() -> List[Dict[str, Any]]:
     """
@@ -18,7 +25,7 @@ def get_slurm_nodes() -> List[Dict[str, Any]]:
         # %T: State
         # %P: Partition
         result = subprocess.run(
-            ['sinfo', '-N', '-o', '%N|%C|%m|%T|%P', '--noheader'],
+            [SINFO, '-N', '-o', '%N|%C|%m|%T|%P', '--noheader'],
             capture_output=True,
             text=True,
             check=True
@@ -96,13 +103,13 @@ def get_node_ip_address(hostname: str) -> str:
     """
     try:
         result = subprocess.run(
-            ['scontrol', 'show', 'node', hostname],
+            [SCONTROL, 'show', 'node', hostname],
             capture_output=True,
             text=True,
             check=True,
             timeout=5
         )
-        
+
         # NodeAddr 파싱
         ip_match = re.search(r'NodeAddr=([^\s]+)', result.stdout)
         if ip_match:
@@ -110,7 +117,7 @@ def get_node_ip_address(hostname: str) -> str:
         else:
             # NodeAddr가 없으면 hostname 반환
             return hostname
-            
+
     except Exception as e:
         print(f"Warning: Could not get IP for {hostname}: {e}")
         return hostname
@@ -122,7 +129,7 @@ def get_node_details(hostname: str) -> Dict[str, Any]:
     """
     try:
         result = subprocess.run(
-            ['scontrol', 'show', 'node', hostname],
+            [SCONTROL, 'show', 'node', hostname],
             capture_output=True,
             text=True,
             check=True
@@ -196,7 +203,7 @@ def get_partitions() -> List[Dict[str, Any]]:
     """
     try:
         result = subprocess.run(
-            ['sinfo', '-o', '%P|%a|%l|%D|%T|%N', '--noheader'],
+            [SINFO, '-o', '%P|%a|%l|%D|%T|%N', '--noheader'],
             capture_output=True,
             text=True,
             check=True

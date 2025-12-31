@@ -9,6 +9,9 @@ import signal
 import os
 from typing import Dict, Optional
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SSH = '/usr/bin/ssh'
+
 
 class SSHTunnelManager:
     """SSH 터널 관리 클래스"""
@@ -57,7 +60,7 @@ class SSHTunnelManager:
             # remote_port는 viz-node에서 websockify가 실행되는 동적 포트 (gedit_vnc_job.sh에서 설정)
 
             cmd = [
-                'ssh',
+                SSH,
                 '-N',  # 원격 명령 실행 안함
                 '-f',  # 백그라운드 실행
                 '-g',  # 외부 연결 허용 (0.0.0.0 바인딩)

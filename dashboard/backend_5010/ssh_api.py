@@ -11,6 +11,12 @@ import logging
 from datetime import datetime
 import os
 
+# 절대 경로 import (systemd 환경에서 PATH 제한)
+try:
+    from slurm_commands import SINFO
+except ImportError:
+    SINFO = '/usr/bin/sinfo'
+
 logger = logging.getLogger(__name__)
 
 ssh_bp = Blueprint('ssh', __name__, url_prefix='/api/ssh')
@@ -40,10 +46,10 @@ def get_available_nodes():
         username = user.get('username', 'unknown')
         logger.info(f"[SSH] Getting available nodes for user: {username}")
 
-        # Get nodes from Slurm
+        # Get nodes from Slurm (절대 경로 사용)
         try:
             result = subprocess.run(
-                ['sinfo', '-N', '-h', '-o', '%N %T'],
+                [SINFO, '-N', '-h', '-o', '%N %T'],
                 capture_output=True,
                 text=True,
                 timeout=10

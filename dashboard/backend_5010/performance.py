@@ -14,6 +14,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SSH = '/usr/bin/ssh'
+
 # Redis 연결 (없으면 None)
 try:
     redis_client = redis.Redis(
@@ -207,7 +210,7 @@ def run_ssh_parallel(nodes: List[str], command: str, timeout: int = 30) -> Dict[
     
     def run_on_node(node: str) -> Dict:
         try:
-            cmd = ['ssh', '-o', 'ConnectTimeout=5', node, command]
+            cmd = [SSH, '-o', 'ConnectTimeout=5', node, command]
             result = subprocess.run(
                 cmd,
                 capture_output=True,

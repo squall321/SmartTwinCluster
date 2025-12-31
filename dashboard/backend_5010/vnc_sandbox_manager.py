@@ -11,6 +11,10 @@ import subprocess
 import hashlib
 from pathlib import Path
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+APPTAINER = '/usr/bin/apptainer'
+DU = '/usr/bin/du'
+
 # 기본 이미지 경로
 BASE_VNC_IMAGE = "/scratch/apptainers/visualization/vnc_desktop"
 
@@ -59,7 +63,7 @@ def create_user_sandbox(username):
     print(f"📦 새 샌드박스 생성 중: {sandbox_path}")
 
     cmd = [
-        "apptainer", "build", "--sandbox",
+        APPTAINER, "build", "--sandbox",
         sandbox_path,
         BASE_VNC_IMAGE
     ]
@@ -101,7 +105,7 @@ def get_sandbox_info(username):
         # 샌드박스 크기 계산
         try:
             result = subprocess.run(
-                ["du", "-sm", sandbox_path],
+                [DU, "-sm", sandbox_path],
                 capture_output=True,
                 text=True,
                 check=True

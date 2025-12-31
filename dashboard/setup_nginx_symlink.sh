@@ -34,8 +34,20 @@ fi
 echo -e "${GREEN}✅ 설정 파일 존재: $(basename $CONFIG_SOURCE)${NC}"
 echo ""
 
-# 2. 기존 sites-available 처리
-echo -e "${BLUE}[2/5] sites-available 심볼릭 링크 생성...${NC}"
+# 2. 충돌하는 sites-enabled 사이트 비활성화
+echo -e "${BLUE}[2/6] 충돌하는 nginx 사이트 비활성화...${NC}"
+CONFLICTING_SITES=("default" "ubuntu-mirror")
+for site in "${CONFLICTING_SITES[@]}"; do
+    if [ -L "/etc/nginx/sites-enabled/$site" ] || [ -f "/etc/nginx/sites-enabled/$site" ]; then
+        echo -e "${YELLOW}⚠  충돌 사이트 발견: $site - 비활성화 중...${NC}"
+        sudo rm -f "/etc/nginx/sites-enabled/$site"
+        echo -e "${GREEN}✅ $site 비활성화 완료${NC}"
+    fi
+done
+echo ""
+
+# 3. 기존 sites-available 처리
+echo -e "${BLUE}[3/6] sites-available 심볼릭 링크 생성...${NC}"
 if [ -L "$SITES_AVAILABLE" ]; then
     # 이미 심볼릭 링크인 경우
     CURRENT_TARGET=$(readlink -f "$SITES_AVAILABLE")
@@ -64,8 +76,8 @@ else
 fi
 echo ""
 
-# 3. 기존 sites-enabled 처리
-echo -e "${BLUE}[3/5] sites-enabled 심볼릭 링크 생성...${NC}"
+# 4. 기존 sites-enabled 처리
+echo -e "${BLUE}[4/6] sites-enabled 심볼릭 링크 생성...${NC}"
 if [ -L "$SITES_ENABLED" ]; then
     # 이미 심볼릭 링크인 경우
     CURRENT_TARGET=$(readlink -f "$SITES_ENABLED")
@@ -94,15 +106,15 @@ else
 fi
 echo ""
 
-# 4. 심볼릭 링크 체인 확인
-echo -e "${BLUE}[4/5] 심볼릭 링크 체인 확인...${NC}"
+# 5. 심볼릭 링크 체인 확인
+echo -e "${BLUE}[5/6] 심볼릭 링크 체인 확인...${NC}"
 echo "  소스 파일:       $CONFIG_SOURCE"
 echo "  sites-available: $SITES_AVAILABLE → $(readlink $SITES_AVAILABLE)"
 echo "  sites-enabled:   $SITES_ENABLED → $(readlink $SITES_ENABLED)"
 echo ""
 
-# 5. Nginx 설정 테스트
-echo -e "${BLUE}[5/5] Nginx 설정 테스트...${NC}"
+# 6. Nginx 설정 테스트
+echo -e "${BLUE}[6/6] Nginx 설정 테스트...${NC}"
 if sudo nginx -t 2>&1 | grep -q "syntax is ok"; then
     echo -e "${GREEN}✅ Nginx 설정 문법 검사 통과${NC}"
 else

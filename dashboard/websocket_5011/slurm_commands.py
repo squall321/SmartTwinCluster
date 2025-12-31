@@ -23,22 +23,25 @@ SCANCEL = os.path.join(SLURM_BIN_DIR, 'scancel')
 SREPORT = os.path.join(SLURM_BIN_DIR, 'sreport')
 SRUN = os.path.join(SLURM_BIN_DIR, 'srun')
 
-def run_slurm_command(command: List[str], timeout: int = 10, 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SUDO = '/usr/bin/sudo'
+
+def run_slurm_command(command: List[str], timeout: int = 10,
                       use_sudo: bool = False, check: bool = True) -> subprocess.CompletedProcess:
     """
     Slurm 명령어 실행 헬퍼 함수
-    
+
     Args:
         command: 명령어 리스트 (첫 번째는 명령어 경로)
         timeout: 타임아웃 (초)
         use_sudo: sudo 사용 여부
         check: 실패 시 예외 발생 여부
-        
+
     Returns:
         subprocess.CompletedProcess
     """
     if use_sudo:
-        command = ['sudo'] + command
+        command = [SUDO, '-n'] + command
     
     try:
         result = subprocess.run(

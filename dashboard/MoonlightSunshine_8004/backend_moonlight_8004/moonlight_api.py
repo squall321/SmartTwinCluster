@@ -20,6 +20,13 @@ import time
 import json
 import random
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
+SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
+SBATCH = os.path.join(SLURM_BIN_DIR, 'sbatch')
+SCANCEL = os.path.join(SLURM_BIN_DIR, 'scancel')
+
 # Add common module to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -135,7 +142,7 @@ def get_job_status(job_id):
 
     # squeue로 작업 상태 조회
     result = subprocess.run(
-        ['squeue', '--job', str(job_id), '--noheader', '--format=%T'],
+        [SQUEUE, '--job', str(job_id), '--noheader', '--format=%T'],
         capture_output=True,
         text=True,
         timeout=5
@@ -322,7 +329,7 @@ def delete_session(session_id):
     slurm_job_id = session_data.get('slurm_job_id')
     if slurm_job_id:
         try:
-            subprocess.run(['scancel', slurm_job_id], check=True)
+            subprocess.run([SCANCEL, slurm_job_id], check=True)
         except subprocess.CalledProcessError as e:
             # Job이 이미 종료된 경우 무시
             pass
@@ -368,14 +375,14 @@ def get_viz_partition_resources():
     try:
         # sinfo로 viz 파티션의 노드별 CPU 및 메모리 확인
         cpu_result = subprocess.run(
-            ['sinfo', '-N', '-p', 'viz', '-o', '%c', '--noheader'],
+            [SINFO, '-N', '-p', 'viz', '-o', '%c', '--noheader'],
             capture_output=True,
             text=True,
             timeout=5
         )
 
         mem_result = subprocess.run(
-            ['sinfo', '-N', '-p', 'viz', '-o', '%m', '--noheader'],
+            [SINFO, '-N', '-p', 'viz', '-o', '%m', '--noheader'],
             capture_output=True,
             text=True,
             timeout=5
@@ -633,7 +640,7 @@ exit $CONTAINER_EXIT
 
     # Slurm에 제출
     result = subprocess.run(
-        ['sbatch', script_path],
+        [SBATCH, script_path],
         capture_output=True,
         text=True,
         check=True

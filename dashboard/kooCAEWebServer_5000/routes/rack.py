@@ -2,6 +2,10 @@ from flask import Blueprint, jsonify
 import subprocess, re, os
 import utils.slurm_utils as slurm_utils  # ✅ 전체 모듈을 import
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
+
 rack_bp = Blueprint("rack", __name__)
 
 def parse_nodes():
@@ -22,7 +26,7 @@ def parse_nodes():
         return nodes
 
     # 실 Slurm 환경
-    result = subprocess.check_output("scontrol show node", shell=True, text=True)
+    result = subprocess.check_output(f"{SCONTROL} show node", shell=True, text=True)
     nodes = []
     for block in result.split('\n\n'):
         name_match = re.search(r'NodeName=(\S+)', block)

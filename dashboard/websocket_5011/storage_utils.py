@@ -12,6 +12,11 @@ import pwd
 import grp
 import stat
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
+SSH = '/usr/bin/ssh'
+
 def get_disk_usage(path: str) -> Dict:
     """디스크 사용량 조회"""
     try:
@@ -280,7 +285,7 @@ def get_slurm_nodes() -> List[str]:
     """Slurm 노드 목록 조회"""
     try:
         result = subprocess.run(
-            ['sinfo', '-N', '-h', '-o', '%N'],
+            [SINFO, '-N', '-h', '-o', '%N'],
             capture_output=True,
             text=True,
             timeout=5
@@ -296,7 +301,7 @@ def get_slurm_nodes() -> List[str]:
 def run_remote_command(node: str, command: str, timeout: int = 10) -> Optional[str]:
     """원격 노드에서 명령 실행"""
     try:
-        ssh_command = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5', node, command]
+        ssh_command = [SSH, '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5', node, command]
         result = subprocess.run(
             ssh_command,
             capture_output=True,

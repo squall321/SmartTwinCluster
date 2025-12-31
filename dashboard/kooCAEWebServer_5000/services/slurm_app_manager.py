@@ -9,6 +9,12 @@ import time
 import re
 from typing import Optional, Dict
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SBATCH = os.path.join(SLURM_BIN_DIR, 'sbatch')
+SCONTROL = os.path.join(SLURM_BIN_DIR, 'scontrol')
+SCANCEL = os.path.join(SLURM_BIN_DIR, 'scancel')
+
 
 class SlurmAppManager:
     """Slurm 기반 앱 관리"""
@@ -53,7 +59,7 @@ class SlurmAppManager:
 
         # sbatch 명령
         cmd = [
-            'sbatch',
+            SBATCH,
             '--export', f'SESSION_ID={session_id},VNC_PORT={vnc_port}',
             job_script
         ]
@@ -140,7 +146,7 @@ class SlurmAppManager:
         """Job 상태 조회"""
         try:
             result = subprocess.run(
-                ['scontrol', 'show', 'job', job_id],
+                [SCONTROL, 'show', 'job', job_id],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -170,7 +176,7 @@ class SlurmAppManager:
 
         try:
             result = subprocess.run(
-                ['scontrol', 'show', 'job', job_id],
+                [SCONTROL, 'show', 'job', job_id],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -212,7 +218,7 @@ class SlurmAppManager:
         try:
             print(f"[SlurmAppManager] Cancelling job {job_id}")
             subprocess.run(
-                ['scancel', job_id],
+                [SCANCEL, job_id],
                 check=True,
                 timeout=10
             )

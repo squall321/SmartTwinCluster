@@ -11,6 +11,11 @@ from pathlib import Path
 from datetime import datetime
 import re
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SQUEUE = '/usr/bin/squeue'
+SINFO = '/usr/bin/sinfo'
+FIND = '/usr/bin/find'
+
 search_bp = Blueprint('search', __name__)
 
 # 검색 가능한 기본 경로
@@ -344,7 +349,7 @@ def search_jobs(query, limit):
     """작업 검색 (Production)"""
     try:
         result = subprocess.run(
-            ['squeue', '-h', '-o', '%i|%j|%u|%T|%P|%D'],
+            [SQUEUE, '-h', '-o', '%i|%j|%u|%T|%P|%D'],
             capture_output=True,
             text=True,
             timeout=5
@@ -377,7 +382,7 @@ def search_nodes(query, limit):
     """노드 검색 (Production)"""
     try:
         result = subprocess.run(
-            ['sinfo', '-h', '-N', '-o', '%n|%T|%c|%m|%P'],
+            [SINFO, '-h', '-N', '-o', '%n|%T|%c|%m|%P'],
             capture_output=True,
             text=True,
             timeout=5
@@ -412,9 +417,9 @@ def search_files_quick(query, limit):
         for base_path in SEARCHABLE_PATHS:
             if not os.path.exists(base_path):
                 continue
-            
+
             result = subprocess.run(
-                ['find', base_path, '-maxdepth', '5', '-iname', f'*{query}*', '-type', 'f'],
+                [FIND, base_path, '-maxdepth', '5', '-iname', f'*{query}*', '-type', 'f'],
                 capture_output=True,
                 text=True,
                 timeout=10

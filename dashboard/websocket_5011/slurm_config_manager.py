@@ -13,9 +13,16 @@ from typing import List, Dict, Any, Optional
 
 # Slurm 명령어 경로 import
 from slurm_commands import (
-    get_sacctmgr, get_scontrol, 
+    get_sacctmgr, get_scontrol,
     SINFO, SQUEUE, SACCT, SCONTROL, SACCTMGR
 )
+
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SUDO = '/usr/bin/sudo'
+CP = '/bin/cp'
+CAT = '/bin/cat'
+CHMOD = '/bin/chmod'
+CHOWN = '/bin/chown'
 
 
 class SlurmConfigManager:
@@ -43,13 +50,13 @@ class SlurmConfigManager:
         try:
             # Use sudo cp to copy the file
             subprocess.run(
-                ['sudo', 'cp', '-p', self.slurm_conf_path, backup_path],
+                [SUDO, '-n', CP, '-p', self.slurm_conf_path, backup_path],
                 check=True,
                 capture_output=True
             )
             # Make the backup readable by current user
             subprocess.run(
-                ['sudo', 'chown', os.getenv('USER', 'koopark'), backup_path],
+                [SUDO, '-n', CHOWN, os.getenv('USER', 'koopark'), backup_path],
                 check=True,
                 capture_output=True
             )
@@ -63,7 +70,7 @@ class SlurmConfigManager:
         """백업에서 복원"""
         try:
             subprocess.run(
-                ['sudo', 'cp', '-p', backup_path, self.slurm_conf_path],
+                [SUDO, '-n', CP, '-p', backup_path, self.slurm_conf_path],
                 check=True,
                 capture_output=True
             )
@@ -152,7 +159,7 @@ class SlurmConfigManager:
             
             # slurm.conf 읽기 (use sudo to read)
             result = subprocess.run(
-                ['sudo', 'cat', self.slurm_conf_path],
+                [SUDO, '-n', CAT, self.slurm_conf_path],
                 capture_output=True,
                 text=True,
                 check=True
@@ -224,19 +231,19 @@ class SlurmConfigManager:
                 
                 # Copy temp file to slurm.conf with sudo
                 subprocess.run(
-                    ['sudo', 'cp', '-p', temp_file.name, self.slurm_conf_path],
+                    [SUDO, '-n', CP, '-p', temp_file.name, self.slurm_conf_path],
                     check=True,
                     capture_output=True
                 )
-                
+
                 # Fix permissions: 644, owned by slurm:slurm
                 subprocess.run(
-                    ['sudo', 'chmod', '644', self.slurm_conf_path],
+                    [SUDO, '-n', CHMOD, '644', self.slurm_conf_path],
                     check=True,
                     capture_output=True
                 )
                 subprocess.run(
-                    ['sudo', 'chown', 'slurm:slurm', self.slurm_conf_path],
+                    [SUDO, '-n', CHOWN, 'slurm:slurm', self.slurm_conf_path],
                     check=True,
                     capture_output=True
                 )

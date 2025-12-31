@@ -30,12 +30,16 @@ except Exception as e:
     vnc_sessions_memory = {}
     vnc_session_manager = None
 
-# Slurm 명령어
+# Slurm 명령어 및 시스템 명령어 (절대 경로)
 try:
-    from slurm_commands import SBATCH, SCANCEL, SQUEUE, SCONTROL
+    from slurm_commands import SBATCH, SCANCEL, SQUEUE, SCONTROL, SSH, KILL, RM
     SLURM_AVAILABLE = True
 except ImportError:
     SLURM_AVAILABLE = False
+    # Fallback paths
+    SSH = '/usr/bin/ssh'
+    KILL = '/bin/kill'
+    RM = '/bin/rm'
 
 # Mock 모드
 MOCK_MODE = os.getenv('MOCK_MODE', 'false').lower() == 'true'
@@ -251,7 +255,7 @@ def check_image_exists_on_remote_node(sif_path, node=None, partition='viz'):
         # SSH로 원격 노드에서 파일 존재 확인
         # timeout 5초로 빠르게 확인
         result = subprocess.run(
-            ['ssh', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no',
+            [SSH, '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no',
              node, f'test -f {sif_path} && echo "exists"'],
             capture_output=True,
             text=True,
@@ -288,7 +292,7 @@ def create_ssh_tunnel(node, remote_port, local_port, session_id):
     try:
         # SSH 터널 명령어 (-f: 백그라운드, -N: 명령 실행 안함, -T: TTY 할당 안함, -g: 외부 접속 허용)
         cmd = [
-            'ssh',
+            SSH,
             '-f',  # 백그라운드 실행
             '-N',  # 원격 명령 실행 안함 (터널만)
             '-T',  # TTY 할당 안함
@@ -311,7 +315,7 @@ def create_ssh_tunnel(node, remote_port, local_port, session_id):
         ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)
 
         for line in ps_result.stdout.split('\n'):
-            if f'ssh -f -N -T -g' in line and f'0.0.0.0:{local_port}:localhost:{remote_port}' in line and node in line:
+            if SSH in line and '-f' in line and '-N' in line and f'0.0.0.0:{local_port}:localhost:{remote_port}' in line and node in line:
                 pid = int(line.split()[1])
                 SSH_TUNNEL_PIDS[session_id] = pid
                 print(f"✅ SSH tunnel created: {node}:{remote_port} → 0.0.0.0:{local_port} (PID: {pid})")
@@ -330,7 +334,7 @@ def close_ssh_tunnel(session_id):
     try:
         pid = SSH_TUNNEL_PIDS.get(session_id)
         if pid:
-            subprocess.run(['kill', str(pid)], check=False)
+            subprocess.run([KILL, str(pid)], check=False)
             del SSH_TUNNEL_PIDS[session_id]
             print(f"✅ SSH tunnel closed for session {session_id} (PID: {pid})")
         else:
@@ -952,7 +956,7 @@ def reset_vnc_sandbox(session_id):
         else:
             # SSH로 viz-node에서 실행 (또는 로컬에서 직접 삭제)
             result = subprocess.run(
-                ['rm', '-rf', sandbox_path],
+                [RM, '-rf', sandbox_path],
                 capture_output=True,
                 text=True
             )

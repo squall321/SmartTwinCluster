@@ -8,6 +8,11 @@ import os
 import json
 import random
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
+SBATCH = os.path.join(SLURM_BIN_DIR, 'sbatch')
+
 slurm_bp = Blueprint('slurm', __name__)
 UPLOAD_ROOT = "uploads"
 
@@ -42,7 +47,7 @@ def lsdyna_core_usage():
     if slurm_utils.MOCK_MODE:
         return jsonify({"lsdyna_cores": slurm_utils.get_lsdyna_core_usage()})
     try:
-        output = subprocess.check_output("squeue -o '%j|%C'", shell=True, text=True)
+        output = subprocess.check_output(f"{SQUEUE} -o '%j|%C'", shell=True, text=True)
         lines = output.strip().splitlines()[1:]
         lsdyna_total = 0
         for line in lines:
@@ -118,7 +123,7 @@ lsdyna_{job_meta['version'].lower()}_{job_meta['mode'].lower()}_{job_meta['preci
             with open(script_path, "w") as f:
                 f.write(script)
 
-            result = subprocess.run(["sbatch", script_path], capture_output=True, text=True)
+            result = subprocess.run([SBATCH, script_path], capture_output=True, text=True)
             submitted_jobs.append({
                 "filename": filename,
                 "cores": job_meta["cores"],
@@ -139,7 +144,7 @@ def user_core_usage():
             user_core_map[job["user"]] += job["cpus"]
     else:
         try:
-            output = subprocess.check_output("squeue -o '%u|%C'", shell=True, text=True)
+            output = subprocess.check_output(f"{SQUEUE} -o '%u|%C'", shell=True, text=True)
             lines = output.strip().splitlines()[1:]  # 첫 줄은 헤더
             for line in lines:
                 user, cpus = line.strip().split("|")

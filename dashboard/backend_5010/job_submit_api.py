@@ -24,6 +24,9 @@ from flask import Blueprint, request, jsonify, g
 from werkzeug.utils import secure_filename
 from template_validator import TemplateValidator
 
+# 절대 경로 import (systemd 환경에서 PATH 제한으로 필요)
+from slurm_commands import SSH, SBATCH
+
 # Structured logging setup
 logger = logging.getLogger(__name__)
 
@@ -351,7 +354,7 @@ def check_image_on_node(image_path, partition='compute'):
 
     try:
         result = subprocess.run(
-            ['ssh', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no',
+            [SSH, '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no',
              node, f'test -f {image_path} && echo "exists"'],
             capture_output=True,
             text=True,
@@ -879,7 +882,7 @@ def submit_job():
 
         try:
             result = subprocess.run(
-                ['sbatch', script_path],
+                [SBATCH, script_path],
                 capture_output=True,
                 text=True,
                 check=True,

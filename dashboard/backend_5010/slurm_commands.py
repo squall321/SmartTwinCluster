@@ -1,6 +1,9 @@
 """
 Slurm 명령어 경로 설정 모듈
 모든 Slurm 명령어에 대한 경로를 중앙에서 관리
+
+IMPORTANT: systemd/gunicorn 환경에서는 PATH가 제한적이므로
+반드시 절대 경로를 사용해야 함
 """
 
 import os
@@ -11,6 +14,14 @@ from typing import List, Optional
 # 기본값: /usr/bin (apt/yum 패키지 설치 환경)
 # 소스 빌드: /usr/local/slurm/bin
 SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+
+# 시스템 명령어 경로 (절대 경로 필수 - systemd 환경에서 PATH 제한)
+SUDO = '/usr/bin/sudo'
+SSH = '/usr/bin/ssh'
+KILL = '/bin/kill'
+RM = '/bin/rm'
+DF = '/bin/df'
+LS = '/bin/ls'
 
 # 명령어 경로
 SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
@@ -38,7 +49,7 @@ def run_slurm_command(command: List[str], timeout: int = 10,
         subprocess.CompletedProcess
     """
     if use_sudo:
-        command = ['sudo'] + command
+        command = [SUDO, '-n'] + command
     
     try:
         result = subprocess.run(

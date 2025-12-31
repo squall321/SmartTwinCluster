@@ -5,6 +5,13 @@ import random
 # MOCK 환경 여부 결정
 MOCK_MODE = os.environ.get("MOCK_SLURM") == "1"
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
+SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
+SBATCH = os.path.join(SLURM_BIN_DIR, 'sbatch')
+SCANCEL = os.path.join(SLURM_BIN_DIR, 'scancel')
+
 # MOCK 노드 리스트 (3개의 랙, 각 9개 노드 → 총 27개)
 MOCK_NODES = [f"R{str(rack).zfill(2)}N{str(n).zfill(2)}" for rack in range(1, 4) for n in range(1, 10)]
 
@@ -84,7 +91,7 @@ def _complete_job(job, current_time):
 
 def get_sinfo():
     if not MOCK_MODE:
-        return run_command("sinfo -o '%P %A %l %D %C %m %G %T %N'")
+        return run_command(f"{SINFO} -o '%P %A %l %D %C %m %G %T %N'")
 
     _simulate_job_activity()
     total_nodes = len(MOCK_NODES)
@@ -104,7 +111,7 @@ def get_sinfo():
 
 def get_squeue():
     if not MOCK_MODE:
-        return run_command("squeue -o '%i|%u|%j|%T|%C|%M|%N'")
+        return run_command(f"{SQUEUE} -o '%i|%u|%j|%T|%C|%M|%N'")
 
     _simulate_job_activity()
     header = "JOBID|USER|NAME|STATE|CPUS|TIME|NODELIST"
@@ -123,7 +130,7 @@ def submit_job(script_content: str):
         return "[MOCK] Job submitted."
     with open("/tmp/job_script.sh", "w") as f:
         f.write(script_content)
-    return run_command("sbatch /tmp/job_script.sh")
+    return run_command(f"{SBATCH} /tmp/job_script.sh")
 
 def cancel_job(job_id: str):
     if MOCK_MODE:
@@ -135,7 +142,7 @@ def cancel_job(job_id: str):
                 MOCK_COMPLETED.append(job)
         MOCK_RUNNING = [j for j in MOCK_RUNNING if j["id"] != job_id]
         return f"[MOCK] Job {job_id} cancelled."
-    return run_command(f"scancel {job_id}")
+    return run_command(f"{SCANCEL} {job_id}")
 
 def get_lsdyna_core_usage():
     _simulate_job_activity()

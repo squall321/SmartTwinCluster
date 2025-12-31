@@ -9,6 +9,10 @@ import mimetypes
 from pathlib import Path
 import subprocess
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+TAIL = '/usr/bin/tail'
+WC = '/usr/bin/wc'
+
 preview_bp = Blueprint('preview', __name__)
 
 # 지원되는 텍스트 파일 확장자
@@ -141,14 +145,14 @@ def preview_text():
             # tail 명령어 사용
             try:
                 result = subprocess.run(
-                    ['tail', '-n', str(max_lines), filepath],
+                    [TAIL, '-n', str(max_lines), filepath],
                     capture_output=True,
                     text=True,
                     timeout=5
                 )
                 content = result.stdout
                 total_lines = int(subprocess.run(
-                    ['wc', '-l', filepath],
+                    [WC, '-l', filepath],
                     capture_output=True,
                     text=True
                 ).stdout.split()[0])
@@ -240,7 +244,7 @@ def tail_file():
         
         # tail 명령어 사용
         result = subprocess.run(
-            ['tail', '-n', str(lines), filepath],
+            [TAIL, '-n', str(lines), filepath],
             capture_output=True,
             text=True,
             timeout=5

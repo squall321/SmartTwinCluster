@@ -7,6 +7,11 @@ from flask import Blueprint, request, jsonify, g
 from services.app_session_service import AppSessionService
 from middleware.jwt_middleware import jwt_required
 import traceback
+import os
+
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/bin')
+SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
 
 app_bp = Blueprint('app', __name__, url_prefix='/api/app')
 
@@ -190,7 +195,7 @@ def get_session(session_id):
                 import subprocess
                 # squeue로 Job 상태 확인
                 result = subprocess.run(
-                    ['squeue', '--job', str(job_id), '--noheader', '--format=%T'],
+                    [SQUEUE, '--job', str(job_id), '--noheader', '--format=%T'],
                     capture_output=True,
                     text=True,
                     timeout=5

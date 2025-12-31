@@ -23,6 +23,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+APPTAINER = '/usr/bin/apptainer'
+
 
 class ApptainerImage:
     """Apptainer 이미지 메타데이터 클래스"""
@@ -305,7 +308,7 @@ class ApptainerRegistryService:
         try:
             # apptainer inspect --json
             result = subprocess.run(
-                ['apptainer', 'inspect', '--json', image_path],
+                [APPTAINER, 'inspect', '--json', image_path],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -340,7 +343,7 @@ class ApptainerRegistryService:
         """
         try:
             result = subprocess.run(
-                ['apptainer', 'inspect', '--list-apps', image_path],
+                [APPTAINER, 'inspect', '--list-apps', image_path],
                 capture_output=True,
                 text=True,
                 timeout=10

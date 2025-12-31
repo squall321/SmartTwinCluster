@@ -131,6 +131,9 @@ class SAMLHandler:
         """
         import subprocess
 
+        # 시스템 명령어 절대 경로 (systemd 환경에서 PATH 제한)
+        OPENSSL = '/usr/bin/openssl'
+
         os.makedirs(cert_path, exist_ok=True)
 
         sp_key_file = os.path.join(cert_path, 'sp-key.pem')
@@ -138,7 +141,7 @@ class SAMLHandler:
 
         # Generate private key
         subprocess.run([
-            'openssl', 'req', '-new', '-x509', '-days', '3650',
+            OPENSSL, 'req', '-new', '-x509', '-days', '3650',
             '-keyout', sp_key_file, '-out', sp_cert_file,
             '-nodes',
             '-subj', '/C=KR/ST=Seoul/L=Seoul/O=HPC Lab/CN=auth-portal'
