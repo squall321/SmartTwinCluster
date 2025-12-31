@@ -28,6 +28,14 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# python_wheels.tar.gz 자동 압축 해제
+WHEELS_TARBALL="$PROJECT_ROOT/offline_packages/python_wheels.tar.gz"
+if [ -f "$WHEELS_TARBALL" ] && [ ! -d "$WHEELS_BASE/python3.12" ]; then
+    echo -e "${BLUE}[사전준비] python_wheels.tar.gz 압축 해제 중...${NC}"
+    tar -xzf "$WHEELS_TARBALL" -C "$PROJECT_ROOT/offline_packages/"
+    echo -e "${GREEN}✓ 압축 해제 완료${NC}"
+fi
+
 # 실행 사용자 (sudo로 실행 시 실제 사용자)
 RUN_USER="${SUDO_USER:-$(whoami)}"
 RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
@@ -177,21 +185,36 @@ setup_venv() {
         local wheels_dir="${WHEELS_BASE}/python${actual_version}"
 
         echo "    → 패키지 설치 중 (Python ${actual_version})..."
+        echo "    → Wheels 경로: $wheels_dir"
 
         # logs 디렉토리 생성
         sudo -u "$RUN_USER" mkdir -p "$full_path/logs"
 
         if [ -d "$wheels_dir" ]; then
+            # wheels 디렉토리 내용 확인
+            local wheel_count=$(find "$wheels_dir" -name "*.whl" 2>/dev/null | wc -l)
+            echo "    → Wheels 파일 수: $wheel_count"
+
+            # Flask wheel 존재 확인
+            if ls "$wheels_dir"/[Ff]lask*.whl &>/dev/null; then
+                echo "    → Flask wheel: $(ls "$wheels_dir"/[Ff]lask*.whl 2>/dev/null | head -1)"
+            else
+                echo -e "    ${YELLOW}⚠ Flask wheel 없음!${NC}"
+            fi
+
             # 오프라인 설치
             if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$wheels_dir" -r "$full_path/requirements.txt" > "$full_path/logs/pip_install.log" 2>&1; then
                 echo -e "    ${GREEN}✓ 오프라인 설치 완료${NC}"
             else
                 # 온라인 fallback
                 echo -e "    ${YELLOW}⚠ 오프라인 실패, 온라인 시도...${NC}"
+                echo "    → pip 로그 마지막 10줄:"
+                tail -10 "$full_path/logs/pip_install.log" 2>/dev/null | sed 's/^/      /'
                 if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install -r "$full_path/requirements.txt" >> "$full_path/logs/pip_install.log" 2>&1; then
                     echo -e "    ${GREEN}✓ 온라인 설치 완료${NC}"
                 else
                     echo -e "    ${RED}❌ 설치 실패 (로그: $full_path/logs/pip_install.log)${NC}"
+                    tail -20 "$full_path/logs/pip_install.log" 2>/dev/null | sed 's/^/      /'
                     return 1
                 fi
             fi
