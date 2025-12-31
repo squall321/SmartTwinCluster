@@ -822,7 +822,21 @@ setup_redis_session_management() {
             }
             deactivate
 
-            # Create or update .env file with Redis configuration
+            # YAML에서 Slurm bin_path 읽기
+            local slurm_bin_path="/usr/local/slurm/bin"
+            if [[ -f "$CONFIG_PATH" ]]; then
+                local yaml_bin_path=$(grep -E "^\s+bin_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                if [[ -n "$yaml_bin_path" ]]; then
+                    slurm_bin_path="$yaml_bin_path"
+                else
+                    local yaml_install_path=$(grep -E "^\s+install_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    if [[ -n "$yaml_install_path" ]]; then
+                        slurm_bin_path="${yaml_install_path}/bin"
+                    fi
+                fi
+            fi
+
+            # Create or update .env file with Redis and Slurm configuration
             if [[ ! -f "$service_dir/.env" ]]; then
                 log_info "Creating .env file for $service..."
                 cat > "$service_dir/.env" << EOF
@@ -831,6 +845,9 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
 DEFAULT_SESSION_TTL=7200
+
+# Slurm Configuration
+SLURM_BIN_DIR=${slurm_bin_path}
 EOF
                 # Set ownership (use service_user from YAML or current user)
                 local env_owner="${SERVICE_USER:-$(whoami)}"
@@ -873,8 +890,16 @@ EOF
                     needs_update=true
                 fi
 
+                # Add SLURM_BIN_DIR if missing
+                if ! grep -q "^SLURM_BIN_DIR=" "$service_dir/.env"; then
+                    echo "" >> "$service_dir/.env"
+                    echo "# Slurm Configuration" >> "$service_dir/.env"
+                    echo "SLURM_BIN_DIR=${slurm_bin_path}" >> "$service_dir/.env"
+                    needs_update=true
+                fi
+
                 if [[ "$needs_update" == true ]]; then
-                    log_success "Updated .env with missing Redis configuration"
+                    log_success "Updated .env with missing configuration"
                 else
                     log_info "Redis configuration already complete"
                 fi
@@ -2103,16 +2128,25 @@ create_systemd_service_direct() {
             fi
         fi
 
-        # YAML에서 Slurm bin_path 읽기 (기본값: /usr/local/slurm/bin)
+        # YAML에서 Slurm 경로 읽기 (우선순위: bin_path > install_path/bin > 기본값)
         local slurm_bin_path="/usr/local/slurm/bin"
         local slurm_sbin_path="/usr/local/slurm/sbin"
         if [[ -f "$CONFIG_PATH" ]]; then
+            # 1. bin_path 직접 지정 확인
             local yaml_bin_path=$(grep -E "^\s+bin_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
             if [[ -n "$yaml_bin_path" ]]; then
                 slurm_bin_path="$yaml_bin_path"
                 slurm_sbin_path="${yaml_bin_path%/bin}/sbin"
+            else
+                # 2. install_path에서 유도 (slurm_config.install_path)
+                local yaml_install_path=$(grep -E "^\s+install_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                if [[ -n "$yaml_install_path" ]]; then
+                    slurm_bin_path="${yaml_install_path}/bin"
+                    slurm_sbin_path="${yaml_install_path}/sbin"
+                fi
             fi
         fi
+        log_info "Slurm bin path: $slurm_bin_path"
 
         if [[ "$service_type" == "python" ]]; then
             environment="Environment=\"MOCK_MODE=false\"\nEnvironment=\"PORT=$port\"\nEnvironment=\"SSO_ENABLED=$sso_enabled\"\nEnvironment=\"PATH=$slurm_bin_path:$slurm_sbin_path:/usr/local/bin:/usr/bin:/bin\"\nEnvironment=\"SLURM_BIN_DIR=$slurm_bin_path\"\nEnvironmentFile=-$work_dir/.env"
