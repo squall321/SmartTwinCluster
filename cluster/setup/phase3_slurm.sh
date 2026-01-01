@@ -700,25 +700,35 @@ check_slurm_installed() {
 }
 
 fix_systemd_service_files() {
-    # Fix systemd service files that may point to wrong paths
-    # This happens when a custom-compiled Slurm was previously installed
-    # but we're now using package-installed Slurm
+    # Fix systemd service files to use source-built Slurm 23.x paths
+    # 소스 빌드 Slurm은 /usr/local/slurm/sbin에 설치됨
+    # apt 패키지 경로(/usr/sbin)가 있으면 소스 빌드 경로로 수정
 
     log INFO "Checking systemd service files for correct paths..."
 
     local needs_reload=false
+    local SLURM_SBIN="/usr/local/slurm/sbin"
 
-    # Check slurmctld service file
+    # Verify source-built Slurm exists
+    if [[ ! -x "$SLURM_SBIN/slurmctld" ]]; then
+        log WARNING "Source-built slurmctld not found at $SLURM_SBIN/slurmctld"
+        log INFO "Skipping systemd service file fixes"
+        return 0
+    fi
+
+    log INFO "Using source-built Slurm at: $SLURM_SBIN"
+
+    # Check slurmctld service file - fix if pointing to /usr/sbin (apt package path)
     if [[ -f /etc/systemd/system/slurmctld.service ]]; then
-        if grep -q "/usr/local/slurm" /etc/systemd/system/slurmctld.service 2>/dev/null; then
-            log WARNING "Found old slurmctld.service pointing to /usr/local/slurm"
-            log INFO "Updating slurmctld.service to use package paths..."
+        if grep -q "/usr/sbin/slurmctld" /etc/systemd/system/slurmctld.service 2>/dev/null; then
+            log WARNING "Found slurmctld.service pointing to /usr/sbin (apt package path)"
+            log INFO "Updating slurmctld.service to use source-built path..."
 
             # Backup old service file
             cp /etc/systemd/system/slurmctld.service /etc/systemd/system/slurmctld.service.backup.$(date +%Y%m%d_%H%M%S)
 
-            # Create new service file with correct paths
-            cat > /etc/systemd/system/slurmctld.service << 'SLURMCTLD_SERVICE'
+            # Create new service file with source-built paths
+            cat > /etc/systemd/system/slurmctld.service << SLURMCTLD_SERVICE
 [Unit]
 Description=Slurm controller daemon
 After=network.target munge.service slurmdbd.service
@@ -729,8 +739,8 @@ ConditionPathExists=/etc/slurm/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmctld
-ExecStart=/usr/sbin/slurmctld -D $SLURMCTLD_OPTIONS
-ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=$SLURM_SBIN/slurmctld -D \$SLURMCTLD_OPTIONS
+ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
@@ -744,22 +754,22 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 SLURMCTLD_SERVICE
-            log SUCCESS "slurmctld.service updated"
+            log SUCCESS "slurmctld.service updated to use $SLURM_SBIN/slurmctld"
             needs_reload=true
         fi
     fi
 
     # Check slurmdbd service file
     if [[ -f /etc/systemd/system/slurmdbd.service ]]; then
-        if grep -q "/usr/local/slurm" /etc/systemd/system/slurmdbd.service 2>/dev/null; then
-            log WARNING "Found old slurmdbd.service pointing to /usr/local/slurm"
-            log INFO "Updating slurmdbd.service to use package paths..."
+        if grep -q "/usr/sbin/slurmdbd" /etc/systemd/system/slurmdbd.service 2>/dev/null; then
+            log WARNING "Found slurmdbd.service pointing to /usr/sbin (apt package path)"
+            log INFO "Updating slurmdbd.service to use source-built path..."
 
             # Backup old service file
             cp /etc/systemd/system/slurmdbd.service /etc/systemd/system/slurmdbd.service.backup.$(date +%Y%m%d_%H%M%S)
 
-            # Create new service file with correct paths
-            cat > /etc/systemd/system/slurmdbd.service << 'SLURMDBD_SERVICE'
+            # Create new service file with source-built paths
+            cat > /etc/systemd/system/slurmdbd.service << SLURMDBD_SERVICE
 [Unit]
 Description=Slurm DBD accounting daemon
 After=network.target munge.service mariadb.service mysql.service
@@ -769,8 +779,8 @@ ConditionPathExists=/etc/slurm/slurmdbd.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
-ExecStart=/usr/sbin/slurmdbd -D $SLURMDBD_OPTIONS
-ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=$SLURM_SBIN/slurmdbd -D \$SLURMDBD_OPTIONS
+ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
 LimitNOFILE=65536
 LimitMEMLOCK=infinity
@@ -779,22 +789,22 @@ LimitSTACK=infinity
 [Install]
 WantedBy=multi-user.target
 SLURMDBD_SERVICE
-            log SUCCESS "slurmdbd.service updated"
+            log SUCCESS "slurmdbd.service updated to use $SLURM_SBIN/slurmdbd"
             needs_reload=true
         fi
     fi
 
     # Check slurmd service file
     if [[ -f /etc/systemd/system/slurmd.service ]]; then
-        if grep -q "/usr/local/slurm" /etc/systemd/system/slurmd.service 2>/dev/null; then
-            log WARNING "Found old slurmd.service pointing to /usr/local/slurm"
-            log INFO "Updating slurmd.service to use package paths..."
+        if grep -q "/usr/sbin/slurmd" /etc/systemd/system/slurmd.service 2>/dev/null; then
+            log WARNING "Found slurmd.service pointing to /usr/sbin (apt package path)"
+            log INFO "Updating slurmd.service to use source-built path..."
 
             # Backup old service file
             cp /etc/systemd/system/slurmd.service /etc/systemd/system/slurmd.service.backup.$(date +%Y%m%d_%H%M%S)
 
-            # Create new service file with correct paths
-            cat > /etc/systemd/system/slurmd.service << 'SLURMD_SERVICE'
+            # Create new service file with source-built paths
+            cat > /etc/systemd/system/slurmd.service << SLURMD_SERVICE
 [Unit]
 Description=Slurm node daemon
 After=network.target munge.service remote-fs.target
@@ -804,8 +814,8 @@ ConditionPathExists=/etc/slurm/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmd
-ExecStart=/usr/sbin/slurmd -D $SLURMD_OPTIONS
-ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=$SLURM_SBIN/slurmd -D \$SLURMD_OPTIONS
+ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
@@ -816,7 +826,7 @@ TasksMax=infinity
 [Install]
 WantedBy=multi-user.target
 SLURMD_SERVICE
-            log SUCCESS "slurmd.service updated"
+            log SUCCESS "slurmd.service updated to use $SLURM_SBIN/slurmd"
             needs_reload=true
         fi
     fi
@@ -1063,20 +1073,26 @@ EOFPATH
     fi
 
     # PATH 설정 적용
+    log INFO "PATH 설정 적용 중..."
     if [[ -f /etc/profile.d/slurm.sh ]]; then
         source /etc/profile.d/slurm.sh 2>/dev/null || true
     fi
     hash -r 2>/dev/null || true
 
     # 설치 확인
+    log INFO "Slurm 바이너리 확인 중..."
     local installed_version=""
     for prefix in /usr/local/slurm /opt/slurm; do
+        log INFO "  확인: $prefix/bin/sinfo"
         if [[ -x "$prefix/bin/sinfo" ]]; then
             installed_version=$("$prefix/bin/sinfo" --version 2>/dev/null | head -1)
             SLURM_PREFIX="$prefix"
             SOURCE_SLURM_BIN="$prefix/bin"
             SOURCE_SLURM_SBIN="$prefix/sbin"
+            log INFO "  → 발견: $installed_version"
             break
+        else
+            log INFO "  → 없음"
         fi
     done
 
@@ -1092,6 +1108,8 @@ EOFPATH
         export PATH="$SOURCE_SLURM_BIN:$SOURCE_SLURM_SBIN:$PATH"
     else
         log ERROR "Slurm 설치 후에도 바이너리를 찾을 수 없습니다!"
+        log ERROR "  /usr/local/slurm/bin/sinfo 존재 여부: $(ls -la /usr/local/slurm/bin/sinfo 2>&1 || echo '없음')"
+        log ERROR "  /opt/slurm/bin/sinfo 존재 여부: $(ls -la /opt/slurm/bin/sinfo 2>&1 || echo '없음')"
         exit 1
     fi
 
