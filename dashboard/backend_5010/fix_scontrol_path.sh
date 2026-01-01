@@ -14,19 +14,25 @@ cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/dashboard_r
 echo "📍 Step 1/3: scontrol 경로 찾기"
 echo "--------------------------------------------------------------------------------"
 
-SCONTROL_PATH=$(which scontrol 2>/dev/null)
-if [ -z "$SCONTROL_PATH" ]; then
-    # 일반적인 위치 확인
-    if [ -f "/usr/local/slurm/bin/scontrol" ]; then
-        SCONTROL_PATH="/usr/local/slurm/bin/scontrol"
-    elif [ -f "/usr/bin/scontrol" ]; then
-        SCONTROL_PATH="/usr/bin/scontrol"
-    else
-        echo "❌ scontrol을 찾을 수 없습니다"
-        echo "   수동으로 경로를 확인하세요:"
-        echo "   find /usr -name scontrol 2>/dev/null"
-        exit 1
+# 소스 빌드 23.x 우선 탐색 (/usr/bin의 apt 패키지 21.x는 지원 안함)
+SCONTROL_PATH=""
+for path in /usr/local/slurm/bin/scontrol /opt/slurm/bin/scontrol /usr/local/bin/scontrol; do
+    if [ -x "$path" ]; then
+        SCONTROL_PATH="$path"
+        break
     fi
+done
+
+if [ -z "$SCONTROL_PATH" ]; then
+    # PATH에서 찾기 (환경변수 설정된 경우)
+    SCONTROL_PATH=$(which scontrol 2>/dev/null)
+fi
+
+if [ -z "$SCONTROL_PATH" ]; then
+    echo "❌ scontrol을 찾을 수 없습니다"
+    echo "   소스 빌드 Slurm 23.x가 설치되어 있는지 확인하세요:"
+    echo "   ls -la /usr/local/slurm/bin/scontrol"
+    exit 1
 fi
 
 echo "✅ scontrol 경로: $SCONTROL_PATH"

@@ -18,9 +18,9 @@ NC='\033[0m'
 # 기본 사용자 설정
 WEB_USER="${1:-$(whoami)}"
 
-# scontrol 경로 찾기
+# scontrol 경로 찾기 (소스 빌드 23.x 우선)
 SCONTROL_PATH=""
-for path in /usr/bin/scontrol /usr/local/bin/scontrol /usr/local/slurm/bin/scontrol; do
+for path in /usr/local/slurm/bin/scontrol /opt/slurm/bin/scontrol /usr/local/bin/scontrol; do
     if [ -x "$path" ]; then
         SCONTROL_PATH="$path"
         break

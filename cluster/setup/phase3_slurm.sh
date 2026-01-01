@@ -1799,19 +1799,20 @@ generate_slurm_config() {
     generate_node_definitions
     generate_partition_definitions
 
-    # Auto-detect Slurm plugin directory based on OS
+    # Auto-detect Slurm plugin directory (소스 빌드 23.x 우선)
+    # apt 패키지 21.x (/usr/lib/x86_64-linux-gnu/slurm-wlm)는 지원하지 않음
     local PLUGIN_DIR
-    if [[ -d "/usr/lib/x86_64-linux-gnu/slurm-wlm" ]]; then
-        # Ubuntu/Debian package install
-        PLUGIN_DIR="/usr/lib/x86_64-linux-gnu/slurm-wlm"
+    if [[ -d "/usr/local/slurm/lib/slurm" ]]; then
+        # Source install (23.x) - 우선 사용
+        PLUGIN_DIR="/usr/local/slurm/lib/slurm"
+    elif [[ -d "/opt/slurm/lib/slurm" ]]; then
+        # Alternative source install path
+        PLUGIN_DIR="/opt/slurm/lib/slurm"
     elif [[ -d "/usr/lib64/slurm" ]]; then
         # CentOS/RedHat package install
         PLUGIN_DIR="/usr/lib64/slurm"
-    elif [[ -d "/usr/local/slurm/lib/slurm" ]]; then
-        # Source install
-        PLUGIN_DIR="/usr/local/slurm/lib/slurm"
     else
-        # Default fallback
+        # Default fallback to source install path
         PLUGIN_DIR="/usr/local/slurm/lib/slurm"
         log WARNING "Could not auto-detect Slurm plugin directory, using default: $PLUGIN_DIR"
     fi
@@ -2348,17 +2349,17 @@ show_cluster_status() {
     fi
 
     # Auto-detect Slurm binary paths
-    # Ubuntu/Debian package: /usr/bin/
-    # Source install: /usr/local/slurm/bin/
+    # Source install (23.x): /usr/local/slurm/bin/ - 우선 사용
+    # apt package (21.x): /usr/bin/ - 지원하지 않음
     local SINFO SCONTROL
-    if [[ -x "/usr/bin/sinfo" ]]; then
-        SINFO="/usr/bin/sinfo"
-        SCONTROL="/usr/bin/scontrol"
-    elif [[ -x "/usr/local/slurm/bin/sinfo" ]]; then
+    if [[ -x "/usr/local/slurm/bin/sinfo" ]]; then
         SINFO="/usr/local/slurm/bin/sinfo"
         SCONTROL="/usr/local/slurm/bin/scontrol"
+    elif [[ -x "/opt/slurm/bin/sinfo" ]]; then
+        SINFO="/opt/slurm/bin/sinfo"
+        SCONTROL="/opt/slurm/bin/scontrol"
     else
-        # Fallback to PATH
+        # Fallback to PATH (환경변수 설정된 경우)
         SINFO="sinfo"
         SCONTROL="scontrol"
     fi
