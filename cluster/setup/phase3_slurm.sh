@@ -842,6 +842,108 @@ install_slurm() {
     log INFO "Installing/checking Slurm packages..."
 
     # ============================================================================
+    # 기존 apt/yum Slurm 패키지 제거 (소스 빌드 23.x만 사용)
+    # /usr/bin에 있는 apt 패키지 slurm 바이너리가 충돌을 일으킬 수 있음
+    # ============================================================================
+    cleanup_apt_slurm() {
+        log INFO "Checking for existing apt/yum Slurm packages to remove..."
+
+        local apt_slurm_found=false
+
+        # apt slurm 패키지 확인
+        local apt_slurm_packages=(
+            "slurm-wlm"
+            "slurm-wlm-basic-plugins"
+            "slurm-client"
+            "slurmctld"
+            "slurmd"
+            "slurmdbd"
+            "libslurm37"
+            "libslurm-dev"
+            "libslurmdb37"
+            "libpmi0"
+            "libpmi2-0"
+        )
+
+        for pkg in "${apt_slurm_packages[@]}"; do
+            if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+                apt_slurm_found=true
+                log WARNING "Found apt Slurm package: $pkg"
+            fi
+        done
+
+        if [[ "$apt_slurm_found" == "true" ]]; then
+            log WARNING "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            log WARNING "apt Slurm 패키지가 설치되어 있습니다. 제거합니다..."
+            log WARNING "(소스 빌드 Slurm 23.x와 충돌 방지)"
+            log WARNING "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            # apt slurm 패키지 제거
+            DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge \
+                slurm-wlm slurm-wlm-basic-plugins slurm-client \
+                slurmctld slurmd slurmdbd \
+                libslurm37 libslurm-dev libslurmdb37 \
+                libpmi0 libpmi2-0 2>/dev/null || true
+
+            # autoremove로 관련 의존성 정리
+            apt-get autoremove -y 2>/dev/null || true
+
+            log SUCCESS "apt Slurm 패키지 제거 완료"
+        fi
+
+        # /usr/bin에 남아있는 slurm 바이너리 제거
+        local usr_bin_slurm_binaries=(
+            "/usr/bin/sinfo"
+            "/usr/bin/squeue"
+            "/usr/bin/scontrol"
+            "/usr/bin/srun"
+            "/usr/bin/sbatch"
+            "/usr/bin/scancel"
+            "/usr/bin/sacct"
+            "/usr/bin/sacctmgr"
+            "/usr/bin/salloc"
+            "/usr/bin/sstat"
+            "/usr/bin/sshare"
+            "/usr/bin/sprio"
+            "/usr/bin/sreport"
+            "/usr/bin/sdiag"
+            "/usr/bin/strigger"
+            "/usr/sbin/slurmctld"
+            "/usr/sbin/slurmd"
+            "/usr/sbin/slurmdbd"
+        )
+
+        local orphan_binaries_found=false
+        for binary in "${usr_bin_slurm_binaries[@]}"; do
+            if [[ -f "$binary" ]] || [[ -L "$binary" ]]; then
+                orphan_binaries_found=true
+                log WARNING "Found orphan Slurm binary: $binary"
+            fi
+        done
+
+        if [[ "$orphan_binaries_found" == "true" ]]; then
+            log WARNING "Removing orphan Slurm binaries from /usr/bin and /usr/sbin..."
+            for binary in "${usr_bin_slurm_binaries[@]}"; do
+                if [[ -f "$binary" ]] || [[ -L "$binary" ]]; then
+                    rm -f "$binary"
+                    log INFO "  Removed: $binary"
+                fi
+            done
+
+            # hash table 갱신
+            hash -r 2>/dev/null || true
+            log SUCCESS "Orphan Slurm binaries removed"
+        fi
+
+        if [[ "$apt_slurm_found" == "false" ]] && [[ "$orphan_binaries_found" == "false" ]]; then
+            log INFO "No apt Slurm packages or orphan binaries found. Clean system."
+        fi
+    }
+
+    # apt slurm 정리 실행
+    cleanup_apt_slurm
+
+    # ============================================================================
     # 소스 빌드 Slurm 23.x 확인 (우선순위 높음)
     # /usr/local/slurm/bin 또는 /opt/slurm/bin에 Slurm 23.x가 있으면 apt 패키지 설치 건너뜀
     # ============================================================================
