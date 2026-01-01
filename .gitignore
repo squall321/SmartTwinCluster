@@ -16,9 +16,21 @@ ENV/
 *.out
 
 # Large directories (EXCLUDE FROM GIT)
-offline_packages/
+# offline_packages/ - 스크립트 파일은 트래킹, 바이너리는 제외
+offline_packages/**/*.deb
+offline_packages/**/*.tar.gz
+offline_packages/**/*.tar.bz2
+offline_packages/**/*.whl
+offline_packages/**/*.rpm
+offline_packages/**/Packages
+offline_packages/**/Packages.gz
 apptainer/
 apptainers/
+
+# Keep scripts in offline_packages
+!offline_packages/**/*.sh
+!offline_packages/**/*.txt
+!offline_packages/**/*.md
 
 # Large binaries
 **/prometheus

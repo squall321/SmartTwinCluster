@@ -421,38 +421,11 @@ else
     fi
 
     ################################################################################
-    # Step 2: APT 패키지 설치 (옵션)
+    # Step 2: Slurm 프리빌드 배포 (APT 패키지보다 먼저!)
+    # 소스 빌드 Slurm을 먼저 배포해야 APT 패키지 설치 시 slurm 관련 패키지를 건너뜀
     ################################################################################
 
-    if [ "$INSTALL_APT_PACKAGES" = true ]; then
-        log_info "Step 2/10: APT 패키지 설치 (오프라인)..."
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-        if [ -f "${OFFLINE_PACKAGES_DIR}/apt_packages/install_offline_packages.sh" ]; then
-            cd "${OFFLINE_PACKAGES_DIR}/apt_packages"
-            bash install_offline_packages.sh
-
-            if [ $? -eq 0 ]; then
-                log_success "APT 패키지 설치 완료"
-            else
-                log_error "APT 패키지 설치 실패"
-                exit 1
-            fi
-        else
-            log_warning "오프라인 APT 패키지를 찾을 수 없습니다"
-        fi
-        cd "$SCRIPT_DIR"
-        echo ""
-    else
-        log_info "Step 2/10: APT 패키지 설치 건너뜀 (--install-apt 옵션 없음)"
-        echo ""
-    fi
-
-    ################################################################################
-    # Step 3: Slurm 프리빌드 배포
-    ################################################################################
-
-    log_info "Step 3/10: Slurm 프리빌드 배포..."
+    log_info "Step 2/10: Slurm 프리빌드 배포..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     if [ -f "${OFFLINE_PACKAGES_DIR}/slurm/slurm-"*"-prebuilt.tar.gz" ]; then
@@ -487,6 +460,35 @@ else
     fi
     cd "$SCRIPT_DIR"
     echo ""
+
+    ################################################################################
+    # Step 3: APT 패키지 설치 (옵션) - Slurm 배포 이후에 실행
+    # 소스 빌드 Slurm이 이미 배포되어 있으므로 slurm 관련 apt 패키지는 건너뜀
+    ################################################################################
+
+    if [ "$INSTALL_APT_PACKAGES" = true ]; then
+        log_info "Step 3/10: APT 패키지 설치 (오프라인)..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        if [ -f "${OFFLINE_PACKAGES_DIR}/apt_packages/install_offline_packages.sh" ]; then
+            cd "${OFFLINE_PACKAGES_DIR}/apt_packages"
+            bash install_offline_packages.sh
+
+            if [ $? -eq 0 ]; then
+                log_success "APT 패키지 설치 완료"
+            else
+                log_error "APT 패키지 설치 실패"
+                exit 1
+            fi
+        else
+            log_warning "오프라인 APT 패키지를 찾을 수 없습니다"
+        fi
+        cd "$SCRIPT_DIR"
+        echo ""
+    else
+        log_info "Step 3/10: APT 패키지 설치 건너뜀 (--install-apt 옵션 없음)"
+        echo ""
+    fi
 
     ################################################################################
     # Step 4: Munge 설치
