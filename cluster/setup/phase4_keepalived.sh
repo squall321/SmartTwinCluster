@@ -629,44 +629,68 @@ main() {
     log INFO "Starting at $(date)"
 
     # Step 0: Check root privileges
+    log INFO "[Step 0/11] Checking root privileges..."
     check_root
+    log SUCCESS "[Step 0/11] Root privileges OK"
 
     # Step 1: Check dependencies
+    log INFO "[Step 1/11] Checking dependencies..."
     check_dependencies
+    log SUCCESS "[Step 1/11] Dependencies OK"
 
     # Step 2: Load configuration
+    log INFO "[Step 2/11] Loading configuration..."
     load_config
+    log SUCCESS "[Step 2/11] Configuration loaded"
 
     # Step 3: Detect OS
+    log INFO "[Step 3/11] Detecting OS..."
     detect_os
+    log SUCCESS "[Step 3/11] OS detected"
 
     # Step 4: Check if Keepalived is installed
+    log INFO "[Step 4/11] Checking Keepalived installation..."
     check_keepalived_installed
+    log SUCCESS "[Step 4/11] Keepalived check done"
 
     # Step 5: Install Keepalived if needed
+    log INFO "[Step 5/11] Installing Keepalived if needed..."
     if [[ "$KEEPALIVED_INSTALLED" == "false" ]]; then
         install_keepalived
     fi
+    log SUCCESS "[Step 5/11] Keepalived installation done"
 
     # Step 6: Create health check script
+    log INFO "[Step 6/11] Creating health check script..."
     create_health_check_script
+    log SUCCESS "[Step 6/11] Health check script created"
 
     # Step 7: Create notification scripts
+    log INFO "[Step 7/11] Creating notification scripts..."
     create_notify_scripts
+    log SUCCESS "[Step 7/11] Notification scripts created"
 
     # Step 8: Generate Keepalived configuration
+    log INFO "[Step 8/11] Generating Keepalived configuration..."
     generate_keepalived_config
+    log SUCCESS "[Step 8/11] Keepalived configuration generated"
 
     # Step 9: Enable IP forwarding
+    log INFO "[Step 9/11] Enabling IP forwarding..."
     enable_ip_forwarding
+    log SUCCESS "[Step 9/11] IP forwarding enabled"
 
     # Step 10: Start Keepalived
+    log INFO "[Step 10/11] Starting Keepalived service..."
     start_keepalived
+    log SUCCESS "[Step 10/11] Keepalived service started"
 
     # Step 11: Show VIP status
+    log INFO "[Step 11/11] Showing VIP status..."
     show_vip_status
+    log SUCCESS "[Step 11/11] VIP status displayed"
 
-    log SUCCESS "=== Keepalived setup completed ==="
+    log SUCCESS "=== Phase 4: Keepalived setup completed successfully ==="
     log INFO "Finished at $(date)"
 
     log INFO ""
