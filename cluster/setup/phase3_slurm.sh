@@ -1085,7 +1085,13 @@ EOFPATH
     for prefix in /usr/local/slurm /opt/slurm; do
         log INFO "  확인: $prefix/bin/sinfo"
         if [[ -x "$prefix/bin/sinfo" ]]; then
-            installed_version=$("$prefix/bin/sinfo" --version 2>/dev/null | head -1)
+            # sinfo --version은 slurm.conf 없어도 동작함
+            # 하지만 pipefail 때문에 || true로 보호
+            installed_version=$("$prefix/bin/sinfo" --version 2>&1 | head -1 || true)
+            if [[ -z "$installed_version" ]]; then
+                # --version 실패 시 바이너리 존재만 확인
+                installed_version="binary exists (version check failed)"
+            fi
             SLURM_PREFIX="$prefix"
             SOURCE_SLURM_BIN="$prefix/bin"
             SOURCE_SLURM_SBIN="$prefix/sbin"
