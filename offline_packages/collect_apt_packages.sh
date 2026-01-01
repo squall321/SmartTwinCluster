@@ -143,12 +143,14 @@ define_package_lists() {
         libsystemd-dev
     )
 
-    # Slurm 런타임 패키지 (apt로 설치하는 경우)
+    # Slurm 런타임 패키지 - 더 이상 사용하지 않음 (소스 빌드 23.x만 지원)
+    # apt 패키지의 Slurm 21.x는 지원하지 않습니다.
+    # 대신 offline_packages/slurm/build_slurm_package.sh 사용
     SLURM_RUNTIME_PACKAGES=(
-        slurm-wlm
-        slurmctld
-        slurmd
-        slurmdbd
+        # slurm-wlm     # 제거됨 - 소스 빌드 사용
+        # slurmctld     # 제거됨 - 소스 빌드 사용
+        # slurmd        # 제거됨 - 소스 빌드 사용
+        # slurmdbd      # 제거됨 - 소스 빌드 사용
     )
 
     # GlusterFS 패키지

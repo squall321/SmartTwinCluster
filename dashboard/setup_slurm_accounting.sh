@@ -1,26 +1,23 @@
 #!/bin/bash
 
 echo "=========================================="
-echo "🔧 Slurm Accounting (slurmdbd) 설치"
+echo "🔧 Slurm Accounting (slurmdbd) 설정"
 echo "=========================================="
 echo ""
 
-# 1. Check if slurmdbd is installed (소스 빌드 경로 우선 확인)
+# 1. Check if slurmdbd is installed (소스 빌드 Slurm 23.x 필수)
 echo "1️⃣  slurmdbd 설치 확인..."
 
 # 소스 빌드 Slurm 경로 확인
 SLURMDBD_PATH=""
+SLURM_PREFIX=""
 for prefix in /usr/local/slurm /opt/slurm; do
     if [[ -x "$prefix/sbin/slurmdbd" ]]; then
         SLURMDBD_PATH="$prefix/sbin/slurmdbd"
+        SLURM_PREFIX="$prefix"
         break
     fi
 done
-
-# PATH에서 찾기
-if [[ -z "$SLURMDBD_PATH" ]] && command -v slurmdbd &> /dev/null; then
-    SLURMDBD_PATH=$(which slurmdbd)
-fi
 
 if [[ -n "$SLURMDBD_PATH" ]]; then
     echo "   ✅ slurmdbd가 이미 설치되어 있습니다"
@@ -29,44 +26,37 @@ if [[ -n "$SLURMDBD_PATH" ]]; then
     # 버전 확인
     SLURM_VERSION=$("$SLURMDBD_PATH" -V 2>/dev/null | head -1 || echo "unknown")
     echo "   버전: $SLURM_VERSION"
+
+    # 버전 23.x 이상인지 확인
+    MAJOR_VERSION=$(echo "$SLURM_VERSION" | grep -oP 'slurm \K[0-9]+' | head -1)
+    if [[ "$MAJOR_VERSION" -lt 23 ]]; then
+        echo ""
+        echo "   ⚠️  경고: Slurm 버전이 23.x 미만입니다!"
+        echo "   Slurm 23.11.10 이상을 설치해주세요."
+    fi
 else
     echo "   ❌ slurmdbd가 설치되지 않았습니다"
     echo ""
-    echo "   ⚠️  주의: 소스 빌드 Slurm을 사용하는 경우 apt 패키지 대신"
-    echo "       소스에서 빌드된 slurmdbd를 사용해야 합니다."
+    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "   소스 빌드 Slurm 23.x가 필요합니다!"
+    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "   소스 빌드 경로 확인:"
-    echo "   - /usr/local/slurm/sbin/slurmdbd"
-    echo "   - /opt/slurm/sbin/slurmdbd"
+    echo "   apt/yum 패키지의 Slurm (21.x)은 지원하지 않습니다."
     echo ""
-    echo "   apt 패키지 설치 (권장하지 않음):"
-    echo "   sudo apt-get update"
-    echo "   sudo apt-get install slurm-wlm-slurmdbd"
+    echo "   설치 방법:"
+    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "   1. 프리빌드 패키지 사용 (권장):"
+    echo "      cd offline_packages/slurm"
+    echo "      tar -xzf slurm-23.11.10-prebuilt.tar.gz"
+    echo "      sudo bash deploy_slurm.sh"
     echo ""
-    read -p "   apt 패키지를 설치하시겠습니까? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        # 소스 빌드 Slurm이 있으면 경고
-        for prefix in /usr/local/slurm /opt/slurm; do
-            if [[ -x "$prefix/bin/sinfo" ]]; then
-                echo ""
-                echo "   ⚠️  경고: $prefix 에 소스 빌드 Slurm이 감지되었습니다!"
-                echo "   apt 패키지를 설치하면 버전 충돌이 발생할 수 있습니다."
-                read -p "   계속하시겠습니까? (y/N): " -n 1 -r
-                echo
-                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                    echo "   설치를 건너뜁니다."
-                    exit 1
-                fi
-                break
-            fi
-        done
-        sudo apt-get update
-        sudo apt-get install -y slurm-wlm-slurmdbd
-    else
-        echo "   설치를 건너뜁니다."
-        exit 1
-    fi
+    echo "   2. 소스에서 빌드:"
+    echo "      cd offline_packages/slurm"
+    echo "      bash build_slurm_package.sh"
+    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "   설치 후 다시 이 스크립트를 실행해주세요."
+    exit 1
 fi
 
 # 2. Check for MySQL/MariaDB

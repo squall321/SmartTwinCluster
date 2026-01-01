@@ -102,23 +102,6 @@ log_success "  APT cache updated"
 echo ""
 log_info "Step 3: Installing packages..."
 
-# ============================================================================
-# 소스 빌드 Slurm 23.x 감지 시 slurm 관련 apt 패키지 설치 건너뜀
-# ============================================================================
-SKIP_SLURM_PACKAGES=false
-for prefix in /usr/local/slurm /opt/slurm; do
-    if [[ -x "$prefix/bin/sinfo" ]]; then
-        slurm_version=$("$prefix/bin/sinfo" --version 2>/dev/null | head -1)
-        major_version=$(echo "$slurm_version" | grep -oP 'slurm \K[0-9]+' | head -1)
-        if [[ "$major_version" -ge 23 ]]; then
-            log_info "  Source-built Slurm detected: $slurm_version at $prefix"
-            log_info "  Skipping slurm-related apt packages to avoid conflicts"
-            SKIP_SLURM_PACKAGES=true
-            break
-        fi
-    fi
-done
-
 # 특정 패키지 지정 여부 확인
 if [[ $# -gt 0 ]]; then
     # 지정된 패키지만 설치
@@ -142,20 +125,21 @@ else
     fi
 fi
 
-# 소스 빌드 Slurm이 있으면 slurm 관련 패키지 제외
-if [[ "$SKIP_SLURM_PACKAGES" == "true" ]]; then
-    FILTERED_PACKAGES=()
-    for pkg in "${PACKAGES_TO_INSTALL[@]}"; do
-        # slurm 관련 패키지 필터링 (libslurm, slurm-wlm, slurmctld, slurmd, slurmdbd 등)
-        if [[ "$pkg" =~ ^(lib)?slurm ]]; then
-            log_warning "  Skipping $pkg (source-built Slurm detected)"
-        else
-            FILTERED_PACKAGES+=("$pkg")
-        fi
-    done
-    PACKAGES_TO_INSTALL=("${FILTERED_PACKAGES[@]}")
-    log_info "  Packages after filtering: ${#PACKAGES_TO_INSTALL[@]}"
-fi
+# ============================================================================
+# Slurm apt 패키지 무조건 제외 (소스 빌드 23.x만 사용)
+# apt 패키지의 Slurm 21.x는 지원하지 않음
+# ============================================================================
+FILTERED_PACKAGES=()
+for pkg in "${PACKAGES_TO_INSTALL[@]}"; do
+    # slurm 관련 패키지 필터링 (libslurm, slurm-wlm, slurmctld, slurmd, slurmdbd 등)
+    if [[ "$pkg" =~ ^(lib)?slurm ]]; then
+        log_warning "  Skipping $pkg (apt slurm packages not supported - use source-built Slurm 23.x)"
+    else
+        FILTERED_PACKAGES+=("$pkg")
+    fi
+done
+PACKAGES_TO_INSTALL=("${FILTERED_PACKAGES[@]}")
+log_info "  Packages after filtering: ${#PACKAGES_TO_INSTALL[@]}"
 
 # 중복 제거
 PACKAGES_TO_INSTALL=($(printf '%s\n' "${PACKAGES_TO_INSTALL[@]}" | sort -u))

@@ -904,106 +904,34 @@ EOFPATH
         return 0
     fi
 
-    log INFO "No source-built Slurm 23.x found, proceeding with apt package installation..."
-
-    case $OS in
-        ubuntu|debian)
-            # Install controller packages if needed
-            if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
-                if ! command -v slurmctld &> /dev/null; then
-                    log INFO "Installing slurmctld via offline packages..."
-                    if ! install_offline_package slurm-wlm slurmctld libslurm37; then
-                        log ERROR "Failed to install slurmctld from offline packages"
-                        log ERROR "Ensure slurm packages are in: ${PROJECT_ROOT}/offline_packages/apt_packages/"
-                        exit 1
-                    fi
-                else
-                    log INFO "slurmctld already installed"
-                fi
-            fi
-
-            # Install slurmdbd if needed (check separately - may not be installed even if slurmctld is)
-            if [[ "$SETUP_DBD" == "true" ]]; then
-                if ! command -v slurmdbd &> /dev/null; then
-                    log INFO "Installing slurmdbd via offline packages..."
-                    if ! install_offline_package slurmdbd libslurm37; then
-                        log WARNING "Failed to install slurmdbd from offline packages"
-                        log WARNING "SlurmDBD will be skipped - accounting will not be available"
-                    fi
-                else
-                    log INFO "slurmdbd already installed"
-                fi
-            fi
-
-            # Install compute node packages if needed
-            if [[ "$SETUP_COMPUTE" == "true" ]]; then
-                if ! command -v slurmd &> /dev/null; then
-                    log INFO "Installing slurmd via offline packages..."
-                    if ! install_offline_package slurmd libslurm37; then
-                        log ERROR "Failed to install slurmd from offline packages"
-                        log ERROR "Ensure slurm packages are in: ${PROJECT_ROOT}/offline_packages/apt_packages/"
-                        exit 1
-                    fi
-                else
-                    log INFO "slurmd already installed"
-                fi
-            fi
-            ;;
-        centos|rhel|rocky|almalinux)
-            # For RHEL-based systems, use yum with local repo if available
-            local offline_rpm_dir="${PROJECT_ROOT}/offline_packages/rpm_packages"
-
-            # Install controller packages if needed
-            if [[ "$SETUP_CONTROLLER" == "true" ]] || [[ "$SETUP_DBD" == "true" ]]; then
-                if ! command -v slurmctld &> /dev/null; then
-                    log INFO "Installing slurmctld..."
-                    if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm*.rpm &>/dev/null; then
-                        log INFO "Installing from offline RPM packages..."
-                        yum localinstall -y "$offline_rpm_dir"/slurm-[0-9]*.rpm "$offline_rpm_dir"/slurm-slurmctld*.rpm 2>/dev/null || true
-                    else
-                        log WARNING "No offline RPM packages found, this may fail in offline environment"
-                        run_command "yum install -y slurm slurm-slurmctld"
-                    fi
-                else
-                    log INFO "slurmctld already installed"
-                fi
-            fi
-
-            # Install slurmdbd if needed
-            if [[ "$SETUP_DBD" == "true" ]]; then
-                if ! command -v slurmdbd &> /dev/null; then
-                    log INFO "Installing slurmdbd..."
-                    if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm-slurmdbd*.rpm &>/dev/null; then
-                        log INFO "Installing from offline RPM packages..."
-                        yum localinstall -y "$offline_rpm_dir"/slurm-slurmdbd*.rpm 2>/dev/null || true
-                    else
-                        log WARNING "No offline RPM packages found, this may fail in offline environment"
-                        run_command "yum install -y slurm-slurmdbd"
-                    fi
-                else
-                    log INFO "slurmdbd already installed"
-                fi
-            fi
-
-            # Install compute node packages if needed
-            if [[ "$SETUP_COMPUTE" == "true" ]]; then
-                if ! command -v slurmd &> /dev/null; then
-                    log INFO "Installing slurmd..."
-                    if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm-slurmd*.rpm &>/dev/null; then
-                        log INFO "Installing from offline RPM packages..."
-                        yum localinstall -y "$offline_rpm_dir"/slurm-slurmd*.rpm 2>/dev/null || true
-                    else
-                        log WARNING "No offline RPM packages found, this may fail in offline environment"
-                        run_command "yum install -y slurm-slurmd"
-                    fi
-                else
-                    log INFO "slurmd already installed"
-                fi
-            fi
-            ;;
-    esac
-
-    log SUCCESS "Slurm packages ready"
+    # ============================================================================
+    # 소스 빌드 Slurm 23.x 필수 - apt/yum 패키지 사용 안함
+    # ============================================================================
+    log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log ERROR "소스 빌드 Slurm 23.x가 필요합니다!"
+    log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log ERROR ""
+    log ERROR "  apt/yum 패키지의 Slurm (21.x)은 지원하지 않습니다."
+    log ERROR "  Slurm 23.11.10을 소스에서 빌드하여 설치해야 합니다."
+    log ERROR ""
+    log ERROR "  설치 방법:"
+    log ERROR "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log ERROR "  1. 프리빌드 패키지 사용 (권장):"
+    log ERROR "     cd ${PROJECT_ROOT}/offline_packages/slurm"
+    log ERROR "     tar -xzf slurm-23.11.10-prebuilt.tar.gz"
+    log ERROR "     sudo bash deploy_slurm.sh"
+    log ERROR ""
+    log ERROR "  2. 소스에서 빌드:"
+    log ERROR "     cd ${PROJECT_ROOT}/offline_packages/slurm"
+    log ERROR "     bash build_slurm_package.sh"
+    log ERROR "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log ERROR ""
+    log ERROR "  설치 후 확인:"
+    log ERROR "     source /etc/profile.d/slurm.sh"
+    log ERROR "     which sinfo  # /usr/local/slurm/bin/sinfo 출력 확인"
+    log ERROR "     sinfo --version  # slurm 23.11.10 출력 확인"
+    log ERROR ""
+    exit 1
 
     # Fix systemd service files if they point to wrong paths
     # This happens when a custom-compiled Slurm was previously installed
@@ -2018,28 +1946,19 @@ EOFSLURMDBD
                 systemctl daemon-reload
                 log SUCCESS "Created slurmdbd.service for source-built Slurm"
             else
-                log ERROR "slurmdbd package may not be installed properly"
-                log INFO "Attempting to install slurmdbd from offline packages..."
-
-                case $OS in
-                    ubuntu|debian)
-                        install_offline_package slurmdbd libslurm37
-                        ;;
-                    centos|rhel|rocky|almalinux)
-                        local offline_rpm_dir="${PROJECT_ROOT}/offline_packages/rpm_packages"
-                        if [[ -d "$offline_rpm_dir" ]] && ls "$offline_rpm_dir"/slurm-slurmdbd*.rpm &>/dev/null; then
-                            yum localinstall -y "$offline_rpm_dir"/slurm-slurmdbd*.rpm 2>/dev/null || true
-                        else
-                            log WARNING "No offline RPM packages found"
-                        fi
-                        ;;
-                esac
-            fi
-
-            # Check again
-            if ! systemctl list-unit-files slurmdbd.service &>/dev/null; then
-                log ERROR "Failed to install slurmdbd - service file still not found"
-                log ERROR "Ensure slurmdbd package is in: ${PROJECT_ROOT}/offline_packages/apt_packages/"
+                # 소스 빌드 Slurm 23.x 필수
+                log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                log ERROR "slurmdbd가 설치되지 않았습니다!"
+                log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                log ERROR ""
+                log ERROR "  소스 빌드 Slurm 23.x를 먼저 설치해야 합니다."
+                log ERROR "  apt/yum 패키지의 slurmdbd는 지원하지 않습니다."
+                log ERROR ""
+                log ERROR "  설치 방법:"
+                log ERROR "     cd ${PROJECT_ROOT}/offline_packages/slurm"
+                log ERROR "     tar -xzf slurm-23.11.10-prebuilt.tar.gz"
+                log ERROR "     sudo bash deploy_slurm.sh"
+                log ERROR ""
                 log WARNING "Skipping SlurmDBD setup - accounting will not be available"
                 return 1
             fi
