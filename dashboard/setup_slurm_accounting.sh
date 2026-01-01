@@ -5,22 +5,62 @@ echo "🔧 Slurm Accounting (slurmdbd) 설치"
 echo "=========================================="
 echo ""
 
-# 1. Check if slurmdbd is installed
+# 1. Check if slurmdbd is installed (소스 빌드 경로 우선 확인)
 echo "1️⃣  slurmdbd 설치 확인..."
-if command -v slurmdbd &> /dev/null; then
-    echo "   ✅ slurmdbd가 이미 설치되어 있습니다"
+
+# 소스 빌드 Slurm 경로 확인
+SLURMDBD_PATH=""
+for prefix in /usr/local/slurm /opt/slurm; do
+    if [[ -x "$prefix/sbin/slurmdbd" ]]; then
+        SLURMDBD_PATH="$prefix/sbin/slurmdbd"
+        break
+    fi
+done
+
+# PATH에서 찾기
+if [[ -z "$SLURMDBD_PATH" ]] && command -v slurmdbd &> /dev/null; then
     SLURMDBD_PATH=$(which slurmdbd)
+fi
+
+if [[ -n "$SLURMDBD_PATH" ]]; then
+    echo "   ✅ slurmdbd가 이미 설치되어 있습니다"
     echo "   경로: $SLURMDBD_PATH"
+
+    # 버전 확인
+    SLURM_VERSION=$("$SLURMDBD_PATH" -V 2>/dev/null | head -1 || echo "unknown")
+    echo "   버전: $SLURM_VERSION"
 else
     echo "   ❌ slurmdbd가 설치되지 않았습니다"
     echo ""
-    echo "   설치 방법:"
+    echo "   ⚠️  주의: 소스 빌드 Slurm을 사용하는 경우 apt 패키지 대신"
+    echo "       소스에서 빌드된 slurmdbd를 사용해야 합니다."
+    echo ""
+    echo "   소스 빌드 경로 확인:"
+    echo "   - /usr/local/slurm/sbin/slurmdbd"
+    echo "   - /opt/slurm/sbin/slurmdbd"
+    echo ""
+    echo "   apt 패키지 설치 (권장하지 않음):"
     echo "   sudo apt-get update"
     echo "   sudo apt-get install slurm-wlm-slurmdbd"
     echo ""
-    read -p "   지금 설치하시겠습니까? (y/N): " -n 1 -r
+    read -p "   apt 패키지를 설치하시겠습니까? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # 소스 빌드 Slurm이 있으면 경고
+        for prefix in /usr/local/slurm /opt/slurm; do
+            if [[ -x "$prefix/bin/sinfo" ]]; then
+                echo ""
+                echo "   ⚠️  경고: $prefix 에 소스 빌드 Slurm이 감지되었습니다!"
+                echo "   apt 패키지를 설치하면 버전 충돌이 발생할 수 있습니다."
+                read -p "   계속하시겠습니까? (y/N): " -n 1 -r
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    echo "   설치를 건너뜁니다."
+                    exit 1
+                fi
+                break
+            fi
+        done
         sudo apt-get update
         sudo apt-get install -y slurm-wlm-slurmdbd
     else
