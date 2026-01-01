@@ -841,6 +841,43 @@ SLURMD_SERVICE
 install_slurm() {
     log INFO "Installing/checking Slurm packages..."
 
+    # ============================================================================
+    # 소스 빌드 Slurm 23.x 확인 (우선순위 높음)
+    # /usr/local/slurm/bin에 Slurm 23.x가 있으면 apt 패키지 설치 건너뜀
+    # ============================================================================
+    local SOURCE_SLURM_BIN="/usr/local/slurm/bin"
+    local SOURCE_SLURM_SBIN="/usr/local/slurm/sbin"
+
+    if [[ -x "$SOURCE_SLURM_BIN/sinfo" ]]; then
+        local slurm_version=$("$SOURCE_SLURM_BIN/sinfo" --version 2>/dev/null | head -1)
+        local major_version=$(echo "$slurm_version" | grep -oP 'slurm \K[0-9]+' | head -1)
+
+        if [[ "$major_version" -ge 23 ]]; then
+            log SUCCESS "Source-built Slurm detected: $slurm_version"
+            log INFO "Skipping apt package installation (using $SOURCE_SLURM_BIN)"
+
+            # PATH에 소스 빌드 Slurm 추가 (현재 스크립트 환경)
+            export PATH="$SOURCE_SLURM_BIN:$SOURCE_SLURM_SBIN:$PATH"
+
+            # /etc/profile.d/slurm.sh 확인 및 생성
+            if [[ ! -f /etc/profile.d/slurm.sh ]] || ! grep -q "^export PATH=$SOURCE_SLURM_BIN" /etc/profile.d/slurm.sh 2>/dev/null; then
+                log INFO "Creating/updating /etc/profile.d/slurm.sh..."
+                cat > /etc/profile.d/slurm.sh << EOFPATH
+# Slurm Environment (source-built Slurm 23.x)
+export PATH=$SOURCE_SLURM_BIN:$SOURCE_SLURM_SBIN:\$PATH
+export LD_LIBRARY_PATH=/usr/local/slurm/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+export MANPATH=/usr/local/slurm/share/man\${MANPATH:+:\$MANPATH}
+EOFPATH
+                chmod 644 /etc/profile.d/slurm.sh
+                log SUCCESS "Created /etc/profile.d/slurm.sh"
+            fi
+
+            return 0
+        else
+            log WARNING "Source-built Slurm version too old: $slurm_version (need 23.x+)"
+        fi
+    fi
+
     case $OS in
         ubuntu|debian)
             # Install controller packages if needed
