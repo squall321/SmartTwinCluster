@@ -475,6 +475,13 @@ else
             log_error "Slurm 배포 스크립트를 찾을 수 없습니다"
             exit 1
         fi
+
+        # Slurm 배포 후 즉시 PATH 적용 (hash 테이블 갱신)
+        if [ -f "/etc/profile.d/slurm.sh" ]; then
+            source /etc/profile.d/slurm.sh 2>/dev/null || true
+            hash -r 2>/dev/null || true
+            log_info "PATH 적용됨: $(which sinfo 2>/dev/null || echo 'sinfo not found')"
+        fi
     else
         log_warning "Slurm 프리빌드 패키지를 찾을 수 없습니다"
     fi
@@ -646,24 +653,42 @@ else
     log_info "Step 10/10: PATH 영구 설정..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    # /etc/profile.d/slurm.sh 확인
-    if [ ! -f "/etc/profile.d/slurm.sh" ]; then
-        log_info "/etc/profile.d/slurm.sh 생성 중..."
-        sudo tee /etc/profile.d/slurm.sh > /dev/null << 'SLURM_PATH_EOF'
-# Slurm Environment
+    # /etc/profile.d/slurm.sh 내용 확인 및 생성/업데이트
+    SLURM_PROFILE="/etc/profile.d/slurm.sh"
+    NEED_UPDATE=false
+
+    if [ ! -f "$SLURM_PROFILE" ]; then
+        NEED_UPDATE=true
+        log_info "$SLURM_PROFILE 파일이 없음 - 생성 필요"
+    elif ! grep -q "^export PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin" "$SLURM_PROFILE" 2>/dev/null; then
+        NEED_UPDATE=true
+        log_warning "$SLURM_PROFILE에 올바른 PATH 설정이 없음 - 업데이트 필요"
+    fi
+
+    if [ "$NEED_UPDATE" = true ]; then
+        log_info "$SLURM_PROFILE 생성/업데이트 중..."
+        sudo tee "$SLURM_PROFILE" > /dev/null << 'SLURM_PATH_EOF'
+# Slurm Environment (소스 빌드 Slurm 23.x 우선)
 export PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:$PATH
 export LD_LIBRARY_PATH=/usr/local/slurm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export MANPATH=/usr/local/slurm/share/man${MANPATH:+:$MANPATH}
 SLURM_PATH_EOF
-        sudo chmod 644 /etc/profile.d/slurm.sh
-        log_success "/etc/profile.d/slurm.sh 생성 완료"
+        sudo chmod 644 "$SLURM_PROFILE"
+        log_success "$SLURM_PROFILE 생성/업데이트 완료"
     else
-        log_success "/etc/profile.d/slurm.sh 이미 존재함"
+        log_success "$SLURM_PROFILE 이미 올바르게 설정됨"
     fi
 
-    # 현재 터미널에 PATH 적용
-    source /etc/profile.d/slurm.sh 2>/dev/null || export PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:$PATH
-    log_success "PATH 적용 완료"
+    # 현재 터미널에 PATH 적용 (앞에 추가)
+    source "$SLURM_PROFILE" 2>/dev/null || export PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:$PATH
+
+    # PATH 적용 확인
+    if command -v /usr/local/slurm/bin/sinfo &>/dev/null; then
+        SINFO_VERSION=$(/usr/local/slurm/bin/sinfo --version 2>/dev/null || echo "알 수 없음")
+        log_success "PATH 적용 완료: $SINFO_VERSION"
+    else
+        log_warning "PATH 적용됨 (Slurm 바이너리 확인 필요)"
+    fi
     echo ""
 
     log_success "기본 시스템 설정 완료!"

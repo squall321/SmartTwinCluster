@@ -403,11 +403,58 @@ fi
 chown -R root:root "$INSTALL_PREFIX"
 chown -R slurm:slurm "$CONFIG_DIR"
 
+# ============================================================================
+# 설치 검증 및 PATH 강제 적용
+# ============================================================================
+log_info "Verifying installation..."
+
+# 심볼릭 링크 검증
+if [[ -L /usr/local/slurm && -d /usr/local/slurm/bin ]]; then
+    log_success "Symbolic link verified: /usr/local/slurm -> $(readlink -f /usr/local/slurm)"
+else
+    log_error "Symbolic link failed! /usr/local/slurm does not point to valid directory"
+    exit 1
+fi
+
+# sinfo 바이너리 존재 확인
+if [[ -x /usr/local/slurm/bin/sinfo ]]; then
+    log_success "Slurm binary verified: /usr/local/slurm/bin/sinfo"
+else
+    log_error "Slurm binary not found: /usr/local/slurm/bin/sinfo"
+    exit 1
+fi
+
+# 버전 확인
+SLURM_VERSION=$(/usr/local/slurm/bin/sinfo --version 2>/dev/null || echo "unknown")
+log_success "Slurm version: $SLURM_VERSION"
+
+# 현재 셸 PATH 갱신 (hash 테이블 클리어)
+hash -r 2>/dev/null || true
+
+# PATH 적용 (현재 스크립트 실행 환경)
+export PATH=/usr/local/slurm/bin:/usr/local/slurm/sbin:$PATH
+
+# which sinfo 확인
+WHICH_SINFO=$(which sinfo 2>/dev/null || echo "not found")
+if [[ "$WHICH_SINFO" == "/usr/local/slurm/bin/sinfo" ]]; then
+    log_success "which sinfo = $WHICH_SINFO (올바름)"
+else
+    log_warning "which sinfo = $WHICH_SINFO"
+    log_info "새 터미널에서 'source /etc/profile.d/slurm.sh' 실행 필요"
+fi
+
 log_success "Slurm deployed successfully!"
 echo ""
-log_info "Slurm version:"
-"$INSTALL_PREFIX/sbin/slurmctld" -V 2>/dev/null || "$INSTALL_PREFIX/sbin/slurmd" -V
-
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📋 중요: PATH 적용 방법"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  새 터미널을 열거나 다음 명령 실행:"
+echo "    source /etc/profile.d/slurm.sh"
+echo ""
+echo "  확인 방법:"
+echo "    which sinfo   # /usr/local/slurm/bin/sinfo 출력 확인"
+echo "    sinfo --version  # slurm 23.x 출력 확인"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 log_info "Next steps:"
 echo "  1. Configure slurm.conf in: $CONFIG_DIR"
