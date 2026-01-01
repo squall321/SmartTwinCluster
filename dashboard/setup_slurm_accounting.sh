@@ -1,5 +1,8 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "=========================================="
 echo "🔧 Slurm Accounting (slurmdbd) 설정"
 echo "=========================================="
@@ -37,26 +40,67 @@ if [[ -n "$SLURMDBD_PATH" ]]; then
 else
     echo "   ❌ slurmdbd가 설치되지 않았습니다"
     echo ""
-    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "   소스 빌드 Slurm 23.x가 필요합니다!"
-    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "   오프라인 프리빌드 패키지에서 자동 설치합니다..."
     echo ""
-    echo "   apt/yum 패키지의 Slurm (21.x)은 지원하지 않습니다."
-    echo ""
-    echo "   설치 방법:"
-    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "   1. 프리빌드 패키지 사용 (권장):"
-    echo "      cd offline_packages/slurm"
-    echo "      tar -xzf slurm-23.11.10-prebuilt.tar.gz"
-    echo "      sudo bash deploy_slurm.sh"
-    echo ""
-    echo "   2. 소스에서 빌드:"
-    echo "      cd offline_packages/slurm"
-    echo "      bash build_slurm_package.sh"
-    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "   설치 후 다시 이 스크립트를 실행해주세요."
-    exit 1
+
+    # 프리빌드 패키지 찾기
+    SLURM_PREBUILT_DIR="${PROJECT_ROOT}/offline_packages/slurm"
+    SLURM_TARBALL=""
+
+    for tarball in "$SLURM_PREBUILT_DIR"/slurm-*-prebuilt.tar.gz; do
+        if [[ -f "$tarball" ]]; then
+            SLURM_TARBALL="$tarball"
+            break
+        fi
+    done
+
+    if [[ -z "$SLURM_TARBALL" ]]; then
+        echo "   ❌ 프리빌드 패키지를 찾을 수 없습니다!"
+        echo "   예상 경로: ${SLURM_PREBUILT_DIR}/slurm-*-prebuilt.tar.gz"
+        echo ""
+        echo "   빌드 방법:"
+        echo "      cd ${SLURM_PREBUILT_DIR}"
+        echo "      bash build_slurm_package.sh"
+        exit 1
+    fi
+
+    echo "   프리빌드 패키지 발견: $(basename "$SLURM_TARBALL")"
+    echo "   압축 해제 중..."
+
+    cd "$SLURM_PREBUILT_DIR"
+    tar -xzf "$SLURM_TARBALL"
+
+    if [[ -f "$SLURM_PREBUILT_DIR/deploy_slurm.sh" ]]; then
+        echo "   Slurm 23.x 설치 중..."
+        if sudo bash "$SLURM_PREBUILT_DIR/deploy_slurm.sh"; then
+            echo "   ✅ Slurm 23.x 설치 완료!"
+
+            # PATH 설정 적용
+            if [[ -f /etc/profile.d/slurm.sh ]]; then
+                source /etc/profile.d/slurm.sh 2>/dev/null || true
+            fi
+
+            # 설치 확인
+            for prefix in /usr/local/slurm /opt/slurm; do
+                if [[ -x "$prefix/sbin/slurmdbd" ]]; then
+                    SLURMDBD_PATH="$prefix/sbin/slurmdbd"
+                    SLURM_PREFIX="$prefix"
+                    SLURM_VERSION=$("$SLURMDBD_PATH" -V 2>/dev/null | head -1 || echo "unknown")
+                    echo "   경로: $SLURMDBD_PATH"
+                    echo "   버전: $SLURM_VERSION"
+                    break
+                fi
+            done
+        else
+            echo "   ❌ Slurm 설치 실패!"
+            exit 1
+        fi
+    else
+        echo "   ❌ deploy_slurm.sh를 찾을 수 없습니다!"
+        exit 1
+    fi
+
+    cd "$SCRIPT_DIR"
 fi
 
 # 2. Check for MySQL/MariaDB

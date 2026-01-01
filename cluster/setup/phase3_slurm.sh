@@ -905,33 +905,95 @@ EOFPATH
     fi
 
     # ============================================================================
-    # 소스 빌드 Slurm 23.x 필수 - apt/yum 패키지 사용 안함
+    # 소스 빌드 Slurm 23.x 자동 설치 (오프라인 프리빌드 패키지 사용)
     # ============================================================================
-    log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    log ERROR "소스 빌드 Slurm 23.x가 필요합니다!"
-    log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    log ERROR ""
-    log ERROR "  apt/yum 패키지의 Slurm (21.x)은 지원하지 않습니다."
-    log ERROR "  Slurm 23.11.10을 소스에서 빌드하여 설치해야 합니다."
-    log ERROR ""
-    log ERROR "  설치 방법:"
-    log ERROR "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    log ERROR "  1. 프리빌드 패키지 사용 (권장):"
-    log ERROR "     cd ${PROJECT_ROOT}/offline_packages/slurm"
-    log ERROR "     tar -xzf slurm-23.11.10-prebuilt.tar.gz"
-    log ERROR "     sudo bash deploy_slurm.sh"
-    log ERROR ""
-    log ERROR "  2. 소스에서 빌드:"
-    log ERROR "     cd ${PROJECT_ROOT}/offline_packages/slurm"
-    log ERROR "     bash build_slurm_package.sh"
-    log ERROR "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    log ERROR ""
-    log ERROR "  설치 후 확인:"
-    log ERROR "     source /etc/profile.d/slurm.sh"
-    log ERROR "     which sinfo  # /usr/local/slurm/bin/sinfo 출력 확인"
-    log ERROR "     sinfo --version  # slurm 23.11.10 출력 확인"
-    log ERROR ""
-    exit 1
+    log INFO "소스 빌드 Slurm 23.x가 없습니다. 오프라인 프리빌드 패키지에서 설치합니다..."
+
+    local SLURM_PREBUILT_DIR="${PROJECT_ROOT}/offline_packages/slurm"
+    local SLURM_TARBALL=""
+    local DEPLOY_SCRIPT=""
+
+    # 프리빌드 tarball 찾기
+    for tarball in "$SLURM_PREBUILT_DIR"/slurm-*-prebuilt.tar.gz; do
+        if [[ -f "$tarball" ]]; then
+            SLURM_TARBALL="$tarball"
+            break
+        fi
+    done
+
+    if [[ -z "$SLURM_TARBALL" ]]; then
+        log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log ERROR "Slurm 프리빌드 패키지를 찾을 수 없습니다!"
+        log ERROR "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log ERROR ""
+        log ERROR "  예상 경로: ${SLURM_PREBUILT_DIR}/slurm-*-prebuilt.tar.gz"
+        log ERROR ""
+        log ERROR "  빌드 방법:"
+        log ERROR "     cd ${SLURM_PREBUILT_DIR}"
+        log ERROR "     bash build_slurm_package.sh"
+        log ERROR ""
+        exit 1
+    fi
+
+    log INFO "프리빌드 패키지 발견: $(basename "$SLURM_TARBALL")"
+
+    # tarball 압축 해제
+    log INFO "프리빌드 패키지 압축 해제 중..."
+    cd "$SLURM_PREBUILT_DIR"
+    tar -xzf "$SLURM_TARBALL"
+
+    # deploy_slurm.sh 찾기
+    if [[ -f "$SLURM_PREBUILT_DIR/deploy_slurm.sh" ]]; then
+        DEPLOY_SCRIPT="$SLURM_PREBUILT_DIR/deploy_slurm.sh"
+    else
+        log ERROR "deploy_slurm.sh를 찾을 수 없습니다!"
+        log ERROR "프리빌드 패키지가 손상되었거나 형식이 올바르지 않습니다."
+        exit 1
+    fi
+
+    # deploy_slurm.sh 실행
+    log INFO "Slurm 23.x 설치 중... (deploy_slurm.sh)"
+    if bash "$DEPLOY_SCRIPT"; then
+        log SUCCESS "Slurm 23.x 설치 완료!"
+    else
+        log ERROR "Slurm 설치 실패!"
+        exit 1
+    fi
+
+    # PATH 설정 적용
+    if [[ -f /etc/profile.d/slurm.sh ]]; then
+        source /etc/profile.d/slurm.sh 2>/dev/null || true
+    fi
+    hash -r 2>/dev/null || true
+
+    # 설치 확인
+    local installed_version=""
+    for prefix in /usr/local/slurm /opt/slurm; do
+        if [[ -x "$prefix/bin/sinfo" ]]; then
+            installed_version=$("$prefix/bin/sinfo" --version 2>/dev/null | head -1)
+            SLURM_PREFIX="$prefix"
+            SOURCE_SLURM_BIN="$prefix/bin"
+            SOURCE_SLURM_SBIN="$prefix/sbin"
+            break
+        fi
+    done
+
+    if [[ -n "$installed_version" ]]; then
+        log SUCCESS "Slurm 설치 확인: $installed_version"
+        log INFO "  설치 경로: $SLURM_PREFIX"
+        log INFO "  sinfo: $(which sinfo 2>/dev/null || echo "$SOURCE_SLURM_BIN/sinfo")"
+        log INFO "  slurmctld: $(which slurmctld 2>/dev/null || echo "$SOURCE_SLURM_SBIN/slurmctld")"
+        log INFO "  slurmd: $(which slurmd 2>/dev/null || echo "$SOURCE_SLURM_SBIN/slurmd")"
+        log INFO "  slurmdbd: $(which slurmdbd 2>/dev/null || echo "$SOURCE_SLURM_SBIN/slurmdbd")"
+
+        # PATH 설정
+        export PATH="$SOURCE_SLURM_BIN:$SOURCE_SLURM_SBIN:$PATH"
+    else
+        log ERROR "Slurm 설치 후에도 바이너리를 찾을 수 없습니다!"
+        exit 1
+    fi
+
+    cd "$PROJECT_ROOT"
 
     # Fix systemd service files if they point to wrong paths
     # This happens when a custom-compiled Slurm was previously installed
