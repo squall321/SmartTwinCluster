@@ -315,7 +315,23 @@ cp -a "${SCRIPT_DIR}${INSTALL_PREFIX}"/* "$INSTALL_PREFIX/"
 log_info "Creating symbolic links..."
 ln -sf "$INSTALL_PREFIX" /usr/local/slurm
 
-# PATH 설정
+# /usr/local/bin에 주요 명령어 심볼릭 링크 생성 (시스템 전역 PATH에 포함)
+# 이렇게 하면 /etc/profile.d 로드 없이도 모든 셸에서 slurm 명령어 사용 가능
+log_info "Creating /usr/local/bin symlinks for system-wide access..."
+for cmd in sinfo squeue sbatch scancel scontrol sacct sacctmgr srun salloc; do
+    if [[ -x "/usr/local/slurm/bin/$cmd" ]]; then
+        ln -sf "/usr/local/slurm/bin/$cmd" "/usr/local/bin/$cmd"
+        log_info "  /usr/local/bin/$cmd -> /usr/local/slurm/bin/$cmd"
+    fi
+done
+for cmd in slurmctld slurmd slurmdbd; do
+    if [[ -x "/usr/local/slurm/sbin/$cmd" ]]; then
+        ln -sf "/usr/local/slurm/sbin/$cmd" "/usr/local/sbin/$cmd"
+        log_info "  /usr/local/sbin/$cmd -> /usr/local/slurm/sbin/$cmd"
+    fi
+done
+
+# PATH 설정 (profile.d - 로그인 셸용, 환경변수 완전 설정)
 log_info "Configuring PATH..."
 tee /etc/profile.d/slurm.sh > /dev/null << 'EOFPATH'
 # Slurm Environment
