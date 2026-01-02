@@ -24,6 +24,10 @@ offline_packages/**/*.whl
 offline_packages/**/*.rpm
 offline_packages/**/Packages
 offline_packages/**/Packages.gz
+
+# Dashboard offline packages (전체 제외)
+dashboard/offline_packages/
+
 apptainer/
 apptainers/
 
