@@ -18,14 +18,39 @@ echo "🔑 SSH 키 기반 인증 자동 설정 (멀티헤드)"
 echo "================================================================================"
 echo ""
 
+# sudo로 실행 시 실제 사용자의 홈 디렉토리 사용
+if [[ -n "${SUDO_USER:-}" ]]; then
+    REAL_USER="$SUDO_USER"
+    REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+else
+    REAL_USER="$(whoami)"
+    REAL_HOME="$HOME"
+fi
+
+SSH_DIR="${REAL_HOME}/.ssh"
+SSH_KEY="${SSH_DIR}/id_rsa"
+
+echo "👤 SSH 키 사용자: $REAL_USER"
+echo "📁 SSH 디렉토리: $SSH_DIR"
+echo ""
+
+# SSH 디렉토리 생성
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
+chown "$REAL_USER:$REAL_USER" "$SSH_DIR" 2>/dev/null || true
+
 # SSH 키 생성 (없으면)
-if [ ! -f ~/.ssh/id_rsa ]; then
+if [ ! -f "$SSH_KEY" ]; then
     echo "🔑 SSH 키 생성 중..."
-    ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa -q
+    ssh-keygen -t rsa -b 4096 -N "" -f "$SSH_KEY" -q
+    chown "$REAL_USER:$REAL_USER" "$SSH_KEY" "$SSH_KEY.pub" 2>/dev/null || true
     echo "✅ SSH 키 생성 완료"
 else
-    echo "✅ 기존 SSH 키 사용: ~/.ssh/id_rsa"
+    echo "✅ 기존 SSH 키 사용: $SSH_KEY"
 fi
+
+# ssh-copy-id가 올바른 키를 사용하도록 환경변수 설정
+export SSH_KEY_FILE="$SSH_KEY"
 
 echo ""
 echo "📤 공개키 복사 중..."
@@ -99,23 +124,15 @@ for node in nodes:
 
     print(f"  📤 {hostname} ({node['ip']})... ", end='', flush=True)
 
-    # Check if already configured
-    test_result = subprocess.run(
-        ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3',
-         '-o', 'StrictHostKeyChecking=no', target, 'echo', 'OK'],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
-    if test_result.returncode == 0:
-        print("✅ (이미 설정됨)")
-        success += 1
-        continue
+    # 항상 SSH 키를 재배포 (sudo 환경에서 일관성 보장)
+    # SSH_KEY_FILE 환경변수에서 키 파일 경로 가져오기
+    ssh_key_file = os.environ.get('SSH_KEY_FILE', os.path.expanduser('~/.ssh/id_rsa'))
 
     # Try to copy SSH key using sshpass if password is available
     if ssh_password:
         result = subprocess.run(
             ['sshpass', '-p', ssh_password, 'ssh-copy-id',
+             '-i', ssh_key_file,
              '-o', 'StrictHostKeyChecking=no',
              '-o', 'ConnectTimeout=5', target],
             stdout=subprocess.DEVNULL,
@@ -133,7 +150,8 @@ for node in nodes:
         print("비밀번호 입력: ", end='', flush=True)
 
         result = subprocess.run(
-            ['ssh-copy-id', '-o', 'StrictHostKeyChecking=no',
+            ['ssh-copy-id', '-i', ssh_key_file,
+             '-o', 'StrictHostKeyChecking=no',
              '-o', 'ConnectTimeout=5', target]
         )
 
