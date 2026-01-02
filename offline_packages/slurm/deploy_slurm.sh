@@ -107,6 +107,10 @@ fi
 
 # 심볼릭 링크 생성
 log_info "Creating symbolic links..."
+# 기존 /usr/local/slurm이 디렉토리나 심볼릭 링크로 존재하면 제거
+if [[ -e /usr/local/slurm || -L /usr/local/slurm ]]; then
+    rm -rf /usr/local/slurm
+fi
 ln -sf "$INSTALL_PREFIX" /usr/local/slurm
 
 # /usr/local/bin에 주요 명령어 심볼릭 링크 생성 (시스템 전역 PATH에 포함)
