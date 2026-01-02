@@ -308,13 +308,34 @@ deploy_to_node() {
     # 원격 디렉토리 생성
     $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR" || true
 
-    # munge.key 제외하고 전송 (권한 문제)
-    # PACKAGE_DIR 끝에 /가 있으면 제거
+    # 개별 디렉토리 전송 (munge/munge.key 권한 문제 회피)
+    # offline_packages/munge/munge.key는 root만 읽기 가능하므로 scp로 복사 불가
     local pkg_dir="${PACKAGE_DIR%/}"
-    $scp_cmd -r "$pkg_dir"/* "$node_user@$node_ip:$REMOTE_PKG_DIR/" || {
-        log_error "[$node_hostname] Package transfer failed"
-        return 1
-    }
+    local transfer_failed=false
+
+    for subdir in "$pkg_dir"/*; do
+        [[ ! -e "$subdir" ]] && continue
+        local name=$(basename "$subdir")
+
+        # munge 디렉토리는 munge.key 때문에 스킵 (나중에 /etc/munge/munge.key에서 복사)
+        if [[ "$name" == "munge" ]]; then
+            # deploy_munge.sh만 복사
+            $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/munge" || true
+            if [[ -f "$subdir/deploy_munge.sh" ]]; then
+                $scp_cmd "$subdir/deploy_munge.sh" "$node_user@$node_ip:$REMOTE_PKG_DIR/munge/" || true
+            fi
+            continue
+        fi
+
+        $scp_cmd -r "$subdir" "$node_user@$node_ip:$REMOTE_PKG_DIR/" || {
+            log_warning "[$node_hostname] Failed to transfer $name"
+            transfer_failed=true
+        }
+    done
+
+    if [[ "$transfer_failed" == "true" ]]; then
+        log_warning "[$node_hostname] Some packages failed to transfer, continuing..."
+    fi
 
     # 컨트롤러의 slurm.conf 전송 (PluginDir 경로가 올바른 버전)
     log_info "[$node_hostname] Transferring slurm.conf from controller..."
