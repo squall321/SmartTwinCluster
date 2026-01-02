@@ -277,25 +277,36 @@ deploy_to_node() {
     fi
 
     # SSH 연결 테스트
-    if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$node_user@$node_ip" "echo OK" &>/dev/null; then
+    # SSH/SCP/rsync 명령 구성 (sshpass 사용 여부에 따라)
+    local ssh_cmd="ssh -o StrictHostKeyChecking=no"
+    local scp_cmd="scp -o StrictHostKeyChecking=no"
+    local rsync_rsh="ssh -o StrictHostKeyChecking=no"
+    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        ssh_cmd="sshpass -p '$SSH_PASSWORD' ssh -o StrictHostKeyChecking=no"
+        scp_cmd="sshpass -p '$SSH_PASSWORD' scp -o StrictHostKeyChecking=no"
+        rsync_rsh="sshpass -p '$SSH_PASSWORD' ssh -o StrictHostKeyChecking=no"
+    fi
+
+    if ! eval "$ssh_cmd" -o ConnectTimeout=5 "$node_user@$node_ip" "echo OK" &>/dev/null; then
         log_error "[$node_hostname] SSH connection failed"
         return 1
     fi
 
     log_success "[$node_hostname] SSH connection OK"
 
-    # 원격 디렉토리 생성
-    ssh "$node_user@$node_ip" "sudo mkdir -p /opt/offline_packages" || {
+    # 원격 디렉토리 생성 (sudo 비밀번호 자동 전달)
+    eval "$ssh_cmd" "$node_user@$node_ip" "echo '$SSH_PASSWORD' | sudo -S mkdir -p /opt/offline_packages" 2>/dev/null || {
         log_error "[$node_hostname] Failed to create remote directory"
         return 1
     }
 
-    # rsync로 패키지 전송
+    # rsync로 패키지 전송 (sshpass 적용)
     log_info "[$node_hostname] Transferring packages (this may take 5-10 minutes)..."
 
     rsync -az --info=progress2 \
         --exclude='.git' \
         --exclude='*.log' \
+        -e "$rsync_rsh" \
         "$PACKAGE_DIR/" \
         "$node_user@$node_ip:/tmp/offline_packages/" || {
         log_error "[$node_hostname] Package transfer failed"
@@ -306,7 +317,7 @@ deploy_to_node() {
     log_info "[$node_hostname] Transferring slurm.conf from controller..."
     local SLURM_CONF_LOCAL="/etc/slurm/slurm.conf"
     if [[ -f "$SLURM_CONF_LOCAL" ]]; then
-        scp "$SLURM_CONF_LOCAL" "$node_user@$node_ip:/tmp/offline_packages/slurm.conf" || {
+        eval "$scp_cmd" "$SLURM_CONF_LOCAL" "$node_user@$node_ip:/tmp/offline_packages/slurm.conf" || {
             log_warning "[$node_hostname] Failed to transfer slurm.conf (will use existing)"
         }
         log_success "[$node_hostname] slurm.conf transferred"
@@ -319,10 +330,10 @@ deploy_to_node() {
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if [[ -f "$MUNGE_KEY_LOCAL" ]]; then
         # munge 디렉토리에 키 파일 복사 (sudo 불필요 - /tmp는 모든 사용자 쓰기 가능)
-        ssh "$node_user@$node_ip" "mkdir -p /tmp/offline_packages/munge" || true
+        eval "$ssh_cmd" "$node_user@$node_ip" "mkdir -p /tmp/offline_packages/munge" || true
         # munge.key는 root 소유이므로 로컬에서 sudo로 읽어야 함
         # 하지만 이 스크립트 자체가 sudo로 실행되므로 sudo 불필요
-        cat "$MUNGE_KEY_LOCAL" | ssh "$node_user@$node_ip" "cat > /tmp/offline_packages/munge/munge.key" || {
+        cat "$MUNGE_KEY_LOCAL" | eval "$ssh_cmd" "$node_user@$node_ip" "cat > /tmp/offline_packages/munge/munge.key" || {
             log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
         }
         log_success "[$node_hostname] munge.key transferred"
@@ -335,12 +346,6 @@ deploy_to_node() {
 
     # 원격 설치 스크립트 실행
     log_info "[$node_hostname] Installing packages..."
-
-    # SSH 명령 구성 (sshpass 사용 여부에 따라)
-    local ssh_cmd="ssh -o StrictHostKeyChecking=no"
-    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
-        ssh_cmd="sshpass -p '$SSH_PASSWORD' ssh -o StrictHostKeyChecking=no"
-    fi
 
     # 원격 설치 스크립트 실행 (sudo 비밀번호 전달)
     eval "$ssh_cmd" "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$SSH_PASSWORD" << 'EOFREMOTE'
