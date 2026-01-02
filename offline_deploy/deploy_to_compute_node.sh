@@ -699,36 +699,44 @@ deploy_all_nodes() {
     local gluster_volume="$3"
     local gluster_mount="$4"
 
-    # JSON을 임시 파일에 저장 (bash 변수 전달 시 특수문자 문제 방지)
-    local nodes_file="/tmp/deploy_nodes_$$.json"
-    echo "$nodes_json" > "$nodes_file"
+    # 노드 목록을 임시 파일에 저장 (bash 변수 대신 파일 사용)
+    local nodes_list_file="/tmp/deploy_nodes_$$.txt"
 
-    # 디버깅: temp 파일 확인
-    if [[ ! -s "$nodes_file" ]]; then
-        log_error "Failed to create nodes temp file: $nodes_file"
+    # Python으로 직접 YAML에서 노드 목록 생성 (JSON 중간 단계 제거)
+    python3 << EOPY > "$nodes_list_file"
+import yaml
+import sys
+
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+except Exception as e:
+    print(f"ERROR: Failed to read config: {e}", file=sys.stderr)
+    sys.exit(1)
+
+compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
+for node in compute_nodes:
+    hostname = node.get('hostname', '')
+    ip = node.get('ip_address', '')
+    user = node.get('ssh_user', 'koopark')
+    if hostname and ip:
+        print(f"{hostname}|{ip}|{user}")
+EOPY
+
+    if [[ $? -ne 0 ]] || [[ ! -s "$nodes_list_file" ]]; then
+        log_error "Failed to extract node list from YAML"
+        rm -f "$nodes_list_file"
         return 1
     fi
 
-    # Python으로 노드 수 계산 (에러 출력 활성화)
+    # 노드 수 계산
     local total_nodes
-    total_nodes=$(python3 -c "
-import json
-import sys
-try:
-    with open('$nodes_file', 'r') as f:
-        nodes = json.load(f)
-    print(len(nodes))
-except Exception as e:
-    print(f'Error parsing JSON: {e}', file=sys.stderr)
-    print('0')
-" 2>&1)
+    total_nodes=$(wc -l < "$nodes_list_file")
+    total_nodes=${total_nodes//[^0-9]/}
 
-    # 숫자가 아닌 경우 에러 표시
-    if ! [[ "$total_nodes" =~ ^[0-9]+$ ]]; then
-        log_error "Failed to count nodes. Python output: $total_nodes"
-        log_error "Temp file content (first 500 chars):"
-        head -c 500 "$nodes_file" >&2
-        rm -f "$nodes_file"
+    if [[ -z "$total_nodes" ]] || [[ "$total_nodes" -eq 0 ]]; then
+        log_error "No compute nodes found in configuration"
+        rm -f "$nodes_list_file"
         return 1
     fi
 
@@ -743,7 +751,7 @@ except Exception as e:
     local failed_count=0
     local pids=()
 
-    # 노드 순회 (Python으로 파일에서 읽기)
+    # 노드 순회 (파일에서 직접 읽기 - 더 안정적)
     while IFS='|' read -r hostname ip user; do
         # 빈 줄 스킵
         [[ -z "$hostname" ]] && continue
@@ -776,16 +784,10 @@ except Exception as e:
 
         log_info "Launched deployment for $hostname (PID: $!)"
 
-    done < <(python3 -c "
-import json
-with open('$nodes_file', 'r') as f:
-    nodes = json.load(f)
-for n in nodes:
-    print(f\"{n['hostname']}|{n['ip']}|{n['user']}\")
-" 2>/dev/null)
+    done < "$nodes_list_file"
 
     # 임시 파일 정리
-    rm -f "$nodes_file"
+    rm -f "$nodes_list_file"
 
     # 모든 배포 완료 대기
     log_info "Waiting for all deployments to complete..."
@@ -884,25 +886,23 @@ main() {
         fi
     fi
 
-    # 계산 노드 목록 추출 (디버그 출력 추가)
-    log_info "Extracting compute nodes..."
-    local nodes=$(get_compute_nodes)
+    # 계산 노드 확인 (deploy_all_nodes에서 직접 YAML 읽음)
+    log_info "Checking compute nodes in configuration..."
+    local node_count
+    node_count=$(python3 -c "
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+nodes = config.get('nodes', {}).get('compute_nodes', [])
+print(len(nodes))
+" 2>/dev/null || echo "0")
 
-    # 디버깅: 노드 JSON 확인
-    if [[ -z "$nodes" ]] || [[ "$nodes" == "[]" ]]; then
+    if [[ "$node_count" -eq 0 ]]; then
         log_error "No compute nodes found in YAML configuration"
         log_error "Check 'nodes.compute_nodes' section in: $CONFIG_FILE"
         exit 1
     fi
-
-    # 노드 수 확인
-    local node_count=$(python3 -c "import json; print(len(json.loads('''$nodes''')))" 2>/dev/null || echo "parse_error")
-    if [[ "$node_count" == "parse_error" ]]; then
-        log_error "Failed to parse compute nodes JSON"
-        log_error "Raw output: $nodes"
-        exit 1
-    fi
-    log_success "Found $node_count compute nodes"
+    log_success "Found $node_count compute nodes in configuration"
 
     # GlusterFS 설정 추출 (jq 대신 Python 사용)
     log_info "Extracting GlusterFS configuration..."
@@ -930,7 +930,7 @@ if controllers:
     log_info "Mount Point:      $gluster_mount"
     echo ""
 
-    if deploy_all_nodes "$nodes" "$gluster_server" "$gluster_volume" "$gluster_mount"; then
+    if deploy_all_nodes "" "$gluster_server" "$gluster_volume" "$gluster_mount"; then
         print_summary
         log_success "All nodes deployed successfully!"
         exit 0
