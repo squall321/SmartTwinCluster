@@ -368,13 +368,14 @@ deploy_to_node() {
     fi
 
     # 컨트롤러의 munge.key 전송 (모든 노드가 동일한 키 사용 필수)
-    # cat으로 파이프하여 권한 문제 회피 (이 스크립트는 sudo로 실행됨)
+    # sudo cat으로 파이프하여 권한 문제 회피 (munge.key는 400 권한, munge 소유)
     log_info "[$node_hostname] Transferring munge.key from controller..."
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
-    if [[ -f "$MUNGE_KEY_LOCAL" ]]; then
+    if sudo test -f "$MUNGE_KEY_LOCAL"; then
         $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/munge" || true
         # ssh_cmd_stdin 사용 (파이프로 stdin 전달 필요)
-        cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" "cat > $REMOTE_PKG_DIR/munge/munge.key" || {
+        # sudo cat 사용 (munge.key는 400 권한이라 일반 사용자가 읽을 수 없음)
+        sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" "cat > $REMOTE_PKG_DIR/munge/munge.key" || {
             log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
         }
         log_success "[$node_hostname] munge.key transferred"
