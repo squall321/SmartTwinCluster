@@ -486,7 +486,9 @@ deploy_all_nodes() {
     local gluster_server="$2"
     local gluster_volume="$3"
     local gluster_mount="$4"
-    local total_nodes=$(echo "$nodes_json" | jq '. | length')
+
+    # jq 대신 Python 사용 (오프라인 환경에서 jq가 없을 수 있음)
+    local total_nodes=$(python3 -c "import json; print(len(json.loads('''$nodes_json''')))" 2>/dev/null || echo "0")
 
     log_info "Total compute nodes: $total_nodes"
     log_info "GlusterFS: $gluster_server:/$gluster_volume -> $gluster_mount"
@@ -499,11 +501,10 @@ deploy_all_nodes() {
     local failed_count=0
     local pids=()
 
-    # 노드 순회
-    while IFS= read -r node_json; do
-        local hostname=$(echo "$node_json" | jq -r '.hostname')
-        local ip=$(echo "$node_json" | jq -r '.ip')
-        local user=$(echo "$node_json" | jq -r '.user')
+    # 노드 순회 (jq 대신 Python 사용)
+    while IFS='|' read -r hostname ip user; do
+        # 빈 줄 스킵
+        [[ -z "$hostname" ]] && continue
 
         # 특정 노드만 배포
         if [[ -n "$SPECIFIC_NODE" ]] && [[ "$hostname" != "$SPECIFIC_NODE" ]]; then
@@ -533,7 +534,12 @@ deploy_all_nodes() {
 
         log_info "Launched deployment for $hostname (PID: $!)"
 
-    done < <(echo "$nodes_json" | jq -c '.[]')
+    done < <(python3 -c "
+import json
+nodes = json.loads('''$nodes_json''')
+for n in nodes:
+    print(f\"{n['hostname']}|{n['ip']}|{n['user']}\")
+" 2>/dev/null)
 
     # 모든 배포 완료 대기
     log_info "Waiting for all deployments to complete..."

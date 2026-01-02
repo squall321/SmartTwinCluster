@@ -1,7 +1,7 @@
 {
-	"ulid": "01KDXWMH2B312FS12KGAH1FAM6",
-	"minTime": 1767297610335,
-	"maxTime": 1767304800000,
+	"ulid": "01KDYH7PQP7K17KSZ54B3RBN81",
+	"minTime": 1767319210335,
+	"maxTime": 1767326400000,
 	"stats": {
 		"numSamples": 989760,
 		"numSeries": 2062,
@@ -10,7 +10,7 @@
 	"compaction": {
 		"level": 1,
 		"sources": [
-			"01KDXWMH2B312FS12KGAH1FAM6"
+			"01KDYH7PQP7K17KSZ54B3RBN81"
 		]
 	},
 	"version": 1
