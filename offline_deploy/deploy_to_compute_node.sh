@@ -119,6 +119,60 @@ check_prerequisites() {
     log_success "Prerequisites OK"
 }
 
+# SSH 비밀번호 및 sshpass 설정 (cluster/start_multihead.sh 방식 적용)
+SSH_PASSWORD=""
+HAS_SSHPASS=false
+
+setup_ssh_auth() {
+    # YAML에서 ssh_password 읽기
+    SSH_PASSWORD=$(python3 << EOPY
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+print(config.get('cluster_info', {}).get('ssh_password', ''))
+EOPY
+    )
+
+    # sshpass 사용 가능 여부 확인
+    if command -v sshpass &> /dev/null; then
+        HAS_SSHPASS=true
+    else
+        # sshpass 설치 시도
+        log_info "Installing sshpass..."
+        apt-get install -y sshpass > /dev/null 2>&1 || yum install -y sshpass > /dev/null 2>&1 || true
+        if command -v sshpass &> /dev/null; then
+            HAS_SSHPASS=true
+        fi
+    fi
+
+    if [[ -n "$SSH_PASSWORD" ]]; then
+        log_success "SSH password loaded from YAML config"
+        if [[ "$HAS_SSHPASS" == "true" ]]; then
+            log_success "sshpass available - passwordless remote sudo enabled"
+        else
+            log_warning "sshpass not available - may need manual password input"
+        fi
+    else
+        log_warning "No ssh_password in YAML - assuming passwordless sudo is configured"
+    fi
+}
+
+# 원격 sudo 명령 실행 (비밀번호 자동 처리)
+remote_sudo() {
+    local node_user="$1"
+    local node_ip="$2"
+    local cmd="$3"
+
+    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        # sshpass + sudo -S 패턴 사용
+        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no "$node_user@$node_ip" \
+            "echo '$SSH_PASSWORD' | sudo -S bash -c '$cmd'" 2>/dev/null
+    else
+        # 일반 sudo 사용 (NOPASSWD 설정 가정)
+        ssh -o StrictHostKeyChecking=no "$node_user@$node_ip" "sudo bash -c '$cmd'" 2>/dev/null
+    fi
+}
+
 # 계산 노드 목록 추출
 get_compute_nodes() {
     local nodes_json
@@ -282,12 +336,29 @@ deploy_to_node() {
     # 원격 설치 스크립트 실행
     log_info "[$node_hostname] Installing packages..."
 
-    ssh "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" << 'EOFREMOTE'
+    # SSH 명령 구성 (sshpass 사용 여부에 따라)
+    local ssh_cmd="ssh -o StrictHostKeyChecking=no"
+    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        ssh_cmd="sshpass -p '$SSH_PASSWORD' ssh -o StrictHostKeyChecking=no"
+    fi
+
+    # 원격 설치 스크립트 실행 (sudo 비밀번호 전달)
+    eval "$ssh_cmd" "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$SSH_PASSWORD" << 'EOFREMOTE'
 set -e
 
 GLUSTER_SERVER="$1"
 GLUSTER_VOLUME="$2"
 GLUSTER_MOUNT="$3"
+SUDO_PASS="$4"
+
+# sudo 래퍼 함수 (비밀번호 자동 전달)
+run_sudo() {
+    if [[ -n "$SUDO_PASS" ]]; then
+        echo "$SUDO_PASS" | sudo -S "$@" 2>/dev/null
+    else
+        sudo "$@"
+    fi
+}
 
 echo "═══════════════════════════════════════════════════════════"
 echo "  Offline Package Installation (Compute Node)"
@@ -298,7 +369,7 @@ if [[ -f /tmp/offline_packages/apt_packages/install_offline_packages.sh ]]; then
     echo ""
     echo "Step 1: Installing APT packages..."
     cd /tmp/offline_packages/apt_packages
-    sudo bash install_offline_packages.sh
+    run_sudo bash install_offline_packages.sh
 else
     echo "WARNING: APT packages not found"
 fi
@@ -309,7 +380,7 @@ if [[ -f /tmp/offline_packages/slurm/slurm-*-prebuilt.tar.gz ]]; then
     echo "Step 2: Deploying Slurm..."
     cd /tmp/offline_packages/slurm
     tar -xzf slurm-*-prebuilt.tar.gz
-    sudo bash deploy_slurm.sh
+    run_sudo bash deploy_slurm.sh
 else
     echo "WARNING: Slurm package not found"
 fi
@@ -325,19 +396,19 @@ if [[ -f "$SLURM_CONF_SRC" ]]; then
     echo "  Found slurm.conf from controller"
 
     # /etc/slurm 디렉토리 생성
-    sudo mkdir -p /etc/slurm
-    sudo mkdir -p /usr/local/slurm/etc
+    run_sudo mkdir -p /etc/slurm
+    run_sudo mkdir -p /usr/local/slurm/etc
 
     # 기존 파일 백업
     if [[ -f "$SLURM_CONF_DEST" ]]; then
-        sudo mv "$SLURM_CONF_DEST" "${SLURM_CONF_DEST}.bak.$(date +%Y%m%d_%H%M%S)"
+        run_sudo mv "$SLURM_CONF_DEST" "${SLURM_CONF_DEST}.bak.$(date +%Y%m%d_%H%M%S)"
     fi
 
     # 복사
-    sudo cp "$SLURM_CONF_SRC" "$SLURM_CONF_DEST"
-    sudo cp "$SLURM_CONF_SRC" "$SLURM_LOCAL_CONF"
-    sudo chown slurm:slurm "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF" 2>/dev/null || true
-    sudo chmod 644 "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF"
+    run_sudo cp "$SLURM_CONF_SRC" "$SLURM_CONF_DEST"
+    run_sudo cp "$SLURM_CONF_SRC" "$SLURM_LOCAL_CONF"
+    run_sudo chown slurm:slurm "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF" 2>/dev/null || true
+    run_sudo chmod 644 "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF"
 
     echo "  ✓ slurm.conf installed to $SLURM_CONF_DEST"
     echo "  ✓ slurm.conf installed to $SLURM_LOCAL_CONF"
@@ -355,7 +426,7 @@ if [[ -f /tmp/offline_packages/munge/deploy_munge.sh ]]; then
     echo ""
     echo "Step 3: Deploying Munge..."
     cd /tmp/offline_packages/munge
-    sudo bash deploy_munge.sh
+    run_sudo bash deploy_munge.sh
 else
     echo "WARNING: Munge package not found"
 fi
@@ -372,8 +443,8 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
         echo "  Checking offline packages..."
         # 오프라인 패키지에서 설치 시도
         if ls /tmp/offline_packages/apt_packages/*.deb &>/dev/null; then
-            sudo dpkg -i /tmp/offline_packages/apt_packages/glusterfs*.deb 2>/dev/null || true
-            sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
+            run_sudo dpkg -i /tmp/offline_packages/apt_packages/glusterfs*.deb 2>/dev/null || true
+            run_sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
         fi
     else
         echo "  ✓ glusterfs-client already installed"
@@ -383,7 +454,7 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
     if ! dpkg -l | grep -q autofs; then
         echo "  WARNING: autofs not installed"
         if ls /tmp/offline_packages/apt_packages/autofs*.deb &>/dev/null; then
-            sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
+            run_sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
         fi
     else
         echo "  ✓ autofs already installed"
@@ -402,9 +473,9 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
 
     # auto.master 설정 (이미 있으면 건너뜀)
     if ! grep -q "auto.gluster" "$AUTOFS_MASTER" 2>/dev/null; then
-        echo "" | sudo tee -a "$AUTOFS_MASTER" > /dev/null
-        echo "# GlusterFS autofs mount (added by cluster deploy)" | sudo tee -a "$AUTOFS_MASTER" > /dev/null
-        echo "$MOUNT_PARENT /etc/auto.gluster --timeout=300 --ghost" | sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        echo "" | run_sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        echo "# GlusterFS autofs mount (added by cluster deploy)" | run_sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        echo "$MOUNT_PARENT /etc/auto.gluster --timeout=300 --ghost" | run_sudo tee -a "$AUTOFS_MASTER" > /dev/null
         echo "  Added entry to $AUTOFS_MASTER"
     else
         echo "  autofs entry already exists in $AUTOFS_MASTER"
@@ -416,7 +487,7 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
     #   backup-volfile-servers : 백업 서버 (HA)
     #   log-level=WARNING  : 로그 레벨
     #   _netdev            : 네트워크 의존
-    sudo tee "$AUTOFS_GLUSTER" > /dev/null << EOFAUTOFS
+    run_sudo tee "$AUTOFS_GLUSTER" > /dev/null << EOFAUTOFS
 # GlusterFS autofs map
 # Format: mount_name  -options  server:/volume
 $MOUNT_NAME  -fstype=glusterfs,log-level=WARNING,backup-volfile-servers=$GLUSTER_SERVER  $GLUSTER_SERVER:/$GLUSTER_VOLUME
@@ -425,8 +496,8 @@ EOFAUTOFS
     echo "  Created $AUTOFS_GLUSTER"
 
     # autofs 재시작
-    sudo systemctl enable autofs
-    sudo systemctl restart autofs
+    run_sudo systemctl enable autofs
+    run_sudo systemctl restart autofs
 
     echo "  autofs service restarted"
 
@@ -450,7 +521,7 @@ echo "Step 5: Starting slurmd service..."
 SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
 if [[ ! -f "$SLURMD_SERVICE" ]]; then
     echo "  Creating slurmd.service..."
-    sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
+    run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
 After=network-online.target munge.service
@@ -474,43 +545,43 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOFSVC
-    sudo systemctl daemon-reload
+    run_sudo systemctl daemon-reload
     echo "  ✓ slurmd.service created"
 fi
 
 # Type=forking이면 Type=simple로 수정
 if grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
     echo "  Updating slurmd.service from Type=forking to Type=simple..."
-    sudo sed -i 's/Type=forking/Type=simple/' "$SLURMD_SERVICE"
+    run_sudo sed -i 's/Type=forking/Type=simple/' "$SLURMD_SERVICE"
     if ! grep -q "ExecStart=.* -D" "$SLURMD_SERVICE"; then
-        sudo sed -i 's|ExecStart=\(.*slurmd\)\(.*\)|ExecStart=\1 -D\2|' "$SLURMD_SERVICE"
+        run_sudo sed -i 's|ExecStart=\(.*slurmd\)\(.*\)|ExecStart=\1 -D\2|' "$SLURMD_SERVICE"
     fi
-    sudo systemctl daemon-reload
+    run_sudo systemctl daemon-reload
 fi
 
 # /run/slurm 디렉토리 생성
-sudo mkdir -p /run/slurm
-sudo chown slurm:slurm /run/slurm 2>/dev/null || true
+run_sudo mkdir -p /run/slurm
+run_sudo chown slurm:slurm /run/slurm 2>/dev/null || true
 
 # slurmd 시작
 echo "  Starting slurmd..."
-sudo systemctl stop slurmd 2>/dev/null || true
+run_sudo systemctl stop slurmd 2>/dev/null || true
 sleep 1
-sudo systemctl start slurmd
+run_sudo systemctl start slurmd
 
 if systemctl is-active --quiet slurmd; then
     echo "  ✓ slurmd started successfully!"
-    sudo systemctl enable slurmd 2>/dev/null || true
+    run_sudo systemctl enable slurmd 2>/dev/null || true
     SLURMD_VERSION=$(/usr/local/slurm/sbin/slurmd -V 2>/dev/null || echo "unknown")
     echo "  ✓ slurmd version: $SLURMD_VERSION"
 else
     echo "  ✗ slurmd failed to start!"
     echo ""
     echo "=== slurmd status ==="
-    sudo systemctl status slurmd --no-pager -l 2>&1 | head -20 || true
+    run_sudo systemctl status slurmd --no-pager -l 2>&1 | head -20 || true
     echo ""
     echo "=== Recent logs ==="
-    sudo journalctl -u slurmd -n 10 --no-pager 2>&1 || true
+    run_sudo journalctl -u slurmd -n 10 --no-pager 2>&1 || true
 fi
 
 echo ""
@@ -709,6 +780,9 @@ main() {
     echo ""
 
     check_prerequisites
+
+    # SSH 인증 설정 (YAML에서 ssh_password 로드, sshpass 확인)
+    setup_ssh_auth
 
     log_info "Config:       $CONFIG_FILE"
     log_info "Package Dir:  $PACKAGE_DIR"
