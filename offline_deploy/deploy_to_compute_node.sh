@@ -772,14 +772,14 @@ EOPY
             sleep 1
         done
 
-        # 백그라운드 배포
+        # 백그라운드 배포 (stdin을 /dev/null로 리다이렉트하여 파일 읽기 방해 방지)
         (
             if deploy_to_node "$hostname" "$ip" "$user" "$gluster_server" "$gluster_volume" "$gluster_mount"; then
                 echo "SUCCESS:$hostname" >> /tmp/deploy_results_$$.txt
             else
                 echo "FAILED:$hostname" >> /tmp/deploy_results_$$.txt
             fi
-        ) &
+        ) < /dev/null &
         pids+=($!)
 
         log_info "Launched deployment for $hostname (PID: $!)"
