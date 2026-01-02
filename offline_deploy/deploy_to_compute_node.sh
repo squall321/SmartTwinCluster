@@ -796,8 +796,13 @@ for n in nodes:
 
     # 결과 집계
     if [[ -f /tmp/deploy_results_$$.txt ]]; then
-        success_count=$(grep -c "^SUCCESS:" /tmp/deploy_results_$$.txt 2>/dev/null || echo 0)
-        failed_count=$(grep -c "^FAILED:" /tmp/deploy_results_$$.txt 2>/dev/null || echo 0)
+        success_count=$(grep -c "^SUCCESS:" /tmp/deploy_results_$$.txt 2>/dev/null || true)
+        failed_count=$(grep -c "^FAILED:" /tmp/deploy_results_$$.txt 2>/dev/null || true)
+        # grep -c가 빈 문자열이나 개행을 반환할 경우 0으로 처리
+        success_count=${success_count//[^0-9]/}
+        failed_count=${failed_count//[^0-9]/}
+        [[ -z "$success_count" ]] && success_count=0
+        [[ -z "$failed_count" ]] && failed_count=0
         rm -f /tmp/deploy_results_$$.txt
     fi
 
@@ -805,7 +810,7 @@ for n in nodes:
     log_info "Deployment Summary:"
     log_success "  Successful: $success_count nodes"
 
-    if [[ $failed_count -gt 0 ]]; then
+    if [[ "$failed_count" -gt 0 ]]; then
         log_error "  Failed: $failed_count nodes"
         return 1
     fi
