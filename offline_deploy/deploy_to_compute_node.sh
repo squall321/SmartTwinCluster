@@ -264,9 +264,11 @@ deploy_to_node() {
     log_info "[$node_hostname] Transferring munge.key from controller..."
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if [[ -f "$MUNGE_KEY_LOCAL" ]]; then
-        # munge 디렉토리에 키 파일 복사
-        ssh "$node_user@$node_ip" "sudo mkdir -p /tmp/offline_packages/munge" || true
-        sudo cat "$MUNGE_KEY_LOCAL" | ssh "$node_user@$node_ip" "sudo tee /tmp/offline_packages/munge/munge.key > /dev/null" || {
+        # munge 디렉토리에 키 파일 복사 (sudo 불필요 - /tmp는 모든 사용자 쓰기 가능)
+        ssh "$node_user@$node_ip" "mkdir -p /tmp/offline_packages/munge" || true
+        # munge.key는 root 소유이므로 로컬에서 sudo로 읽어야 함
+        # 하지만 이 스크립트 자체가 sudo로 실행되므로 sudo 불필요
+        cat "$MUNGE_KEY_LOCAL" | ssh "$node_user@$node_ip" "cat > /tmp/offline_packages/munge/munge.key" || {
             log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
         }
         log_success "[$node_hostname] munge.key transferred"
