@@ -303,9 +303,11 @@ deploy_to_node() {
     fi
 
     # rsync로 패키지 전송 (sshpass 적용)
+    # --no-group --no-owner: 원격에서 chgrp/chown 권한 오류 방지
     log_info "[$node_hostname] Transferring packages (this may take 5-10 minutes)..."
 
     rsync -az --info=progress2 \
+        --no-group --no-owner \
         --exclude='.git' \
         --exclude='*.log' \
         -e "$rsync_rsh" \
@@ -394,14 +396,19 @@ else
 fi
 
 # 2. Slurm 배포
-if [[ -f /tmp/offline_packages/slurm/slurm-*-prebuilt.tar.gz ]]; then
+# Note: [[ -f glob ]]는 glob 확장하지 않으므로 ls 사용
+SLURM_PKG=$(ls /tmp/offline_packages/slurm/slurm-*-prebuilt.tar.gz 2>/dev/null | head -1 || true)
+if [[ -n "$SLURM_PKG" && -f "$SLURM_PKG" ]]; then
     echo ""
     echo "Step 2: Deploying Slurm..."
+    echo "  Found: $SLURM_PKG"
     cd /tmp/offline_packages/slurm
-    tar -xzf slurm-*-prebuilt.tar.gz
+    tar -xzf "$SLURM_PKG"
     run_sudo bash deploy_slurm.sh
 else
     echo "WARNING: Slurm package not found"
+    echo "  Expected: /tmp/offline_packages/slurm/slurm-*-prebuilt.tar.gz"
+    ls -la /tmp/offline_packages/slurm/ 2>/dev/null || echo "  Directory not found"
 fi
 
 # 2.5. slurm.conf 복사 (컨트롤러에서 전송된 파일 사용)
