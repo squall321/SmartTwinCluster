@@ -115,17 +115,41 @@ check_prerequisites() {
 
 # 계산 노드 목록 추출
 get_compute_nodes() {
-    log_info "Extracting compute nodes from YAML..."
+    local nodes_json
+    local py_exit_code
 
-    local nodes_json=$(python3 << EOPY
-import yaml
+    # Python으로 YAML 파싱 (에러 출력 포함)
+    nodes_json=$(python3 << EOPY
+import sys
+try:
+    import yaml
+except ImportError:
+    print("ERROR: PyYAML not installed. Run: pip3 install pyyaml", file=sys.stderr)
+    sys.exit(1)
+
 import json
 
-with open('$CONFIG_FILE', 'r') as f:
-    config = yaml.safe_load(f)
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+except FileNotFoundError:
+    print(f"ERROR: Config file not found: $CONFIG_FILE", file=sys.stderr)
+    sys.exit(1)
+except yaml.YAMLError as e:
+    print(f"ERROR: Invalid YAML: {e}", file=sys.stderr)
+    sys.exit(1)
 
 nodes = []
-for node in config.get('nodes', {}).get('compute_nodes', []):
+compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
+
+if not compute_nodes:
+    print("WARNING: No compute_nodes found in YAML", file=sys.stderr)
+    print("Expected structure: nodes.compute_nodes[].hostname/ip_address", file=sys.stderr)
+
+for node in compute_nodes:
+    if 'hostname' not in node or 'ip_address' not in node:
+        print(f"WARNING: Skipping invalid node (missing hostname or ip_address): {node}", file=sys.stderr)
+        continue
     nodes.append({
         'hostname': node['hostname'],
         'ip': node['ip_address'],
@@ -135,6 +159,13 @@ for node in config.get('nodes', {}).get('compute_nodes', []):
 print(json.dumps(nodes))
 EOPY
     )
+    py_exit_code=$?
+
+    if [[ $py_exit_code -ne 0 ]]; then
+        log_error "Failed to parse YAML configuration"
+        echo "[]"
+        return 1
+    fi
 
     echo "$nodes_json"
 }
@@ -491,13 +522,34 @@ deploy_all_nodes() {
     local nodes_file="/tmp/deploy_nodes_$$.json"
     echo "$nodes_json" > "$nodes_file"
 
-    # Python으로 노드 수 계산
-    local total_nodes=$(python3 -c "
+    # 디버깅: temp 파일 확인
+    if [[ ! -s "$nodes_file" ]]; then
+        log_error "Failed to create nodes temp file: $nodes_file"
+        return 1
+    fi
+
+    # Python으로 노드 수 계산 (에러 출력 활성화)
+    local total_nodes
+    total_nodes=$(python3 -c "
 import json
-with open('$nodes_file', 'r') as f:
-    nodes = json.load(f)
-print(len(nodes))
-" 2>/dev/null || echo "0")
+import sys
+try:
+    with open('$nodes_file', 'r') as f:
+        nodes = json.load(f)
+    print(len(nodes))
+except Exception as e:
+    print(f'Error parsing JSON: {e}', file=sys.stderr)
+    print('0')
+" 2>&1)
+
+    # 숫자가 아닌 경우 에러 표시
+    if ! [[ "$total_nodes" =~ ^[0-9]+$ ]]; then
+        log_error "Failed to count nodes. Python output: $total_nodes"
+        log_error "Temp file content (first 500 chars):"
+        head -c 500 "$nodes_file" >&2
+        rm -f "$nodes_file"
+        return 1
+    fi
 
     log_info "Total compute nodes: $total_nodes"
     log_info "GlusterFS: $gluster_server:/$gluster_volume -> $gluster_mount"
@@ -643,14 +695,46 @@ main() {
         fi
     fi
 
+    # 계산 노드 목록 추출 (디버그 출력 추가)
+    log_info "Extracting compute nodes..."
     local nodes=$(get_compute_nodes)
 
-    # GlusterFS 설정 추출
+    # 디버깅: 노드 JSON 확인
+    if [[ -z "$nodes" ]] || [[ "$nodes" == "[]" ]]; then
+        log_error "No compute nodes found in YAML configuration"
+        log_error "Check 'nodes.compute_nodes' section in: $CONFIG_FILE"
+        exit 1
+    fi
+
+    # 노드 수 확인
+    local node_count=$(python3 -c "import json; print(len(json.loads('''$nodes''')))" 2>/dev/null || echo "parse_error")
+    if [[ "$node_count" == "parse_error" ]]; then
+        log_error "Failed to parse compute nodes JSON"
+        log_error "Raw output: $nodes"
+        exit 1
+    fi
+    log_success "Found $node_count compute nodes"
+
+    # GlusterFS 설정 추출 (jq 대신 Python 사용)
     log_info "Extracting GlusterFS configuration..."
     local gluster_config=$(get_glusterfs_config)
-    local gluster_server=$(echo "$gluster_config" | jq -r '.gluster_server')
-    local gluster_volume=$(echo "$gluster_config" | jq -r '.volume_name')
-    local gluster_mount=$(echo "$gluster_config" | jq -r '.mount_point')
+
+    # Python으로 JSON 파싱 (jq 의존성 제거)
+    local gluster_server=$(python3 -c "import json; print(json.loads('''$gluster_config''')['gluster_server'])" 2>/dev/null || echo "")
+    local gluster_volume=$(python3 -c "import json; print(json.loads('''$gluster_config''')['volume_name'])" 2>/dev/null || echo "shared_data")
+    local gluster_mount=$(python3 -c "import json; print(json.loads('''$gluster_config''')['mount_point'])" 2>/dev/null || echo "/mnt/gluster")
+
+    if [[ -z "$gluster_server" ]]; then
+        log_warning "GlusterFS server not found in config - using first controller IP"
+        gluster_server=$(python3 -c "
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+controllers = config.get('nodes', {}).get('controllers', [])
+if controllers:
+    print(controllers[0].get('ip_address', ''))
+" 2>/dev/null || echo "")
+    fi
 
     log_info "GlusterFS Server: $gluster_server"
     log_info "GlusterFS Volume: $gluster_volume"
