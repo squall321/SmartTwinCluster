@@ -327,6 +327,20 @@ deploy_to_node() {
             continue
         fi
 
+        # slurm 디렉토리는 tar.gz만 복사하고, sh 파일들은 별도로 복사 (유지보수 용이)
+        if [[ "$name" == "slurm" ]]; then
+            $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/slurm" || true
+            # tar.gz 파일만 복사
+            for tarfile in "$subdir"/*.tar.gz; do
+                [[ -f "$tarfile" ]] && $scp_cmd "$tarfile" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm/" || true
+            done
+            # sh 파일들 별도 복사 (서버의 최신 버전 사용)
+            for shfile in "$subdir"/*.sh; do
+                [[ -f "$shfile" ]] && $scp_cmd "$shfile" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm/" || true
+            done
+            continue
+        fi
+
         $scp_cmd -r "$subdir" "$node_user@$node_ip:$REMOTE_PKG_DIR/" || {
             log_warning "[$node_hostname] Failed to transfer $name"
             transfer_failed=true
@@ -426,9 +440,9 @@ if [[ -n "$SLURM_PKG" && -f "$SLURM_PKG" ]]; then
     echo "  Found: $SLURM_PKG"
     cd "$PKG_DIR/slurm"
 
-    # tar 압축 해제 (디버그 출력)
+    # tar 압축 해제 (sh 파일 제외 - 서버에서 복사한 최신 버전 사용)
     echo "  Extracting to: $(pwd)"
-    tar -xzf "$SLURM_PKG"
+    tar -xzf "$SLURM_PKG" --exclude='*.sh'
 
     # 압축 해제 결과 확인
     if [[ -d "opt/slurm" ]]; then
