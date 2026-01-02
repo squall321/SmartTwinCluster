@@ -826,7 +826,7 @@ if [ -f "$DEPLOY_COMPUTE_SCRIPT" ]; then
 
     chmod +x "$DEPLOY_COMPUTE_SCRIPT"
 
-    if bash "$DEPLOY_COMPUTE_SCRIPT" --config "$CONFIG_FILE"; then
+    if bash "$DEPLOY_COMPUTE_SCRIPT" --config "$CONFIG_FILE" --yes; then
         log_success "컴퓨트 노드 배포 완료!"
     else
         log_warning "일부 컴퓨트 노드 배포 실패 (수동 확인 필요)"

@@ -20,6 +20,7 @@
 #   --node HOSTNAME      특정 노드만 배포
 #   --parallel N         병렬 배포 개수 (기본: 3)
 #   --dry-run            실제 배포 없이 계획만 표시
+#   --yes, -y            사용자 확인 없이 자동 실행
 #   --help               도움말 표시
 #
 # 작성자: Claude Code
@@ -43,6 +44,7 @@ PACKAGE_DIR="${PROJECT_ROOT}/offline_packages"
 SPECIFIC_NODE=""
 PARALLEL=3
 DRY_RUN=false
+AUTO_YES=false
 
 # 로깅 함수
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -78,6 +80,10 @@ parse_args() {
                 ;;
             --dry-run)
                 DRY_RUN=true
+                shift
+                ;;
+            --yes|-y)
+                AUTO_YES=true
                 shift
                 ;;
             --help)
@@ -254,6 +260,21 @@ deploy_to_node() {
         log_warning "[$node_hostname] Controller slurm.conf not found at $SLURM_CONF_LOCAL"
     fi
 
+    # 컨트롤러의 munge.key 전송 (모든 노드가 동일한 키 사용 필수)
+    log_info "[$node_hostname] Transferring munge.key from controller..."
+    local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
+    if [[ -f "$MUNGE_KEY_LOCAL" ]]; then
+        # munge 디렉토리에 키 파일 복사
+        ssh "$node_user@$node_ip" "sudo mkdir -p /tmp/offline_packages/munge" || true
+        sudo cat "$MUNGE_KEY_LOCAL" | ssh "$node_user@$node_ip" "sudo tee /tmp/offline_packages/munge/munge.key > /dev/null" || {
+            log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
+        }
+        log_success "[$node_hostname] munge.key transferred"
+    else
+        log_warning "[$node_hostname] Controller munge.key not found at $MUNGE_KEY_LOCAL"
+        log_warning "[$node_hostname] Munge authentication may fail if keys don't match!"
+    fi
+
     log_success "[$node_hostname] Packages transferred"
 
     # 원격 설치 스크립트 실행
@@ -342,22 +363,28 @@ echo ""
 echo "Step 4: Setting up GlusterFS client with autofs..."
 
 if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
-    # GlusterFS 클라이언트 설치 확인
+    # GlusterFS 클라이언트 설치 확인 (Step 1의 APT 오프라인 패키지에 포함)
     if ! dpkg -l | grep -q glusterfs-client; then
-        echo "  Installing glusterfs-client..."
-        sudo apt-get update -qq
-        sudo apt-get install -y glusterfs-client autofs 2>/dev/null || {
-            echo "  WARNING: Could not install glusterfs-client (may need offline package)"
-        }
+        echo "  WARNING: glusterfs-client not installed"
+        echo "  Should have been installed in Step 1 (APT packages)"
+        echo "  Checking offline packages..."
+        # 오프라인 패키지에서 설치 시도
+        if ls /tmp/offline_packages/apt_packages/*.deb &>/dev/null; then
+            sudo dpkg -i /tmp/offline_packages/apt_packages/glusterfs*.deb 2>/dev/null || true
+            sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
+        fi
     else
-        echo "  glusterfs-client already installed"
+        echo "  ✓ glusterfs-client already installed"
     fi
 
     # autofs 설치 확인
     if ! dpkg -l | grep -q autofs; then
-        sudo apt-get install -y autofs 2>/dev/null || {
-            echo "  WARNING: Could not install autofs"
-        }
+        echo "  WARNING: autofs not installed"
+        if ls /tmp/offline_packages/apt_packages/autofs*.deb &>/dev/null; then
+            sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
+        fi
+    else
+        echo "  ✓ autofs already installed"
     fi
 
     # autofs 설정
@@ -686,7 +713,7 @@ main() {
     log_info "Parallel:     $PARALLEL"
     echo ""
 
-    if [[ "$DRY_RUN" == "false" ]]; then
+    if [[ "$DRY_RUN" == "false" ]] && [[ "$AUTO_YES" == "false" ]]; then
         read -p "Continue with deployment? (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
