@@ -245,11 +245,13 @@ set -e
 # 색상
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -274,15 +276,32 @@ fi
 # ============================================================================
 log_info "Checking for existing apt Slurm services..."
 
-# apt Slurm 서비스 중지
+# apt Slurm 서비스 중지 (모든 Slurm 서비스 - apt 및 소스 빌드 모두)
 for service in slurmctld slurmd slurmdbd; do
     if systemctl is-active --quiet "$service" 2>/dev/null; then
-        log_info "Stopping apt Slurm service: $service"
+        log_info "Stopping Slurm service: $service"
         systemctl stop "$service" 2>/dev/null || true
     fi
     if systemctl is-enabled --quiet "$service" 2>/dev/null; then
-        log_info "Disabling apt Slurm service: $service"
+        log_info "Disabling Slurm service: $service"
         systemctl disable "$service" 2>/dev/null || true
+    fi
+done
+
+# 프로세스가 완전히 종료될 때까지 대기 (Text file busy 에러 방지)
+log_info "Waiting for Slurm processes to terminate..."
+for proc in slurmctld slurmd slurmdbd; do
+    # pkill로 남아있는 프로세스 강제 종료
+    pkill -9 "$proc" 2>/dev/null || true
+done
+sleep 2  # 프로세스 완전 종료 대기
+
+# 프로세스가 여전히 실행 중인지 확인
+for proc in slurmctld slurmd slurmdbd; do
+    if pgrep -x "$proc" >/dev/null 2>&1; then
+        log_warning "$proc is still running, forcing termination..."
+        pkill -9 "$proc" 2>/dev/null || true
+        sleep 1
     fi
 done
 

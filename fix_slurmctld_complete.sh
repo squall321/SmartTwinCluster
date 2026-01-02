@@ -155,27 +155,29 @@ echo "--------------------------------------------------------------------------
 sudo tee /etc/systemd/system/slurmctld.service > /dev/null <<'EOF'
 [Unit]
 Description=Slurm controller daemon
-After=network.target munge.service
+After=network.target munge.service slurmdbd.service
+Wants=slurmdbd.service
 Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmctld
-ExecStart=/usr/local/slurm/sbin/slurmctld $SLURMCTLD_OPTIONS
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStart=/usr/local/slurm/sbin/slurmctld -D $SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/run/slurm/slurmctld.pid
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
 LimitSTACK=infinity
 Delegate=yes
-User=slurm
-Group=slurm
+TasksMax=infinity
 RuntimeDirectory=slurm
 RuntimeDirectoryMode=0755
-TimeoutStartSec=300
-TimeoutStopSec=300
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

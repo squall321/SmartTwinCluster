@@ -718,11 +718,41 @@ fix_systemd_service_files() {
 
     log INFO "Using source-built Slurm at: $SLURM_SBIN"
 
-    # Check slurmctld service file - fix if pointing to /usr/sbin (apt package path)
+    # ==========================================================================
+    # Type=forking → Type=simple 마이그레이션
+    # 기존 forking 서비스가 실행 중이면 중지하고 simple로 교체
+    # ==========================================================================
+    log INFO "Checking for Type=forking services (will convert to Type=simple)..."
+
+    for service in slurmctld slurmd slurmdbd; do
+        if [[ -f /etc/systemd/system/${service}.service ]]; then
+            if grep -q "Type=forking" /etc/systemd/system/${service}.service 2>/dev/null; then
+                log WARNING "Found ${service}.service with Type=forking - will convert to Type=simple"
+
+                # 서비스 중지
+                if systemctl is-active --quiet "$service" 2>/dev/null; then
+                    log INFO "Stopping ${service} service..."
+                    systemctl stop "$service" 2>/dev/null || true
+                fi
+
+                # 프로세스 강제 종료 (좀비 방지)
+                pkill -9 "$service" 2>/dev/null || true
+                sleep 1
+            fi
+        fi
+    done
+
+    # /run/slurm 디렉토리 생성 (PID 파일용)
+    mkdir -p /run/slurm
+    chown slurm:slurm /run/slurm 2>/dev/null || true
+    chmod 755 /run/slurm
+
+    # Check slurmctld service file - fix if pointing to /usr/sbin (apt package path) OR Type=forking
     if [[ -f /etc/systemd/system/slurmctld.service ]]; then
-        if grep -q "/usr/sbin/slurmctld" /etc/systemd/system/slurmctld.service 2>/dev/null; then
-            log WARNING "Found slurmctld.service pointing to /usr/sbin (apt package path)"
-            log INFO "Updating slurmctld.service to use source-built path..."
+        if grep -q "/usr/sbin/slurmctld" /etc/systemd/system/slurmctld.service 2>/dev/null || \
+           grep -q "Type=forking" /etc/systemd/system/slurmctld.service 2>/dev/null; then
+            log WARNING "Found slurmctld.service needs update (apt path or Type=forking)"
+            log INFO "Updating slurmctld.service to use source-built path with Type=simple..."
 
             # Backup old service file
             cp /etc/systemd/system/slurmctld.service /etc/systemd/system/slurmctld.service.backup.$(date +%Y%m%d_%H%M%S)
@@ -739,6 +769,8 @@ ConditionPathExists=/etc/slurm/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmctld
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
 ExecStart=$SLURM_SBIN/slurmctld -D \$SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
@@ -760,10 +792,12 @@ SLURMCTLD_SERVICE
     fi
 
     # Check slurmdbd service file
+    # Check slurmdbd service file - fix if pointing to /usr/sbin (apt package path) OR Type=forking
     if [[ -f /etc/systemd/system/slurmdbd.service ]]; then
-        if grep -q "/usr/sbin/slurmdbd" /etc/systemd/system/slurmdbd.service 2>/dev/null; then
-            log WARNING "Found slurmdbd.service pointing to /usr/sbin (apt package path)"
-            log INFO "Updating slurmdbd.service to use source-built path..."
+        if grep -q "/usr/sbin/slurmdbd" /etc/systemd/system/slurmdbd.service 2>/dev/null || \
+           grep -q "Type=forking" /etc/systemd/system/slurmdbd.service 2>/dev/null; then
+            log WARNING "Found slurmdbd.service needs update (apt path or Type=forking)"
+            log INFO "Updating slurmdbd.service to use source-built path with Type=simple..."
 
             # Backup old service file
             cp /etc/systemd/system/slurmdbd.service /etc/systemd/system/slurmdbd.service.backup.$(date +%Y%m%d_%H%M%S)
@@ -779,12 +813,19 @@ ConditionPathExists=/etc/slurm/slurmdbd.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStartPre=/bin/sh -c 'pkill -9 slurmdbd || true'
+ExecStartPre=/bin/sleep 1
 ExecStart=$SLURM_SBIN/slurmdbd -D \$SLURMDBD_OPTIONS
 ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
 LimitNOFILE=65536
 LimitMEMLOCK=infinity
 LimitSTACK=infinity
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -794,11 +835,12 @@ SLURMDBD_SERVICE
         fi
     fi
 
-    # Check slurmd service file
+    # Check slurmd service file - fix if pointing to /usr/sbin (apt package path) OR Type=forking
     if [[ -f /etc/systemd/system/slurmd.service ]]; then
-        if grep -q "/usr/sbin/slurmd" /etc/systemd/system/slurmd.service 2>/dev/null; then
-            log WARNING "Found slurmd.service pointing to /usr/sbin (apt package path)"
-            log INFO "Updating slurmd.service to use source-built path..."
+        if grep -q "/usr/sbin/slurmd" /etc/systemd/system/slurmd.service 2>/dev/null || \
+           grep -q "Type=forking" /etc/systemd/system/slurmd.service 2>/dev/null; then
+            log WARNING "Found slurmd.service needs update (apt path or Type=forking)"
+            log INFO "Updating slurmd.service to use source-built path with Type=simple..."
 
             # Backup old service file
             cp /etc/systemd/system/slurmd.service /etc/systemd/system/slurmd.service.backup.$(date +%Y%m%d_%H%M%S)
@@ -814,6 +856,8 @@ ConditionPathExists=/etc/slurm/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmd
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
 ExecStart=$SLURM_SBIN/slurmd -D \$SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
@@ -822,6 +866,9 @@ LimitMEMLOCK=infinity
 LimitSTACK=infinity
 Delegate=yes
 TasksMax=infinity
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -2154,10 +2201,17 @@ ConditionPathExists=${SLURM_PREFIX}/etc/slurmdbd.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStartPre=/bin/sh -c 'pkill -9 slurmdbd || true'
+ExecStartPre=/bin/sleep 1
 ExecStart=${SLURM_PREFIX}/sbin/slurmdbd -D \$SLURMDBD_OPTIONS
 ExecReload=/bin/kill -HUP \$MAINPID
 LimitNOFILE=65536
 LimitMEMLOCK=infinity
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -2709,6 +2763,8 @@ ConditionPathExists=/opt/slurm/etc/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmd
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
 ExecStart=/opt/slurm/sbin/slurmd -D \$SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
@@ -2717,6 +2773,9 @@ LimitMEMLOCK=infinity
 LimitSTACK=infinity
 Delegate=yes
 TasksMax=infinity
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
