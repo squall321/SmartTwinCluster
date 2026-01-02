@@ -2063,7 +2063,7 @@ setup_slurmdbd() {
         echo "DbdPort=6819"
         echo "SlurmUser=slurm"
         echo "LogFile=/var/log/slurm/slurmdbd.log"
-        echo "PidFile=/var/run/slurmdbd.pid"
+        echo "PidFile=/var/run/slurm/slurmdbd.pid"
         echo ""
         echo "# Database connection"
         echo "StorageType=accounting_storage/mysql"
