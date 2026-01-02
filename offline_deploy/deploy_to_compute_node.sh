@@ -46,6 +46,19 @@ PARALLEL=3
 DRY_RUN=false
 AUTO_YES=false
 
+# 로그 파일 설정
+LOG_FILE="${SCRIPT_DIR}/deploy.log"
+LOG_FILE_TIMESTAMPED="${SCRIPT_DIR}/deploy_$(date +%Y%m%d_%H%M%S).log"
+
+# 기존 deploy.log가 있으면 백업
+if [[ -f "$LOG_FILE" ]]; then
+    mv "$LOG_FILE" "${LOG_FILE}.bak"
+fi
+
+# stdout/stderr를 tee로 파일과 터미널 모두에 출력
+exec > >(tee "$LOG_FILE" | tee "$LOG_FILE_TIMESTAMPED")
+exec 2>&1
+
 # 로깅 함수
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -884,6 +897,8 @@ main() {
     log_info "Config:       $CONFIG_FILE"
     log_info "Package Dir:  $PACKAGE_DIR"
     log_info "Parallel:     $PARALLEL"
+    log_info "Log File:     $LOG_FILE"
+    log_info "Log Backup:   $LOG_FILE_TIMESTAMPED"
     echo ""
 
     if [[ "$DRY_RUN" == "false" ]] && [[ "$AUTO_YES" == "false" ]]; then

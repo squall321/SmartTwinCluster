@@ -73,9 +73,17 @@ RESET_GLUSTER=false
 # Phase 시작 옵션 (start_multihead.sh로 전달됨)
 START_PHASE=""
 
-# 로그 파일
-LOG_FILE="/tmp/setup_cluster_full_multihead_offline_$(date +%Y%m%d_%H%M%S).log"
-exec > >(tee -a "$LOG_FILE")
+# 로그 파일 (현재 디렉토리의 setup.log + 타임스탬프 백업)
+LOG_FILE="${SCRIPT_DIR}/setup.log"
+LOG_FILE_TIMESTAMPED="${SCRIPT_DIR}/setup_$(date +%Y%m%d_%H%M%S).log"
+
+# 기존 setup.log가 있으면 백업
+if [[ -f "$LOG_FILE" ]]; then
+    mv "$LOG_FILE" "${LOG_FILE}.bak"
+fi
+
+# stdout/stderr를 tee로 파일과 터미널 모두에 출력
+exec > >(tee "$LOG_FILE" | tee "$LOG_FILE_TIMESTAMPED")
 exec 2>&1
 
 echo "📝 로그 파일: $LOG_FILE"
