@@ -901,6 +901,22 @@ install_slurm() {
             log SUCCESS "apt Slurm 패키지 제거 완료"
         fi
 
+        # apt 패키지의 플러그인 디렉토리 제거 (소스빌드 23.x와 충돌 방지)
+        # 이 디렉토리가 남아있으면 Slurm이 잘못된 플러그인을 로드함
+        local apt_plugin_dirs=(
+            "/usr/lib/x86_64-linux-gnu/slurm-wlm"
+            "/usr/lib/x86_64-linux-gnu/slurm"
+            "/usr/lib/slurm-wlm"
+            "/usr/lib/slurm"
+        )
+        for plugin_dir in "${apt_plugin_dirs[@]}"; do
+            if [[ -d "$plugin_dir" ]]; then
+                log WARNING "Removing apt Slurm plugin directory: $plugin_dir"
+                rm -rf "$plugin_dir"
+                log INFO "  Removed: $plugin_dir"
+            fi
+        done
+
         # /usr/bin에 남아있는 slurm 바이너리 제거
         local usr_bin_slurm_binaries=(
             "/usr/bin/sinfo"
