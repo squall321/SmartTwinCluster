@@ -56,7 +56,11 @@ ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
-ExecStart=/usr/local/slurm/sbin/slurmdbd $SLURMDBD_OPTIONS
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStartPre=/bin/sh -c 'pkill -9 slurmdbd || true'
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/local/slurm/sbin/slurmdbd -D $SLURMDBD_OPTIONS
 PIDFile=/run/slurm/slurmdbd.pid
 KillMode=mixed
 LimitNOFILE=131072

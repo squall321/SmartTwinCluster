@@ -205,9 +205,11 @@ ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
 ExecStartPre=/bin/sh -c 'pkill -9 slurmdbd || true'
 ExecStartPre=/bin/sleep 1
-ExecStart=/usr/local/slurm/sbin/slurmdbd $SLURMDBD_OPTIONS
+ExecStart=/usr/local/slurm/sbin/slurmdbd -D $SLURMDBD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
 PIDFile=/run/slurm/slurmdbd.pid
 KillMode=process

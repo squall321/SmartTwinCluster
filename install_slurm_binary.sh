@@ -310,9 +310,11 @@ Requires=munge.service
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmctld
-ExecStart=/usr/local/slurm/sbin/slurmctld $SLURMCTLD_OPTIONS
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStart=/usr/local/slurm/sbin/slurmctld -D $SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/var/run/slurmctld.pid
+PIDFile=/run/slurm/slurmctld.pid
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
@@ -341,9 +343,11 @@ Requires=munge.service
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmd
-ExecStart=/usr/local/slurm/sbin/slurmd $SLURMD_OPTIONS
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStart=/usr/local/slurm/sbin/slurmd -D $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/var/run/slurmd.pid
+PIDFile=/run/slurm/slurmd.pid
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity

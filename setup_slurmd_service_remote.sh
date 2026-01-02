@@ -65,7 +65,9 @@ ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmd
-ExecStart=/usr/local/slurm/sbin/slurmd $SLURMD_OPTIONS
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStart=/usr/local/slurm/sbin/slurmd -D $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
 PIDFile=/run/slurm/slurmd.pid
 KillMode=process

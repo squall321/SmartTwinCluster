@@ -13,7 +13,7 @@
 #
 # 변경 내용:
 #   - Type=notify → Type=simple
-#   - ExecStart: -D 옵션 제거 (foreground mode → background)
+#   - ExecStart: -D 옵션 추가 (foreground 실행, Type=simple 호환)
 #   - 기타 모든 설정 유지 (TimeoutStartSec=120, Restart=on-failure 등)
 ################################################################################
 
@@ -92,7 +92,7 @@ fi
 echo "변경 내용:"
 echo "  - slurmctld.service: Type=notify → Type=simple"
 echo "  - slurmd.service: Type=notify → Type=simple"
-echo "  - ExecStart: -D 옵션 제거"
+echo "  - ExecStart: -D 옵션 추가 (Type=simple 호환)"
 echo ""
 
 # slurmctld.service 수정
@@ -106,6 +106,10 @@ cat > "${FILE1}.tmp" << 'EOF'
 #   - Slurm 23.11.10과의 호환성
 #   - sd_notify() 신호 대기 불필요
 #   - 더 안정적인 서비스 시작
+#
+# -D 옵션 (foreground):
+#   - Type=simple은 프로세스가 foreground로 실행되어야 함
+#   - -D 옵션으로 데몬이 fork하지 않고 foreground에서 실행
 ################################################################################
 
 set -e
@@ -132,9 +136,11 @@ ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmctld
-ExecStart=/usr/local/slurm/sbin/slurmctld $SLURMCTLD_OPTIONS
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStart=/usr/local/slurm/sbin/slurmctld -D $SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/var/run/slurm/slurmctld.pid
+PIDFile=/run/slurm/slurmctld.pid
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
@@ -168,9 +174,11 @@ ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/slurmd
-ExecStart=/usr/local/slurm/sbin/slurmd $SLURMD_OPTIONS
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStart=/usr/local/slurm/sbin/slurmd -D $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
-PIDFile=/var/run/slurm/slurmd.pid
+PIDFile=/run/slurm/slurmd.pid
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
@@ -194,8 +202,8 @@ echo ""
 
 echo "3️⃣  PID 디렉토리 생성..."
 
-sudo mkdir -p /var/run/slurm
-sudo chown slurm:slurm /var/run/slurm
+sudo mkdir -p /run/slurm
+sudo chown slurm:slurm /run/slurm
 
 echo "✅ PID 디렉토리 생성 완료"
 echo ""
@@ -220,8 +228,8 @@ echo "✅ systemd 서비스 파일 생성 완료!"
 echo "=========================================="
 echo ""
 echo "생성된 파일:"
-echo "  - /etc/systemd/system/slurmctld.service (Type=simple)"
-echo "  - /etc/systemd/system/slurmd.service (Type=simple)"
+echo "  - /etc/systemd/system/slurmctld.service (Type=simple, -D 옵션)"
+echo "  - /etc/systemd/system/slurmd.service (Type=simple, -D 옵션)"
 echo ""
 echo "다음 단계:"
 echo "  1. 컨트롤러:"
@@ -256,7 +264,7 @@ fi
 
 echo "변경 내용:"
 echo "  - slurmdbd.service: Type=notify → Type=simple"
-echo "  - ExecStart: -D 옵션 제거"
+echo "  - ExecStart: -D 옵션 추가 (Type=simple 호환)"
 echo ""
 
 # slurmdbd.service 부분만 Type=simple로 변경
@@ -265,8 +273,9 @@ echo ""
 # Type=notify → Type=simple
 sed -i 's/^Type=notify$/Type=simple/g' "$FILE2"
 
-# ExecStart에서 -D 제거
-sed -i 's|ExecStart=/usr/local/slurm/sbin/slurmdbd -D \$SLURMDBD_OPTIONS|ExecStart=/usr/local/slurm/sbin/slurmdbd $SLURMDBD_OPTIONS|g' "$FILE2"
+# ExecStart에 -D 옵션 추가 (없는 경우만)
+# Type=simple은 -D 옵션과 함께 사용해야 함
+sed -i 's|ExecStart=/usr/local/slurm/sbin/slurmdbd \$SLURMDBD_OPTIONS|ExecStart=/usr/local/slurm/sbin/slurmdbd -D $SLURMDBD_OPTIONS|g' "$FILE2"
 
 echo "✅ $FILE2 수정 완료"
 echo ""
@@ -287,16 +296,16 @@ else
     echo "  ❌ Type 변경 실패"
 fi
 
-if grep -q "slurmctld \$SLURMCTLD_OPTIONS" "$FILE1" && ! grep -q "slurmctld -D" "$FILE1"; then
-    echo "  ✅ slurmctld: -D 제거 확인"
+if grep -q "slurmctld -D" "$FILE1"; then
+    echo "  ✅ slurmctld: -D 옵션 확인"
 else
-    echo "  ❌ slurmctld ExecStart 변경 실패"
+    echo "  ❌ slurmctld ExecStart -D 옵션 없음"
 fi
 
-if grep -q "slurmd \$SLURMD_OPTIONS" "$FILE1" && ! grep -q "slurmd -D" "$FILE1"; then
-    echo "  ✅ slurmd: -D 제거 확인"
+if grep -q "slurmd -D" "$FILE1"; then
+    echo "  ✅ slurmd: -D 옵션 확인"
 else
-    echo "  ❌ slurmd ExecStart 변경 실패"
+    echo "  ❌ slurmd ExecStart -D 옵션 없음"
 fi
 
 echo ""
@@ -308,10 +317,10 @@ else
     echo "  ❌ Type 변경 실패"
 fi
 
-if grep -q "slurmdbd \\\$SLURMDBD_OPTIONS" "$FILE2" && ! grep -q "slurmdbd -D" "$FILE2"; then
-    echo "  ✅ slurmdbd: -D 제거 확인"
+if grep -q "slurmdbd -D" "$FILE2"; then
+    echo "  ✅ slurmdbd: -D 옵션 확인"
 else
-    echo "  ❌ slurmdbd ExecStart 변경 실패"
+    echo "  ❌ slurmdbd ExecStart -D 옵션 없음"
 fi
 
 echo ""
@@ -326,11 +335,11 @@ echo ""
 
 echo "✅ 수정 완료:"
 echo "  1. create_slurm_systemd_services.sh"
-echo "     - slurmctld.service: Type=simple"
-echo "     - slurmd.service: Type=simple"
+echo "     - slurmctld.service: Type=simple, -D 옵션"
+echo "     - slurmd.service: Type=simple, -D 옵션"
 echo ""
 echo "  2. install_slurm_accounting.sh"
-echo "     - slurmdbd.service: Type=simple"
+echo "     - slurmdbd.service: Type=simple, -D 옵션"
 echo ""
 
 echo "💾 백업 위치:"
