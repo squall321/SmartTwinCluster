@@ -268,16 +268,14 @@ deploy_to_node() {
     fi
 
     # SSH 연결 테스트
-    # SSH/SCP/rsync 명령 구성 (sshpass 사용 여부에 따라)
+    # SSH/SCP 명령 구성 (sshpass 사용 여부에 따라)
     # sshpass -e 옵션: SSHPASS 환경변수에서 비밀번호 읽기 (특수문자 안전)
     local ssh_cmd="ssh -o StrictHostKeyChecking=no"
     local scp_cmd="scp -o StrictHostKeyChecking=no"
-    local rsync_rsh="ssh -o StrictHostKeyChecking=no"
     if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
         export SSHPASS="$SSH_PASSWORD"
         ssh_cmd="sshpass -e ssh -o StrictHostKeyChecking=no"
         scp_cmd="sshpass -e scp -o StrictHostKeyChecking=no"
-        rsync_rsh="sshpass -e ssh -o StrictHostKeyChecking=no"
     fi
 
     if ! $ssh_cmd -o ConnectTimeout=5 "$node_user@$node_ip" "echo OK" &>/dev/null; then
@@ -302,17 +300,14 @@ deploy_to_node() {
         }
     fi
 
-    # rsync로 패키지 전송 (sshpass 적용)
-    # --no-group --no-owner: 원격에서 chgrp/chown 권한 오류 방지
+    # scp로 패키지 전송 (rsync 권한 문제 회피)
     log_info "[$node_hostname] Transferring packages (this may take 5-10 minutes)..."
 
-    rsync -az --info=progress2 \
-        --no-group --no-owner \
-        --exclude='.git' \
-        --exclude='*.log' \
-        -e "$rsync_rsh" \
-        "$PACKAGE_DIR/" \
-        "$node_user@$node_ip:/tmp/offline_packages/" || {
+    # 원격 디렉토리 생성
+    $ssh_cmd "$node_user@$node_ip" "mkdir -p /tmp/offline_packages" || true
+
+    # scp -r로 전체 디렉토리 복사
+    $scp_cmd -r "$PACKAGE_DIR"/* "$node_user@$node_ip:/tmp/offline_packages/" || {
         log_error "[$node_hostname] Package transfer failed"
         return 1
     }
