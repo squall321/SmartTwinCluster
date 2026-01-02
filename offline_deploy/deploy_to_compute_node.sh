@@ -425,8 +425,27 @@ if [[ -n "$SLURM_PKG" && -f "$SLURM_PKG" ]]; then
     echo "Step 2: Deploying Slurm..."
     echo "  Found: $SLURM_PKG"
     cd "$PKG_DIR/slurm"
+
+    # tar 압축 해제 (디버그 출력)
+    echo "  Extracting to: $(pwd)"
     tar -xzf "$SLURM_PKG"
-    run_sudo bash deploy_slurm.sh
+
+    # 압축 해제 결과 확인
+    if [[ -d "opt/slurm" ]]; then
+        echo "  ✓ Extraction successful: opt/slurm exists"
+        ls -la opt/slurm/ | head -5
+    else
+        echo "  ✗ Extraction failed: opt/slurm not found"
+        echo "  Contents of $(pwd):"
+        ls -la
+    fi
+
+    # deploy_slurm.sh 실행
+    if [[ -f "deploy_slurm.sh" ]]; then
+        run_sudo bash deploy_slurm.sh
+    else
+        echo "  ✗ deploy_slurm.sh not found after extraction"
+    fi
 else
     echo "WARNING: Slurm package not found"
     echo "  Expected: $PKG_DIR/slurm/slurm-*-prebuilt.tar.gz"
