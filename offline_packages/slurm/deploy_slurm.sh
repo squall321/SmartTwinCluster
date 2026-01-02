@@ -35,6 +35,77 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # ============================================================================
+# Slurm 필수 의존성 설치 (libhwloc15 등)
+# ============================================================================
+# 문제: APT 오프라인 저장소가 제대로 설정되지 않은 경우 hwloc 패키지가 설치 안됨
+# 해결: dpkg로 직접 설치 시도
+log_info "Checking Slurm dependencies..."
+
+# libhwloc15 확인 - slurmd가 필요로 하는 공유 라이브러리
+if ! ldconfig -p | grep -q "libhwloc.so.15"; then
+    log_warning "libhwloc15 not found, attempting to install..."
+
+    # APT 패키지 디렉토리 찾기
+    APT_PKG_DIR=""
+    if [[ -d "${SCRIPT_DIR}/../apt_packages" ]]; then
+        APT_PKG_DIR="${SCRIPT_DIR}/../apt_packages"
+    elif [[ -d "$HOME/offline_packages/apt_packages" ]]; then
+        APT_PKG_DIR="$HOME/offline_packages/apt_packages"
+    elif [[ -d "/home/koopark/offline_packages/apt_packages" ]]; then
+        APT_PKG_DIR="/home/koopark/offline_packages/apt_packages"
+    fi
+
+    if [[ -n "$APT_PKG_DIR" && -d "$APT_PKG_DIR" ]]; then
+        log_info "Found APT packages at: $APT_PKG_DIR"
+
+        # 로컬 APT 저장소가 설정되어 있는지 확인
+        REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
+        if [[ -f "$REPO_LIST" ]]; then
+            # 로컬 저장소를 통해 apt로 설치 (의존성 자동 해결, 완전 오프라인)
+            log_info "Installing hwloc packages via apt (offline mode with dependencies)..."
+            APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
+            apt-get "${APT_OPTS[@]}" install -y libhwloc15 libhwloc-plugins hwloc-nox 2>/dev/null || {
+                log_warning "APT install failed, falling back to dpkg..."
+                # dpkg fallback
+                for pkg in libhwloc15 libhwloc-plugins hwloc-nox; do
+                    pkg_file=$(ls "$APT_PKG_DIR"/${pkg}_*.deb 2>/dev/null | head -1)
+                    if [[ -f "$pkg_file" ]]; then
+                        log_info "Installing $pkg from $pkg_file..."
+                        dpkg -i "$pkg_file" 2>/dev/null || true
+                    fi
+                done
+                # 오프라인 모드로 의존성 해결
+                apt-get "${APT_OPTS[@]}" -f install -y 2>/dev/null || apt-get -f install -y 2>/dev/null || true
+            }
+        else
+            # 로컬 저장소 없으면 dpkg 직접 설치
+            log_info "No local APT repo, installing via dpkg..."
+            for pkg in libhwloc15 libhwloc-plugins hwloc-nox; do
+                pkg_file=$(ls "$APT_PKG_DIR"/${pkg}_*.deb 2>/dev/null | head -1)
+                if [[ -f "$pkg_file" ]]; then
+                    log_info "Installing $pkg from $pkg_file..."
+                    dpkg -i "$pkg_file" 2>/dev/null || true
+                fi
+            done
+            apt-get -f install -y 2>/dev/null || true
+        fi
+
+        # ldconfig 갱신
+        ldconfig
+
+        if ldconfig -p | grep -q "libhwloc.so.15"; then
+            log_success "libhwloc15 installed successfully"
+        else
+            log_warning "libhwloc15 installation may have failed - slurmd might not start"
+        fi
+    else
+        log_warning "APT packages directory not found - hwloc must be installed manually"
+    fi
+else
+    log_success "libhwloc15 already available"
+fi
+
+# ============================================================================
 # apt 패키지로 설치된 Slurm 서비스 중지 (21.08.5 -> 23.11.10 전환)
 # ============================================================================
 log_info "Checking for existing apt Slurm services..."

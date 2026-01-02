@@ -372,10 +372,12 @@ deploy_to_node() {
     log_info "[$node_hostname] Transferring munge.key from controller..."
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if /usr/bin/sudo test -f "$MUNGE_KEY_LOCAL"; then
-        $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/munge" || true
+        # 원격에서 $HOME 환경변수를 사용하여 경로 확장 (~ 대신 $HOME 사용)
+        $ssh_cmd "$node_user@$node_ip" 'mkdir -p $HOME/offline_packages/munge' || true
         # ssh_cmd_stdin 사용 (파이프로 stdin 전달 필요)
         # sudo cat 사용 (munge.key는 400 권한이라 일반 사용자가 읽을 수 없음)
-        /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" "cat > $REMOTE_PKG_DIR/munge/munge.key" || {
+        # 원격 셸에서 $HOME이 확장되도록 작은따옴표 사용
+        /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" 'cat > $HOME/offline_packages/munge/munge.key' || {
             log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
         }
         log_success "[$node_hostname] munge.key transferred"

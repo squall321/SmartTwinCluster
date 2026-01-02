@@ -145,10 +145,18 @@ log_info "  Packages after filtering: ${#PACKAGES_TO_INSTALL[@]}"
 PACKAGES_TO_INSTALL=($(printf '%s\n' "${PACKAGES_TO_INSTALL[@]}" | sort -u))
 
 # apt install 실행 (의존성 자동 해결)
+# 중요: 오프라인 환경에서는 로컬 저장소만 사용하도록 설정
 log_info "  Running: apt-get install -y ${#PACKAGES_TO_INSTALL[@]} packages..."
-apt-get install -y --no-install-recommends "${PACKAGES_TO_INSTALL[@]}" 2>&1 || {
+
+# APT가 로컬 저장소만 사용하도록 설정 (오프라인 환경 대응)
+APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
+
+apt-get "${APT_OPTS[@]}" install -y --no-install-recommends "${PACKAGES_TO_INSTALL[@]}" 2>&1 || {
     log_warning "Some packages may have failed. Retrying with -f flag..."
-    apt-get install -f -y
+    apt-get "${APT_OPTS[@]}" install -f -y 2>&1 || {
+        log_warning "APT failed with local-only mode, trying with all sources..."
+        apt-get install -f -y
+    }
 }
 
 echo ""
