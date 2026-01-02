@@ -9,15 +9,38 @@ echo "Deploying Munge..."
 
 # Munge 사용자 생성
 if ! id munge &>/dev/null; then
-    groupadd -g 1002 munge
-    useradd -u 1002 -g 1002 -s /bin/false munge
+    groupadd -g 1002 munge 2>/dev/null || groupadd munge 2>/dev/null || true
+    useradd -u 1002 -g munge -s /bin/false munge 2>/dev/null || useradd -g munge -s /bin/false munge 2>/dev/null || true
+    echo "  Created munge user"
+else
+    echo "  Munge user already exists"
 fi
 
 # 키 설치
 mkdir -p /etc/munge
-cp "${SCRIPT_DIR}/munge.key" /etc/munge/
-chown munge:munge /etc/munge/munge.key
-chmod 400 /etc/munge/munge.key
+
+# munge.key 찾기 (여러 위치 확인)
+MUNGE_KEY=""
+if [[ -f "${SCRIPT_DIR}/munge.key" ]]; then
+    MUNGE_KEY="${SCRIPT_DIR}/munge.key"
+elif [[ -f "/etc/munge/munge.key" ]]; then
+    echo "  Using existing munge.key at /etc/munge/munge.key"
+    MUNGE_KEY="/etc/munge/munge.key"
+fi
+
+if [[ -n "$MUNGE_KEY" && -f "$MUNGE_KEY" ]]; then
+    if [[ "$MUNGE_KEY" != "/etc/munge/munge.key" ]]; then
+        cp "$MUNGE_KEY" /etc/munge/munge.key
+        echo "  Installed munge.key from $MUNGE_KEY"
+    fi
+    chown munge:munge /etc/munge/munge.key
+    chmod 400 /etc/munge/munge.key
+else
+    echo "  ERROR: munge.key not found!"
+    echo "  Expected at: ${SCRIPT_DIR}/munge.key"
+    echo "  Make sure controller's munge.key was transferred"
+    exit 1
+fi
 
 # 서비스 시작
 systemctl enable munge

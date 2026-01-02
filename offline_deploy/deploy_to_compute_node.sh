@@ -373,7 +373,8 @@ deploy_to_node() {
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if [[ -f "$MUNGE_KEY_LOCAL" ]]; then
         $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/munge" || true
-        cat "$MUNGE_KEY_LOCAL" | $ssh_cmd "$node_user@$node_ip" "cat > $REMOTE_PKG_DIR/munge/munge.key" || {
+        # ssh_cmd_stdin 사용 (파이프로 stdin 전달 필요)
+        cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" "cat > $REMOTE_PKG_DIR/munge/munge.key" || {
             log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
         }
         log_success "[$node_hostname] munge.key transferred"
