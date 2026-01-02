@@ -203,7 +203,7 @@ Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
 ExecStartPre=/bin/sh -c 'pkill -9 slurmdbd || true'
 ExecStartPre=/bin/sleep 1

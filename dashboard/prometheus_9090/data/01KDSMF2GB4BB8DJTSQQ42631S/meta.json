@@ -1,0 +1,17 @@
+{
+	"ulid": "01KDSMF2GB4BB8DJTSQQ42631S",
+	"minTime": 1767154825335,
+	"maxTime": 1767160800000,
+	"stats": {
+		"numSamples": 318738,
+		"numSeries": 2042,
+		"numChunks": 2095
+	},
+	"compaction": {
+		"level": 1,
+		"sources": [
+			"01KDSMF2GB4BB8DJTSQQ42631S"
+		]
+	},
+	"version": 1
+}

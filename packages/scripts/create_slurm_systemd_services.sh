@@ -26,7 +26,7 @@ echo ""
 # slurmctld.service (컨트롤러용)
 ################################################################################
 
-echo "1️⃣  slurmctld.service 생성 (Type=forking)..."
+echo "1️⃣  slurmctld.service 생성 (Type=simple)..."
 
 sudo tee /etc/systemd/system/slurmctld.service > /dev/null << 'SLURMCTLD_EOF'
 [Unit]
@@ -37,7 +37,7 @@ Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmctld
 ExecStart=/usr/local/slurm/sbin/slurmctld $SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
@@ -56,14 +56,14 @@ RestartSec=10
 WantedBy=multi-user.target
 SLURMCTLD_EOF
 
-echo "✅ slurmctld.service 생성 완료 (Type=forking)"
+echo "✅ slurmctld.service 생성 완료 (Type=simple)"
 echo ""
 
 ################################################################################
 # slurmd.service (계산 노드용)
 ################################################################################
 
-echo "2️⃣  slurmd.service 생성 (Type=forking)..."
+echo "2️⃣  slurmd.service 생성 (Type=simple)..."
 
 sudo tee /etc/systemd/system/slurmd.service > /dev/null << 'SLURMD_EOF'
 [Unit]
@@ -73,7 +73,7 @@ Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmd
 ExecStart=/usr/local/slurm/sbin/slurmd $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
@@ -92,14 +92,14 @@ RestartSec=10
 WantedBy=multi-user.target
 SLURMD_EOF
 
-echo "✅ slurmd.service 생성 완료 (Type=forking)"
+echo "✅ slurmd.service 생성 완료 (Type=simple)"
 echo ""
 
 ################################################################################
 # slurmdbd.service (데이터베이스 데몬용)
 ################################################################################
 
-echo "3️⃣  slurmdbd.service 생성 (Type=forking)..."
+echo "3️⃣  slurmdbd.service 생성 (Type=simple)..."
 
 sudo tee /etc/systemd/system/slurmdbd.service > /dev/null << 'SLURMDBD_EOF'
 [Unit]
@@ -109,7 +109,7 @@ Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
 ExecStartPre=/bin/sh -c 'pkill -9 slurmdbd || true'
 ExecStartPre=/bin/sleep 1
@@ -128,7 +128,7 @@ RestartSec=10
 WantedBy=multi-user.target
 SLURMDBD_EOF
 
-echo "✅ slurmdbd.service 생성 완료 (Type=forking)"
+echo "✅ slurmdbd.service 생성 완료 (Type=simple)"
 echo "  - ExecStartPre: 기존 slurmdbd 프로세스 자동 정리"
 echo "  - PID 파일: /run/slurm/slurmdbd.pid"
 echo ""
@@ -166,9 +166,9 @@ echo "✅ systemd 서비스 파일 생성 완료!"
 echo "=========================================="
 echo ""
 echo "생성된 파일:"
-echo "  - /etc/systemd/system/slurmctld.service (Type=forking, root 실행)"
-echo "  - /etc/systemd/system/slurmd.service (Type=forking, root 실행)"
-echo "  - /etc/systemd/system/slurmdbd.service (Type=forking, 자동 cleanup)"
+echo "  - /etc/systemd/system/slurmctld.service (Type=simple, root 실행)"
+echo "  - /etc/systemd/system/slurmd.service (Type=simple, root 실행)"
+echo "  - /etc/systemd/system/slurmdbd.service (Type=simple, 자동 cleanup)"
 echo ""
 echo "다음 단계:"
 echo "  1. 컨트롤러:"

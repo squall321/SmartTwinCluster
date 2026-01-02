@@ -308,7 +308,7 @@ After=network.target munge.service
 Requires=munge.service
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmctld
 ExecStart=/usr/local/slurm/sbin/slurmctld $SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
@@ -339,7 +339,7 @@ After=network.target munge.service
 Requires=munge.service
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmd
 ExecStart=/usr/local/slurm/sbin/slurmd $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID

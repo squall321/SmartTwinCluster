@@ -267,7 +267,7 @@ Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmctld
 ExecStart=/usr/local/slurm/sbin/slurmctld $SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
@@ -295,7 +295,7 @@ Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurm.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmd
 ExecStart=/usr/local/slurm/sbin/slurmd $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID

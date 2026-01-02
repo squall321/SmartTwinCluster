@@ -1,0 +1,7 @@
+Origin: Offline-Local
+Label: Offline-Local
+Suite: stable
+Codename: offline
+Architectures: amd64
+Components: main
+Description: Local offline APT repository

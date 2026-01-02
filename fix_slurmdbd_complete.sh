@@ -54,7 +54,7 @@ Requires=munge.service
 ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=-/etc/default/slurmdbd
 ExecStart=/usr/local/slurm/sbin/slurmdbd $SLURMDBD_OPTIONS
 PIDFile=/run/slurm/slurmdbd.pid
@@ -70,7 +70,7 @@ RestartSec=30
 WantedBy=multi-user.target
 EOF
 
-echo "✅ slurmdbd.service 완전 수정 완료 (Type=forking)"
+echo "✅ slurmdbd.service 완전 수정 완료 (Type=simple)"
 echo ""
 
 # 4. PID 디렉토리 재생성
@@ -157,7 +157,7 @@ echo "==========================================================================
 echo ""
 
 echo "✅ 변경사항:"
-echo "   - Type=forking (더 안정적)"
+echo "   - Type=simple (더 안정적)"
 echo "   - PIDFile=/run/slurm/slurmdbd.pid"
 echo "   - KillMode=mixed (좀비 프로세스 방지)"
 echo "   - TimeoutStartSec=300 (5분)"
