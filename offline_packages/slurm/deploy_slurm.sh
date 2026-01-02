@@ -89,9 +89,21 @@ else
 fi
 
 # 디렉토리 복사
+# tar.gz 압축 해제 후 opt/slurm 디렉토리가 SCRIPT_DIR 안에 생성됨
 log_info "Copying Slurm binaries..."
-mkdir -p "$INSTALL_PREFIX"
-cp -a "${SCRIPT_DIR}${INSTALL_PREFIX}"/* "$INSTALL_PREFIX/"
+log_info "  Source: ${SCRIPT_DIR}/opt/slurm"
+log_info "  Destination: $INSTALL_PREFIX"
+
+if [[ -d "${SCRIPT_DIR}/opt/slurm" ]]; then
+    mkdir -p "$INSTALL_PREFIX"
+    cp -a "${SCRIPT_DIR}/opt/slurm"/* "$INSTALL_PREFIX/"
+    log_success "Slurm binaries copied successfully"
+else
+    log_error "Source directory not found: ${SCRIPT_DIR}/opt/slurm"
+    log_error "tar extraction may have failed. Contents of SCRIPT_DIR:"
+    ls -la "$SCRIPT_DIR"
+    exit 1
+fi
 
 # 심볼릭 링크 생성
 log_info "Creating symbolic links..."
