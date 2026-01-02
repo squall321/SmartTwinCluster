@@ -2050,6 +2050,7 @@ setup_slurmdbd() {
         echo ""
         echo "# Authentication"
         echo "AuthType=auth/munge"
+        echo "PluginDir=${SLURM_PREFIX}/lib/slurm"
         echo ""
         echo "# Database settings"
         echo "DbdHost=localhost"
