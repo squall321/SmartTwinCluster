@@ -2096,19 +2096,27 @@ setup_slurmdbd() {
         local mysql_host="${SLURMDBD_STORAGE_HOST}"
         if [[ "$mysql_host" == "localhost" ]]; then
             # For localhost, don't use -h option
+            log WARNING "Dropping existing slurm_acct_db to avoid schema version conflicts..."
             mysql -u root -p"${DB_ROOT_PASSWORD}" <<EOSQL
-CREATE DATABASE IF NOT EXISTS slurm_acct_db;
-CREATE USER IF NOT EXISTS 'slurm'@'localhost' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
-CREATE USER IF NOT EXISTS 'slurm'@'%' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
+DROP DATABASE IF EXISTS slurm_acct_db;
+CREATE DATABASE slurm_acct_db;
+DROP USER IF EXISTS 'slurm'@'localhost';
+DROP USER IF EXISTS 'slurm'@'%';
+CREATE USER 'slurm'@'localhost' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
+CREATE USER 'slurm'@'%' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
 GRANT ALL PRIVILEGES ON slurm_acct_db.* TO 'slurm'@'localhost';
 GRANT ALL PRIVILEGES ON slurm_acct_db.* TO 'slurm'@'%';
 FLUSH PRIVILEGES;
 EOSQL
         else
+            log WARNING "Dropping existing slurm_acct_db to avoid schema version conflicts..."
             mysql -h "$mysql_host" -u root -p"${DB_ROOT_PASSWORD}" <<EOSQL
-CREATE DATABASE IF NOT EXISTS slurm_acct_db;
-CREATE USER IF NOT EXISTS 'slurm'@'localhost' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
-CREATE USER IF NOT EXISTS 'slurm'@'%' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
+DROP DATABASE IF EXISTS slurm_acct_db;
+CREATE DATABASE slurm_acct_db;
+DROP USER IF EXISTS 'slurm'@'localhost';
+DROP USER IF EXISTS 'slurm'@'%';
+CREATE USER 'slurm'@'localhost' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
+CREATE USER 'slurm'@'%' IDENTIFIED BY '${SLURMDBD_STORAGE_PASS}';
 GRANT ALL PRIVILEGES ON slurm_acct_db.* TO 'slurm'@'localhost';
 GRANT ALL PRIVILEGES ON slurm_acct_db.* TO 'slurm'@'%';
 FLUSH PRIVILEGES;
