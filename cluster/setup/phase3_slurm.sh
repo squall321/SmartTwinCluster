@@ -2016,6 +2016,12 @@ generate_cgroup_config() {
 setup_slurmdbd() {
     log INFO "Setting up SlurmDBD..."
 
+    # Determine SLURM_PREFIX for plugin directory
+    local SLURM_PREFIX="/usr/local/slurm"
+    if [[ -x "/opt/slurm/sbin/slurmdbd" ]]; then
+        SLURM_PREFIX="/opt/slurm"
+    fi
+
     # Validate and set DB_HOST with fallback
     local SLURMDBD_STORAGE_HOST="${DB_HOST:-localhost}"
     if [[ -z "$SLURMDBD_STORAGE_HOST" ]] || [[ "$SLURMDBD_STORAGE_HOST" == "null" ]]; then
