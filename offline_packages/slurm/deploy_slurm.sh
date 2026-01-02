@@ -95,9 +95,16 @@ log_info "  Source: ${SCRIPT_DIR}/opt/slurm"
 log_info "  Destination: $INSTALL_PREFIX"
 
 if [[ -d "${SCRIPT_DIR}/opt/slurm" ]]; then
+    # 기존 설치 정리 (깨끗한 상태에서 복사)
+    if [[ -d "$INSTALL_PREFIX" ]]; then
+        log_info "Cleaning existing installation at $INSTALL_PREFIX..."
+        rm -rf "$INSTALL_PREFIX"
+    fi
     mkdir -p "$INSTALL_PREFIX"
     cp -a "${SCRIPT_DIR}/opt/slurm"/* "$INSTALL_PREFIX/"
     log_success "Slurm binaries copied successfully"
+    log_info "  Installed $(ls -1 ${INSTALL_PREFIX}/bin 2>/dev/null | wc -l) binaries in bin/"
+    log_info "  Installed $(ls -1 ${INSTALL_PREFIX}/sbin 2>/dev/null | wc -l) binaries in sbin/"
 else
     log_error "Source directory not found: ${SCRIPT_DIR}/opt/slurm"
     log_error "tar extraction may have failed. Contents of SCRIPT_DIR:"
