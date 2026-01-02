@@ -301,22 +301,26 @@ deploy_to_node() {
     fi
 
     # scp로 패키지 전송 (rsync 권한 문제 회피)
-    log_info "[$node_hostname] Transferring packages (this may take 5-10 minutes)..."
+    # 홈 디렉토리 사용 (/tmp 권한 문제 회피)
+    local REMOTE_PKG_DIR="~/offline_packages"
+    log_info "[$node_hostname] Transferring packages to $REMOTE_PKG_DIR (this may take 5-10 minutes)..."
 
     # 원격 디렉토리 생성
-    $ssh_cmd "$node_user@$node_ip" "mkdir -p /tmp/offline_packages" || true
+    $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR" || true
 
-    # scp -r로 전체 디렉토리 복사
-    $scp_cmd -r "$PACKAGE_DIR"/* "$node_user@$node_ip:/tmp/offline_packages/" || {
+    # munge.key 제외하고 전송 (권한 문제)
+    # PACKAGE_DIR 끝에 /가 있으면 제거
+    local pkg_dir="${PACKAGE_DIR%/}"
+    $scp_cmd -r "$pkg_dir"/* "$node_user@$node_ip:$REMOTE_PKG_DIR/" || {
         log_error "[$node_hostname] Package transfer failed"
         return 1
     }
 
-    # 컨트롤러의 slurm.conf도 전송 (PluginDir 경로가 올바른 버전)
+    # 컨트롤러의 slurm.conf 전송 (PluginDir 경로가 올바른 버전)
     log_info "[$node_hostname] Transferring slurm.conf from controller..."
     local SLURM_CONF_LOCAL="/etc/slurm/slurm.conf"
     if [[ -f "$SLURM_CONF_LOCAL" ]]; then
-        $scp_cmd "$SLURM_CONF_LOCAL" "$node_user@$node_ip:/tmp/offline_packages/slurm.conf" || {
+        $scp_cmd "$SLURM_CONF_LOCAL" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm.conf" || {
             log_warning "[$node_hostname] Failed to transfer slurm.conf (will use existing)"
         }
         log_success "[$node_hostname] slurm.conf transferred"
@@ -325,14 +329,12 @@ deploy_to_node() {
     fi
 
     # 컨트롤러의 munge.key 전송 (모든 노드가 동일한 키 사용 필수)
+    # cat으로 파이프하여 권한 문제 회피 (이 스크립트는 sudo로 실행됨)
     log_info "[$node_hostname] Transferring munge.key from controller..."
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if [[ -f "$MUNGE_KEY_LOCAL" ]]; then
-        # munge 디렉토리에 키 파일 복사 (sudo 불필요 - /tmp는 모든 사용자 쓰기 가능)
-        $ssh_cmd "$node_user@$node_ip" "mkdir -p /tmp/offline_packages/munge" || true
-        # munge.key는 root 소유이므로 로컬에서 sudo로 읽어야 함
-        # 하지만 이 스크립트 자체가 sudo로 실행되므로 sudo 불필요
-        cat "$MUNGE_KEY_LOCAL" | $ssh_cmd "$node_user@$node_ip" "cat > /tmp/offline_packages/munge/munge.key" || {
+        $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/munge" || true
+        cat "$MUNGE_KEY_LOCAL" | $ssh_cmd "$node_user@$node_ip" "cat > $REMOTE_PKG_DIR/munge/munge.key" || {
             log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
         }
         log_success "[$node_hostname] munge.key transferred"
@@ -360,6 +362,9 @@ GLUSTER_VOLUME="$2"
 GLUSTER_MOUNT="$3"
 SUDO_PASS_B64="$4"
 
+# 패키지 디렉토리 (홈 디렉토리 사용)
+PKG_DIR="$HOME/offline_packages"
+
 # base64 디코딩하여 실제 비밀번호 복원
 SUDO_PASS=""
 if [[ -n "$SUDO_PASS_B64" ]]; then
@@ -378,13 +383,14 @@ run_sudo() {
 
 echo "═══════════════════════════════════════════════════════════"
 echo "  Offline Package Installation (Compute Node)"
+echo "  Package directory: $PKG_DIR"
 echo "═══════════════════════════════════════════════════════════"
 
 # 1. APT 패키지 설치
-if [[ -f /tmp/offline_packages/apt_packages/install_offline_packages.sh ]]; then
+if [[ -f "$PKG_DIR/apt_packages/install_offline_packages.sh" ]]; then
     echo ""
     echo "Step 1: Installing APT packages..."
-    cd /tmp/offline_packages/apt_packages
+    cd "$PKG_DIR/apt_packages"
     run_sudo bash install_offline_packages.sh
 else
     echo "WARNING: APT packages not found"
@@ -392,24 +398,24 @@ fi
 
 # 2. Slurm 배포
 # Note: [[ -f glob ]]는 glob 확장하지 않으므로 ls 사용
-SLURM_PKG=$(ls /tmp/offline_packages/slurm/slurm-*-prebuilt.tar.gz 2>/dev/null | head -1 || true)
+SLURM_PKG=$(ls "$PKG_DIR/slurm"/slurm-*-prebuilt.tar.gz 2>/dev/null | head -1 || true)
 if [[ -n "$SLURM_PKG" && -f "$SLURM_PKG" ]]; then
     echo ""
     echo "Step 2: Deploying Slurm..."
     echo "  Found: $SLURM_PKG"
-    cd /tmp/offline_packages/slurm
+    cd "$PKG_DIR/slurm"
     tar -xzf "$SLURM_PKG"
     run_sudo bash deploy_slurm.sh
 else
     echo "WARNING: Slurm package not found"
-    echo "  Expected: /tmp/offline_packages/slurm/slurm-*-prebuilt.tar.gz"
-    ls -la /tmp/offline_packages/slurm/ 2>/dev/null || echo "  Directory not found"
+    echo "  Expected: $PKG_DIR/slurm/slurm-*-prebuilt.tar.gz"
+    ls -la "$PKG_DIR/slurm/" 2>/dev/null || echo "  Directory not found"
 fi
 
 # 2.5. slurm.conf 복사 (컨트롤러에서 전송된 파일 사용)
 echo ""
 echo "Step 2.5: Configuring slurm.conf..."
-SLURM_CONF_SRC="/tmp/offline_packages/slurm.conf"
+SLURM_CONF_SRC="$PKG_DIR/slurm.conf"
 SLURM_CONF_DEST="/etc/slurm/slurm.conf"
 SLURM_LOCAL_CONF="/usr/local/slurm/etc/slurm.conf"
 
@@ -438,15 +444,15 @@ if [[ -f "$SLURM_CONF_SRC" ]]; then
     PLUGIN_DIR=$(grep "^PluginDir=" "$SLURM_CONF_DEST" 2>/dev/null | head -1)
     echo "  ✓ $PLUGIN_DIR"
 else
-    echo "  WARNING: slurm.conf not found in /tmp/offline_packages/"
+    echo "  WARNING: slurm.conf not found in $PKG_DIR/"
     echo "  Using existing configuration (may cause PluginDir errors)"
 fi
 
 # 3. Munge 배포
-if [[ -f /tmp/offline_packages/munge/deploy_munge.sh ]]; then
+if [[ -f "$PKG_DIR/munge/deploy_munge.sh" ]]; then
     echo ""
     echo "Step 3: Deploying Munge..."
-    cd /tmp/offline_packages/munge
+    cd "$PKG_DIR/munge"
     run_sudo bash deploy_munge.sh
 else
     echo "WARNING: Munge package not found"
@@ -463,9 +469,9 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
         echo "  Should have been installed in Step 1 (APT packages)"
         echo "  Checking offline packages..."
         # 오프라인 패키지에서 설치 시도
-        if ls /tmp/offline_packages/apt_packages/*.deb &>/dev/null; then
-            run_sudo dpkg -i /tmp/offline_packages/apt_packages/glusterfs*.deb 2>/dev/null || true
-            run_sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
+        if ls "$PKG_DIR/apt_packages"/*.deb &>/dev/null; then
+            run_sudo dpkg -i "$PKG_DIR/apt_packages"/glusterfs*.deb 2>/dev/null || true
+            run_sudo dpkg -i "$PKG_DIR/apt_packages"/autofs*.deb 2>/dev/null || true
         fi
     else
         echo "  ✓ glusterfs-client already installed"
@@ -474,8 +480,8 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
     # autofs 설치 확인
     if ! dpkg -l | grep -q autofs; then
         echo "  WARNING: autofs not installed"
-        if ls /tmp/offline_packages/apt_packages/autofs*.deb &>/dev/null; then
-            run_sudo dpkg -i /tmp/offline_packages/apt_packages/autofs*.deb 2>/dev/null || true
+        if ls "$PKG_DIR/apt_packages"/autofs*.deb &>/dev/null; then
+            run_sudo dpkg -i "$PKG_DIR/apt_packages"/autofs*.deb 2>/dev/null || true
         fi
     else
         echo "  ✓ autofs already installed"
