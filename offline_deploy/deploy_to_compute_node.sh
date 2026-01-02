@@ -270,11 +270,15 @@ deploy_to_node() {
     # SSH 연결 테스트
     # SSH/SCP 명령 구성 (sshpass 사용 여부에 따라)
     # sshpass -e 옵션: SSHPASS 환경변수에서 비밀번호 읽기 (특수문자 안전)
-    local ssh_cmd="ssh -o StrictHostKeyChecking=no"
+    # SSH 옵션: -n으로 stdin을 /dev/null로 리다이렉트 (백그라운드 실행 시 stdin 충돌 방지)
+    # 단, heredoc을 사용하는 SSH 호출은 -n 없이 별도 변수 사용
+    local ssh_cmd="ssh -n -o StrictHostKeyChecking=no"
+    local ssh_cmd_stdin="ssh -o StrictHostKeyChecking=no"  # heredoc용 (stdin 필요)
     local scp_cmd="scp -o StrictHostKeyChecking=no"
     if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
         export SSHPASS="$SSH_PASSWORD"
-        ssh_cmd="sshpass -e ssh -o StrictHostKeyChecking=no"
+        ssh_cmd="sshpass -e ssh -n -o StrictHostKeyChecking=no"
+        ssh_cmd_stdin="sshpass -e ssh -o StrictHostKeyChecking=no"
         scp_cmd="sshpass -e scp -o StrictHostKeyChecking=no"
     fi
 
@@ -389,7 +393,8 @@ deploy_to_node() {
         encoded_pass=$(echo -n "$SSH_PASSWORD" | base64)
     fi
 
-    $ssh_cmd "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" << 'EOFREMOTE'
+    # heredoc을 사용하므로 stdin이 필요한 ssh_cmd_stdin 사용
+    $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" << 'EOFREMOTE'
 set -e
 
 GLUSTER_SERVER="$1"
