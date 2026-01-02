@@ -211,6 +211,18 @@ deploy_to_node() {
         return 1
     }
 
+    # 컨트롤러의 slurm.conf도 전송 (PluginDir 경로가 올바른 버전)
+    log_info "[$node_hostname] Transferring slurm.conf from controller..."
+    local SLURM_CONF_LOCAL="/etc/slurm/slurm.conf"
+    if [[ -f "$SLURM_CONF_LOCAL" ]]; then
+        scp "$SLURM_CONF_LOCAL" "$node_user@$node_ip:/tmp/offline_packages/slurm.conf" || {
+            log_warning "[$node_hostname] Failed to transfer slurm.conf (will use existing)"
+        }
+        log_success "[$node_hostname] slurm.conf transferred"
+    else
+        log_warning "[$node_hostname] Controller slurm.conf not found at $SLURM_CONF_LOCAL"
+    fi
+
     log_success "[$node_hostname] Packages transferred"
 
     # 원격 설치 스크립트 실행
@@ -246,6 +258,42 @@ if [[ -f /tmp/offline_packages/slurm/slurm-*-prebuilt.tar.gz ]]; then
     sudo bash deploy_slurm.sh
 else
     echo "WARNING: Slurm package not found"
+fi
+
+# 2.5. slurm.conf 복사 (컨트롤러에서 전송된 파일 사용)
+echo ""
+echo "Step 2.5: Configuring slurm.conf..."
+SLURM_CONF_SRC="/tmp/offline_packages/slurm.conf"
+SLURM_CONF_DEST="/etc/slurm/slurm.conf"
+SLURM_LOCAL_CONF="/usr/local/slurm/etc/slurm.conf"
+
+if [[ -f "$SLURM_CONF_SRC" ]]; then
+    echo "  Found slurm.conf from controller"
+
+    # /etc/slurm 디렉토리 생성
+    sudo mkdir -p /etc/slurm
+    sudo mkdir -p /usr/local/slurm/etc
+
+    # 기존 파일 백업
+    if [[ -f "$SLURM_CONF_DEST" ]]; then
+        sudo mv "$SLURM_CONF_DEST" "${SLURM_CONF_DEST}.bak.$(date +%Y%m%d_%H%M%S)"
+    fi
+
+    # 복사
+    sudo cp "$SLURM_CONF_SRC" "$SLURM_CONF_DEST"
+    sudo cp "$SLURM_CONF_SRC" "$SLURM_LOCAL_CONF"
+    sudo chown slurm:slurm "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF" 2>/dev/null || true
+    sudo chmod 644 "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF"
+
+    echo "  ✓ slurm.conf installed to $SLURM_CONF_DEST"
+    echo "  ✓ slurm.conf installed to $SLURM_LOCAL_CONF"
+
+    # PluginDir 확인
+    PLUGIN_DIR=$(grep "^PluginDir=" "$SLURM_CONF_DEST" 2>/dev/null | head -1)
+    echo "  ✓ $PLUGIN_DIR"
+else
+    echo "  WARNING: slurm.conf not found in /tmp/offline_packages/"
+    echo "  Using existing configuration (may cause PluginDir errors)"
 fi
 
 # 3. Munge 배포
@@ -334,9 +382,84 @@ else
     echo "  Skipping GlusterFS setup (no server configured)"
 fi
 
+# 5. slurmd 서비스 시작
+echo ""
+echo "Step 5: Starting slurmd service..."
+
+# slurmd 서비스 파일 확인/생성
+SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
+if [[ ! -f "$SLURMD_SERVICE" ]]; then
+    echo "  Creating slurmd.service..."
+    sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
+[Unit]
+Description=Slurm node daemon
+After=network-online.target munge.service
+Wants=network-online.target
+ConditionPathExists=/etc/slurm/slurm.conf
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/slurmd
+ExecStartPre=/bin/mkdir -p /run/slurm
+ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStart=/usr/local/slurm/sbin/slurmd -D $SLURMD_OPTIONS
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+LimitNOFILE=131072
+LimitMEMLOCK=infinity
+LimitSTACK=infinity
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOFSVC
+    sudo systemctl daemon-reload
+    echo "  ✓ slurmd.service created"
+fi
+
+# Type=forking이면 Type=simple로 수정
+if grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
+    echo "  Updating slurmd.service from Type=forking to Type=simple..."
+    sudo sed -i 's/Type=forking/Type=simple/' "$SLURMD_SERVICE"
+    if ! grep -q "ExecStart=.* -D" "$SLURMD_SERVICE"; then
+        sudo sed -i 's|ExecStart=\(.*slurmd\)\(.*\)|ExecStart=\1 -D\2|' "$SLURMD_SERVICE"
+    fi
+    sudo systemctl daemon-reload
+fi
+
+# /run/slurm 디렉토리 생성
+sudo mkdir -p /run/slurm
+sudo chown slurm:slurm /run/slurm 2>/dev/null || true
+
+# slurmd 시작
+echo "  Starting slurmd..."
+sudo systemctl stop slurmd 2>/dev/null || true
+sleep 1
+sudo systemctl start slurmd
+
+if systemctl is-active --quiet slurmd; then
+    echo "  ✓ slurmd started successfully!"
+    sudo systemctl enable slurmd 2>/dev/null || true
+    SLURMD_VERSION=$(/usr/local/slurm/sbin/slurmd -V 2>/dev/null || echo "unknown")
+    echo "  ✓ slurmd version: $SLURMD_VERSION"
+else
+    echo "  ✗ slurmd failed to start!"
+    echo ""
+    echo "=== slurmd status ==="
+    sudo systemctl status slurmd --no-pager -l 2>&1 | head -20 || true
+    echo ""
+    echo "=== Recent logs ==="
+    sudo journalctl -u slurmd -n 10 --no-pager 2>&1 || true
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 echo "✅ Offline package installation complete!"
+echo ""
+echo "Slurm configuration:"
+echo "  - slurmd: $(systemctl is-active slurmd 2>/dev/null || echo 'unknown')"
+echo "  - Config: /etc/slurm/slurm.conf"
 echo ""
 echo "GlusterFS autofs configuration:"
 echo "  - Mount point: $GLUSTER_MOUNT (auto-mount on access)"

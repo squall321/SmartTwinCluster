@@ -369,6 +369,42 @@ mkdir -p "$CONFIG_DIR"
 chown -R slurm:slurm /var/log/slurm /var/spool/slurm "$CONFIG_DIR"
 chmod 755 /var/log/slurm /var/spool/slurm
 
+# ============================================================================
+# slurm.conf PluginDir 자동 수정 (apt 패키지 -> 소스 빌드 전환)
+# ============================================================================
+# 문제: apt 패키지로 설치된 구버전 slurm.conf에 PluginDir=/usr/lib/x86_64-linux-gnu/slurm-wlm 설정이 남아있음
+# 해결: 소스 빌드 경로(/usr/local/slurm/lib/slurm)로 자동 수정
+log_info "Fixing PluginDir in slurm.conf files..."
+
+fix_plugin_dir() {
+    local conf_file="$1"
+    if [[ ! -f "$conf_file" ]]; then
+        return
+    fi
+
+    # apt 패키지용 PluginDir 경로를 소스 빌드 경로로 수정
+    if grep -q "PluginDir=.*/slurm-wlm" "$conf_file" 2>/dev/null; then
+        log_warning "Found apt package PluginDir in $conf_file, fixing..."
+        sed -i "s|PluginDir=.*/slurm-wlm.*|PluginDir=${INSTALL_PREFIX}/lib/slurm|g" "$conf_file"
+        log_success "Fixed PluginDir in $conf_file"
+    fi
+
+    # 다른 잘못된 경로들도 수정
+    sed -i "s|PluginDir=/usr/lib/x86_64-linux-gnu/slurm-wlm|PluginDir=${INSTALL_PREFIX}/lib/slurm|g" "$conf_file" 2>/dev/null || true
+    sed -i "s|PluginDir=/usr/lib64/slurm|PluginDir=${INSTALL_PREFIX}/lib/slurm|g" "$conf_file" 2>/dev/null || true
+    sed -i "s|PluginDir=/usr/lib/slurm|PluginDir=${INSTALL_PREFIX}/lib/slurm|g" "$conf_file" 2>/dev/null || true
+
+    # PluginDir 라인이 없으면 추가
+    if ! grep -q "^PluginDir=" "$conf_file" 2>/dev/null; then
+        echo "PluginDir=${INSTALL_PREFIX}/lib/slurm" >> "$conf_file"
+        log_info "Added PluginDir to $conf_file"
+    fi
+}
+
+# 모든 slurm.conf 파일 수정
+fix_plugin_dir "/etc/slurm/slurm.conf"
+fix_plugin_dir "$CONFIG_DIR/slurm.conf"
+
 # slurm.conf 호환성 설정 (심볼릭 링크 대신 복사 방식)
 # Slurm 23.02+ 버전은 /etc/slurm과 /usr/local/slurm/etc 양쪽 모두 참조
 # 해결: 두 경로에 동일한 설정 파일을 복사하여 동기화

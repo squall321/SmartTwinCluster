@@ -805,11 +805,44 @@ echo "║                                                                ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 
+################################################################################
+# Part 3: 컴퓨트 노드 자동 배포
+################################################################################
+
+DEPLOY_COMPUTE_SCRIPT="offline_deploy/deploy_to_compute_node.sh"
+
+if [ -f "$DEPLOY_COMPUTE_SCRIPT" ]; then
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  Part 3: 컴퓨트 노드 자동 배포                                ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    log_info "컴퓨트 노드에 Slurm 패키지 배포 중..."
+    log_info "  - slurm.conf 자동 복사 (컨트롤러 → 컴퓨트)"
+    log_info "  - PluginDir 자동 수정"
+    log_info "  - slurmd 서비스 자동 시작"
+    echo ""
+
+    chmod +x "$DEPLOY_COMPUTE_SCRIPT"
+
+    if bash "$DEPLOY_COMPUTE_SCRIPT" --config "$CONFIG_FILE"; then
+        log_success "컴퓨트 노드 배포 완료!"
+    else
+        log_warning "일부 컴퓨트 노드 배포 실패 (수동 확인 필요)"
+        log_info "수동 재시도: ./offline_deploy/deploy_to_compute_node.sh --config $CONFIG_FILE"
+    fi
+    echo ""
+else
+    log_warning "컴퓨트 노드 배포 스크립트를 찾을 수 없습니다: $DEPLOY_COMPUTE_SCRIPT"
+    log_info "수동 배포: ./offline_deploy/deploy_to_compute_node.sh --config $CONFIG_FILE"
+fi
+
 log_info "다음 단계:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "1️⃣  계산 노드에 배포:"
-echo "   ./offline_deploy/deploy_to_compute_node.sh --config $CONFIG_FILE"
+echo "1️⃣  (자동 완료) 계산 노드 배포"
+echo "   재시도: ./offline_deploy/deploy_to_compute_node.sh --config $CONFIG_FILE"
 echo ""
 echo "2️⃣  클러스터 상태 확인:"
 echo "   ./cluster/status_multihead.sh --all"
