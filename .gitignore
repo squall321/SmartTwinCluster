@@ -63,3 +63,8 @@ id_rsa*
 # Backup
 backup_*/
 backups/
+*.backup_*/
+
+# Nested project copies (should not be in git)
+KooSlurmInstallAutomationRefactory/
+KooSlurmInstallAutomationRefactory_V8.4.0/
