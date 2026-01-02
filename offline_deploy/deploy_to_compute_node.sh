@@ -120,8 +120,10 @@ check_prerequisites() {
 }
 
 # SSH 비밀번호 및 sshpass 설정 (cluster/start_multihead.sh 방식 적용)
-SSH_PASSWORD=""
-HAS_SSHPASS=false
+# export하여 서브쉘(병렬 배포)에서도 사용 가능하게 함
+export SSH_PASSWORD=""
+export HAS_SSHPASS=false
+export SSHPASS=""
 
 setup_ssh_auth() {
     # YAML에서 ssh_password 읽기
@@ -132,6 +134,7 @@ with open('$CONFIG_FILE', 'r') as f:
 print(config.get('cluster_info', {}).get('ssh_password', ''))
 EOPY
     )
+    export SSH_PASSWORD
 
     # sshpass 사용 가능 여부 확인
     if command -v sshpass &> /dev/null; then
@@ -144,8 +147,11 @@ EOPY
             HAS_SSHPASS=true
         fi
     fi
+    export HAS_SSHPASS
 
     if [[ -n "$SSH_PASSWORD" ]]; then
+        # SSHPASS 환경변수 설정 (sshpass -e 옵션용)
+        export SSHPASS="$SSH_PASSWORD"
         log_success "SSH password loaded from YAML config"
         if [[ "$HAS_SSHPASS" == "true" ]]; then
             log_success "sshpass available - passwordless remote sudo enabled"
