@@ -295,10 +295,17 @@ deploy_to_node() {
     log_success "[$node_hostname] SSH connection OK"
 
     # 원격 디렉토리 생성 (sudo 비밀번호 자동 전달)
-    eval "$ssh_cmd" "$node_user@$node_ip" "echo '$SSH_PASSWORD' | sudo -S mkdir -p /opt/offline_packages" 2>/dev/null || {
-        log_error "[$node_hostname] Failed to create remote directory"
-        return 1
-    }
+    if [[ -n "$SSH_PASSWORD" ]]; then
+        eval "$ssh_cmd" "$node_user@$node_ip" "echo '$SSH_PASSWORD' | sudo -S mkdir -p /opt/offline_packages" 2>/dev/null || {
+            log_error "[$node_hostname] Failed to create remote directory"
+            return 1
+        }
+    else
+        eval "$ssh_cmd" "$node_user@$node_ip" "sudo mkdir -p /opt/offline_packages" || {
+            log_error "[$node_hostname] Failed to create remote directory"
+            return 1
+        }
+    fi
 
     # rsync로 패키지 전송 (sshpass 적용)
     log_info "[$node_hostname] Transferring packages (this may take 5-10 minutes)..."
@@ -359,7 +366,8 @@ SUDO_PASS="$4"
 # sudo 래퍼 함수 (비밀번호 자동 전달)
 run_sudo() {
     if [[ -n "$SUDO_PASS" ]]; then
-        echo "$SUDO_PASS" | sudo -S "$@" 2>/dev/null
+        # -S: stdin에서 비밀번호 읽기, [sudo] 프롬프트는 stderr로 가므로 /dev/null
+        echo "$SUDO_PASS" | sudo -S "$@"
     else
         sudo "$@"
     fi
