@@ -15,8 +15,9 @@ from pathlib import Path
 APPTAINER = '/usr/bin/apptainer'
 DU = '/usr/bin/du'
 
-# 기본 이미지 경로
-BASE_VNC_IMAGE = "/scratch/apptainers/visualization/vnc_desktop"
+# 기본 이미지 경로 (VNC 샌드박스 생성용 원본 - /scratch에 위치)
+# Note: /opt/apptainers/는 Slurm Job용, /scratch/apptainers/는 VNC 샌드박스용
+BASE_VNC_IMAGE = "/scratch/apptainers/visualization/vnc_desktop.sif"
 
 # 유저 샌드박스 베이스 경로
 USER_SANDBOX_BASE = "/home/{username}/.vnc_sandboxes"

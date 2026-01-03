@@ -5,6 +5,11 @@ Apptainer Image Registry Service (v2)
 /shared/apptainer/images/ 디렉토리를 스캔하여
 실제 존재하는 이미지만 DB에 저장하고 표시합니다.
 
+경로 변환:
+- 스캔 경로: /shared/apptainer/images/{partition}/*.sif (headnode)
+- DB 저장 경로: /opt/apptainers/{filename}.sif (compute/viz 노드에서 실행되는 경로)
+- 샌드박스 경로: /scratch/apptainer_sandboxes/ (별도 관리)
+
 특징:
 - 로컬 파일 시스템 스캔 (SSH 불필요)
 - 파티션별 이미지 관리 (compute, viz, shared)
@@ -95,10 +100,14 @@ class ApptainerRegistryService:
         self.redis = redis_client
         self.cache_ttl = 3600  # 1시간
 
-        # 중앙 레지스트리 경로
+        # 중앙 레지스트리 경로 (headnode에서 스캔용)
         self.registry_base = os.getenv('APPTAINER_REGISTRY', '/shared/apptainer')
         self.images_base = os.path.join(self.registry_base, 'images')
         self.metadata_dir = os.path.join(self.registry_base, 'metadata')
+
+        # 실행 시 사용되는 경로 (compute/viz 노드에 배포되는 경로)
+        # Phase8에서 /opt/apptainers/로 배포하므로 이 경로를 DB에 저장
+        self.runtime_base = os.getenv('APPTAINER_RUNTIME_PATH', '/opt/apptainers')
 
         # 파티션별 이미지 디렉토리
         self.partitions = {
@@ -200,8 +209,10 @@ class ApptainerRegistryService:
             # 3. 캐시된 메타데이터가 있으면 그것을 사용
             if cached_metadata:
                 # 캐시된 메타데이터로 ApptainerImage 생성
-                # path는 현재 이미지 경로로 업데이트
-                cached_metadata['path'] = image_path
+                # path는 runtime 경로로 변환 (/shared/... → /opt/apptainers/...)
+                # 실제 실행은 compute/viz 노드에서 /opt/apptainers/ 경로로 수행됨
+                runtime_path = os.path.join(self.runtime_base, filename)
+                cached_metadata['path'] = runtime_path
                 cached_metadata['last_scanned'] = datetime.now().isoformat()
 
                 # command_templates가 없으면 .commands.json 파일에서 로드
@@ -233,11 +244,14 @@ class ApptainerRegistryService:
             # 명령어 템플릿 로드
             command_templates = self._load_command_templates(image_path)
 
+            # Runtime 경로 생성 (실제 실행 시 사용되는 경로)
+            runtime_path = os.path.join(self.runtime_base, filename)
+
             # ApptainerImage 객체 생성
             image = ApptainerImage(
                 id=image_id,
                 name=filename,
-                path=image_path,
+                path=runtime_path,  # /opt/apptainers/{filename} 경로 사용
                 node='headnode',  # 중앙 레지스트리는 headnode에 위치
                 partition=partition,
                 type=image_type,
