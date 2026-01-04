@@ -660,15 +660,22 @@ deploy_metadata_to_headnode() {
     log_info "Deploying metadata JSON files to /shared/apptainer/metadata/"
 
     # Create metadata directory on headnode
+    # 철학: 같은 이름 = 같은 이미지, 하나의 대표 경로만 사용
+    # 구조: /shared/apptainer/metadata/*.json (flat, partition은 JSON 내부 필드로 구분)
     local metadata_dir="/shared/apptainer/metadata"
+
     if ! sudo mkdir -p "$metadata_dir" 2>/dev/null; then
         log_error "Failed to create metadata directory: $metadata_dir"
         return 1
     fi
 
+    sudo chown root:root "$metadata_dir"
+    sudo chmod 755 "$metadata_dir"
+
     local copied_count=0
 
     # Copy compute node metadata
+    # 메타데이터 JSON 내에 "partition": "compute" 필드가 포함됨
     if [[ -d "$COMPUTE_IMAGES_SOURCE" ]]; then
         shopt -s nullglob  # Prevent error if no .json files exist
         for json_file in "$COMPUTE_IMAGES_SOURCE"/*.json; do
@@ -688,6 +695,7 @@ deploy_metadata_to_headnode() {
     fi
 
     # Copy viz node metadata
+    # 메타데이터 JSON 내에 "partition": "viz" 필드가 포함됨
     if [[ -d "$VIZ_IMAGES_SOURCE" ]]; then
         shopt -s nullglob
         for json_file in "$VIZ_IMAGES_SOURCE"/*.json; do
@@ -709,6 +717,7 @@ deploy_metadata_to_headnode() {
     if [[ $copied_count -gt 0 ]]; then
         log_success "Deployed $copied_count metadata file(s) to headnode"
         log_info "Metadata location: $metadata_dir"
+        log_info "Note: Partition info is stored in each JSON's 'partition' field"
     else
         log_warning "No metadata files found to deploy"
     fi

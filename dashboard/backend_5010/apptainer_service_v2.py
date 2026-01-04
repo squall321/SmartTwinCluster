@@ -2,19 +2,34 @@
 Apptainer Image Registry Service (v2)
 중앙 레지스트리 기반 이미지 관리
 
-/shared/apptainer/images/ 디렉토리를 스캔하여
-실제 존재하는 이미지만 DB에 저장하고 표시합니다.
+설계 철학:
+- 같은 이름 = 같은 이미지
+- 하나의 이미지에 대해 하나의 대표 경로만 유지
+- Flat 구조: /shared/apptainer/metadata/*.json (partition은 JSON 내부 필드로 구분)
 
-경로 변환:
-- 스캔 경로: /shared/apptainer/images/{partition}/*.sif (headnode)
-- DB 저장 경로: /opt/apptainers/{filename}.sif (compute/viz 노드에서 실행되는 경로)
-- 샌드박스 경로: /scratch/apptainer_sandboxes/ (별도 관리)
+메타데이터 기반 스캔:
+- 우선순위 1: /shared/apptainer/metadata/*.json (중앙 메타데이터, flat 구조)
+- 우선순위 2: /opt/apptainers/*.json (로컬 메타데이터, fallback)
+
+경로 구조:
+- 메타데이터: /shared/apptainer/metadata/*.json (headnode, flat 구조)
+- 실제 이미지: /opt/apptainers/*.sif (compute/viz 노드에 배포됨)
+- 샌드박스: /scratch/apptainer_sandboxes/ (별도 관리)
+
+메타데이터 JSON 구조:
+{
+  "id": "image_hash",
+  "name": "image.sif",
+  "path": "/opt/apptainers/image.sif",  // 실제 실행 경로
+  "partition": "compute|viz|shared",    // 파티션 정보 (JSON 필드로 구분)
+  "type": "compute|viz|custom",
+  ...
+}
 
 특징:
-- 로컬 파일 시스템 스캔 (SSH 불필요)
-- 파티션별 이미지 관리 (compute, viz, shared)
-- 노드별 가용성 추적
-- 메타데이터 캐싱
+- 메타데이터만 스캔 (SSH 불필요, .sif 파일 불필요)
+- 파티션별 필터링 (partition 필드 기반)
+- 메타데이터에 실제 경로가 포함되어 있음
 """
 
 import os
@@ -84,10 +99,14 @@ class ApptainerRegistryService:
     """
     중앙 레지스트리 기반 Apptainer 이미지 관리 서비스
 
-    /shared/apptainer/images/ 구조:
-      ├── compute/    # Compute 파티션 이미지
-      ├── viz/        # Viz 파티션 이미지
-      └── shared/     # 공통 이미지
+    설계 철학: 같은 이름 = 같은 이미지, 하나의 대표 경로만 유지
+
+    /shared/apptainer/ 구조 (flat):
+      └── metadata/   # 모든 파티션의 메타데이터 (*.json)
+                      # partition은 JSON 내부 필드로 구분
+
+    /opt/apptainers/ 구조:
+      └── *.sif       # 실제 이미지 파일 (compute/viz 노드에 배포됨)
     """
 
     def __init__(self, db_connection=None, redis_client=None):
@@ -100,64 +119,219 @@ class ApptainerRegistryService:
         self.redis = redis_client
         self.cache_ttl = 3600  # 1시간
 
-        # 중앙 레지스트리 경로 (headnode에서 스캔용)
+        # 중앙 레지스트리 경로 (headnode에서 메타데이터 스캔용)
         self.registry_base = os.getenv('APPTAINER_REGISTRY', '/shared/apptainer')
+        self.metadata_base = os.path.join(self.registry_base, 'metadata')
+
+        # 이전 버전 호환: images 경로도 유지
         self.images_base = os.path.join(self.registry_base, 'images')
-        self.metadata_dir = os.path.join(self.registry_base, 'metadata')
+        self.metadata_dir = self.metadata_base  # alias
 
         # 실행 시 사용되는 경로 (compute/viz 노드에 배포되는 경로)
         # Phase8에서 /opt/apptainers/로 배포하므로 이 경로를 DB에 저장
         self.runtime_base = os.getenv('APPTAINER_RUNTIME_PATH', '/opt/apptainers')
 
-        # 파티션별 이미지 디렉토리
-        self.partitions = {
-            'compute': os.path.join(self.images_base, 'compute'),
-            'viz': os.path.join(self.images_base, 'viz'),
-            'shared': os.path.join(self.images_base, 'shared')
-        }
+        # 지원하는 파티션 타입
+        self.partition_types = ['compute', 'viz', 'shared']
 
-    def scan_partition_images(self, partition: str) -> List[ApptainerImage]:
+        # 메타데이터 스캔 경로 (우선순위 순서대로)
+        # 철학: 같은 이름 = 같은 이미지, partition은 JSON 내부 필드로 구분
+        # 구조: /shared/apptainer/metadata/*.json (flat)
+        self.metadata_scan_paths = [
+            self.metadata_base,      # /shared/apptainer/metadata/ (중앙 메타데이터)
+            self.runtime_base,       # /opt/apptainers/ (로컬 배포, fallback)
+        ]
+
+    def scan_partition_images(self, partition: str = None) -> List[ApptainerImage]:
         """
-        특정 파티션의 이미지 디렉토리를 스캔
+        메타데이터를 스캔하고 파티션별로 필터링
+
+        설계 철학: 같은 이름 = 같은 이미지, 하나의 대표 경로만 유지
+        Flat 구조: partition은 JSON 내부 필드로 구분
+
+        스캔 우선순위 (flat 디렉토리들):
+        1. /shared/apptainer/metadata/*.json (중앙 메타데이터)
+        2. /opt/apptainers/*.json (로컬 메타데이터, fallback)
 
         Args:
-            partition: 'compute', 'viz', 또는 'shared'
+            partition: 'compute', 'viz', 'shared', 또는 None (전체)
 
         Returns:
             ApptainerImage 객체 리스트
         """
-        if partition not in self.partitions:
+        if partition and partition not in self.partition_types:
             logger.error(f"Unknown partition: {partition}")
             return []
 
-        partition_dir = self.partitions[partition]
-
-        if not os.path.exists(partition_dir):
-            logger.warning(f"Partition directory not found: {partition_dir}")
-            return []
-
         images = []
+        scanned_names = set()  # 중복 방지 (같은 이름 = 같은 이미지)
 
-        try:
-            # .sif 파일 검색
-            for root, dirs, files in os.walk(partition_dir):
-                for filename in files:
-                    if filename.endswith('.sif'):
-                        image_path = os.path.join(root, filename)
+        # Flat 구조: 모든 메타데이터 스캔 경로 순회
+        for scan_dir in self.metadata_scan_paths:
+            if not os.path.exists(scan_dir):
+                logger.debug(f"Directory not found, skipping: {scan_dir}")
+                continue
 
-                        try:
-                            image = self._scan_single_image(image_path, partition)
-                            if image:
+            logger.info(f"Scanning metadata in: {scan_dir}")
+
+            try:
+                for filename in os.listdir(scan_dir):
+                    # .json 메타데이터 파일 검색 (.commands.json 제외)
+                    if not filename.endswith('.json'):
+                        continue
+                    if filename.endswith('.commands.json'):
+                        continue
+
+                    # 이미지 이름 추출 (두 가지 패턴 지원)
+                    # 패턴 1: image.json → image.sif
+                    # 패턴 2: image.sif.json → image.sif
+                    if filename.endswith('.sif.json'):
+                        image_name = filename.replace('.sif.json', '.sif')
+                    else:
+                        image_name = filename.replace('.json', '.sif')
+
+                    # 이미 스캔된 이미지는 건너뜀 (우선순위 높은 경로 우선)
+                    if image_name in scanned_names:
+                        continue
+
+                    json_path = os.path.join(scan_dir, filename)
+
+                    try:
+                        # partition=None이면 기본값 'compute' 사용
+                        default_partition = partition if partition else 'compute'
+                        image = self._load_image_from_metadata(json_path, default_partition)
+
+                        if image:
+                            # 파티션 필터링 (None이면 전체)
+                            if partition is None or image.partition == partition:
                                 images.append(image)
-                                logger.info(f"Scanned image: {filename} ({partition})")
-                        except Exception as e:
-                            logger.error(f"Failed to scan {filename}: {e}")
-                            continue
+                                scanned_names.add(image_name)
+                                logger.info(f"Loaded metadata: {filename} (partition: {image.partition})")
+                            else:
+                                logger.debug(f"Skipping {filename}: partition mismatch ({image.partition} != {partition})")
 
-        except Exception as e:
-            logger.error(f"Failed to scan partition {partition}: {e}")
+                    except Exception as e:
+                        logger.error(f"Failed to load metadata {filename}: {e}")
+                        continue
 
+            except Exception as e:
+                logger.error(f"Failed to scan directory {scan_dir}: {e}")
+
+        partition_str = partition if partition else 'all'
+        logger.info(f"Partition {partition_str}: found {len(images)} images")
         return images
+
+    def _load_image_from_metadata(self, json_path: str, default_partition: str) -> Optional[ApptainerImage]:
+        """
+        JSON 메타데이터 파일에서 이미지 정보 로드
+
+        두 가지 메타데이터 형식 지원:
+        1. 새 형식: generate_metadata.py 생성 (name, path, partition 등)
+        2. 기존 형식: /opt/apptainers/*.sif.json (filename, display_name, node_types 등)
+
+        Args:
+            json_path: .json 파일 경로
+            default_partition: 기본 파티션 (메타데이터에 없을 경우)
+
+        Returns:
+            ApptainerImage 객체 또는 None
+        """
+        try:
+            with open(json_path, 'r') as f:
+                raw_metadata = json.load(f)
+
+            # 정규화된 메타데이터 딕셔너리
+            metadata = {}
+
+            # === name 필드 처리 ===
+            if 'name' in raw_metadata:
+                metadata['name'] = raw_metadata['name']
+            elif 'filename' in raw_metadata:
+                # 기존 형식: filename → name
+                metadata['name'] = raw_metadata['filename']
+            else:
+                # 파일명에서 추출
+                json_filename = os.path.basename(json_path)
+                if json_filename.endswith('.sif.json'):
+                    metadata['name'] = json_filename.replace('.sif.json', '.sif')
+                else:
+                    metadata['name'] = json_filename.replace('.json', '.sif')
+
+            # === path 필드 처리 ===
+            if 'path' in raw_metadata and raw_metadata['path']:
+                metadata['path'] = raw_metadata['path']
+            else:
+                # runtime_base에서 생성
+                metadata['path'] = os.path.join(self.runtime_base, metadata['name'])
+
+            # === partition 필드 처리 ===
+            if 'partition' in raw_metadata:
+                metadata['partition'] = raw_metadata['partition']
+            elif 'node_types' in raw_metadata:
+                # 기존 형식: node_types에서 partition 추론
+                node_types = raw_metadata['node_types']
+                if 'viz' in node_types:
+                    metadata['partition'] = 'viz'
+                elif 'compute' in node_types:
+                    metadata['partition'] = 'compute'
+                else:
+                    metadata['partition'] = default_partition
+            elif 'category' in raw_metadata:
+                # category에서 추론
+                category = raw_metadata['category'].lower()
+                if category in ['visualization', 'viz', 'desktop']:
+                    metadata['partition'] = 'viz'
+                else:
+                    metadata['partition'] = 'compute'
+            else:
+                metadata['partition'] = default_partition
+
+            # === id 필드 처리 ===
+            if 'id' in raw_metadata:
+                metadata['id'] = raw_metadata['id']
+            else:
+                metadata['id'] = metadata['name'].replace('.sif', '').replace(' ', '_').lower()
+
+            # === type 필드 처리 ===
+            if 'type' in raw_metadata:
+                metadata['type'] = raw_metadata['type']
+            else:
+                # partition과 동일하게 설정
+                metadata['type'] = metadata['partition']
+
+            # === description 필드 처리 ===
+            if 'description' in raw_metadata:
+                metadata['description'] = raw_metadata['description']
+            elif 'display_name' in raw_metadata:
+                metadata['description'] = raw_metadata.get('display_name', '')
+            else:
+                metadata['description'] = f"{metadata['name']} image"
+
+            # === version 필드 처리 ===
+            metadata['version'] = raw_metadata.get('version', '1.0.0')
+
+            # === size 필드 처리 ===
+            metadata['size'] = raw_metadata.get('size', 0)
+
+            # === 기타 필드 복사 ===
+            for field in ['labels', 'apps', 'runscript', 'env_vars', 'command_templates']:
+                if field in raw_metadata:
+                    metadata[field] = raw_metadata[field]
+
+            # === 타임스탬프 ===
+            metadata['created_at'] = raw_metadata.get('created_at', datetime.now().isoformat())
+            metadata['updated_at'] = raw_metadata.get('updated_at', datetime.now().isoformat())
+            metadata['last_scanned'] = datetime.now().isoformat()
+            metadata['is_active'] = raw_metadata.get('is_active', True)
+
+            return ApptainerImage(**metadata)
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in {json_path}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to load metadata from {json_path}: {e}")
+            return None
 
     def _scan_single_image(self, image_path: str, partition: str) -> Optional[ApptainerImage]:
         """
@@ -433,27 +607,32 @@ class ApptainerRegistryService:
         """
         모든 파티션의 이미지를 스캔하고 DB에 저장
 
+        Flat 구조에서는 전체 스캔 후 partition 필드로 집계
+
         Returns:
             파티션별 스캔된 이미지 개수
         """
-        stats = {}
+        stats = {partition: 0 for partition in self.partition_types}
+        stats['unknown'] = 0  # partition 필드가 없는 경우
 
-        for partition_name in self.partitions.keys():
-            try:
-                images = self.scan_partition_images(partition_name)
+        try:
+            # 전체 스캔 (partition=None)
+            images = self.scan_partition_images(partition=None)
 
-                # DB에 저장
-                saved_count = 0
-                for image in images:
-                    if self._save_image_to_db(image):
-                        saved_count += 1
+            # DB에 저장 및 파티션별 집계
+            for image in images:
+                if self._save_image_to_db(image):
+                    partition_key = image.partition if image.partition in self.partition_types else 'unknown'
+                    stats[partition_key] = stats.get(partition_key, 0) + 1
 
-                stats[partition_name] = saved_count
-                logger.info(f"Scanned {partition_name}: {saved_count} images")
+            total = sum(stats.values())
+            logger.info(f"Scanned all partitions: {total} total images")
+            for partition_name, count in stats.items():
+                if count > 0:
+                    logger.info(f"  - {partition_name}: {count} images")
 
-            except Exception as e:
-                logger.error(f"Error scanning partition {partition_name}: {e}")
-                stats[partition_name] = 0
+        except Exception as e:
+            logger.error(f"Error scanning all partitions: {e}")
 
         return stats
 
