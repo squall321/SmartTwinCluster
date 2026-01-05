@@ -702,8 +702,32 @@ else
         log "INFO" "Creating directory structure..."
 
         mkdir -p "$MOUNT_POINT"/{frontend_builds,slurm/{state,logs,spool},uploads,config}
+        mkdir -p "$MOUNT_POINT"/{templates/{official,community,user},logs,jobs,apptainer/metadata}
 
         log "SUCCESS" "Directory structure created"
+    fi
+
+    # Create /shared symlink for backward compatibility
+    # Many services (templates, uploads, logs) use /shared as base path
+    if [[ "$MOUNT_POINT" != "/shared" ]]; then
+        if [[ -L "/shared" ]]; then
+            # Already a symlink - check if it points to the right place
+            CURRENT_TARGET=$(readlink -f "/shared" 2>/dev/null || echo "")
+            if [[ "$CURRENT_TARGET" != "$MOUNT_POINT" ]]; then
+                log "INFO" "Updating /shared symlink: $CURRENT_TARGET -> $MOUNT_POINT"
+                rm -f "/shared"
+                ln -s "$MOUNT_POINT" "/shared"
+            else
+                log "INFO" "/shared symlink already correct"
+            fi
+        elif [[ -d "/shared" ]]; then
+            log "WARNING" "/shared exists as directory, not creating symlink"
+            log "WARNING" "Services expecting /shared may not work correctly"
+        else
+            log "INFO" "Creating /shared symlink -> $MOUNT_POINT"
+            ln -s "$MOUNT_POINT" "/shared"
+            log "SUCCESS" "/shared symlink created for backward compatibility"
+        fi
     fi
 fi
 
