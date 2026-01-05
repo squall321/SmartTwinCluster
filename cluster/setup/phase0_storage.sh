@@ -699,12 +699,18 @@ else
         echo "$FSTAB_ENTRY" >> /etc/fstab
         log "SUCCESS" "Added to /etc/fstab for auto-mount on boot (with nofail for boot safety)"
     else
-        # Update existing entry if it doesn't have nofail
-        if ! grep -q "nofail" /etc/fstab; then
-            log "WARNING" "Existing fstab entry may not have nofail option"
-            log "INFO" "Consider updating /etc/fstab with: $FSTAB_ENTRY"
+        # Update existing entry if it doesn't have nofail (boot safety)
+        if grep -q "$MOUNT_POINT" /etc/fstab && ! grep "$MOUNT_POINT" /etc/fstab | grep -q "nofail"; then
+            log "WARNING" "Existing fstab entry doesn't have nofail option - updating for boot safety"
+            # Backup and update fstab
+            cp /etc/fstab /etc/fstab.bak.$(date +%Y%m%d%H%M%S)
+            # Remove old entry and add new one with nofail
+            sed -i "\|$MOUNT_POINT|d" /etc/fstab
+            echo "$FSTAB_ENTRY" >> /etc/fstab
+            log "SUCCESS" "Updated fstab entry with nofail option (backup created)"
+        else
+            log "INFO" "Already in /etc/fstab (with nofail)"
         fi
-        log "INFO" "Already in /etc/fstab"
     fi
 
     # Create directory structure (only if bootstrap)
