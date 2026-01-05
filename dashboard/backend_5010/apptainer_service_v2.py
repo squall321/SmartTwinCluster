@@ -5,14 +5,15 @@ Apptainer Image Registry Service (v2)
 설계 철학:
 - 같은 이름 = 같은 이미지
 - 하나의 이미지에 대해 하나의 대표 경로만 유지
-- Flat 구조: /shared/apptainer/metadata/*.json (partition은 JSON 내부 필드로 구분)
+- Flat 구조: {gluster_mount}/apptainer/metadata/*.json (partition은 JSON 내부 필드로 구분)
 
 메타데이터 기반 스캔:
-- 우선순위 1: /shared/apptainer/metadata/*.json (중앙 메타데이터, flat 구조)
+- 우선순위 1: {gluster_mount}/apptainer/metadata/*.json (중앙 메타데이터, flat 구조)
 - 우선순위 2: /opt/apptainers/*.json (로컬 메타데이터, fallback)
 
 경로 구조:
-- 메타데이터: /shared/apptainer/metadata/*.json (headnode, flat 구조)
+- 메타데이터: {gluster_mount}/apptainer/metadata/*.json (headnode, flat 구조)
+  기본 GlusterFS 마운트: /mnt/gluster (YAML shared_storage.glusterfs.mount_point)
 - 실제 이미지: /opt/apptainers/*.sif (compute/viz 노드에 배포됨)
 - 샌드박스: /scratch/apptainer_sandboxes/ (별도 관리)
 
@@ -101,7 +102,7 @@ class ApptainerRegistryService:
 
     설계 철학: 같은 이름 = 같은 이미지, 하나의 대표 경로만 유지
 
-    /shared/apptainer/ 구조 (flat):
+    {gluster_mount}/apptainer/ 구조 (flat):
       └── metadata/   # 모든 파티션의 메타데이터 (*.json)
                       # partition은 JSON 내부 필드로 구분
 
@@ -120,7 +121,9 @@ class ApptainerRegistryService:
         self.cache_ttl = 3600  # 1시간
 
         # 중앙 레지스트리 경로 (headnode에서 메타데이터 스캔용)
-        self.registry_base = os.getenv('APPTAINER_REGISTRY', '/shared/apptainer')
+        # 기본값: /mnt/gluster/apptainer (YAML shared_storage.glusterfs.mount_point 기본값)
+        # 환경 변수로 재정의 가능: APPTAINER_REGISTRY=/mnt/gluster/apptainer
+        self.registry_base = os.getenv('APPTAINER_REGISTRY', '/mnt/gluster/apptainer')
         self.metadata_base = os.path.join(self.registry_base, 'metadata')
 
         # 이전 버전 호환: images 경로도 유지
@@ -136,9 +139,9 @@ class ApptainerRegistryService:
 
         # 메타데이터 스캔 경로 (우선순위 순서대로)
         # 철학: 같은 이름 = 같은 이미지, partition은 JSON 내부 필드로 구분
-        # 구조: /shared/apptainer/metadata/*.json (flat)
+        # 구조: {gluster_mount}/apptainer/metadata/*.json (flat)
         self.metadata_scan_paths = [
-            self.metadata_base,      # /shared/apptainer/metadata/ (중앙 메타데이터)
+            self.metadata_base,      # {gluster_mount}/apptainer/metadata/ (중앙 메타데이터)
             self.runtime_base,       # /opt/apptainers/ (로컬 배포, fallback)
         ]
 
@@ -150,7 +153,7 @@ class ApptainerRegistryService:
         Flat 구조: partition은 JSON 내부 필드로 구분
 
         스캔 우선순위 (flat 디렉토리들):
-        1. /shared/apptainer/metadata/*.json (중앙 메타데이터)
+        1. {gluster_mount}/apptainer/metadata/*.json (중앙 메타데이터)
         2. /opt/apptainers/*.json (로컬 메타데이터, fallback)
 
         Args:
@@ -338,7 +341,7 @@ class ApptainerRegistryService:
         단일 이미지 파일 스캔 및 메타데이터 추출
 
         우선순위:
-        1. 배포된 JSON 메타데이터 파일 (/shared/apptainer/metadata/*.json)
+        1. 배포된 JSON 메타데이터 파일 ({gluster_mount}/apptainer/metadata/*.json)
         2. 이미지 옆 JSON 파일 (*.sif -> *.json)
         3. apptainer inspect 실행 (느림)
 
@@ -383,7 +386,7 @@ class ApptainerRegistryService:
             # 3. 캐시된 메타데이터가 있으면 그것을 사용
             if cached_metadata:
                 # 캐시된 메타데이터로 ApptainerImage 생성
-                # path는 runtime 경로로 변환 (/shared/... → /opt/apptainers/...)
+                # path는 runtime 경로로 변환 ({gluster_mount}/... → /opt/apptainers/...)
                 # 실제 실행은 compute/viz 노드에서 /opt/apptainers/ 경로로 수행됨
                 runtime_path = os.path.join(self.runtime_base, filename)
                 cached_metadata['path'] = runtime_path

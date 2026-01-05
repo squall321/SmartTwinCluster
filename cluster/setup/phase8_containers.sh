@@ -284,6 +284,27 @@ except Exception as e:
 EOPY
 }
 
+# Function to get GlusterFS mount point from YAML (for shared metadata storage)
+get_gluster_mount_point() {
+    python3 << EOPY
+import yaml
+import sys
+
+try:
+    with open('$CONFIG_PATH', 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Get shared_storage.glusterfs.mount_point
+    mount_point = config.get('shared_storage', {}).get('glusterfs', {}).get('mount_point', '/mnt/gluster')
+    print(mount_point)
+
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    print('/mnt/gluster')  # Default fallback
+    sys.exit(0)
+EOPY
+}
+
 # Function to deploy images to a single node
 deploy_to_node() {
     local hostname=$1
@@ -658,20 +679,29 @@ deploy_metadata_to_headnode() {
     echo ""
 
     # 철학: 같은 이름 = 같은 이미지, 하나의 대표 경로만 사용
-    # 구조: /shared/apptainer/metadata/*.json (flat, partition은 JSON 내부 필드로 구분)
+    # 구조: {gluster_mount}/apptainer/metadata/*.json (flat, partition은 JSON 내부 필드로 구분)
     #
     # 메타데이터 배포 경로 결정:
-    # 1. /shared가 있으면 → /shared/apptainer/metadata/ (클러스터 공유)
-    # 2. /shared가 없으면 → /opt/apptainers/ (로컬 fallback)
+    # 1. GlusterFS 마운트 포인트가 있으면 → {mount_point}/apptainer/metadata/ (클러스터 공유)
+    # 2. GlusterFS가 없으면 → /opt/apptainers/ (로컬 fallback)
     local metadata_dir=""
+    local gluster_mount=$(get_gluster_mount_point)
 
-    if [[ -d "/shared" ]] || sudo mkdir -p "/shared/apptainer/metadata" 2>/dev/null; then
-        metadata_dir="/shared/apptainer/metadata"
-        log_info "Deploying metadata JSON files to $metadata_dir (shared storage)"
+    log_info "GlusterFS mount point from YAML: $gluster_mount"
+
+    # Check if GlusterFS mount exists and is accessible
+    if [[ -d "$gluster_mount" ]] && mountpoint -q "$gluster_mount" 2>/dev/null; then
+        metadata_dir="$gluster_mount/apptainer/metadata"
+        if sudo mkdir -p "$metadata_dir" 2>/dev/null; then
+            log_info "Deploying metadata JSON files to $metadata_dir (GlusterFS shared storage)"
+        else
+            log_warning "Failed to create $metadata_dir, falling back to local storage"
+            metadata_dir="/opt/apptainers"
+        fi
     else
-        # /shared가 없는 환경 (단일 노드 또는 NFS 미설정)
+        # GlusterFS가 없는 환경 (단일 노드 또는 GlusterFS 미설정)
         metadata_dir="/opt/apptainers"
-        log_warning "/shared not available, deploying metadata to $metadata_dir (local fallback)"
+        log_warning "GlusterFS mount ($gluster_mount) not available, deploying metadata to $metadata_dir (local fallback)"
     fi
 
     if ! sudo mkdir -p "$metadata_dir" 2>/dev/null; then
