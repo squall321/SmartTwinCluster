@@ -541,13 +541,53 @@ else
     if gluster volume info "$VOLUME_NAME" &>/dev/null; then
         log "INFO" "Volume $VOLUME_NAME already exists"
 
-        # Check volume status
-        VOLUME_STATUS=$(gluster volume status "$VOLUME_NAME" 2>/dev/null || echo "error")
-        if [[ "$VOLUME_STATUS" == "error" ]]; then
-            log "WARNING" "Volume exists but is in error state"
-            log "INFO" "Cleaning up failed volume..."
-            gluster volume delete "$VOLUME_NAME" --mode=script 2>/dev/null || true
-            log "INFO" "Will recreate volume from scratch"
+        # Check if existing brick path matches YAML configuration
+        # If brick path is different, we need to recreate the volume
+        EXISTING_BRICK=$(gluster volume info "$VOLUME_NAME" 2>/dev/null | grep -E "^Brick[0-9]+:" | head -1 | awk '{print $2}')
+        EXPECTED_BRICK="$CURRENT_IP:$BRICK_PATH"
+
+        if [[ -n "$EXISTING_BRICK" ]]; then
+            EXISTING_BRICK_PATH=$(echo "$EXISTING_BRICK" | cut -d: -f2)
+            log "INFO" "Existing brick path: $EXISTING_BRICK_PATH"
+            log "INFO" "YAML brick path: $BRICK_PATH"
+
+            if [[ "$EXISTING_BRICK_PATH" != "$BRICK_PATH" ]]; then
+                log "WARNING" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                log "WARNING" "BRICK PATH MISMATCH DETECTED!"
+                log "WARNING" "  Existing: $EXISTING_BRICK_PATH"
+                log "WARNING" "  Expected: $BRICK_PATH (from YAML)"
+                log "WARNING" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                log "INFO" "Removing mismatched volume to recreate with correct brick path..."
+
+                # Stop and delete the volume
+                gluster volume stop "$VOLUME_NAME" --mode=script 2>/dev/null || true
+                sleep 2
+                gluster volume delete "$VOLUME_NAME" --mode=script 2>/dev/null || true
+                sleep 2
+
+                # Clean up old brick metadata
+                if [[ -d "$EXISTING_BRICK_PATH/.glusterfs" ]]; then
+                    log "INFO" "Cleaning up old brick metadata: $EXISTING_BRICK_PATH/.glusterfs"
+                    rm -rf "$EXISTING_BRICK_PATH/.glusterfs" 2>/dev/null || true
+                fi
+
+                # Clean up glusterd volume metadata
+                rm -rf "/var/lib/glusterd/vols/$VOLUME_NAME" 2>/dev/null || true
+
+                log "SUCCESS" "Old volume removed, will recreate with correct brick path"
+            fi
+        fi
+
+        # Check volume status (if volume still exists after potential cleanup)
+        if gluster volume info "$VOLUME_NAME" &>/dev/null; then
+            VOLUME_STATUS=$(gluster volume status "$VOLUME_NAME" 2>/dev/null || echo "error")
+            if [[ "$VOLUME_STATUS" == "error" ]]; then
+                log "WARNING" "Volume exists but is in error state"
+                log "INFO" "Cleaning up failed volume..."
+                gluster volume stop "$VOLUME_NAME" --mode=script 2>/dev/null || true
+                gluster volume delete "$VOLUME_NAME" --mode=script 2>/dev/null || true
+                log "INFO" "Will recreate volume from scratch"
+            fi
         fi
     fi
 
