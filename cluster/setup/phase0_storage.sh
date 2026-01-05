@@ -689,11 +689,21 @@ else
     fi
 
     # Add to /etc/fstab if not present
-    FSTAB_ENTRY="localhost:/$VOLUME_NAME $MOUNT_POINT glusterfs defaults,_netdev 0 0"
+    # Options:
+    #   _netdev: Wait for network before mounting
+    #   nofail: Continue boot even if mount fails (CRITICAL for boot safety)
+    #   x-systemd.automount: Mount on first access (optional, reduces boot time)
+    #   x-systemd.requires=glusterd.service: Ensure glusterd starts first
+    FSTAB_ENTRY="localhost:/$VOLUME_NAME $MOUNT_POINT glusterfs defaults,_netdev,nofail,x-systemd.requires=glusterd.service 0 0"
     if ! grep -q "$MOUNT_POINT" /etc/fstab; then
         echo "$FSTAB_ENTRY" >> /etc/fstab
-        log "SUCCESS" "Added to /etc/fstab for auto-mount on boot"
+        log "SUCCESS" "Added to /etc/fstab for auto-mount on boot (with nofail for boot safety)"
     else
+        # Update existing entry if it doesn't have nofail
+        if ! grep -q "nofail" /etc/fstab; then
+            log "WARNING" "Existing fstab entry may not have nofail option"
+            log "INFO" "Consider updating /etc/fstab with: $FSTAB_ENTRY"
+        fi
         log "INFO" "Already in /etc/fstab"
     fi
 
