@@ -657,12 +657,22 @@ deploy_metadata_to_headnode() {
     log_phase "=== Deploying Metadata to Headnode ==="
     echo ""
 
-    log_info "Deploying metadata JSON files to /shared/apptainer/metadata/"
-
-    # Create metadata directory on headnode
     # 철학: 같은 이름 = 같은 이미지, 하나의 대표 경로만 사용
     # 구조: /shared/apptainer/metadata/*.json (flat, partition은 JSON 내부 필드로 구분)
-    local metadata_dir="/shared/apptainer/metadata"
+    #
+    # 메타데이터 배포 경로 결정:
+    # 1. /shared가 있으면 → /shared/apptainer/metadata/ (클러스터 공유)
+    # 2. /shared가 없으면 → /opt/apptainers/ (로컬 fallback)
+    local metadata_dir=""
+
+    if [[ -d "/shared" ]] || sudo mkdir -p "/shared/apptainer/metadata" 2>/dev/null; then
+        metadata_dir="/shared/apptainer/metadata"
+        log_info "Deploying metadata JSON files to $metadata_dir (shared storage)"
+    else
+        # /shared가 없는 환경 (단일 노드 또는 NFS 미설정)
+        metadata_dir="/opt/apptainers"
+        log_warning "/shared not available, deploying metadata to $metadata_dir (local fallback)"
+    fi
 
     if ! sudo mkdir -p "$metadata_dir" 2>/dev/null; then
         log_error "Failed to create metadata directory: $metadata_dir"
