@@ -197,6 +197,16 @@ check_ssh() {
     local ssh_output
     local ssh_exit_code
 
+    # Determine SSH key to use (handle sudo environment)
+    local ssh_key_opt=""
+    local check_user="${SUDO_USER:-$(whoami)}"
+    local check_home=$(getent passwd "$check_user" 2>/dev/null | cut -d: -f6 || echo "$HOME")
+    local check_key="${check_home}/.ssh/id_rsa"
+    if [[ -f "$check_key" ]]; then
+        ssh_key_opt="-i $check_key"
+        debug_log "check_ssh: Using SSH key: $check_key"
+    fi
+
     # SSH options explained:
     # - ConnectTimeout: TCP connection timeout
     # - StrictHostKeyChecking=no: Don't prompt for host key verification
@@ -207,7 +217,8 @@ check_ssh() {
     # - PreferredAuthentications: Only try publickey (fastest, no password prompts)
     # - ServerAliveInterval: Send keepalive every 5 seconds
     # - ServerAliveCountMax: Disconnect after 1 missed keepalive
-    ssh_output=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    ssh_output=$(timeout $SSH_TIMEOUT ssh $ssh_key_opt \
+                              -o ConnectTimeout=$SSH_TIMEOUT \
                               -o StrictHostKeyChecking=no \
                               -o BatchMode=yes \
                               -o UserKnownHostsFile=/dev/null \
@@ -236,7 +247,19 @@ check_ssh() {
 }
 
 # Common SSH options to prevent hangs (used by all service check functions)
-SSH_OPTS="-o ConnectTimeout=\$SSH_TIMEOUT -o StrictHostKeyChecking=no -o BatchMode=yes -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+# IMPORTANT: When running with sudo, use the original user's SSH key
+ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
+ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" 2>/dev/null | cut -d: -f6 || echo "$HOME")
+SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
+
+# Add -i option if SSH key exists
+SSH_KEY_OPT=""
+if [[ -f "$SSH_KEY_FILE" ]]; then
+    SSH_KEY_OPT="-i $SSH_KEY_FILE"
+    debug_log "Using SSH key: $SSH_KEY_FILE"
+fi
+
+SSH_OPTS="$SSH_KEY_OPT -o ConnectTimeout=\$SSH_TIMEOUT -o StrictHostKeyChecking=no -o BatchMode=yes -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
 
 # Check GlusterFS status
 check_glusterfs() {
@@ -247,7 +270,8 @@ check_glusterfs() {
     debug_log "check_glusterfs: Starting GlusterFS check for ${user}@${ip}:${port}"
     local check_start=$(date +%s.%N)
 
-    local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    local result=$(timeout $SSH_TIMEOUT ssh $SSH_KEY_OPT \
+                                             -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
@@ -282,7 +306,8 @@ check_mariadb() {
     local check_start=$(date +%s.%N)
 
     debug_log "check_mariadb: Executing cluster_size query..."
-    local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    local result=$(timeout $SSH_TIMEOUT ssh $SSH_KEY_OPT \
+                                             -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
@@ -300,7 +325,8 @@ check_mariadb() {
 
     if [[ -n "$result" && "$result" =~ ^[0-9]+$ && "$result" -gt 0 ]]; then
         debug_log "check_mariadb: Cluster size is $result, fetching state..."
-        local state=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+        local state=$(timeout $SSH_TIMEOUT ssh $SSH_KEY_OPT \
+                                                -o ConnectTimeout=$SSH_TIMEOUT \
                                                 -o StrictHostKeyChecking=no \
                                                 -o BatchMode=yes \
                                                 -o UserKnownHostsFile=/dev/null \
@@ -336,7 +362,7 @@ check_redis() {
     debug_log "check_redis: Starting Redis check for ${user}@${ip}:${port}"
     local check_start=$(date +%s.%N)
 
-    local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    local result=$(timeout $SSH_TIMEOUT ssh $SSH_KEY_OPT -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
@@ -354,7 +380,7 @@ check_redis() {
 
     if [[ "$result" == "ok" ]]; then
         debug_log "check_redis: Cluster state OK, fetching node count..."
-        local nodes=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+        local nodes=$(timeout $SSH_TIMEOUT ssh $SSH_KEY_OPT -o ConnectTimeout=$SSH_TIMEOUT \
                                                 -o StrictHostKeyChecking=no \
                                                 -o BatchMode=yes \
                                                 -o UserKnownHostsFile=/dev/null \
@@ -390,7 +416,7 @@ check_slurm() {
     debug_log "check_slurm: Starting Slurm check for ${user}@${ip}:${port}"
     local check_start=$(date +%s.%N)
 
-    local result=$(timeout $SSH_TIMEOUT ssh -o ConnectTimeout=$SSH_TIMEOUT \
+    local result=$(timeout $SSH_TIMEOUT ssh $SSH_KEY_OPT -o ConnectTimeout=$SSH_TIMEOUT \
                                              -o StrictHostKeyChecking=no \
                                              -o BatchMode=yes \
                                              -o UserKnownHostsFile=/dev/null \
@@ -448,7 +474,7 @@ check_keepalived() {
     debug_log "check_keepalived: Starting Keepalived check for ${user}@${ip}:${port}, vip=$vip"
     local check_start=$(date +%s.%N)
 
-    local has_vip=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
+    local has_vip=$(timeout $SSH_TIMEOUT ssh -n $SSH_KEY_OPT -o ConnectTimeout=$SSH_TIMEOUT \
                                               -o StrictHostKeyChecking=no \
                                               -o BatchMode=yes \
                                               -o UserKnownHostsFile=/dev/null \
@@ -463,7 +489,7 @@ check_keepalived() {
     if [[ "$has_vip" == "true" ]]; then
         state="MASTER"
     else
-        local keepalived_state=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
+        local keepalived_state=$(timeout $SSH_TIMEOUT ssh -n $SSH_KEY_OPT -o ConnectTimeout=$SSH_TIMEOUT \
                                                           -o StrictHostKeyChecking=no \
                                                           -o BatchMode=yes \
                                                           -o UserKnownHostsFile=/dev/null \
@@ -495,7 +521,7 @@ get_system_load() {
     local user=$2
     local port=${3:-22}
 
-    local load=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
+    local load=$(timeout $SSH_TIMEOUT ssh -n $SSH_KEY_OPT -o ConnectTimeout=$SSH_TIMEOUT \
                                           -o StrictHostKeyChecking=no \
                                           -o BatchMode=yes \
                                           -o UserKnownHostsFile=/dev/null \
@@ -515,7 +541,7 @@ get_uptime() {
     local user=$2
     local port=${3:-22}
 
-    local uptime_str=$(timeout $SSH_TIMEOUT ssh -n -o ConnectTimeout=$SSH_TIMEOUT \
+    local uptime_str=$(timeout $SSH_TIMEOUT ssh -n $SSH_KEY_OPT -o ConnectTimeout=$SSH_TIMEOUT \
                                                  -o StrictHostKeyChecking=no \
                                                  -o BatchMode=yes \
                                                  -o UserKnownHostsFile=/dev/null \
