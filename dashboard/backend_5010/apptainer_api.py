@@ -235,8 +235,9 @@ def scan_all_nodes():
         }
 
     Note:
-        중앙 레지스트리 (/shared/apptainer/images/)를 스캔하여
+        중앙 레지스트리 ({gluster_mount}/apptainer/metadata/)를 스캔하여
         실제 존재하는 이미지만 DB에 저장합니다.
+        (기본 GlusterFS 마운트: /mnt/gluster, /shared 심볼릭 링크로도 접근 가능)
     """
     try:
         service = get_apptainer_service()
