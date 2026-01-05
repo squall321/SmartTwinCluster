@@ -1719,6 +1719,25 @@ except Exception as e:
     print(f"Error reading YAML: {e}", file=sys.stderr)
     sys.exit(1)
 
+# Get compute nodes from YAML and group by node_type
+compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
+viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
+
+# Combine all nodes and group by node_type
+all_nodes = compute_nodes + viz_nodes
+nodes_by_type = {}
+for node in all_nodes:
+    node_type = node.get('node_type', 'compute')
+    if node_type not in nodes_by_type:
+        nodes_by_type[node_type] = []
+    nodes_by_type[node_type].append({
+        'hostname': node.get('hostname'),
+        'ip_address': node.get('ip_address'),
+        'cpus': node.get('hardware', {}).get('cpus', 128),
+        'memory_mb': node.get('hardware', {}).get('memory_mb', 0),
+        'status': 'idle'
+    })
+
 # Get partitions from YAML (check multiple locations)
 # Priority: slurm_config.partitions > slurm.partitions > partitions (root)
 partitions = config.get('slurm_config', {}).get('partitions', [])
@@ -1727,44 +1746,38 @@ if not partitions:
 if not partitions:
     partitions = config.get('partitions', [])
 
-# Get compute nodes from YAML
-compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
-
-# Map nodes to partitions
-# Create groups from partitions
+# Create groups from partitions with actual node hostnames
 groups = []
 colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
+# Map partition names to node_types
+# 'normal' or 'compute' partition -> node_type='compute'
+# 'viz' or 'visualization' partition -> node_type='viz'
+partition_to_nodetype = {
+    'normal': 'compute',
+    'compute': 'compute',
+    'batch': 'compute',
+    'viz': 'viz',
+    'visualization': 'viz',
+    'gpu': 'viz',
+    'interactive': 'viz'
+}
+
 for idx, partition in enumerate(partitions):
     partition_name = partition.get('name', f'partition{idx+1}')
-    nodes_pattern = partition.get('nodes', '')
 
-    # Parse node pattern (e.g., "node[001-003]" or "node001,node002")
-    node_list = []
-    if nodes_pattern:
-        # Simple expansion for common patterns
-        import re
-        # Match patterns like node[001-003] or viz-node[001-002]
-        range_match = re.match(r'(.+)\[(\d+)-(\d+)\]', nodes_pattern)
-        if range_match:
-            prefix = range_match.group(1)
-            start = int(range_match.group(2))
-            end = int(range_match.group(3))
-            width = len(range_match.group(2))
-            for i in range(start, end + 1):
-                node_list.append({
-                    'hostname': f"{prefix}{str(i).zfill(width)}",
-                    'status': 'idle'
-                })
-        else:
-            # Comma-separated list
-            for node_name in nodes_pattern.split(','):
-                node_name = node_name.strip()
-                if node_name:
-                    node_list.append({
-                        'hostname': node_name,
-                        'status': 'idle'
-                    })
+    # Determine which node_type this partition should use
+    mapped_type = partition_to_nodetype.get(partition_name.lower(), partition_name.lower())
+
+    # Get nodes for this partition from nodes_by_type
+    node_list = nodes_by_type.get(mapped_type, [])
+
+    # If no nodes found by mapping, try direct partition name match
+    if not node_list:
+        node_list = nodes_by_type.get(partition_name.lower(), [])
+
+    # Calculate total cores from actual hardware info
+    total_cores = sum(n.get('cpus', 128) for n in node_list)
 
     group = {
         'id': idx + 1,
@@ -1775,12 +1788,13 @@ for idx, partition in enumerate(partitions):
         'color': colors[idx % len(colors)],
         'description': partition.get('description', f'{partition_name} partition'),
         'nodeCount': len(node_list),
-        'totalCores': len(node_list) * 128,  # Assume 128 cores per node
+        'totalCores': total_cores,
         'nodes': node_list,
         'maxTime': partition.get('max_time', 'INFINITE'),
         'default': partition.get('default', False)
     }
     groups.append(group)
+    print(f"Partition '{partition_name}' -> {len(node_list)} nodes (type: {mapped_type})", file=sys.stderr)
 
 # Get cluster info
 cluster_info = config.get('cluster_info', {})
