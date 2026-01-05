@@ -113,11 +113,14 @@ TEMPLATE_DIRS = {
     'user': '/shared/templates/user',
 }
 
-# Apptainer 이미지 디렉토리
+# Apptainer 이미지 디렉토리 (fallback용, DB 우선 사용)
 APPTAINER_DIRS = {
-    'compute': '/opt/apptainers',
-    'viz': '/opt/apptainers',
+    'compute': os.getenv('APPTAINER_RUNTIME_PATH', '/opt/apptainers'),
+    'viz': os.getenv('APPTAINER_RUNTIME_PATH', '/opt/apptainers'),
 }
+
+# 메타데이터 디렉토리 (GlusterFS 공유 스토리지)
+APPTAINER_METADATA_DIR = os.getenv('APPTAINER_METADATA_DIR', '/mnt/gluster/apptainer/metadata')
 
 # 업로드 임시 디렉토리
 UPLOAD_DIR = '/tmp/slurm_uploads'
@@ -386,50 +389,133 @@ def load_template(template_id: str) -> dict:
 
 def get_apptainer_image(image_id: str) -> dict:
     """
-    Apptainer 이미지 정보 조회
+    Apptainer 이미지 정보 조회 (DB 우선, 파일시스템 fallback)
 
     Note: Headnode에는 JSON 메타데이터만 있고, 실제 .sif 파일은 각 노드에 존재
     """
-    # JSON 메타데이터 또는 파일명 패턴으로 찾기
+    # 1. DB에서 먼저 조회
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM apptainer_images WHERE id = ? OR name LIKE ?", (image_id, f"%{image_id}%"))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                'id': row['id'],
+                'name': row['name'],
+                'path': row['path'],
+                'partition': row['partition'],
+                'metadata': json.loads(row['labels']) if row['labels'] else {}
+            }
+    except Exception as e:
+        logger.warning(f"DB lookup failed for image {image_id}: {e}")
+
+    # 2. 메타데이터 디렉토리에서 검색 (GlusterFS)
+    if os.path.exists(APPTAINER_METADATA_DIR):
+        try:
+            for file in os.listdir(APPTAINER_METADATA_DIR):
+                if file.endswith('.json') and not file.endswith('.commands.json'):
+                    json_path = os.path.join(APPTAINER_METADATA_DIR, file)
+                    try:
+                        with open(json_path, 'r') as f:
+                            metadata = json.load(f)
+                            sif_name = metadata.get('name', file.replace('.sif.json', '.sif').replace('.json', '.sif'))
+                            if image_id in sif_name or image_id in file:
+                                runtime_path = os.getenv('APPTAINER_RUNTIME_PATH', '/opt/apptainers')
+                                return {
+                                    'id': image_id,
+                                    'name': sif_name,
+                                    'path': os.path.join(runtime_path, sif_name),
+                                    'partition': metadata.get('partition', 'compute'),
+                                    'metadata': metadata
+                                }
+                    except:
+                        continue
+        except Exception as e:
+            logger.warning(f"Metadata dir scan failed: {e}")
+
+    # 3. Fallback: 기존 방식 (하위 호환)
     for partition, image_dir in APPTAINER_DIRS.items():
-        # JSON 메타데이터 먼저 확인
-        for file in os.listdir(image_dir):
-            if file.endswith('.sif.json'):
-                json_path = os.path.join(image_dir, file)
-                try:
-                    with open(json_path, 'r') as f:
-                        metadata = json.load(f)
-                        # filename에서 .sif.json 제거
-                        sif_name = file.replace('.sif.json', '.sif')
-                        if image_id in sif_name:
-                            return {
-                                'id': image_id,
-                                'name': sif_name,
-                                'path': os.path.join(image_dir, sif_name),
-                                'partition': partition,
-                                'metadata': metadata
-                            }
-                except:
-                    continue
+        if not os.path.exists(image_dir):
+            continue
+        try:
+            for file in os.listdir(image_dir):
+                if file.endswith('.sif.json'):
+                    json_path = os.path.join(image_dir, file)
+                    try:
+                        with open(json_path, 'r') as f:
+                            metadata = json.load(f)
+                            sif_name = file.replace('.sif.json', '.sif')
+                            if image_id in sif_name:
+                                return {
+                                    'id': image_id,
+                                    'name': sif_name,
+                                    'path': os.path.join(image_dir, sif_name),
+                                    'partition': partition,
+                                    'metadata': metadata
+                                }
+                    except:
+                        continue
+        except:
+            continue
 
     raise FileNotFoundError(f"Apptainer image not found: {image_id}")
 
 
 def get_apptainer_image_by_name(image_name: str) -> dict:
     """
-    Apptainer 이미지 정보 조회 (이름으로)
+    Apptainer 이미지 정보 조회 (이름으로) - DB 우선, 파일시스템 fallback
 
     Note: Headnode에는 JSON 메타데이터만 있고, 실제 .sif 파일은 각 노드에 존재
           JSON 메타데이터를 확인하고, 실제 파일은 원격 노드에서 검증
     """
+    # 1. DB에서 먼저 조회
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM apptainer_images WHERE name = ? OR name LIKE ?", (image_name, f"%{image_name}%"))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                'id': row['id'],
+                'name': row['name'],
+                'path': row['path'],
+                'partition': row['partition'],
+                'metadata': json.loads(row['labels']) if row['labels'] else {}
+            }
+    except Exception as e:
+        logger.warning(f"DB lookup failed for image name {image_name}: {e}")
+
+    # 2. 메타데이터 디렉토리에서 검색 (GlusterFS)
+    if os.path.exists(APPTAINER_METADATA_DIR):
+        json_path = os.path.join(APPTAINER_METADATA_DIR, image_name + '.json')
+        if not os.path.exists(json_path):
+            json_path = os.path.join(APPTAINER_METADATA_DIR, image_name.replace('.sif', '') + '.sif.json')
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r') as f:
+                    metadata = json.load(f)
+                    runtime_path = os.getenv('APPTAINER_RUNTIME_PATH', '/opt/apptainers')
+                    return {
+                        'id': image_name.replace('.sif', ''),
+                        'name': image_name if image_name.endswith('.sif') else image_name + '.sif',
+                        'path': os.path.join(runtime_path, image_name if image_name.endswith('.sif') else image_name + '.sif'),
+                        'partition': metadata.get('partition', 'compute'),
+                        'metadata': metadata
+                    }
+            except Exception as e:
+                logger.warning(f"Metadata file read failed: {e}")
+
+    # 3. Fallback: 기존 방식 (하위 호환)
     for partition, image_dir in APPTAINER_DIRS.items():
         image_path = os.path.join(image_dir, image_name)
         json_path = image_path + '.json'
 
-        # JSON 메타데이터 존재 확인 (headnode)
         if os.path.exists(json_path):
-            # 실제 .sif 파일은 원격 노드에서 확인 (선택사항)
-            # 여기서는 JSON이 있으면 파일도 있다고 가정
             try:
                 with open(json_path, 'r') as f:
                     metadata = json.load(f)

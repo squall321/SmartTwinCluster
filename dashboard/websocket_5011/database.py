@@ -10,9 +10,10 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
-# Database path
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'dashboard.db')
-SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.sql')
+# Database path (use same DB as backend_5010 for data consistency)
+# Priority: DATABASE_PATH env var > default path
+DB_PATH = os.getenv('DATABASE_PATH', '/home/koopark/web_services/backend/dashboard.db')
+SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'backend_5010', 'database', 'schema.sql')
 
 @contextmanager
 def get_db_connection():

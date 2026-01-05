@@ -1611,6 +1611,258 @@ EOF
     log_success "JWT authentication setup complete"
 }
 
+# Function to run database migrations for backend services
+# This creates necessary tables (apptainer_images, templates, etc.)
+run_database_migrations() {
+    local dashboard_dir=$1
+
+    log_info "Running database migrations for backend services..."
+
+    local backend_dir="$dashboard_dir/backend_5010"
+    local migration_script="$backend_dir/run_migrations.py"
+
+    if [[ ! -f "$migration_script" ]]; then
+        log_warning "Migration script not found: $migration_script"
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" == false ]]; then
+        # Get database path from .env or use default
+        local db_path
+        if [[ -f "$backend_dir/.env" ]]; then
+            db_path=$(grep "^DATABASE_PATH=" "$backend_dir/.env" 2>/dev/null | cut -d= -f2)
+        fi
+        db_path="${db_path:-/home/koopark/web_services/backend/dashboard.db}"
+
+        # Create DB directory if not exists
+        local db_dir=$(dirname "$db_path")
+        if [[ ! -d "$db_dir" ]]; then
+            log_info "Creating database directory: $db_dir"
+            mkdir -p "$db_dir"
+            # Set ownership (use service_user from YAML or current user)
+            local db_owner="${SERVICE_USER:-$(whoami)}"
+            local db_group="${SERVICE_GROUP:-$(id -gn)}"
+            if [[ -f "$CONFIG_PATH" ]]; then
+                local yaml_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                local yaml_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                [[ -n "$yaml_user" ]] && db_owner="$yaml_user"
+                [[ -n "$yaml_group" ]] && db_group="$yaml_group"
+            fi
+            chown "$db_owner:$db_group" "$db_dir"
+        fi
+
+        # Run migrations using venv Python
+        cd "$backend_dir"
+        if [[ -f "venv/bin/activate" ]]; then
+            log_info "Running migrations with venv Python..."
+            (
+                source venv/bin/activate
+                python3 run_migrations.py --db-path "$db_path" 2>&1 | while read -r line; do
+                    log_info "  $line"
+                done
+                deactivate
+            )
+
+            if [[ -f "$db_path" ]]; then
+                # Set DB file ownership
+                local db_owner="${SERVICE_USER:-$(whoami)}"
+                local db_group="${SERVICE_GROUP:-$(id -gn)}"
+                if [[ -f "$CONFIG_PATH" ]]; then
+                    local yaml_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    local yaml_group=$(grep -E "^\s+service_group:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    [[ -n "$yaml_user" ]] && db_owner="$yaml_user"
+                    [[ -n "$yaml_group" ]] && db_group="$yaml_group"
+                fi
+                chown "$db_owner:$db_group" "$db_path"
+                log_success "Database migrations completed: $db_path"
+            else
+                log_warning "Database file not created: $db_path"
+            fi
+        else
+            log_warning "venv not found for backend_5010, skipping migrations"
+        fi
+    else
+        log_info "[DRY-RUN] Would run database migrations"
+    fi
+}
+
+# Function to initialize cluster_config from YAML partitions
+init_cluster_config_from_yaml() {
+    local dashboard_dir=$1
+
+    log_info "Initializing cluster_config from YAML partitions..."
+
+    if [[ ! -f "$CONFIG_PATH" ]]; then
+        log_warning "Config file not found: $CONFIG_PATH"
+        return 0
+    fi
+
+    local backend_dir="$dashboard_dir/backend_5010"
+    local db_path
+    if [[ -f "$backend_dir/.env" ]]; then
+        db_path=$(grep "^DATABASE_PATH=" "$backend_dir/.env" 2>/dev/null | cut -d= -f2)
+    fi
+    db_path="${db_path:-/home/koopark/web_services/backend/dashboard.db}"
+
+    if [[ "$DRY_RUN" == false ]]; then
+        # Parse YAML and generate cluster_config JSON
+        local cluster_config_json
+        cluster_config_json=$(python3 << EOPY
+import yaml
+import json
+import sys
+
+try:
+    with open('$CONFIG_PATH', 'r') as f:
+        config = yaml.safe_load(f)
+except Exception as e:
+    print(f"Error reading YAML: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Get partitions from YAML
+partitions = config.get('slurm', {}).get('partitions', [])
+if not partitions:
+    partitions = config.get('partitions', [])
+
+# Get compute nodes from YAML
+compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
+
+# Map nodes to partitions
+# Create groups from partitions
+groups = []
+colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+
+for idx, partition in enumerate(partitions):
+    partition_name = partition.get('name', f'partition{idx+1}')
+    nodes_pattern = partition.get('nodes', '')
+
+    # Parse node pattern (e.g., "node[001-003]" or "node001,node002")
+    node_list = []
+    if nodes_pattern:
+        # Simple expansion for common patterns
+        import re
+        # Match patterns like node[001-003] or viz-node[001-002]
+        range_match = re.match(r'(.+)\[(\d+)-(\d+)\]', nodes_pattern)
+        if range_match:
+            prefix = range_match.group(1)
+            start = int(range_match.group(2))
+            end = int(range_match.group(3))
+            width = len(range_match.group(2))
+            for i in range(start, end + 1):
+                node_list.append({
+                    'hostname': f"{prefix}{str(i).zfill(width)}",
+                    'status': 'idle'
+                })
+        else:
+            # Comma-separated list
+            for node_name in nodes_pattern.split(','):
+                node_name = node_name.strip()
+                if node_name:
+                    node_list.append({
+                        'hostname': node_name,
+                        'status': 'idle'
+                    })
+
+    group = {
+        'id': idx + 1,
+        'name': partition_name.capitalize(),
+        'partitionName': partition_name,
+        'qosName': f'{partition_name}_qos',
+        'allowedCoreSizes': [32, 64, 128],  # Default
+        'color': colors[idx % len(colors)],
+        'description': partition.get('description', f'{partition_name} partition'),
+        'nodeCount': len(node_list),
+        'totalCores': len(node_list) * 128,  # Assume 128 cores per node
+        'nodes': node_list,
+        'maxTime': partition.get('max_time', 'INFINITE'),
+        'default': partition.get('default', False)
+    }
+    groups.append(group)
+
+# Get cluster info
+cluster_info = config.get('cluster_info', {})
+cluster_name = cluster_info.get('cluster_name', 'HPC-Cluster')
+
+# Get controller IP
+controllers = config.get('nodes', {}).get('controllers', [])
+controller_ip = controllers[0].get('ip_address', '127.0.0.1') if controllers else '127.0.0.1'
+
+# Calculate totals
+total_nodes = sum(g['nodeCount'] for g in groups)
+total_cores = sum(g['totalCores'] for g in groups)
+
+cluster_config = {
+    'groups': groups,
+    'clusterName': cluster_name,
+    'controllerIp': controller_ip,
+    'totalNodes': total_nodes,
+    'totalCores': total_cores
+}
+
+print(json.dumps(cluster_config))
+EOPY
+        )
+
+        if [[ $? -ne 0 ]] || [[ -z "$cluster_config_json" ]]; then
+            log_warning "Failed to parse partitions from YAML"
+            return 0
+        fi
+
+        # Update cluster_config in database
+        log_info "Updating cluster_config in database..."
+        python3 << EOPY
+import sqlite3
+import json
+import sys
+
+db_path = '$db_path'
+config_json = '''$cluster_config_json'''
+
+try:
+    config = json.loads(config_json)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Check if cluster_config table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cluster_config'")
+    if not cursor.fetchone():
+        print("cluster_config table not found, skipping", file=sys.stderr)
+        sys.exit(0)
+
+    # Update or insert
+    cursor.execute("SELECT id FROM cluster_config WHERE id = 1")
+    if cursor.fetchone():
+        cursor.execute("""
+            UPDATE cluster_config
+            SET config = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+        """, (json.dumps(config),))
+        print(f"Updated cluster_config with {len(config.get('groups', []))} groups")
+    else:
+        cursor.execute("""
+            INSERT INTO cluster_config (id, config)
+            VALUES (1, ?)
+        """, (json.dumps(config),))
+        print(f"Inserted cluster_config with {len(config.get('groups', []))} groups")
+
+    conn.commit()
+    conn.close()
+except Exception as e:
+    print(f"Error updating database: {e}", file=sys.stderr)
+    sys.exit(1)
+EOPY
+
+        if [[ $? -eq 0 ]]; then
+            log_success "Cluster config initialized from YAML partitions"
+        else
+            log_warning "Failed to initialize cluster config"
+        fi
+    else
+        log_info "[DRY-RUN] Would initialize cluster_config from YAML"
+    fi
+}
+
 # Function to deploy all web services
 deploy_web_services() {
     log_info "Setting up web services from dashboard source..."
@@ -1639,6 +1891,12 @@ deploy_web_services() {
 
     # Setup Python virtual environments and install requirements
     setup_python_venvs "$dashboard_dir"
+
+    # Run database migrations (creates apptainer_images, templates tables, etc.)
+    run_database_migrations "$dashboard_dir"
+
+    # Initialize cluster_config from YAML partitions (replaces hardcoded defaults)
+    init_cluster_config_from_yaml "$dashboard_dir"
 
     # Setup Redis session management
     setup_redis_session_management "$dashboard_dir"

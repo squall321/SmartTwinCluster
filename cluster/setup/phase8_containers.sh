@@ -690,7 +690,24 @@ deploy_metadata_to_headnode() {
     log_info "GlusterFS mount point from YAML: $gluster_mount"
 
     # Check if GlusterFS mount exists and is accessible
-    if [[ -d "$gluster_mount" ]] && mountpoint -q "$gluster_mount" 2>/dev/null; then
+    # 마운트 체크 방식:
+    # 1. mountpoint -q: 실제 마운트 포인트인지 확인 (가장 정확)
+    # 2. 쓰기 테스트: 마운트 포인트가 아니더라도 쓰기 가능하면 사용 (GlusterFS 마운트 지연 대응)
+    local gluster_available=false
+
+    if [[ -d "$gluster_mount" ]]; then
+        if mountpoint -q "$gluster_mount" 2>/dev/null; then
+            log_info "GlusterFS mount detected: $gluster_mount (mountpoint check passed)"
+            gluster_available=true
+        elif sudo test -w "$gluster_mount" 2>/dev/null; then
+            # 디렉토리는 존재하고 쓰기 가능하지만 mountpoint가 아닌 경우
+            # GlusterFS가 마운트되어 있을 수 있음 (fuse 마운트는 mountpoint 체크 실패 가능)
+            log_info "GlusterFS directory exists and writable: $gluster_mount (using directory)"
+            gluster_available=true
+        fi
+    fi
+
+    if [[ "$gluster_available" == "true" ]]; then
         metadata_dir="$gluster_mount/apptainer/metadata"
         if sudo mkdir -p "$metadata_dir" 2>/dev/null; then
             log_info "Deploying metadata JSON files to $metadata_dir (GlusterFS shared storage)"
@@ -808,6 +825,18 @@ main() {
 
     # Deploy metadata to headnode
     deploy_metadata_to_headnode
+
+    # Trigger Apptainer metadata scan to populate DB
+    # This ensures the web UI can display the deployed images
+    if [[ "$DRY_RUN" != "true" ]]; then
+        log_info "Triggering Apptainer metadata scan to populate DB..."
+        if curl -s -X POST http://localhost:5010/api/apptainer/scan -o /dev/null 2>/dev/null; then
+            log_success "Apptainer metadata scan triggered successfully"
+        else
+            log_warning "Failed to trigger Apptainer scan (backend_5010 may not be running yet)"
+            log_info "Tip: Run 'curl -X POST http://localhost:5010/api/apptainer/scan' after starting web services"
+        fi
+    fi
 
     # Show summary
     if [[ "$DRY_RUN" != "true" ]]; then

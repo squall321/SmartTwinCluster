@@ -17,13 +17,14 @@
 #   Phase 7: Backup System (unified backup/restore)
 #   Phase 8: Container Images (deploy .sif files to nodes)
 #   Phase 9: Software (MPI & Apptainer installation)
+#   Phase 10: Compute Node Deployment (deploy packages to compute nodes)
 #
 # Usage:
 #   sudo ./start_multihead.sh [OPTIONS]
 #
 # Options:
 #   --config PATH       Path to my_multihead_cluster.yaml (default: ../my_multihead_cluster.yaml)
-#   --phase PHASE       Run specific phase only (0-9, or phase name)
+#   --phase PHASE       Run specific phase only (0-10, or phase name)
 #   --skip-phase PHASE  Skip specific phase
 #   --dry-run           Preview actions without executing
 #   --force             Force setup even if already configured
@@ -89,6 +90,7 @@ declare -A PHASE_NAMES=(
     ["7"]="backup"
     ["8"]="containers"
     ["9"]="software"
+    ["10"]="compute"
 )
 
 declare -A PHASE_NUMBERS=(
@@ -102,6 +104,7 @@ declare -A PHASE_NUMBERS=(
     ["backup"]="7"
     ["containers"]="8"
     ["software"]="9"
+    ["compute"]="10"
 )
 
 declare -A PHASE_SCRIPTS=(
@@ -115,6 +118,7 @@ declare -A PHASE_SCRIPTS=(
     ["7"]="N/A"  # Phase 7 is backup system, no setup needed
     ["8"]="setup/phase8_containers.sh"
     ["9"]="setup/phase9_software.sh"
+    ["10"]="setup/phase10_compute_deploy.sh"
 )
 
 # Function to print colored output
@@ -227,8 +231,8 @@ check_root() {
 normalize_phase() {
     local phase=$1
 
-    # If it's already a number, return it
-    if [[ "$phase" =~ ^[0-9]$ ]]; then
+    # If it's already a number (0-10), return it
+    if [[ "$phase" =~ ^[0-9]+$ ]] && [[ "$phase" -le 10 ]]; then
         echo "$phase"
         return 0
     fi
@@ -240,7 +244,7 @@ normalize_phase() {
     fi
 
     log_error "Unknown phase: $phase"
-    log_info "Valid phases: 0-9 or ${!PHASE_NUMBERS[*]}"
+    log_info "Valid phases: 0-10 or ${!PHASE_NUMBERS[*]}"
     return 1
 }
 
@@ -352,7 +356,7 @@ show_execution_plan() {
         log_info "Mode: Full Cluster Setup"
         log_info "Phases to execute:"
 
-        for phase_num in {0..9}; do
+        for phase_num in {0..10}; do
             if should_skip_phase "$phase_num"; then
                 log_warning "  Phase $phase_num (${PHASE_NAMES[$phase_num]}) - SKIPPED"
             else
@@ -966,7 +970,7 @@ main() {
         fi
     else
         # Execute all phases (except skipped ones)
-        for phase_num in {0..9}; do
+        for phase_num in {0..10}; do
             if should_skip_phase "$phase_num"; then
                 log_warning "Skipping Phase $phase_num (${PHASE_NAMES[$phase_num]})"
                 continue
