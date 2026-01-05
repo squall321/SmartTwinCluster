@@ -605,6 +605,26 @@ else
         else
             log "WARNING" "Volume doesn't exist and not in bootstrap mode"
             log "INFO" "Waiting for bootstrap node to create volume..."
+
+            # Wait for volume to be created by bootstrap node (max 60 seconds)
+            local wait_count=0
+            local max_wait=12  # 12 * 5 = 60 seconds
+            while [[ $wait_count -lt $max_wait ]]; do
+                sleep 5
+                wait_count=$((wait_count + 1))
+                if gluster volume info "$VOLUME_NAME" &>/dev/null; then
+                    log "SUCCESS" "Volume $VOLUME_NAME is now available"
+                    break
+                fi
+                log "INFO" "  Still waiting for volume... ($((wait_count * 5))s)"
+            done
+
+            # Check if volume is now available
+            if ! gluster volume info "$VOLUME_NAME" &>/dev/null; then
+                log "ERROR" "Volume $VOLUME_NAME was not created by bootstrap node"
+                log "ERROR" "Make sure to run phase0_storage.sh with --bootstrap on the primary node first"
+                exit 1
+            fi
         fi
     fi
 fi
@@ -652,8 +672,20 @@ else
         if mount -t glusterfs "localhost:/$VOLUME_NAME" "$MOUNT_POINT"; then
             log "SUCCESS" "Volume mounted at $MOUNT_POINT"
         else
-            log "WARNING" "Failed to mount volume (volume might not be ready yet)"
+            log "ERROR" "Failed to mount GlusterFS volume at $MOUNT_POINT"
+            log "ERROR" "This will cause issues with cluster shared storage!"
+            log "INFO" "Troubleshooting:"
+            log "INFO" "  1. Check if glusterd is running: systemctl status glusterd"
+            log "INFO" "  2. Check volume status: gluster volume status $VOLUME_NAME"
+            log "INFO" "  3. Check peer status: gluster peer status"
+            exit 1
         fi
+    fi
+
+    # Verify mount is accessible
+    if ! ls "$MOUNT_POINT" >/dev/null 2>&1; then
+        log "ERROR" "Mount point $MOUNT_POINT is not accessible after mount"
+        exit 1
     fi
 
     # Add to /etc/fstab if not present
