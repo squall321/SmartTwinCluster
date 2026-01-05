@@ -607,13 +607,13 @@ slurm_config:
     max_array_size: 1000
   partitions:
     - name: normal
-      nodes: node[001-001]
+      nodes: icn102-0407-h14,icn102-0407-h15,icn102-0407-h16,icn102-0407-h17,icn102-0408-h01,icn102-0408-h02,icn102-0408-h03,icn102-0408-h04,icn102-0408-h05,icn102-0408-h06,icn102-0408-h07,icn102-0408-h08,icn102-0408-h09,icn102-0408-h10,icn102-0409-h01,icn102-0409-h02,icn102-0409-h03,icn102-0409-h04,icn102-0409-h06,icn102-0409-h07,icn102-0409-h08,icn102-0409-h09,icn102-0409-h10
       default: true
       max_time: 7-00:00:00
-      max_nodes: 1
+      max_nodes: 23
       state: UP
     - name: viz
-      nodes: viz-node[001-001]
+      nodes: icn102-0410-h13
       default: false
       max_time: "60-00:00:00"
       max_nodes: 1

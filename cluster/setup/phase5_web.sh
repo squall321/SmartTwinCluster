@@ -1719,24 +1719,21 @@ except Exception as e:
     print(f"Error reading YAML: {e}", file=sys.stderr)
     sys.exit(1)
 
-# Get compute nodes from YAML and group by node_type
+# Get compute nodes from YAML for hardware info lookup
 compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
 viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
-
-# Combine all nodes and group by node_type
 all_nodes = compute_nodes + viz_nodes
-nodes_by_type = {}
+
+# Create hostname -> hardware info mapping
+node_hardware = {}
 for node in all_nodes:
-    node_type = node.get('node_type', 'compute')
-    if node_type not in nodes_by_type:
-        nodes_by_type[node_type] = []
-    nodes_by_type[node_type].append({
-        'hostname': node.get('hostname'),
-        'ip_address': node.get('ip_address'),
-        'cpus': node.get('hardware', {}).get('cpus', 128),
-        'memory_mb': node.get('hardware', {}).get('memory_mb', 0),
-        'status': 'idle'
-    })
+    hostname = node.get('hostname')
+    if hostname:
+        node_hardware[hostname] = {
+            'ip_address': node.get('ip_address'),
+            'cpus': node.get('hardware', {}).get('cpus', 128),
+            'memory_mb': node.get('hardware', {}).get('memory_mb', 0)
+        }
 
 # Get partitions from YAML (check multiple locations)
 # Priority: slurm_config.partitions > slurm.partitions > partitions (root)
@@ -1746,35 +1743,28 @@ if not partitions:
 if not partitions:
     partitions = config.get('partitions', [])
 
-# Create groups from partitions with actual node hostnames
+# Create groups from partitions using actual hostnames from YAML partitions.nodes
 groups = []
 colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
-# Map partition names to node_types
-# 'normal' or 'compute' partition -> node_type='compute'
-# 'viz' or 'visualization' partition -> node_type='viz'
-partition_to_nodetype = {
-    'normal': 'compute',
-    'compute': 'compute',
-    'batch': 'compute',
-    'viz': 'viz',
-    'visualization': 'viz',
-    'gpu': 'viz',
-    'interactive': 'viz'
-}
-
 for idx, partition in enumerate(partitions):
     partition_name = partition.get('name', f'partition{idx+1}')
+    nodes_str = partition.get('nodes', '')
 
-    # Determine which node_type this partition should use
-    mapped_type = partition_to_nodetype.get(partition_name.lower(), partition_name.lower())
-
-    # Get nodes for this partition from nodes_by_type
-    node_list = nodes_by_type.get(mapped_type, [])
-
-    # If no nodes found by mapping, try direct partition name match
-    if not node_list:
-        node_list = nodes_by_type.get(partition_name.lower(), [])
+    # Parse comma-separated hostname list from YAML partitions.nodes
+    node_list = []
+    if nodes_str:
+        for hostname in nodes_str.split(','):
+            hostname = hostname.strip()
+            if hostname:
+                hw = node_hardware.get(hostname, {})
+                node_list.append({
+                    'hostname': hostname,
+                    'ip_address': hw.get('ip_address', ''),
+                    'cpus': hw.get('cpus', 128),
+                    'memory_mb': hw.get('memory_mb', 0),
+                    'status': 'idle'
+                })
 
     # Calculate total cores from actual hardware info
     total_cores = sum(n.get('cpus', 128) for n in node_list)
@@ -1794,7 +1784,7 @@ for idx, partition in enumerate(partitions):
         'default': partition.get('default', False)
     }
     groups.append(group)
-    print(f"Partition '{partition_name}' -> {len(node_list)} nodes (type: {mapped_type})", file=sys.stderr)
+    print(f"Partition '{partition_name}' -> {len(node_list)} nodes", file=sys.stderr)
 
 # Get cluster info
 cluster_info = config.get('cluster_info', {})
