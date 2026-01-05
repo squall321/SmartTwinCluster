@@ -1719,8 +1719,11 @@ except Exception as e:
     print(f"Error reading YAML: {e}", file=sys.stderr)
     sys.exit(1)
 
-# Get partitions from YAML
-partitions = config.get('slurm', {}).get('partitions', [])
+# Get partitions from YAML (check multiple locations)
+# Priority: slurm_config.partitions > slurm.partitions > partitions (root)
+partitions = config.get('slurm_config', {}).get('partitions', [])
+if not partitions:
+    partitions = config.get('slurm', {}).get('partitions', [])
 if not partitions:
     partitions = config.get('partitions', [])
 
