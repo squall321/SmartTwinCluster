@@ -111,18 +111,23 @@ def get_available_nodes():
 
             if result.returncode == 0:
                 nodes = []
+                seen_nodes = set()  # 중복 제거용
                 for line in result.stdout.strip().split('\n'):
                     if line:
                         parts = line.split()
                         if len(parts) >= 2:
                             node_name = parts[0]
                             node_state = parts[1]
-                            nodes.append({
-                                'name': node_name,
-                                'state': node_state
-                            })
+                            # 노드가 여러 partition에 속하면 sinfo에서 중복 출력됨
+                            # 첫 번째 출현만 사용 (가장 좋은 상태를 보통 먼저 출력)
+                            if node_name not in seen_nodes:
+                                seen_nodes.add(node_name)
+                                nodes.append({
+                                    'name': node_name,
+                                    'state': node_state
+                                })
 
-                logger.info(f"[SSH] Found {len(nodes)} nodes")
+                logger.info(f"[SSH] Found {len(nodes)} unique nodes")
                 return jsonify({
                     'nodes': nodes,
                     'count': len(nodes)
@@ -178,10 +183,10 @@ def get_sessions():
         username = user.get("username", "unknown")
         logger.info(f"[SSH] Getting sessions for user: {username}")
 
-        # Filter sessions by username
+        # Filter sessions by web_user (웹 로그인 사용자 기준으로 필터)
         user_sessions = [
             session for session_id, session in active_sessions.items()
-            if session.get('username') == username
+            if session.get('web_user') == username
         ]
 
         logger.info(f"[SSH] Found {len(user_sessions)} sessions for user {username}")
@@ -278,9 +283,9 @@ def terminate_session(session_id):
 
         session = active_sessions[session_id]
 
-        # Verify ownership
-        if session.get('username') != username:
-            logger.warning(f"[SSH] User {username} attempted to terminate session owned by {session.get('username')}")
+        # Verify ownership (web_user 기준으로 소유권 확인)
+        if session.get('web_user') != username:
+            logger.warning(f"[SSH] User {username} attempted to terminate session owned by {session.get('web_user')}")
             return jsonify({
                 'error': 'Permission denied',
                 'message': 'You can only terminate your own sessions'
@@ -321,8 +326,8 @@ def get_session_details(session_id):
 
         session = active_sessions[session_id]
 
-        # Verify ownership
-        if session.get('username') != username:
+        # Verify ownership (web_user 기준으로 소유권 확인)
+        if session.get('web_user') != username:
             return jsonify({
                 'error': 'Permission denied'
             }), 403

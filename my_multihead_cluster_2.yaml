@@ -393,6 +393,10 @@ slurm_config:
 web_services:
   enabled: true
 
+  # 웹 서비스 실행 사용자 (systemd User/Group)
+  service_user: koopark
+  service_group: koopark
+
   # 공유 설정 파일 경로 (GlusterFS)
   shared_config_path: /mnt/gluster/config
 
@@ -687,6 +691,7 @@ environment:
 installation:
   install_method: package  # package, source
   offline_mode: false
+  offline_package_dir: "./offline_packages"  # 오프라인 패키지 디렉토리
   package_cache_path: /var/cache/cluster_packages
 
   # 자동 확인 옵션

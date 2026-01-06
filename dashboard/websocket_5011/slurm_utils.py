@@ -32,15 +32,22 @@ def get_slurm_nodes() -> List[Dict[str, Any]]:
         )
         
         nodes = []
+        seen_nodes = set()  # 중복 제거용: 같은 노드가 여러 partition에 있을 수 있음
         for line in result.stdout.strip().split('\n'):
             if not line:
                 continue
-                
+
             parts = line.split('|')
             if len(parts) < 5:
                 continue
-            
+
             hostname = parts[0].strip()
+
+            # 이미 처리한 노드는 건너뛰기 (첫 번째 출현 사용)
+            if hostname in seen_nodes:
+                continue
+            seen_nodes.add(hostname)
+
             cpus_info = parts[1].strip()  # A/I/O/T 형식
             memory = parts[2].strip()
             state = parts[3].strip()
