@@ -55,6 +55,9 @@ VNC_SANDBOXES_DIR = "/scratch/vnc_sandboxes" # 쓰기 가능 샌드박스
 VNC_SESSIONS_DIR = "/scratch/vnc_sessions"   # 세션 데이터
 VNC_LOG_DIR = "/scratch/vnc_logs"            # 로그 (재부팅 후에도 유지)
 
+# Health check용 기본 SIF 이미지 경로
+SIF_IMAGE_PATH = f"{VNC_IMAGES_DIR}/vnc_desktop.sif"
+
 # 사용 가능한 VNC 이미지 목록
 VNC_IMAGES = {
     "xfce4": {
