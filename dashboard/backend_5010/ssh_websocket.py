@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 # SSH connection storage
 ssh_connections = {}
 
-# SSH configuration
-SSH_KEY_PATH = os.path.expanduser('~/.ssh/id_rsa')
+# SSH configuration - use environment variable if set, otherwise default to current user's key
+SSH_KEY_PATH = os.getenv('SSH_KEY_PATH', os.path.expanduser('~/.ssh/id_rsa'))
 
 
 def init_ssh_websocket(socketio):

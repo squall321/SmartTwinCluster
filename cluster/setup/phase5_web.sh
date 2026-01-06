@@ -839,6 +839,15 @@ setup_redis_session_management() {
             # Create or update .env file with Redis and Slurm configuration
             if [[ ! -f "$service_dir/.env" ]]; then
                 log_info "Creating .env file for $service..."
+
+                # Determine SSH key path based on service user
+                local ssh_user="${SERVICE_USER:-$(whoami)}"
+                if [[ -f "$CONFIG_PATH" ]]; then
+                    local yaml_ssh_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    [[ -n "$yaml_ssh_user" ]] && ssh_user="$yaml_ssh_user"
+                fi
+                local ssh_key_path="/home/${ssh_user}/.ssh/id_rsa"
+
                 cat > "$service_dir/.env" << EOF
 # Redis Configuration for Session Management
 REDIS_HOST=localhost
@@ -848,6 +857,9 @@ DEFAULT_SESSION_TTL=7200
 
 # Slurm Configuration
 SLURM_BIN_DIR=${slurm_bin_path}
+
+# SSH Configuration (for SSH session management)
+SSH_KEY_PATH=${ssh_key_path}
 EOF
                 # Set ownership (use service_user from YAML or current user)
                 local env_owner="${SERVICE_USER:-$(whoami)}"
@@ -895,6 +907,20 @@ EOF
                     echo "" >> "$service_dir/.env"
                     echo "# Slurm Configuration" >> "$service_dir/.env"
                     echo "SLURM_BIN_DIR=${slurm_bin_path}" >> "$service_dir/.env"
+                    needs_update=true
+                fi
+
+                # Add SSH_KEY_PATH if missing (for backend_5010 SSH session management)
+                if ! grep -q "^SSH_KEY_PATH=" "$service_dir/.env"; then
+                    local ssh_user="${SERVICE_USER:-$(whoami)}"
+                    if [[ -f "$CONFIG_PATH" ]]; then
+                        local yaml_ssh_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                        [[ -n "$yaml_ssh_user" ]] && ssh_user="$yaml_ssh_user"
+                    fi
+                    local ssh_key_path="/home/${ssh_user}/.ssh/id_rsa"
+                    echo "" >> "$service_dir/.env"
+                    echo "# SSH Configuration (for SSH session management)" >> "$service_dir/.env"
+                    echo "SSH_KEY_PATH=${ssh_key_path}" >> "$service_dir/.env"
                     needs_update=true
                 fi
 

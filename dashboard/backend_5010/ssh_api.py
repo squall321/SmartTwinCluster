@@ -25,8 +25,8 @@ ssh_bp = Blueprint('ssh', __name__, url_prefix='/api/ssh')
 # In-memory session storage (could be moved to Redis for production)
 active_sessions = {}
 
-# SSH configuration
-SSH_KEY_PATH = os.path.expanduser('~/.ssh/id_rsa')
+# SSH configuration - use environment variable if set, otherwise default to current user's key
+SSH_KEY_PATH = os.getenv('SSH_KEY_PATH', os.path.expanduser('~/.ssh/id_rsa'))
 SSH_OPTIONS = [
     '-o', 'StrictHostKeyChecking=no',
     '-o', 'UserKnownHostsFile=/dev/null',
