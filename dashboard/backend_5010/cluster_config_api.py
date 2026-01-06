@@ -283,17 +283,18 @@ def get_cluster_config():
                     'config': config
                 })
             else:
-                # DB에 없으면 Mock 데이터 반환
+                # DB에 없으면 빈 config 반환 (목업 데이터 사용 안함)
                 return jsonify({
                     'success': True,
                     'mode': 'production',
                     'config': {
-                        'groups': MOCK_GROUPS,
-                        'clusterName': 'HPC-Cluster-370',
-                        'controllerIp': '192.168.1.10',
-                        'totalNodes': 370
+                        'groups': [],
+                        'clusterName': 'HPC-Cluster',
+                        'controllerIp': '127.0.0.1',
+                        'totalNodes': 0,
+                        'totalCores': 0
                     },
-                    'note': 'Using default configuration (not saved yet)'
+                    'note': 'No configuration found. Run update_partitions.sh to initialize.'
                 })
         
     except Exception as e:
