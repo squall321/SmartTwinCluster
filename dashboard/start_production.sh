@@ -97,7 +97,15 @@ echo ""
 # ==================== 1. 기존 프로세스 정리 (가장 먼저) ====================
 echo -e "${BLUE}[1/7] 기존 백그라운드 프로세스 정리...${NC}"
 
-# systemd로 관리되는 모니터링 서비스 먼저 중지 (포트 충돌 방지)
+# systemd로 관리되는 모든 서비스 먼저 중지 (상태 일관성 보장)
+echo "  → systemd 백엔드 서비스 중지..."
+for service in "${BACKEND_SERVICES[@]}"; do
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        echo "    $service 중지 중..."
+        sudo systemctl stop "$service" 2>/dev/null || true
+    fi
+done
+
 echo "  → systemd 모니터링 서비스 중지..."
 for svc_name in "node_exporter" "prometheus-node-exporter" "node-exporter"; do
     if systemctl is-active --quiet "$svc_name" 2>/dev/null; then
@@ -300,11 +308,15 @@ echo ""
 # ==================== 5. Backend 서비스 시작 (systemd) ====================
 echo -e "${BLUE}[5/7] Backend 서비스 시작 (systemd)...${NC}"
 
+# systemd 데몬 리로드 (서비스 파일 변경 시 반영)
+echo "  → systemd 데몬 리로드..."
+sudo systemctl daemon-reload 2>/dev/null || true
+
 for service in "${BACKEND_SERVICES[@]}"; do
     echo -n "  → $service: "
 
-    # 서비스 재시작
-    if sudo systemctl restart "$service" 2>/dev/null; then
+    # 서비스 시작 (Step 1에서 이미 중지됨)
+    if sudo systemctl start "$service" 2>/dev/null; then
         sleep 2
         if systemctl is-active --quiet "$service"; then
             echo -e "${GREEN}✓ 실행 중${NC}"
@@ -313,7 +325,9 @@ for service in "${BACKEND_SERVICES[@]}"; do
             echo "    journalctl -u $service -n 10"
         fi
     else
-        echo -e "${RED}✗ 재시작 실패${NC}"
+        echo -e "${RED}✗ 시작 실패${NC}"
+        # 실패 원인 출력
+        journalctl -u "$service" -n 5 --no-pager 2>/dev/null || true
     fi
 done
 echo ""
@@ -332,9 +346,9 @@ for svc_name in "node_exporter" "prometheus-node-exporter" "node-exporter"; do
 done
 
 if [ -n "$NODE_EXPORTER_SYSTEMD" ]; then
-    # systemd 서비스로 관리됨 - 재시작
+    # systemd 서비스로 관리됨 - 시작 (Step 1에서 이미 중지됨)
     echo -n "  → Node Exporter ($NODE_EXPORTER_SYSTEMD): "
-    if sudo systemctl restart "$NODE_EXPORTER_SYSTEMD" 2>/dev/null; then
+    if sudo systemctl start "$NODE_EXPORTER_SYSTEMD" 2>/dev/null; then
         sleep 1
         if systemctl is-active --quiet "$NODE_EXPORTER_SYSTEMD"; then
             echo -e "${GREEN}✓ 실행 중 (systemd)${NC}"
@@ -342,7 +356,7 @@ if [ -n "$NODE_EXPORTER_SYSTEMD" ]; then
             echo -e "${RED}✗ 시작 실패${NC}"
         fi
     else
-        echo -e "${RED}✗ 재시작 실패${NC}"
+        echo -e "${RED}✗ 시작 실패${NC}"
     fi
 elif nc -z localhost 9100 2>/dev/null; then
     echo -e "${GREEN}✅ Node Exporter 이미 실행 중 (Port: 9100)${NC}"
@@ -371,9 +385,9 @@ for svc_name in "prometheus" "prometheus-server"; do
 done
 
 if [ -n "$PROMETHEUS_SYSTEMD" ]; then
-    # systemd 서비스로 관리됨 - 재시작
+    # systemd 서비스로 관리됨 - 시작 (Step 1에서 이미 중지됨)
     echo -n "  → Prometheus ($PROMETHEUS_SYSTEMD): "
-    if sudo systemctl restart "$PROMETHEUS_SYSTEMD" 2>/dev/null; then
+    if sudo systemctl start "$PROMETHEUS_SYSTEMD" 2>/dev/null; then
         sleep 2
         if systemctl is-active --quiet "$PROMETHEUS_SYSTEMD"; then
             echo -e "${GREEN}✓ 실행 중 (systemd)${NC}"
@@ -381,7 +395,7 @@ if [ -n "$PROMETHEUS_SYSTEMD" ]; then
             echo -e "${RED}✗ 시작 실패${NC}"
         fi
     else
-        echo -e "${RED}✗ 재시작 실패${NC}"
+        echo -e "${RED}✗ 시작 실패${NC}"
     fi
 elif nc -z localhost 9090 2>/dev/null; then
     echo -e "${GREEN}✅ Prometheus 이미 실행 중 (Port: 9090)${NC}"
