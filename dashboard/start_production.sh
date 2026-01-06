@@ -228,19 +228,87 @@ echo ""
 
 # ==================== 2. 프론트엔드 빌드 ====================
 echo -e "${BLUE}[2/7] 프론트엔드 빌드 확인 중...${NC}"
+
+# 빌드 필요 여부 자동 감지 함수
+check_frontend_needs_build() {
+    local frontend_dir="$1"
+    local src_dir="$frontend_dir/src"
+    local dist_dir="$frontend_dir/dist"
+
+    # dist 디렉토리가 없으면 빌드 필요
+    if [ ! -d "$dist_dir" ]; then
+        return 0  # 빌드 필요
+    fi
+
+    # dist 디렉토리가 비어있으면 빌드 필요
+    if [ -z "$(ls -A "$dist_dir" 2>/dev/null)" ]; then
+        return 0  # 빌드 필요
+    fi
+
+    # src 디렉토리가 없으면 빌드 불필요 (소스 없음)
+    if [ ! -d "$src_dir" ]; then
+        return 1  # 빌드 불필요
+    fi
+
+    # src 내 파일 중 dist보다 새로운 파일이 있는지 확인
+    local newest_src=$(find "$src_dir" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.css" -o -name "*.scss" \) -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+    local newest_dist=$(find "$dist_dir" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+
+    # package.json 변경 확인
+    local pkg_time=$(stat -c %Y "$frontend_dir/package.json" 2>/dev/null || echo "0")
+
+    if [ -z "$newest_src" ] || [ -z "$newest_dist" ]; then
+        return 0  # 비교 불가, 빌드 필요
+    fi
+
+    # src가 dist보다 새롭거나 package.json이 dist보다 새로우면 빌드 필요
+    if (( $(echo "$newest_src > $newest_dist" | bc -l) )) || (( pkg_time > ${newest_dist%.*} )); then
+        return 0  # 빌드 필요
+    fi
+
+    return 1  # 빌드 불필요
+}
+
+# 프론트엔드 디렉토리 목록
+FRONTEND_DIRS=(
+    "frontend_3010"
+    "auth_portal_4431"
+    "kooCAEWeb"
+)
+
+NEEDS_BUILD=false
+
 if [ "$REBUILD_FRONTENDS" = true ]; then
-    echo "  → 프론트엔드 재빌드 진행 (--rebuild 플래그 사용)"
+    echo "  → 강제 재빌드 모드 (--rebuild 플래그)"
+    NEEDS_BUILD=true
+else
+    echo "  → 빌드 필요 여부 자동 감지 중..."
+    for dir in "${FRONTEND_DIRS[@]}"; do
+        if [ -d "$SCRIPT_DIR/$dir" ]; then
+            if check_frontend_needs_build "$SCRIPT_DIR/$dir"; then
+                echo "    $dir: 빌드 필요 (소스 변경 감지)"
+                NEEDS_BUILD=true
+            else
+                echo "    $dir: 빌드 최신 상태"
+            fi
+        fi
+    done
+fi
+
+if [ "$NEEDS_BUILD" = true ]; then
+    echo "  → 프론트엔드 빌드 진행..."
     if [ -f "./build_all_frontends.sh" ]; then
         ./build_all_frontends.sh
         if [ $? -ne 0 ]; then
             echo -e "${RED}❌ 프론트엔드 빌드 실패. 계속 진행합니다...${NC}"
+        else
+            echo -e "${GREEN}✅ 프론트엔드 빌드 완료${NC}"
         fi
     else
         echo -e "${RED}❌ build_all_frontends.sh를 찾을 수 없습니다${NC}"
     fi
 else
-    echo "  → 프론트엔드 빌드 건너뛰기 (기존 빌드 파일 사용)"
-    echo "  → 재빌드가 필요하면: ./start_production.sh --rebuild"
+    echo -e "${GREEN}✅ 모든 프론트엔드 빌드가 최신 상태입니다${NC}"
 fi
 echo ""
 
