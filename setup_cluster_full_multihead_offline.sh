@@ -609,11 +609,12 @@ else
     log_info "Step 8/10: /etc/hosts 자동 설정..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    # 멀티헤드 환경: 모든 컨트롤러 추가
+    # 멀티헤드 환경: 모든 노드 추가 (컨트롤러 + 컴퓨트)
     if [ -f "cluster/config/parser.py" ]; then
-        log_info "YAML에서 컨트롤러 정보 추출 중..."
+        log_info "YAML에서 모든 노드 정보 추출 중..."
 
         # 컨트롤러 목록 추출
+        log_info "컨트롤러 노드 추가 중..."
         mapfile -t CONTROLLERS < <(python3 cluster/config/parser.py "$CONFIG_FILE" get-controllers | tail -n +2)
 
         for ctrl_line in "${CONTROLLERS[@]}"; do
@@ -622,14 +623,33 @@ else
             ip_addr=$(echo "$ctrl_line" | cut -d'|' -f2)
 
             if ! grep -q "$hostname" /etc/hosts; then
-                log_info "$hostname ($ip_addr) 추가 중..."
+                log_info "  $hostname ($ip_addr) 추가 중..."
                 echo "$ip_addr $hostname" | sudo tee -a /etc/hosts > /dev/null
             else
-                log_success "$hostname 이미 존재함"
+                log_success "  $hostname 이미 존재함"
             fi
         done
 
-        log_success "/etc/hosts 설정 완료"
+        # 컴퓨트 노드 목록 추출
+        log_info "컴퓨트 노드 추가 중..."
+        mapfile -t COMPUTE_NODES < <(python3 cluster/config/parser.py "$CONFIG_FILE" get-nodes | tail -n +2)
+
+        for node_line in "${COMPUTE_NODES[@]}"; do
+            # 형식: hostname|ip_address|...
+            hostname=$(echo "$node_line" | cut -d'|' -f1)
+            ip_addr=$(echo "$node_line" | cut -d'|' -f2)
+
+            if [[ -n "$hostname" && -n "$ip_addr" ]]; then
+                if ! grep -q "$hostname" /etc/hosts; then
+                    log_info "  $hostname ($ip_addr) 추가 중..."
+                    echo "$ip_addr $hostname" | sudo tee -a /etc/hosts > /dev/null
+                else
+                    log_success "  $hostname 이미 존재함"
+                fi
+            fi
+        done
+
+        log_success "/etc/hosts 설정 완료 (컨트롤러 + 컴퓨트 노드)"
     else
         log_warning "parser.py가 없습니다. 수동으로 /etc/hosts를 설정하세요"
     fi
