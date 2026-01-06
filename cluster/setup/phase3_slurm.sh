@@ -2564,6 +2564,104 @@ show_cluster_status() {
     fi
 }
 
+setup_slurm_accounts() {
+    log INFO "=== Setting up Slurm Accounts ==="
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log INFO "[DRY-RUN] Would setup Slurm accounts"
+        return 0
+    fi
+
+    # Check if SlurmDBD is configured and running
+    local accounting_type=$(grep "^AccountingStorageType" /etc/slurm/slurm.conf 2>/dev/null | awk -F= '{print $2}' | tr -d ' ')
+
+    if [[ "$accounting_type" == "accounting_storage/none" ]] || [[ -z "$accounting_type" ]]; then
+        log INFO "Slurm accounting is disabled (accounting_storage/none)"
+        log INFO "All users can submit jobs without account registration"
+        return 0
+    fi
+
+    # SlurmDBD accounting is enabled - need to register accounts
+    log INFO "SlurmDBD accounting is enabled - registering accounts..."
+
+    # Wait for slurmdbd to be ready
+    local max_wait=30
+    local waited=0
+    while ! sacctmgr show cluster -P &>/dev/null; do
+        if [[ $waited -ge $max_wait ]]; then
+            log WARNING "SlurmDBD not responding after ${max_wait}s - skipping account setup"
+            log WARNING "You may need to manually run: sacctmgr add account default && sacctmgr add user <username> account=default"
+            return 0
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    # Get cluster name
+    local cluster_name=$(grep "^ClusterName" /etc/slurm/slurm.conf 2>/dev/null | awk -F= '{print $2}' | tr -d ' ')
+    cluster_name=${cluster_name:-linux}
+
+    # Check if cluster is registered
+    if ! sacctmgr show cluster "$cluster_name" -P 2>/dev/null | grep -q "$cluster_name"; then
+        log INFO "Registering cluster: $cluster_name"
+        sacctmgr -i add cluster "$cluster_name" 2>/dev/null || log WARNING "Cluster may already exist"
+    fi
+
+    # Create default account if not exists
+    if ! sacctmgr show account default -P 2>/dev/null | grep -q "default"; then
+        log INFO "Creating default account..."
+        sacctmgr -i add account default Description="Default Account" Organization="HPC" 2>/dev/null || \
+            log WARNING "Default account may already exist"
+    fi
+
+    # Get setup user from YAML or use SUDO_USER
+    local setup_user=""
+
+    # Try to get from YAML
+    if [[ -f "$CONFIG_FILE" ]]; then
+        setup_user=$(python3 << EOPY
+import yaml
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+        # Try cluster_info.admin_user first, then ssh_user
+        user = config.get('cluster_info', {}).get('admin_user', '')
+        if not user:
+            user = config.get('cluster_info', {}).get('ssh_user', '')
+        print(user)
+except:
+    pass
+EOPY
+)
+    fi
+
+    # Fallback to SUDO_USER or current user
+    if [[ -z "$setup_user" ]]; then
+        setup_user="${SUDO_USER:-$(whoami)}"
+    fi
+
+    # Register user if not exists
+    if [[ -n "$setup_user" ]] && [[ "$setup_user" != "root" ]]; then
+        if ! sacctmgr show user "$setup_user" -P 2>/dev/null | grep -q "$setup_user"; then
+            log INFO "Adding user to Slurm account: $setup_user"
+            sacctmgr -i add user "$setup_user" account=default 2>/dev/null || \
+                log WARNING "User $setup_user may already exist in Slurm"
+        else
+            log INFO "User $setup_user already registered in Slurm"
+        fi
+    fi
+
+    # Also add root for system jobs
+    if ! sacctmgr show user root -P 2>/dev/null | grep -q "root"; then
+        log INFO "Adding root user to Slurm account..."
+        sacctmgr -i add user root account=default 2>/dev/null || true
+    fi
+
+    log SUCCESS "Slurm account setup completed"
+    log INFO "Registered accounts:"
+    sacctmgr show association -P 2>/dev/null | head -10 || true
+}
+
 setup_remote_compute_nodes() {
     log INFO "=== Setting up Slurm on remote compute nodes ==="
 
@@ -2984,11 +3082,14 @@ main() {
         # Step 13: Show cluster status
         show_cluster_status
 
-        # Step 14: Auto-deploy to compute nodes if requested
+        # Step 14: Setup Slurm accounts (if accounting enabled)
+        setup_slurm_accounts
+
+        # Step 15: Auto-deploy to compute nodes if requested
         if [[ "$AUTO_DEPLOY_COMPUTE" == "true" ]]; then
             setup_remote_compute_nodes
 
-            # Step 15: Deploy Apptainer images to compute nodes
+            # Step 16: Deploy Apptainer images to compute nodes
             log INFO ""
             log INFO "=== Deploying Apptainer images to compute nodes ==="
 
