@@ -1,0 +1,73 @@
+template:
+  id: openfoam-cfd
+  name: OpenFOAM CFD Simulation
+  description: 유체 역학 시뮬레이션 (Computational Fluid Dynamics)
+  category: simulation
+  version: 1.0.0
+  source: official
+  tags: [openfoam, cfd, simulation, fluid-dynamics]
+  is_public: true
+
+slurm:
+  partition: compute
+  nodes: 2
+  ntasks: 16
+  mem: 64G
+  time: 04:00:00
+
+apptainer:
+  image_name: OpenFOAM.sif
+  mode: partition
+  bind:
+    - /shared:/shared
+    - /data:/data
+  env:
+    WM_PROJECT_DIR: /opt/openfoam
+    OMPI_MCA_btl_vader_single_copy_mechanism: none
+
+files:
+  input_schema:
+    required:
+      - file_key: case_directory
+        name: OpenFOAM Case Directory
+        description: OpenFOAM 케이스 디렉토리 (압축)
+        validation:
+          extensions: [.tar.gz, .zip]
+          max_size: 1GB
+    optional:
+      - file_key: mesh_file
+        name: Mesh File
+        description: 격자 파일 (선택사항)
+        validation:
+          extensions: [.msh, .unv]
+          max_size: 500MB
+
+script:
+  pre_exec: |
+    echo "========================================"
+    echo "OpenFOAM CFD Simulation"
+    echo "========================================"
+
+    # 케이스 디렉토리 압축 해제
+    cd $SLURM_SUBMIT_DIR/work
+    tar -xzf $FILE_CASE_DIRECTORY
+
+  main_exec: |
+    cd $SLURM_SUBMIT_DIR/work/case
+
+    # OpenFOAM 실행
+    apptainer exec $APPTAINER_IMAGE \
+      bash -c "source /opt/openfoam/etc/bashrc && \
+               blockMesh && \
+               decomposePar && \
+               mpirun -np $SLURM_NTASKS simpleFoam -parallel && \
+               reconstructPar"
+
+  post_exec: |
+    echo "========================================"
+    echo "Simulation Completed"
+    echo "========================================"
+
+    # 결과 복사
+    cp -r $SLURM_SUBMIT_DIR/work/case/postProcessing $RESULT_DIR/
+    ls -lh $RESULT_DIR

@@ -1,0 +1,114 @@
+template:
+  id: lsdyna-r16-basic
+  name: LS-DYNA R16 Basic Run
+  description: LS-DYNA R16 기본 시뮬레이션 실행 템플릿
+  category: simulation
+  version: 1.0.0
+  source: official
+  tags: [lsdyna, r16, simulation, crash, explicit]
+  is_public: true
+
+slurm:
+  partition: compute
+  nodes: 1
+  ntasks: 8
+  cpus_per_task: 1
+  mem: 32G
+  time: 04:00:00
+
+apptainer:
+  image_name: lsdyna_r16.sif
+  mode: fixed
+  user_selectable: false
+  bind:
+    - /shared:/shared
+    - /scratch:/scratch
+  env:
+    LSTC_LICENSE: network
+    LSTC_LICENSE_SERVER: license.local
+
+files:
+  input_schema:
+    required:
+      - file_key: input_k
+        name: Input K File
+        description: LS-DYNA 입력 파일 (.k 또는 .key)
+        validation:
+          extensions: [.k, .key, .dyn]
+          max_size: 500MB
+    optional:
+      - file_key: include_files
+        name: Include Files
+        description: 추가 Include 파일들 (압축)
+        validation:
+          extensions: [.zip, .tar.gz]
+          max_size: 1GB
+
+script:
+  pre_exec: |
+    echo "========================================"
+    echo "LS-DYNA R16 Simulation"
+    echo "Job: $SLURM_JOB_NAME"
+    echo "Node: $SLURM_JOB_NODELIST"
+    echo "CPUs: $SLURM_NTASKS"
+    echo "Started: $(date)"
+    echo "========================================"
+
+    # 작업 디렉토리 설정
+    WORK_DIR="${SLURM_SUBMIT_DIR}/work_${SLURM_JOB_ID}"
+    mkdir -p $WORK_DIR
+    cd $WORK_DIR
+
+    # 입력 파일 복사
+    cp $FILE_INPUT_K ./
+    INPUT_FILE=$(basename $FILE_INPUT_K)
+
+    # Include 파일 압축 해제 (있는 경우)
+    if [ -n "$FILE_INCLUDE_FILES" ] && [ -f "$FILE_INCLUDE_FILES" ]; then
+      echo "Extracting include files..."
+      case "$FILE_INCLUDE_FILES" in
+        *.zip) unzip -o "$FILE_INCLUDE_FILES" ;;
+        *.tar.gz) tar -xzf "$FILE_INCLUDE_FILES" ;;
+      esac
+    fi
+
+    echo "Input file: $INPUT_FILE"
+    echo "Working directory: $WORK_DIR"
+    ls -la
+
+  main_exec: |
+    cd $WORK_DIR
+
+    # LS-DYNA 실행 (MPP 모드)
+    echo "Running LS-DYNA R16..."
+
+    apptainer exec \
+      --bind /shared:/shared \
+      --bind /scratch:/scratch \
+      $APPTAINER_IMAGE \
+      mpirun -np $SLURM_NTASKS \
+        lsdyna i=$INPUT_FILE \
+        memory=1000m \
+        memory2=200m
+
+  post_exec: |
+    echo "========================================"
+    echo "Simulation Completed: $(date)"
+    echo "========================================"
+
+    # 결과 파일 목록
+    echo "Output files:"
+    ls -lh $WORK_DIR/*.d3* 2>/dev/null || echo "No d3 files"
+    ls -lh $WORK_DIR/*.ptf 2>/dev/null || echo "No ptf files"
+    ls -lh $WORK_DIR/messag 2>/dev/null || echo "No messag file"
+
+    # 결과 디렉토리로 복사
+    mkdir -p $RESULT_DIR
+    cp -v $WORK_DIR/*.d3* $RESULT_DIR/ 2>/dev/null || true
+    cp -v $WORK_DIR/*.ptf $RESULT_DIR/ 2>/dev/null || true
+    cp -v $WORK_DIR/messag $RESULT_DIR/ 2>/dev/null || true
+    cp -v $WORK_DIR/d3hsp $RESULT_DIR/ 2>/dev/null || true
+    cp -v $WORK_DIR/glstat $RESULT_DIR/ 2>/dev/null || true
+    cp -v $WORK_DIR/matsum $RESULT_DIR/ 2>/dev/null || true
+
+    echo "Results saved to: $RESULT_DIR"
