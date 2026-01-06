@@ -382,15 +382,19 @@ def get_available_vnc_port():
     raise Exception("No available VNC ports")
 
 
-def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id):
+def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=1):
     """VNC 세션용 Slurm Job 스크립트 생성"""
 
     display_num = vnc_port - 5900
+
+    # GPU 요청 라인 생성 (gpu_count > 0 일 때만)
+    gpu_line = f"#SBATCH --gres=gpu:{gpu_count}" if gpu_count > 0 else ""
 
     script = f"""#!/bin/bash
 #SBATCH --job-name=vnc-{username}
 #SBATCH --partition=viz
 #SBATCH --nodes=1
+{gpu_line}
 #SBATCH --time={duration_hours}:00:00
 #SBATCH --chdir=/tmp
 #SBATCH --output={VNC_LOG_DIR}/vnc-{username}-%j.out
@@ -407,6 +411,7 @@ echo "VNC Port: {vnc_port}"
 echo "noVNC Port: {novnc_port}"
 echo "Display: :{display_num}"
 echo "Geometry: {geometry}"
+echo "GPU Count: {gpu_count}"
 echo "Image: {sif_image_path}"
 echo "Node: $(hostname)"
 echo "========================================"
@@ -514,7 +519,7 @@ echo "VNC Session Terminated (Sandbox preserved for reuse)"
     return script
 
 
-def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id):
+def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=1):
     """Slurm Job 제출"""
 
     if MOCK_MODE:
@@ -525,7 +530,7 @@ def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duratio
 
     # 실제 Slurm Job 제출
     job_script = generate_vnc_job_script(
-        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id
+        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count
     )
 
     # 임시 파일에 스크립트 저장
@@ -738,7 +743,8 @@ def create_vnc_session():
             sif_image_path,
             image_config['start_script'],
             image_config['desktop_env'],
-            image_id
+            image_id,
+            gpu_count
         )
     except Exception as e:
         return jsonify({'error': f'Job submission failed: {str(e)}'}), 500
