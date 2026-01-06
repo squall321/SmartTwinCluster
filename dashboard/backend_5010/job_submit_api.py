@@ -126,11 +126,41 @@ APPTAINER_METADATA_DIR = os.getenv('APPTAINER_METADATA_DIR', '/mnt/gluster/appta
 UPLOAD_DIR = '/tmp/slurm_uploads'
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# 파티션별 대표 노드 (이미지 파일 존재 확인용)
-PARTITION_NODES = {
-    'compute': 'node001',  # Compute 노드 중 첫 번째
-    'viz': 'viz-node001',   # Viz 노드
-}
+# 파티션별 대표 노드 (이미지 파일 존재 확인용) - YAML에서 동적 로드
+def get_partition_nodes_from_yaml():
+    """YAML 설정에서 파티션별 대표 노드 가져오기"""
+    partition_nodes = {'compute': None, 'viz': None}
+    yaml_paths = [
+        os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
+        '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
+    ]
+    for yaml_path in yaml_paths:
+        if os.path.exists(yaml_path):
+            try:
+                with open(yaml_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                    nodes_config = config.get('nodes', {})
+
+                    for node in nodes_config.get('compute_nodes', []):
+                        node_type = node.get('node_type', 'compute')
+                        hostname = node.get('hostname')
+                        if hostname:
+                            if node_type == 'viz' and not partition_nodes['viz']:
+                                partition_nodes['viz'] = hostname
+                            elif node_type == 'compute' and not partition_nodes['compute']:
+                                partition_nodes['compute'] = hostname
+
+                    if partition_nodes['compute'] or partition_nodes['viz']:
+                        logger.info(f"✅ Job Submit API: Loaded partition nodes from YAML: {partition_nodes}")
+                        return partition_nodes
+            except Exception as e:
+                logger.warning(f"Failed to load partition nodes from YAML: {e}")
+
+    # Fallback
+    logger.warning("Using fallback partition nodes")
+    return {'compute': 'node001', 'viz': 'viz-node001'}
+
+PARTITION_NODES = get_partition_nodes_from_yaml()
 
 
 def get_db_connection():
