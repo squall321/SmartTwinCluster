@@ -451,9 +451,9 @@ nodes:
         threads_per_core: 1
         memory_mb: 505423
         tmp_disk_mb: 416500
-        gpus: 0
+        gpus: 2
         gpu_type: nvidia
-        gres: gpu:nvidia:0
+        gres: gpu:nvidia:2
 
 # ============================================================================
 # Virtual IP (VIP) Configuration
