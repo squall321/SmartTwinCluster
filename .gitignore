@@ -72,3 +72,4 @@ backups/
 # Nested project copies (should not be in git)
 KooSlurmInstallAutomationRefactory/
 KooSlurmInstallAutomationRefactory_V8.4.0/
+dashboard/prometheus_9090/data/
