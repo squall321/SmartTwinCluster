@@ -8,7 +8,9 @@ Type=simple
 User=koopark
 Group=koopark
 WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004
-Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/venv/bin"
+Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
+Environment="HOME=/home/koopark"
+Environment="SLURM_BIN_DIR=/usr/local/slurm/bin"
 EnvironmentFile=-/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/.env
 ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/MoonlightSunshine_8004/backend_moonlight_8004/venv/bin/gunicorn -c gunicorn_config.py app:app
 ExecReload=/bin/kill -s HUP $MAINPID

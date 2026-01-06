@@ -25,14 +25,60 @@ ssh_bp = Blueprint('ssh', __name__, url_prefix='/api/ssh')
 # In-memory session storage (could be moved to Redis for production)
 active_sessions = {}
 
-# SSH configuration - use environment variable if set, otherwise default to current user's key
-SSH_KEY_PATH = os.getenv('SSH_KEY_PATH', os.path.expanduser('~/.ssh/id_rsa'))
+# SSH 키 설정 (웹 서비스가 다른 사용자로 실행될 때를 위해)
+def get_ssh_key_path():
+    """SSH 키 경로 자동 탐지"""
+    # 1. 환경변수로 명시적 지정
+    if os.getenv('SSH_KEY_PATH'):
+        key_path = os.getenv('SSH_KEY_PATH')
+        if os.path.exists(key_path):
+            return key_path
+
+    # 2. SUDO_USER가 있으면 그 사용자의 키 사용
+    sudo_user = os.getenv('SUDO_USER')
+    if sudo_user:
+        import pwd
+        try:
+            user_home = pwd.getpwnam(sudo_user).pw_dir
+            key_path = os.path.join(user_home, '.ssh', 'id_rsa')
+            if os.path.exists(key_path):
+                return key_path
+        except KeyError:
+            pass
+
+    # 3. 현재 사용자의 홈 디렉토리에서 탐색
+    home = os.path.expanduser('~')
+    key_path = os.path.join(home, '.ssh', 'id_rsa')
+    if os.path.exists(key_path):
+        return key_path
+
+    # 4. 일반적인 서비스 계정 경로
+    for user in ['koopark', 'hpcadmin', 'slurm']:
+        import pwd
+        try:
+            user_home = pwd.getpwnam(user).pw_dir
+            key_path = os.path.join(user_home, '.ssh', 'id_rsa')
+            if os.path.exists(key_path):
+                return key_path
+        except KeyError:
+            continue
+
+    return None
+
+SSH_KEY_PATH = get_ssh_key_path()
+if SSH_KEY_PATH:
+    logger.info(f"SSH key found: {SSH_KEY_PATH}")
+else:
+    logger.warning("No SSH key found - SSH connections may fail")
+
 SSH_OPTIONS = [
     '-o', 'StrictHostKeyChecking=no',
     '-o', 'UserKnownHostsFile=/dev/null',
     '-o', 'ServerAliveInterval=60',
     '-o', 'ServerAliveCountMax=3'
 ]
+if SSH_KEY_PATH:
+    SSH_OPTIONS = ['-i', SSH_KEY_PATH] + SSH_OPTIONS
 
 
 @ssh_bp.route('/nodes', methods=['GET'])

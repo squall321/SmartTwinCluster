@@ -33,9 +33,13 @@ except Exception as e:
 # Slurm 명령어 및 시스템 명령어 (절대 경로)
 try:
     from slurm_commands import SBATCH, SCANCEL, SQUEUE, SCONTROL, SSH, KILL, RM
+    from slurm_commands import SSH_KEY_PATH as SLURM_SSH_KEY_PATH
+    from slurm_commands import get_ssh_opts as slurm_get_ssh_opts
     SLURM_AVAILABLE = True
 except ImportError:
     SLURM_AVAILABLE = False
+    SLURM_SSH_KEY_PATH = None
+    slurm_get_ssh_opts = None
     # Fallback paths
     SSH = '/usr/bin/ssh'
     KILL = '/bin/kill'
@@ -43,6 +47,65 @@ except ImportError:
 
 # Mock 모드
 MOCK_MODE = os.getenv('MOCK_MODE', 'false').lower() == 'true'
+
+# SSH 키 설정 - slurm_commands에서 가져온 값 사용
+# slurm_commands 모듈이 SSH 키 자동 탐지를 담당
+if SLURM_AVAILABLE and SLURM_SSH_KEY_PATH:
+    SSH_KEY_PATH = SLURM_SSH_KEY_PATH
+    get_ssh_opts = slurm_get_ssh_opts
+    print(f"✅ VNC SSH key (from slurm_commands): {SSH_KEY_PATH}")
+else:
+    # Fallback: 직접 탐지
+    def _get_ssh_key_path():
+        """SSH 키 경로 자동 탐지 (fallback)"""
+        import pwd
+        # 환경변수
+        env_key = os.getenv('SSH_KEY_FILE') or os.getenv('SSH_KEY_PATH')
+        if env_key and os.path.exists(env_key):
+            return env_key
+        # SUDO_USER
+        sudo_user = os.getenv('SUDO_USER')
+        if sudo_user:
+            try:
+                user_home = pwd.getpwnam(sudo_user).pw_dir
+                key_path = os.path.join(user_home, '.ssh', 'id_rsa')
+                if os.path.exists(key_path):
+                    return key_path
+            except KeyError:
+                pass
+        # 현재 사용자
+        home = os.path.expanduser('~')
+        key_path = os.path.join(home, '.ssh', 'id_rsa')
+        if os.path.exists(key_path):
+            return key_path
+        # 일반적인 서비스 계정
+        for user in ['koopark', 'hpcadmin', 'slurm']:
+            try:
+                user_home = pwd.getpwnam(user).pw_dir
+                key_path = os.path.join(user_home, '.ssh', 'id_rsa')
+                if os.path.exists(key_path):
+                    return key_path
+            except KeyError:
+                continue
+        return None
+
+    SSH_KEY_PATH = _get_ssh_key_path()
+    if SSH_KEY_PATH:
+        print(f"✅ VNC SSH key (fallback): {SSH_KEY_PATH}")
+    else:
+        print("⚠️  No SSH key found - SSH connections may fail")
+
+    def get_ssh_opts():
+        """SSH 공통 옵션 반환"""
+        opts = [
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'LogLevel=ERROR',
+            '-o', 'BatchMode=yes',
+        ]
+        if SSH_KEY_PATH:
+            opts = ['-i', SSH_KEY_PATH] + opts
+        return opts
 
 # VNC 설정
 VNC_PORT_RANGE_START = 5901
@@ -267,9 +330,9 @@ def check_image_exists(sif_path, node=None, partition='viz'):
     try:
         # SSH로 원격 노드에서 파일 존재 확인
         # timeout 3초로 빠르게 확인
+        ssh_cmd = [SSH] + get_ssh_opts() + ['-o', 'ConnectTimeout=3', node, f'test -f {sif_path} && echo "exists"']
         result = subprocess.run(
-            [SSH, '-o', 'ConnectTimeout=3', '-o', 'StrictHostKeyChecking=no',
-             node, f'test -f {sif_path} && echo "exists"'],
+            ssh_cmd,
             capture_output=True,
             text=True,
             timeout=5
@@ -309,13 +372,18 @@ def create_ssh_tunnel(node, remote_port, local_port, session_id):
     """
     try:
         # SSH 터널 명령어 (-f: 백그라운드, -N: 명령 실행 안함, -T: TTY 할당 안함, -g: 외부 접속 허용)
-        cmd = [
-            SSH,
+        # SSH 키 경로 포함
+        cmd = [SSH]
+        if SSH_KEY_PATH:
+            cmd += ['-i', SSH_KEY_PATH]
+        cmd += [
             '-f',  # 백그라운드 실행
             '-N',  # 원격 명령 실행 안함 (터널만)
             '-T',  # TTY 할당 안함
             '-g',  # GatewayPorts - 외부에서 포트포워딩 접속 허용
             '-o', 'StrictHostKeyChecking=no',  # SSH key 확인 스킵 (내부 네트워크)
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'LogLevel=ERROR',
             '-o', 'ServerAliveInterval=60',     # Keep-alive 60초
             '-o', 'ServerAliveCountMax=3',      # 3번 실패 시 종료
             '-L', f'0.0.0.0:{local_port}:localhost:{remote_port}',  # 포트포워딩 (모든 인터페이스에서 접속 가능)
@@ -1140,8 +1208,11 @@ def check_vnc_readiness(session_id):
 
     # VNC 포트 체크 (SSH를 통해 원격 노드에서 확인)
     try:
+        # SSH 키 옵션 생성
+        ssh_key_opt = f"-i {SSH_KEY_PATH}" if SSH_KEY_PATH else ""
+
         # lsof로 VNC 포트가 listening하는지 확인 (빠른 체크)
-        check_cmd = f"ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=no {os.getenv('USER')}@{node} 'lsof -i :{vnc_port} | grep LISTEN' 2>/dev/null"
+        check_cmd = f"ssh {ssh_key_opt} -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o BatchMode=yes {node} 'lsof -i :{vnc_port} | grep LISTEN' 2>/dev/null"
         result = subprocess.run(
             check_cmd,
             shell=True,
@@ -1153,7 +1224,7 @@ def check_vnc_readiness(session_id):
         vnc_ready = result.returncode == 0 and 'LISTEN' in result.stdout
 
         # noVNC 포트도 체크 (빠른 체크)
-        check_novnc_cmd = f"ssh -o ConnectTimeout=1 -o StrictHostKeyChecking=no {os.getenv('USER')}@{node} 'lsof -i :{novnc_port} | grep LISTEN' 2>/dev/null"
+        check_novnc_cmd = f"ssh {ssh_key_opt} -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o BatchMode=yes {node} 'lsof -i :{novnc_port} | grep LISTEN' 2>/dev/null"
         result_novnc = subprocess.run(
             check_novnc_cmd,
             shell=True,

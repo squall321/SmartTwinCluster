@@ -17,6 +17,14 @@ SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 SSH = '/usr/bin/ssh'
 
+# SSH 관련 설정 import
+try:
+    from slurm_commands import SSH_KEY_PATH, get_ssh_opts
+except ImportError:
+    SSH_KEY_PATH = None
+    def get_ssh_opts():
+        return ['-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
+
 def get_disk_usage(path: str) -> Dict:
     """디스크 사용량 조회"""
     try:
@@ -301,7 +309,7 @@ def get_slurm_nodes() -> List[str]:
 def run_remote_command(node: str, command: str, timeout: int = 10) -> Optional[str]:
     """원격 노드에서 명령 실행"""
     try:
-        ssh_command = [SSH, '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5', node, command]
+        ssh_command = [SSH] + get_ssh_opts() + ['-o', 'ConnectTimeout=5', node, command]
         result = subprocess.run(
             ssh_command,
             capture_output=True,

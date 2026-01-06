@@ -21,6 +21,14 @@ RSYNC = '/usr/bin/rsync'
 SCP = '/usr/bin/scp'
 SSH = '/usr/bin/ssh'
 
+# SSH 관련 설정 import
+try:
+    from slurm_commands import SSH_KEY_PATH, get_ssh_opts
+except ImportError:
+    SSH_KEY_PATH = None
+    def get_ssh_opts():
+        return ['-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
+
 # 설정
 MAX_CHUNK_SIZE = 8 * 1024 * 1024  # 8MB chunks
 UPLOAD_TEMP_DIR = '/tmp/dashboard_uploads'
@@ -163,29 +171,36 @@ class FileDownloadHandler:
 
 class RemoteFileTransfer:
     """원격 노드 파일 전송 (SCP/rsync)"""
-    
+
     @staticmethod
-    def upload_to_node(local_path: str, node: str, remote_path: str, 
+    def _get_ssh_cmd_str():
+        """rsync/scp에 전달할 SSH 명령어 문자열 생성"""
+        if SSH_KEY_PATH:
+            return f"ssh -i {SSH_KEY_PATH} -o StrictHostKeyChecking=no -o BatchMode=yes"
+        return "ssh -o StrictHostKeyChecking=no -o BatchMode=yes"
+
+    @staticmethod
+    def upload_to_node(local_path: str, node: str, remote_path: str,
                        use_rsync: bool = True) -> Dict:
         """로컬 → 원격 노드 업로드"""
         try:
+            ssh_cmd = RemoteFileTransfer._get_ssh_cmd_str()
             if use_rsync:
                 # rsync로 전송 (재개 가능, 진행률 표시)
                 cmd = [
                     RSYNC,
                     '-avz',
                     '--progress',
+                    '-e', ssh_cmd,
                     local_path,
                     f'{node}:{remote_path}'
                 ]
             else:
                 # scp로 전송
-                cmd = [
-                    SCP,
-                    '-r',
-                    local_path,
-                    f'{node}:{remote_path}'
-                ]
+                scp_opts = ['-r', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
+                if SSH_KEY_PATH:
+                    scp_opts = ['-i', SSH_KEY_PATH] + scp_opts
+                cmd = [SCP] + scp_opts + [local_path, f'{node}:{remote_path}']
             
             result = subprocess.run(
                 cmd,
@@ -230,22 +245,22 @@ class RemoteFileTransfer:
         try:
             # 로컬 디렉토리 생성
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            
+
+            ssh_cmd = RemoteFileTransfer._get_ssh_cmd_str()
             if use_rsync:
                 cmd = [
                     RSYNC,
                     '-avz',
                     '--progress',
+                    '-e', ssh_cmd,
                     f'{node}:{remote_path}',
                     local_path
                 ]
             else:
-                cmd = [
-                    SCP,
-                    '-r',
-                    f'{node}:{remote_path}',
-                    local_path
-                ]
+                scp_opts = ['-r', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
+                if SSH_KEY_PATH:
+                    scp_opts = ['-i', SSH_KEY_PATH] + scp_opts
+                cmd = [SCP] + scp_opts + [f'{node}:{remote_path}', local_path]
             
             result = subprocess.run(
                 cmd,
@@ -287,8 +302,8 @@ class RemoteFileTransfer:
     def get_transfer_progress(node: str, pid: int) -> Dict:
         """전송 진행률 조회"""
         try:
-            # rsync 프로세스 상태 확인 (절대 경로 사용)
-            cmd = [SSH, node, f'ps -p {pid} -o pid,pcpu,rss,etime']
+            # rsync 프로세스 상태 확인 (절대 경로 및 SSH 키 사용)
+            cmd = [SSH] + get_ssh_opts() + [node, f'ps -p {pid} -o pid,pcpu,rss,etime']
             result = subprocess.run(
                 cmd,
                 capture_output=True,

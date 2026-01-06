@@ -23,6 +23,94 @@ RM = '/bin/rm'
 DF = '/bin/df'
 LS = '/bin/ls'
 
+# SSH 키 설정 (웹 서비스가 다른 사용자로 실행될 때를 위해)
+def get_ssh_key_path():
+    """SSH 키 경로 자동 탐지"""
+    import pwd
+
+    # 1. 환경변수로 명시적 지정
+    env_key = os.getenv('SSH_KEY_FILE') or os.getenv('SSH_KEY_PATH')
+    if env_key and os.path.exists(env_key):
+        return env_key
+
+    # 2. SUDO_USER가 있으면 그 사용자의 키 사용
+    sudo_user = os.getenv('SUDO_USER')
+    if sudo_user:
+        try:
+            user_home = pwd.getpwnam(sudo_user).pw_dir
+            key_path = os.path.join(user_home, '.ssh', 'id_rsa')
+            if os.path.exists(key_path):
+                return key_path
+        except KeyError:
+            pass
+
+    # 3. 현재 사용자의 홈 디렉토리에서 탐색
+    home = os.path.expanduser('~')
+    key_path = os.path.join(home, '.ssh', 'id_rsa')
+    if os.path.exists(key_path):
+        return key_path
+
+    # 4. 일반적인 서비스 계정 경로
+    for user in ['koopark', 'hpcadmin', 'slurm']:
+        try:
+            user_home = pwd.getpwnam(user).pw_dir
+            key_path = os.path.join(user_home, '.ssh', 'id_rsa')
+            if os.path.exists(key_path):
+                return key_path
+        except KeyError:
+            continue
+
+    return None
+
+# SSH 키 경로 (모듈 로드 시 한 번만 탐지)
+SSH_KEY_PATH = get_ssh_key_path()
+
+def get_ssh_opts(include_key=True):
+    """SSH 공통 옵션 반환"""
+    opts = [
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'LogLevel=ERROR',
+        '-o', 'BatchMode=yes',
+    ]
+    if include_key and SSH_KEY_PATH:
+        opts = ['-i', SSH_KEY_PATH] + opts
+    return opts
+
+def run_ssh_command(node: str, remote_cmd: str, timeout: int = 30,
+                    connect_timeout: int = 5) -> subprocess.CompletedProcess:
+    """
+    SSH 명령어 실행 헬퍼 함수
+
+    Args:
+        node: 대상 노드 (호스트명 또는 IP)
+        remote_cmd: 원격에서 실행할 명령어
+        timeout: 전체 타임아웃 (초)
+        connect_timeout: SSH 연결 타임아웃 (초)
+
+    Returns:
+        subprocess.CompletedProcess
+    """
+    cmd = [SSH] + get_ssh_opts() + [
+        '-o', f'ConnectTimeout={connect_timeout}',
+        node,
+        remote_cmd
+    ]
+
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        print(f"⚠️  SSH timeout: {node}")
+        raise
+    except Exception as e:
+        print(f"❌ SSH failed to {node}: {e}")
+        raise
+
 # 명령어 경로
 SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')

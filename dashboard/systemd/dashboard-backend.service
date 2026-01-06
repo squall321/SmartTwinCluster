@@ -8,7 +8,9 @@ Type=simple
 User=koopark
 Group=koopark
 WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010
-Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/venv/bin"
+Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
+Environment="HOME=/home/koopark"
+Environment="SLURM_BIN_DIR=/usr/local/slurm/bin"
 EnvironmentFile=-/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/.env
 ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/backend_5010/venv/bin/gunicorn -c gunicorn_config.py app:app
 ExecReload=/bin/kill -s HUP $MAINPID
