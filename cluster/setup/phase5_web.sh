@@ -1712,6 +1712,36 @@ run_database_migrations() {
     fi
 }
 
+# Function to initialize template storage (/shared/templates/)
+# Copies templates from dashboard/templates/ and creates sample templates
+init_template_storage() {
+    log_info "Initializing template storage (/shared/templates/)..."
+
+    local init_script="$SCRIPT_DIR/init_template_storage.sh"
+
+    if [[ ! -f "$init_script" ]]; then
+        log_warning "Template init script not found: $init_script"
+        log_info "Skipping template storage initialization"
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" == false ]]; then
+        # Check if /shared exists (it should exist if GlusterFS is mounted or local)
+        if [[ -d "/shared" ]] || [[ -L "/shared" ]]; then
+            log_info "Running template storage initialization..."
+            bash "$init_script" 2>&1 | while read -r line; do
+                log_info "  $line"
+            done
+            log_success "Template storage initialized"
+        else
+            log_warning "/shared directory not found, skipping template storage initialization"
+            log_info "You can manually run: sudo $init_script"
+        fi
+    else
+        log_info "[DRY-RUN] Would run template storage initialization"
+    fi
+}
+
 # Function to initialize cluster_config from YAML partitions
 init_cluster_config_from_yaml() {
     local dashboard_dir=$1
@@ -1927,6 +1957,9 @@ deploy_web_services() {
 
     # Run database migrations (creates apptainer_images, templates tables, etc.)
     run_database_migrations "$dashboard_dir"
+
+    # Initialize template storage (/shared/templates/)
+    init_template_storage
 
     # Initialize cluster_config from YAML partitions (replaces hardcoded defaults)
     init_cluster_config_from_yaml "$dashboard_dir"

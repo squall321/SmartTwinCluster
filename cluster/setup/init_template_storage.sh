@@ -63,7 +63,7 @@ create_directories() {
     mkdir -p "$TEMPLATE_DIR"/{official,community,private,archived}
 
     # Official template categories
-    mkdir -p "$TEMPLATE_DIR"/official/{ml,cfd,structural,molecular,data,rendering,custom}
+    mkdir -p "$TEMPLATE_DIR"/official/{ml,cfd,structural,molecular,data,rendering,simulation,custom}
 
     log_success "Directory structure created"
 }
@@ -91,6 +91,40 @@ set_permissions() {
     chmod 755 "$TEMPLATE_DIR"/archived
 
     log_success "Permissions set"
+}
+
+# Copy templates from project directory (dashboard/templates/)
+copy_project_templates() {
+    log_info "Copying templates from project directory..."
+
+    # Find project root directory
+    # Look for dashboard/templates/ directory relative to this script
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local project_root="$(cd "$script_dir/../.." && pwd)"
+    local source_templates="$project_root/dashboard/templates"
+
+    if [[ -d "$source_templates" ]]; then
+        log_info "Found project templates at: $source_templates"
+
+        # Copy official templates (preserving directory structure)
+        if [[ -d "$source_templates/official" ]]; then
+            log_info "Copying official templates..."
+            cp -rv "$source_templates/official/"* "$TEMPLATE_DIR/official/" 2>/dev/null || true
+
+            # Count copied templates
+            local count=$(find "$source_templates/official" -name "*.yaml" -o -name "*.yml" 2>/dev/null | wc -l)
+            log_success "Copied $count official templates from project"
+        fi
+
+        # Copy community templates if exists
+        if [[ -d "$source_templates/community" ]]; then
+            log_info "Copying community templates..."
+            cp -rv "$source_templates/community/"* "$TEMPLATE_DIR/community/" 2>/dev/null || true
+        fi
+    else
+        log_warning "Project templates directory not found: $source_templates"
+        log_info "Skipping project template copy (will create sample templates instead)"
+    fi
 }
 
 # Create sample official templates
@@ -466,7 +500,8 @@ main() {
     check_root
     create_directories
     set_permissions
-    create_sample_templates
+    copy_project_templates      # Copy templates from dashboard/templates/
+    create_sample_templates     # Create additional sample templates
     create_readme
 
     echo ""
