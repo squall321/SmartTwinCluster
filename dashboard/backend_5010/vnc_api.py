@@ -234,31 +234,41 @@ vnc_bp = Blueprint('vnc', __name__, url_prefix='/api/vnc')
 
 # ==================== Helper Functions ====================
 
-def check_image_exists_on_remote_node(sif_path, node=None, partition='viz'):
+def check_image_exists(sif_path, node=None, partition='viz'):
     """
-    원격 노드에서 이미지 파일 존재 확인
+    이미지 파일 존재 확인 (로컬 우선, 원격 fallback)
 
     Args:
         sif_path: SIF 파일 경로 (예: /opt/apptainers/vnc_desktop.sif)
-        node: 확인할 노드 (기본값: viz-node001)
+        node: 확인할 노드 (기본값: DEFAULT_VIZ_NODE)
         partition: 파티션 타입 (viz 또는 compute)
 
     Returns:
         bool: 파일 존재 여부
 
     Note:
-        - VNC 이미지는 viz-node에만 존재
-        - Compute 이미지는 compute-node에 존재
-        - Backend(headnode)에는 메타데이터(JSON)만 존재
+        - 공유 스토리지(/opt/apptainers)를 사용하는 경우 로컬에서 확인
+        - 공유 스토리지가 없으면 원격 노드에서 SSH로 확인
     """
+    # 1. 먼저 로컬에서 확인 (공유 스토리지 사용 시)
+    if os.path.exists(sif_path):
+        print(f"✅ Image found locally: {sif_path}")
+        return True
+
+    # 2. 로컬에 없으면 원격 노드에서 확인
     if node is None:
         node = DEFAULT_VIZ_NODE
 
+    # localhost면 로컬 체크만으로 충분
+    if node in ['localhost', '127.0.0.1']:
+        print(f"⚠️  Image NOT found locally: {sif_path}")
+        return False
+
     try:
         # SSH로 원격 노드에서 파일 존재 확인
-        # timeout 5초로 빠르게 확인
+        # timeout 3초로 빠르게 확인
         result = subprocess.run(
-            [SSH, '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no',
+            [SSH, '-o', 'ConnectTimeout=3', '-o', 'StrictHostKeyChecking=no',
              node, f'test -f {sif_path} && echo "exists"'],
             capture_output=True,
             text=True,
@@ -276,10 +286,15 @@ def check_image_exists_on_remote_node(sif_path, node=None, partition='viz'):
 
     except subprocess.TimeoutExpired:
         print(f"⚠️  SSH timeout checking image on {node}: {sif_path}")
+        # SSH 타임아웃 시 로컬 체크 결과 반환 (이미 위에서 False)
         return False
     except Exception as e:
         print(f"❌ Error checking image on {node}: {e}")
         return False
+
+
+# 이전 함수명 호환성 유지
+check_image_exists_on_remote_node = check_image_exists
 
 
 def create_ssh_tunnel(node, remote_port, local_port, session_id):
