@@ -1843,8 +1843,11 @@ generate_partition_definitions() {
     local partition_defs=""
     local default_partition=""
 
-    # Get partitions from YAML
-    local partitions=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get slurm.partitions 2>/dev/null || echo "[]")
+    # Get partitions from YAML (try slurm_config.partitions first, then slurm.partitions)
+    local partitions=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get slurm_config.partitions 2>/dev/null || echo "[]")
+    if [[ "$partitions" == "[]" ]] || [[ -z "$partitions" ]]; then
+        partitions=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get slurm.partitions 2>/dev/null || echo "[]")
+    fi
 
     # Generate PartitionName entries
     local part_count=0
