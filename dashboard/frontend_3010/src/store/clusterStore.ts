@@ -1,13 +1,15 @@
 import { create } from 'zustand';
 import { SlurmGroup, SlurmNode, ClusterConfig } from '../types';
 import { initialClusterData } from '../data/initialData';
-import { apiPost } from '../utils/api';
+import { apiPost, apiGet } from '../utils/api';
 
 interface ClusterStore extends ClusterConfig {
   // 상태
   hasUnsavedChanges: boolean;
   isApplying: boolean;
-  
+  isLoading: boolean;
+  configLoaded: boolean;
+
   // 액션
   moveNode: (nodeId: string, fromGroupId: number, toGroupId: number) => void;
   moveNodes: (nodeIds: string[], fromGroupId: number, toGroupId: number) => void;
@@ -17,16 +19,19 @@ interface ClusterStore extends ClusterConfig {
   resetChanges: () => void;
   applyConfiguration: () => Promise<void>;
   setApplying: (isApplying: boolean) => void;
-  
+
   // 🆕 그룹 관리 기능
   addGroup: () => void;
   removeGroup: (groupId: number) => void;
-  
+
   // 🆕 저장/로드 기능
   exportConfiguration: () => string;
   importConfiguration: (jsonData: string) => boolean;
   downloadConfiguration: (filename?: string) => void;
   loadConfiguration: (config: ClusterConfig) => void;
+
+  // 🆕 API에서 설정 로드
+  fetchClusterConfig: () => Promise<void>;
 }
 
 export const useClusterStore = create<ClusterStore>((set, get) => ({
@@ -34,6 +39,8 @@ export const useClusterStore = create<ClusterStore>((set, get) => ({
   ...initialClusterData,
   hasUnsavedChanges: false,
   isApplying: false,
+  isLoading: false,
+  configLoaded: false,
   
   // 단일 노드 이동
   moveNode: (nodeId, fromGroupId, toGroupId) => {
@@ -160,12 +167,15 @@ export const useClusterStore = create<ClusterStore>((set, get) => ({
     });
   },
   
-  // 변경사항 초기화
+  // 변경사항 초기화 (API에서 다시 로드)
   resetChanges: () => {
+    // Reset configLoaded flag to force re-fetch
     set({
-      ...initialClusterData,
+      configLoaded: false,
       hasUnsavedChanges: false,
     });
+    // Trigger re-fetch from API
+    get().fetchClusterConfig();
   },
   
   // 설정 적용 (API 호출)
@@ -377,5 +387,58 @@ export const useClusterStore = create<ClusterStore>((set, get) => ({
       ...config,
       hasUnsavedChanges: true,
     });
+  },
+
+  // 🆕 API에서 클러스터 설정 로드
+  fetchClusterConfig: async () => {
+    const { configLoaded } = get();
+    if (configLoaded) {
+      console.log('[ClusterStore] Config already loaded, skipping fetch');
+      return;
+    }
+
+    set({ isLoading: true });
+
+    try {
+      console.log('[ClusterStore] Fetching cluster config from API...');
+      const response = await apiGet<{
+        success: boolean;
+        mode: string;
+        config: ClusterConfig;
+        note?: string;
+      }>('/api/cluster/config');
+
+      if (response.success && response.config) {
+        console.log(`[ClusterStore] Loaded config: ${response.config.totalNodes} nodes, ${response.config.groups?.length || 0} groups (mode: ${response.mode})`);
+
+        // Ensure nodes have id field for drag-drop functionality
+        const groups = response.config.groups?.map(group => ({
+          ...group,
+          nodes: group.nodes?.map((node, idx) => ({
+            ...node,
+            id: node.id || `${group.partitionName}-${node.hostname || idx}`,
+            groupId: group.id,
+            cores: node.cpus || node.cores || 128
+          })) || []
+        })) || [];
+
+        set({
+          groups,
+          clusterName: response.config.clusterName || 'HPC-Cluster',
+          controllerIp: response.config.controllerIp || '127.0.0.1',
+          totalNodes: response.config.totalNodes || groups.reduce((sum, g) => sum + (g.nodes?.length || 0), 0),
+          totalCores: response.config.totalCores || groups.reduce((sum, g) => sum + (g.totalCores || 0), 0),
+          isLoading: false,
+          configLoaded: true,
+          hasUnsavedChanges: false,
+        });
+      } else {
+        console.warn('[ClusterStore] Failed to load config, using defaults');
+        set({ isLoading: false, configLoaded: true });
+      }
+    } catch (error) {
+      console.error('[ClusterStore] Error fetching cluster config:', error);
+      set({ isLoading: false, configLoaded: true });
+    }
   },
 }));

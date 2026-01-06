@@ -3,9 +3,12 @@ import { Dashboard } from './components/Dashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { setJwtToken } from './utils/api';
+import { useClusterStore } from './store/clusterStore';
 import './index.css';
 
 function App() {
+  const fetchClusterConfig = useClusterStore((state) => state.fetchClusterConfig);
+
   useEffect(() => {
     // Extract JWT token from URL query parameters (from Auth Portal)
     const urlParams = new URLSearchParams(window.location.search);
@@ -22,6 +25,12 @@ function App() {
       window.location.reload();
     }
   }, []);
+
+  // Fetch cluster configuration from API on startup
+  useEffect(() => {
+    console.log('[App] Loading cluster configuration from API...');
+    fetchClusterConfig();
+  }, [fetchClusterConfig]);
 
   return (
     <ThemeProvider>
