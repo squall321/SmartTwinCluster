@@ -1267,6 +1267,66 @@ except:
                 echo "  ⚠️  Backend API (5010) 응답 없음 - 초기화 건너뜀"
             fi
             echo ""
+
+            # ============================================================================
+            # Slurm 노드 상태 초기화 (down → idle)
+            # setup/start 후 노드가 down 상태로 시작되는 문제 해결
+            # ============================================================================
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔄 Slurm 노드 상태 초기화 (down → idle)..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            # scontrol 경로 찾기
+            SCONTROL=""
+            for path in /usr/local/slurm/bin/scontrol /opt/slurm/bin/scontrol /usr/local/bin/scontrol /usr/bin/scontrol; do
+                if [ -x "$path" ]; then
+                    SCONTROL="$path"
+                    break
+                fi
+            done
+
+            if [ -n "$SCONTROL" ]; then
+                # 모든 노드 목록 가져오기
+                ALL_NODES=$($SCONTROL show nodes 2>/dev/null | grep "NodeName=" | sed 's/NodeName=//' | awk '{print $1}' | tr '\n' ',' | sed 's/,$//')
+
+                if [ -n "$ALL_NODES" ]; then
+                    echo "  → 노드 목록: $ALL_NODES"
+
+                    # 1단계: 모든 노드 drain (상태 리셋)
+                    echo "  → 모든 노드 drain 중..."
+                    sudo $SCONTROL update NodeName="$ALL_NODES" State=DRAIN Reason="start.sh: 상태 초기화" 2>/dev/null || true
+
+                    sleep 2
+
+                    # 2단계: 모든 노드 resume (idle로 복구)
+                    echo "  → 모든 노드 resume 중..."
+                    sudo $SCONTROL update NodeName="$ALL_NODES" State=RESUME 2>/dev/null || true
+
+                    sleep 1
+
+                    # 결과 확인
+                    echo ""
+                    echo "  📊 노드 상태 확인:"
+                    $SCONTROL show nodes 2>/dev/null | grep -E "NodeName=|State=" | paste - - | while read line; do
+                        NODE=$(echo "$line" | grep -oP 'NodeName=\K\S+')
+                        STATE=$(echo "$line" | grep -oP 'State=\K\S+')
+                        if [[ "$STATE" == "IDLE" ]] || [[ "$STATE" == "IDLE+DRAIN" ]]; then
+                            echo "     ✅ $NODE: $STATE"
+                        elif [[ "$STATE" == *"DOWN"* ]]; then
+                            echo "     ❌ $NODE: $STATE"
+                        else
+                            echo "     ⚠️  $NODE: $STATE"
+                        fi
+                    done
+                    echo ""
+                    echo "  ✅ Slurm 노드 상태 초기화 완료"
+                else
+                    echo "  ⚠️  Slurm 노드가 등록되지 않음"
+                fi
+            else
+                echo "  ⚠️  scontrol을 찾을 수 없음 - Slurm이 설치되지 않았거나 경로가 다름"
+            fi
+            echo ""
         else
             echo "❌ 오류: dashboard/start_production.sh 파일을 찾을 수 없습니다."
             echo "   현재 디렉토리: $(pwd)"
