@@ -45,6 +45,22 @@ except ImportError:
     KILL = '/bin/kill'
     RM = '/bin/rm'
 
+# YAML에서 기본 SSH 사용자 조회 (VNC 세션용)
+try:
+    from yaml_node_loader import get_ssh_user_for_node, load_yaml_config
+    def get_default_system_user():
+        """YAML에서 기본 시스템 사용자 가져오기"""
+        config = load_yaml_config()
+        if config:
+            # controllers의 첫 번째 ssh_user 사용
+            controllers = config.get('nodes', {}).get('controllers', [])
+            if controllers:
+                return controllers[0].get('ssh_user', 'koopark')
+        return 'koopark'
+except ImportError:
+    def get_default_system_user():
+        return 'koopark'
+
 # Mock 모드
 MOCK_MODE = os.getenv('MOCK_MODE', 'false').lower() == 'true'
 
@@ -714,16 +730,21 @@ def get_vnc_session(session_id):
 
 
 def get_user_vnc_sessions(username):
-    """사용자의 모든 VNC 세션 조회"""
+    """사용자의 모든 VNC 세션 조회
+
+    웹 로그인 사용자(web_user) 또는 시스템 사용자(username)로 세션 검색
+    """
 
     sessions = []
 
     if REDIS_AVAILABLE and vnc_session_manager:
-        # Get all sessions and filter by username
+        # Get all sessions and filter by username or web_user
         all_sessions = vnc_session_manager.list_sessions()
-        sessions = [s for s in all_sessions if s.get('username') == username]
+        sessions = [s for s in all_sessions
+                    if s.get('username') == username or s.get('web_user') == username]
     else:
-        sessions = [s for s in vnc_sessions_memory.values() if s.get('username') == username]
+        sessions = [s for s in vnc_sessions_memory.values()
+                    if s.get('username') == username or s.get('web_user') == username]
 
     return sessions
 
@@ -776,6 +797,11 @@ def create_vnc_session():
     duration_hours = int(data.get('duration_hours', 4))
     gpu_count = int(data.get('gpu_count', 1))
 
+    # 시스템 사용자 (YAML의 ssh_user) - VNC 세션 실행용
+    # 웹 로그인 사용자(admin 등)가 아닌 실제 시스템 사용자 사용
+    system_user = get_default_system_user()
+    web_user = user['username']  # 웹 로그인 사용자 (감사 추적용)
+
     # 이미지 유효성 검사
     if image_id not in VNC_IMAGES:
         return jsonify({'error': f'Invalid image_id: {image_id}'}), 400
@@ -788,9 +814,9 @@ def create_vnc_session():
     if not check_image_exists_on_remote_node(sif_image_path, node=DEFAULT_VIZ_NODE, partition='viz'):
         return jsonify({'error': f'Image file not found on viz-node ({DEFAULT_VIZ_NODE}): {sif_image_path}'}), 500
 
-    # 세션 ID 생성
+    # 세션 ID 생성 (시스템 사용자 기반)
     timestamp = int(time.time())
-    session_id = f"vnc-{user['username']}-{timestamp}"
+    session_id = f"vnc-{system_user}-{timestamp}"
 
     # VNC 포트 할당
     try:
@@ -799,10 +825,10 @@ def create_vnc_session():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    # Slurm Job 제출
+    # Slurm Job 제출 (시스템 사용자로 실행)
     try:
         job_id = submit_vnc_job(
-            user['username'],
+            system_user,  # YAML의 ssh_user 사용
             session_id,
             vnc_port,
             novnc_port,
@@ -821,7 +847,8 @@ def create_vnc_session():
     session_data = {
         'session_id': session_id,
         'job_id': job_id,
-        'username': user['username'],
+        'username': system_user,  # 시스템 사용자 (VNC 실행용)
+        'web_user': web_user,     # 웹 로그인 사용자 (감사 추적용)
         'email': user.get('email', ''),
         'image_id': image_id,
         'image_name': image_config['name'],

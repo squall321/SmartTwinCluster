@@ -20,6 +20,13 @@ ssh_connections = {}
 # SSH configuration - use environment variable if set, otherwise default to current user's key
 SSH_KEY_PATH = os.getenv('SSH_KEY_PATH', os.path.expanduser('~/.ssh/id_rsa'))
 
+# YAML에서 노드별 SSH 사용자 조회
+try:
+    from yaml_node_loader import get_ssh_user_for_node
+except ImportError:
+    def get_ssh_user_for_node(hostname):
+        return 'koopark'
+
 
 def init_ssh_websocket(socketio):
     """
@@ -41,16 +48,16 @@ def init_ssh_websocket(socketio):
         data = {
             'session_id': str,
             'node_hostname': str,
-            'username': str,
+            'username': str,  # 프론트엔드에서 전달하지만 YAML 설정 우선 사용
             'rows': int,
             'cols': int
         }
         """
         session_id = data.get('session_id')
         node_hostname = data.get('node_hostname')
-        # ADMIN ONLY: Use system user (koopark) for Slurm cluster management
-        # Regular user SSH will be implemented later with Apptainer integration
-        username = os.getenv('USER', 'koopark')  # Slurm admin user
+        # YAML 설정의 ssh_user 사용 (계정명 기반 SSH 접속)
+        # 프론트엔드에서 전달된 username은 참고용, 실제 SSH는 YAML 설정 사용
+        username = get_ssh_user_for_node(node_hostname)
         rows = data.get('rows', 24)
         cols = data.get('cols', 80)
         client_id = request.sid

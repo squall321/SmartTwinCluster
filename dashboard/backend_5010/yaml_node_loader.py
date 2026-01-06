@@ -84,6 +84,7 @@ def get_nodes_from_yaml() -> Dict[str, List[Dict[str, Any]]]:
             'node_type': ctrl.get('node_type', 'controller'),
             'cores': ctrl.get('hardware', {}).get('cpus', 0),
             'memory_mb': ctrl.get('hardware', {}).get('memory_mb', 0),
+            'ssh_user': ctrl.get('ssh_user', 'koopark'),
             'state': 'idle',
         }
         result['controller'].append(node_info)
@@ -99,6 +100,7 @@ def get_nodes_from_yaml() -> Dict[str, List[Dict[str, Any]]]:
             'memory_mb': node.get('hardware', {}).get('memory_mb', 0),
             'gpus': node.get('hardware', {}).get('gpus', 0),
             'gpu_type': node.get('hardware', {}).get('gpu_type', ''),
+            'ssh_user': node.get('ssh_user', 'koopark'),
             'state': 'idle',
         }
 
@@ -180,6 +182,29 @@ def create_initial_groups_from_yaml() -> List[Dict[str, Any]]:
         group_id += 1
 
     return groups
+
+
+def get_ssh_user_for_node(hostname: str) -> str:
+    """
+    특정 노드의 SSH 사용자명 조회
+    YAML 설정에서 해당 노드의 ssh_user 반환
+
+    Args:
+        hostname: 노드 호스트명
+
+    Returns:
+        SSH 사용자명 (기본값: 'koopark')
+    """
+    nodes = get_nodes_from_yaml()
+
+    # 모든 노드에서 검색
+    all_nodes = nodes['compute'] + nodes['viz'] + nodes['controller']
+    for node in all_nodes:
+        if node.get('hostname') == hostname:
+            return node.get('ssh_user', 'koopark')
+
+    # 호스트명을 찾지 못한 경우 기본값 반환
+    return 'koopark'
 
 
 def get_cluster_info_from_yaml() -> Dict[str, Any]:

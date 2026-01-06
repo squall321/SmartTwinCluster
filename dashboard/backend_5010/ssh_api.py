@@ -18,6 +18,13 @@ except ImportError:
     SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
     SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 
+# YAML에서 노드별 SSH 사용자 조회
+try:
+    from yaml_node_loader import get_ssh_user_for_node
+except ImportError:
+    def get_ssh_user_for_node(hostname):
+        return 'koopark'
+
 logger = logging.getLogger(__name__)
 
 ssh_bp = Blueprint('ssh', __name__, url_prefix='/api/ssh')
@@ -196,10 +203,11 @@ def get_sessions():
 def create_session():
     """
     Create a new SSH session to a node
+    SSH 사용자는 YAML 설정의 ssh_user를 사용 (계정명 기반)
     """
     try:
         user = g.user
-        username = user.get("username", "unknown")
+        web_username = user.get("username", "unknown")  # 웹 로그인 사용자 (관리용)
         data = request.json
 
         node_hostname = data.get('node_hostname')
@@ -208,7 +216,9 @@ def create_session():
                 'error': 'Missing required field: node_hostname'
             }), 400
 
-        logger.info(f"[SSH] Creating session for {username} to {node_hostname}")
+        # YAML에서 해당 노드의 SSH 사용자 조회
+        ssh_username = get_ssh_user_for_node(node_hostname)
+        logger.info(f"[SSH] Creating session for web user {web_username}, SSH user {ssh_username} to {node_hostname}")
 
         # Check if SSH key exists
         if not os.path.exists(SSH_KEY_PATH):
@@ -224,7 +234,8 @@ def create_session():
         session = {
             'id': session_id,
             'node_hostname': node_hostname,
-            'username': username,
+            'username': ssh_username,  # YAML의 ssh_user 사용
+            'web_user': web_username,  # 웹 로그인 사용자 (감사 추적용)
             'status': 'connected',
             'created_at': datetime.utcnow().isoformat(),
             'last_activity': datetime.utcnow().isoformat()
@@ -233,7 +244,7 @@ def create_session():
         # Store session
         active_sessions[session_id] = session
 
-        logger.info(f"[SSH] Session {session_id} created for {username}@{node_hostname}")
+        logger.info(f"[SSH] Session {session_id} created: {ssh_username}@{node_hostname} (web user: {web_username})")
 
         return jsonify({
             'session': session,
