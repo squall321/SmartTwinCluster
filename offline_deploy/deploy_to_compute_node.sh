@@ -568,16 +568,24 @@ echo "  Stopping slurmd..."
 run_sudo systemctl stop slurmd 2>/dev/null || true
 run_sudo systemctl disable slurmd 2>/dev/null || true
 
+# 기존 slurmd.service 파일 삭제 (잘못된 경로 설정 방지)
+echo "  Removing old slurmd.service..."
+run_sudo rm -f /etc/systemd/system/slurmd.service 2>/dev/null || true
+run_sudo rm -f /lib/systemd/system/slurmd.service 2>/dev/null || true
+run_sudo systemctl daemon-reload 2>/dev/null || true
+
 # munge 강제 중지
 echo "  Stopping munge..."
 run_sudo systemctl stop munge 2>/dev/null || true
 
-# 기존 slurm 설정 정리
+# 기존 slurm 설정 정리 (모든 가능한 경로)
 echo "  Cleaning old slurm configs..."
 run_sudo rm -f /etc/slurm/slurm.conf 2>/dev/null || true
 run_sudo rm -f /usr/local/slurm/etc/slurm.conf 2>/dev/null || true
+run_sudo rm -f /opt/slurm/etc/slurm.conf 2>/dev/null || true
 run_sudo rm -f /etc/slurm/gres.conf 2>/dev/null || true
 run_sudo rm -f /usr/local/slurm/etc/gres.conf 2>/dev/null || true
+run_sudo rm -f /opt/slurm/etc/gres.conf 2>/dev/null || true
 
 # 기존 munge 키 정리 (새 키로 교체 준비)
 echo "  Cleaning old munge key..."
