@@ -192,21 +192,56 @@ for node in $PROBLEM_NODES; do
 
     # SSH 접속 테스트
     echo "  → Testing SSH connection..."
-    if ! ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$NODE_USER@$NODE_IP" "echo ok" &>/dev/null; then
-        log_error "  ✗ SSH connection failed!"
-        echo "    Possible causes:"
-        echo "      - Node is powered off or unreachable"
-        echo "      - Network connectivity issue"
-        echo "      - SSH service not running"
-        echo "      - Wrong IP address in YAML"
-        continue
+    SSH_OPTS="-o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes -o PasswordAuthentication=no"
+
+    # 먼저 SSH 키로 접속 시도
+    SSH_TEST_OUTPUT=$(ssh $SSH_OPTS "$NODE_USER@$NODE_IP" "echo ok" 2>&1)
+    SSH_TEST_RESULT=$?
+
+    if [[ $SSH_TEST_RESULT -ne 0 ]]; then
+        log_warning "  ⚠️  SSH key authentication failed, trying with password..."
+        echo "    Error: $SSH_TEST_OUTPUT" | head -3 | sed 's/^/    /'
+
+        # SSH 키 실패 시 비밀번호 사용 (sshpass 필요)
+        # YAML에서 SSH 비밀번호 가져오기
+        SSH_PASSWORD=$(python3 << EOPY
+import yaml
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+    print(config.get('cluster_info', {}).get('ssh_password', ''))
+except:
+    print('')
+EOPY
+)
+
+        if [[ -n "$SSH_PASSWORD" ]] && command -v sshpass &>/dev/null; then
+            if sshpass -p "$SSH_PASSWORD" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$NODE_USER@$NODE_IP" "echo ok" &>/dev/null; then
+                log_success "  ✓ SSH connection OK (using password)"
+                SSH_CMD="sshpass -p '$SSH_PASSWORD' ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no"
+            else
+                log_error "  ✗ SSH connection failed with both key and password!"
+                echo "    Please check:"
+                echo "      - Node is powered on and reachable: ping $NODE_IP"
+                echo "      - SSH service running: ssh $NODE_USER@$NODE_IP"
+                echo "      - Correct password in YAML: cluster_info.ssh_password"
+                continue
+            fi
+        else
+            log_error "  ✗ SSH key authentication failed and sshpass not available"
+            echo "    Install sshpass: sudo apt install sshpass"
+            echo "    Or add SSH key to node: ssh-copy-id $NODE_USER@$NODE_IP"
+            continue
+        fi
+    else
+        log_success "  ✓ SSH connection OK (using SSH key)"
+        SSH_CMD="ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no"
     fi
-    log_success "  ✓ SSH connection OK"
     echo ""
 
     # 원격 진단 실행
     echo "  → Running remote diagnostics..."
-    ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$NODE_USER@$NODE_IP" bash << 'EOFDIAG'
+    $SSH_CMD "$NODE_USER@$NODE_IP" bash << 'EOFDIAG'
 
 echo "  ┌─────────────────────────────────────────────────────┐"
 echo "  │ 1. slurmd service status                            │"
