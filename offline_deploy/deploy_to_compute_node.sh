@@ -416,6 +416,104 @@ deploy_to_node() {
 
     log_success "[$node_hostname] Packages transferred"
 
+    # /etc/hosts 업데이트 (컨트롤러 호스트명 추가)
+    log_info "[$node_hostname] Updating /etc/hosts with cluster hostnames..."
+
+    # YAML에서 모든 노드의 hostname/IP 추출하여 원격에 전달
+    local hosts_entries
+    hosts_entries=$(python3 << EOPY
+import yaml
+
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+
+entries = []
+
+# Controllers
+for ctrl in config.get('nodes', {}).get('controllers', []):
+    if ctrl.get('enabled', True):
+        entries.append(f"{ctrl['ip_address']} {ctrl['hostname']}")
+
+# Compute nodes
+for node in config.get('nodes', {}).get('compute_nodes', []):
+    entries.append(f"{node['ip_address']} {node['hostname']}")
+
+# Viz nodes
+for node in config.get('nodes', {}).get('viz_nodes', []):
+    entries.append(f"{node['ip_address']} {node['hostname']}")
+
+print('\\n'.join(entries))
+EOPY
+    )
+
+    if [[ -n "$hosts_entries" ]]; then
+        # hosts_entries를 base64로 인코딩하여 전달
+        local encoded_hosts=$(echo "$hosts_entries" | base64 -w 0)
+
+        # 원격에서 /etc/hosts 업데이트
+        if [[ -n "$SSH_PASSWORD" ]]; then
+            local encoded_pass_hosts=$(echo -n "$SSH_PASSWORD" | base64)
+            $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$encoded_hosts" "$encoded_pass_hosts" << 'EOFHOSTS'
+HOSTS_B64="$1"
+SUDO_PASS_B64="$2"
+
+# base64 디코딩
+HOSTS_ENTRIES=$(echo "$HOSTS_B64" | base64 -d)
+SUDO_PASS=""
+if [[ -n "$SUDO_PASS_B64" ]]; then
+    SUDO_PASS=$(echo "$SUDO_PASS_B64" | base64 -d)
+fi
+
+run_sudo() {
+    if [[ -n "$SUDO_PASS" ]]; then
+        echo "$SUDO_PASS" | sudo -S "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+# 클러스터 호스트 섹션 마커
+MARKER_START="# === Cluster Hosts (auto-generated) ==="
+MARKER_END="# === End Cluster Hosts ==="
+
+# 기존 클러스터 호스트 섹션 제거
+run_sudo sed -i "/$MARKER_START/,/$MARKER_END/d" /etc/hosts 2>/dev/null || true
+
+# 새 섹션 추가
+{
+    echo ""
+    echo "$MARKER_START"
+    echo "$HOSTS_ENTRIES"
+    echo "$MARKER_END"
+} | run_sudo tee -a /etc/hosts > /dev/null
+
+echo "  /etc/hosts updated with cluster hostnames"
+EOFHOSTS
+        else
+            $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$encoded_hosts" << 'EOFHOSTS2'
+HOSTS_B64="$1"
+HOSTS_ENTRIES=$(echo "$HOSTS_B64" | base64 -d)
+
+MARKER_START="# === Cluster Hosts (auto-generated) ==="
+MARKER_END="# === End Cluster Hosts ==="
+
+sudo sed -i "/$MARKER_START/,/$MARKER_END/d" /etc/hosts 2>/dev/null || true
+
+{
+    echo ""
+    echo "$MARKER_START"
+    echo "$HOSTS_ENTRIES"
+    echo "$MARKER_END"
+} | sudo tee -a /etc/hosts > /dev/null
+
+echo "  /etc/hosts updated with cluster hostnames"
+EOFHOSTS2
+        fi
+        log_success "[$node_hostname] /etc/hosts updated"
+    else
+        log_warning "[$node_hostname] Failed to extract hosts entries from YAML"
+    fi
+
     # 원격 설치 스크립트 실행
     log_info "[$node_hostname] Installing packages..."
 
