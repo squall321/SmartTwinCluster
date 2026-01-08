@@ -479,13 +479,16 @@ MARKER_END="# === End Cluster Hosts ==="
 # 기존 클러스터 호스트 섹션 제거
 run_sudo sed -i "/$MARKER_START/,/$MARKER_END/d" /etc/hosts 2>/dev/null || true
 
-# 새 섹션 추가
+# 새 섹션 추가 (임시 파일 사용 - run_sudo tee의 stdin 문제 회피)
+HOSTS_TMP="/tmp/hosts_entries.$$"
 {
     echo ""
     echo "$MARKER_START"
     echo "$HOSTS_ENTRIES"
     echo "$MARKER_END"
-} | run_sudo tee -a /etc/hosts > /dev/null
+} > "$HOSTS_TMP"
+cat "$HOSTS_TMP" | run_sudo tee -a /etc/hosts > /dev/null
+rm -f "$HOSTS_TMP"
 
 echo "  /etc/hosts updated with cluster hostnames"
 EOFHOSTS
@@ -714,10 +717,16 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
     MOUNT_NAME=$(basename "$GLUSTER_MOUNT")
 
     # auto.master 설정 (이미 있으면 건너뜀)
+    # 임시 파일 사용 - run_sudo tee의 stdin 문제 회피
     if ! grep -q "auto.gluster" "$AUTOFS_MASTER" 2>/dev/null; then
-        echo "" | run_sudo tee -a "$AUTOFS_MASTER" > /dev/null
-        echo "# GlusterFS autofs mount (added by cluster deploy)" | run_sudo tee -a "$AUTOFS_MASTER" > /dev/null
-        echo "$MOUNT_PARENT /etc/auto.gluster --timeout=300 --ghost" | run_sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        AUTOFS_TMP="/tmp/auto.master.entry.$$"
+        {
+            echo ""
+            echo "# GlusterFS autofs mount (added by cluster deploy)"
+            echo "$MOUNT_PARENT /etc/auto.gluster --timeout=300 --ghost"
+        } > "$AUTOFS_TMP"
+        cat "$AUTOFS_TMP" | run_sudo tee -a "$AUTOFS_MASTER" > /dev/null
+        rm -f "$AUTOFS_TMP"
         echo "  Added entry to $AUTOFS_MASTER"
     else
         echo "  autofs entry already exists in $AUTOFS_MASTER"
@@ -729,11 +738,15 @@ if [[ -n "$GLUSTER_SERVER" ]] && [[ -n "$GLUSTER_VOLUME" ]]; then
     #   backup-volfile-servers : 백업 서버 (HA)
     #   log-level=WARNING  : 로그 레벨
     #   _netdev            : 네트워크 의존
-    run_sudo tee "$AUTOFS_GLUSTER" > /dev/null << EOFAUTOFS
+    # 임시 파일 사용 - run_sudo tee의 stdin 문제 회피
+    GLUSTER_TMP="/tmp/auto.gluster.$$"
+    cat > "$GLUSTER_TMP" << EOFAUTOFS
 # GlusterFS autofs map
 # Format: mount_name  -options  server:/volume
 $MOUNT_NAME  -fstype=glusterfs,log-level=WARNING,backup-volfile-servers=$GLUSTER_SERVER  $GLUSTER_SERVER:/$GLUSTER_VOLUME
 EOFAUTOFS
+    run_sudo cp -f "$GLUSTER_TMP" "$AUTOFS_GLUSTER"
+    rm -f "$GLUSTER_TMP"
 
     echo "  Created $AUTOFS_GLUSTER"
 
