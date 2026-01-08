@@ -489,8 +489,22 @@ fi
 echo ""
 echo "Step 5: Starting slurmd service..."
 
+# slurmd.service 생성/재생성 (잘못된 경로나 Type=forking 문제 방지)
 SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
+SLURMD_NEEDS_UPDATE=false
+
+# 서비스 파일이 없거나, /usr/sbin 경로 사용하거나, Type=forking이면 재생성
 if [[ ! -f "$SLURMD_SERVICE" ]]; then
+    SLURMD_NEEDS_UPDATE=true
+elif grep -q "/usr/sbin/slurmd" "$SLURMD_SERVICE" 2>/dev/null; then
+    echo "  ℹ slurmd.service uses /usr/sbin path, recreating..."
+    SLURMD_NEEDS_UPDATE=true
+elif grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
+    echo "  ℹ slurmd.service has Type=forking, recreating..."
+    SLURMD_NEEDS_UPDATE=true
+fi
+
+if [[ "$SLURMD_NEEDS_UPDATE" == "true" ]]; then
     run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
@@ -516,24 +530,20 @@ RestartSec=5
 WantedBy=multi-user.target
 EOFSVC
     run_sudo systemctl daemon-reload
-fi
-
-# Fix Type=forking if present
-if grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
-    run_sudo sed -i 's/Type=forking/Type=simple/' "$SLURMD_SERVICE"
-    if ! grep -q "ExecStart=.* -D" "$SLURMD_SERVICE"; then
-        run_sudo sed -i 's|ExecStart=\(.*slurmd\)\(.*\)|ExecStart=\1 -D\2|' "$SLURMD_SERVICE"
-    fi
-    run_sudo systemctl daemon-reload
+    echo "  ✓ slurmd.service created/updated"
 fi
 
 # Create /run/slurm
 run_sudo mkdir -p /run/slurm
 run_sudo chown slurm:slurm /run/slurm 2>/dev/null || true
 
+# Unmask slurmd if masked (controller에서 mask되었을 수 있음)
+run_sudo systemctl unmask slurmd 2>/dev/null || true
+
 # Start slurmd
 run_sudo systemctl stop slurmd 2>/dev/null || true
 sleep 1
+run_sudo systemctl daemon-reload
 run_sudo systemctl start slurmd
 run_sudo systemctl enable slurmd 2>/dev/null || true
 
@@ -581,8 +591,18 @@ except Exception as e:
     print(f"ERROR: Failed to read config: {e}", file=sys.stderr)
     sys.exit(1)
 
+# compute_nodes
 compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
 for node in compute_nodes:
+    hostname = node.get('hostname', '')
+    ip = node.get('ip_address', '')
+    user = node.get('ssh_user', 'koopark')
+    if hostname and ip:
+        print(f"{hostname}|{ip}|{user}")
+
+# viz_nodes (slurmd도 필요)
+viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
+for node in viz_nodes:
     hostname = node.get('hostname', '')
     ip = node.get('ip_address', '')
     user = node.get('ssh_user', 'koopark')

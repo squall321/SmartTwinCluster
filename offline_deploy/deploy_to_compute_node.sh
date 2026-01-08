@@ -177,7 +177,7 @@ EOPY
 }
 
 
-# 계산 노드 목록 추출
+# 계산 노드 및 viz 노드 목록 추출
 get_compute_nodes() {
     local nodes_json
     local py_exit_code
@@ -204,21 +204,36 @@ except yaml.YAMLError as e:
     sys.exit(1)
 
 nodes = []
+
+# compute_nodes 추출
 compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
-
-if not compute_nodes:
-    print("WARNING: No compute_nodes found in YAML", file=sys.stderr)
-    print("Expected structure: nodes.compute_nodes[].hostname/ip_address", file=sys.stderr)
-
 for node in compute_nodes:
     if 'hostname' not in node or 'ip_address' not in node:
-        print(f"WARNING: Skipping invalid node (missing hostname or ip_address): {node}", file=sys.stderr)
+        print(f"WARNING: Skipping invalid compute node (missing hostname or ip_address): {node}", file=sys.stderr)
         continue
     nodes.append({
         'hostname': node['hostname'],
         'ip': node['ip_address'],
-        'user': node.get('ssh_user', 'koopark')
+        'user': node.get('ssh_user', 'koopark'),
+        'type': 'compute'
     })
+
+# viz_nodes 추출 (slurmd도 필요)
+viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
+for node in viz_nodes:
+    if 'hostname' not in node or 'ip_address' not in node:
+        print(f"WARNING: Skipping invalid viz node (missing hostname or ip_address): {node}", file=sys.stderr)
+        continue
+    nodes.append({
+        'hostname': node['hostname'],
+        'ip': node['ip_address'],
+        'user': node.get('ssh_user', 'koopark'),
+        'type': 'viz'
+    })
+
+if not nodes:
+    print("WARNING: No compute_nodes or viz_nodes found in YAML", file=sys.stderr)
+    print("Expected structure: nodes.compute_nodes[]/viz_nodes[].hostname/ip_address", file=sys.stderr)
 
 print(json.dumps(nodes))
 EOPY
@@ -620,10 +635,23 @@ fi
 echo ""
 echo "Step 5: Starting slurmd service..."
 
-# slurmd 서비스 파일 확인/생성
+# slurmd.service 생성/재생성 (잘못된 경로나 Type=forking 문제 방지)
 SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
+SLURMD_NEEDS_UPDATE=false
+
+# 서비스 파일이 없거나, /usr/sbin 경로 사용하거나, Type=forking이면 재생성
 if [[ ! -f "$SLURMD_SERVICE" ]]; then
     echo "  Creating slurmd.service..."
+    SLURMD_NEEDS_UPDATE=true
+elif grep -q "/usr/sbin/slurmd" "$SLURMD_SERVICE" 2>/dev/null; then
+    echo "  slurmd.service uses /usr/sbin path, recreating..."
+    SLURMD_NEEDS_UPDATE=true
+elif grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
+    echo "  slurmd.service has Type=forking, recreating..."
+    SLURMD_NEEDS_UPDATE=true
+fi
+
+if [[ "$SLURMD_NEEDS_UPDATE" == "true" ]]; then
     run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
@@ -649,27 +677,21 @@ RestartSec=5
 WantedBy=multi-user.target
 EOFSVC
     run_sudo systemctl daemon-reload
-    echo "  ✓ slurmd.service created"
-fi
-
-# Type=forking이면 Type=simple로 수정
-if grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
-    echo "  Updating slurmd.service from Type=forking to Type=simple..."
-    run_sudo sed -i 's/Type=forking/Type=simple/' "$SLURMD_SERVICE"
-    if ! grep -q "ExecStart=.* -D" "$SLURMD_SERVICE"; then
-        run_sudo sed -i 's|ExecStart=\(.*slurmd\)\(.*\)|ExecStart=\1 -D\2|' "$SLURMD_SERVICE"
-    fi
-    run_sudo systemctl daemon-reload
+    echo "  ✓ slurmd.service created/updated"
 fi
 
 # /run/slurm 디렉토리 생성
 run_sudo mkdir -p /run/slurm
 run_sudo chown slurm:slurm /run/slurm 2>/dev/null || true
 
+# Unmask slurmd if masked (controller에서 mask되었을 수 있음)
+run_sudo systemctl unmask slurmd 2>/dev/null || true
+
 # slurmd 시작
 echo "  Starting slurmd..."
 run_sudo systemctl stop slurmd 2>/dev/null || true
 sleep 1
+run_sudo systemctl daemon-reload
 run_sudo systemctl start slurmd
 
 if systemctl is-active --quiet slurmd; then
@@ -724,7 +746,7 @@ deploy_all_nodes() {
     # 노드 목록을 임시 파일에 저장 (bash 변수 대신 파일 사용)
     local nodes_list_file="/tmp/deploy_nodes_$$.txt"
 
-    # Python으로 직접 YAML에서 노드 목록 생성 (JSON 중간 단계 제거)
+    # Python으로 직접 YAML에서 노드 목록 생성 (compute + viz 노드)
     python3 << EOPY > "$nodes_list_file"
 import yaml
 import sys
@@ -736,8 +758,18 @@ except Exception as e:
     print(f"ERROR: Failed to read config: {e}", file=sys.stderr)
     sys.exit(1)
 
+# compute_nodes
 compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
 for node in compute_nodes:
+    hostname = node.get('hostname', '')
+    ip = node.get('ip_address', '')
+    user = node.get('ssh_user', 'koopark')
+    if hostname and ip:
+        print(f"{hostname}|{ip}|{user}")
+
+# viz_nodes (slurmd 필요)
+viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
+for node in viz_nodes:
     hostname = node.get('hostname', '')
     ip = node.get('ip_address', '')
     user = node.get('ssh_user', 'koopark')
@@ -910,23 +942,24 @@ main() {
         fi
     fi
 
-    # 계산 노드 확인 (deploy_all_nodes에서 직접 YAML 읽음)
-    log_info "Checking compute nodes in configuration..."
+    # 계산 노드 + viz 노드 확인
+    log_info "Checking compute/viz nodes in configuration..."
     local node_count
     node_count=$(python3 -c "
 import yaml
 with open('$CONFIG_FILE', 'r') as f:
     config = yaml.safe_load(f)
-nodes = config.get('nodes', {}).get('compute_nodes', [])
-print(len(nodes))
+compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
+viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
+print(len(compute_nodes) + len(viz_nodes))
 " 2>/dev/null || echo "0")
 
     if [[ "$node_count" -eq 0 ]]; then
-        log_error "No compute nodes found in YAML configuration"
-        log_error "Check 'nodes.compute_nodes' section in: $CONFIG_FILE"
+        log_error "No compute/viz nodes found in YAML configuration"
+        log_error "Check 'nodes.compute_nodes' or 'nodes.viz_nodes' section in: $CONFIG_FILE"
         exit 1
     fi
-    log_success "Found $node_count compute nodes in configuration"
+    log_success "Found $node_count compute/viz nodes in configuration"
 
     # GlusterFS 설정 추출 (jq 대신 Python 사용)
     log_info "Extracting GlusterFS configuration..."
