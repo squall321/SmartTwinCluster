@@ -1345,13 +1345,33 @@ GRESEOF
 
                     # 3. viz 노드에 gres.conf 배포 (원격)
                     echo "  → viz 노드에 gres.conf 배포 중..."
+
+                    # YAML에서 viz 노드의 ssh_user 가져오기
+                    local VIZ_SSH_USER=""
+                    for yaml_file in "$PROJECT_ROOT/my_multihead_cluster.yaml" "$PROJECT_ROOT/my_cluster.yaml"; do
+                        if [[ -f "$yaml_file" ]]; then
+                            VIZ_SSH_USER=$(python3 -c "
+import yaml
+with open('$yaml_file', 'r') as f:
+    config = yaml.safe_load(f)
+viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
+if viz_nodes:
+    print(viz_nodes[0].get('ssh_user', 'koopark'))
+else:
+    print('koopark')
+" 2>/dev/null)
+                            break
+                        fi
+                    done
+                    VIZ_SSH_USER="${VIZ_SSH_USER:-koopark}"
+
                     for node in $VIZ_NODES; do
                         # 노드 IP 가져오기
                         NODE_IP=$(grep "^NodeName=$node " "$SLURM_CONF" | grep -oP 'NodeAddr=\K[^ ]+')
                         if [ -n "$NODE_IP" ]; then
-                            echo "     $node ($NODE_IP)..."
-                            # SSH로 gres.conf 복사 및 slurmd 재시작
-                            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$NODE_IP" \
+                            echo "     $node ($NODE_IP) as $VIZ_SSH_USER..."
+                            # SSH로 gres.conf 복사 및 slurmd 재시작 (YAML의 ssh_user 사용)
+                            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$VIZ_SSH_USER@$NODE_IP" \
                                 "sudo mkdir -p /usr/local/slurm/etc && sudo tee /usr/local/slurm/etc/gres.conf > /dev/null && sudo systemctl restart slurmd 2>/dev/null || true" \
                                 < "$GRES_CONF" 2>/dev/null && echo "       ✅ 완료" || echo "       ⚠️  접속 실패 (나중에 수동 배포 필요)"
                         fi
