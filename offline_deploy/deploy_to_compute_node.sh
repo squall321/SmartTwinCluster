@@ -830,6 +830,7 @@ sleep 1
 run_sudo systemctl daemon-reload
 run_sudo systemctl start slurmd
 
+DEPLOY_STATUS=0
 if systemctl is-active --quiet slurmd; then
     echo "  ✓ slurmd started successfully!"
     run_sudo systemctl enable slurmd 2>/dev/null || true
@@ -837,20 +838,79 @@ if systemctl is-active --quiet slurmd; then
     echo "  ✓ slurmd version: $SLURMD_VERSION"
 else
     echo "  ✗ slurmd failed to start!"
+    DEPLOY_STATUS=1
     echo ""
-    echo "=== slurmd status ==="
-    run_sudo systemctl status slurmd --no-pager -l 2>&1 | head -20 || true
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║           SLURMD STARTUP FAILURE DIAGNOSIS               ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
     echo ""
-    echo "=== Recent logs ==="
-    run_sudo journalctl -u slurmd -n 10 --no-pager 2>&1 || true
+    echo "=== 1. systemd service status ==="
+    run_sudo systemctl status slurmd --no-pager -l 2>&1 | head -25 || true
+    echo ""
+    echo "=== 2. slurmd.service file content ==="
+    cat /etc/systemd/system/slurmd.service 2>/dev/null || echo "  Service file not found!"
+    echo ""
+    echo "=== 3. slurmd binary check ==="
+    if [[ -x /usr/local/slurm/sbin/slurmd ]]; then
+        echo "  ✓ /usr/local/slurm/sbin/slurmd exists and executable"
+        /usr/local/slurm/sbin/slurmd -V 2>&1 || echo "  ✗ Failed to get version"
+    else
+        echo "  ✗ /usr/local/slurm/sbin/slurmd NOT found or not executable!"
+        ls -la /usr/local/slurm/sbin/ 2>/dev/null || echo "  /usr/local/slurm/sbin/ directory not found"
+    fi
+    echo ""
+    echo "=== 4. slurm.conf check ==="
+    if [[ -f /etc/slurm/slurm.conf ]]; then
+        echo "  ✓ /etc/slurm/slurm.conf exists"
+        echo "  ClusterName: $(grep -E '^ClusterName=' /etc/slurm/slurm.conf 2>/dev/null || echo 'not found')"
+        echo "  SlurmctldHost: $(grep -E '^SlurmctldHost=' /etc/slurm/slurm.conf 2>/dev/null || echo 'not found')"
+    else
+        echo "  ✗ /etc/slurm/slurm.conf NOT found!"
+    fi
+    echo ""
+    echo "=== 5. munge status ==="
+    if systemctl is-active --quiet munge; then
+        echo "  ✓ munge is running"
+    else
+        echo "  ✗ munge is NOT running!"
+        run_sudo systemctl status munge --no-pager 2>&1 | head -10 || true
+    fi
+    echo ""
+    echo "=== 6. munge.key check ==="
+    if [[ -f /etc/munge/munge.key ]]; then
+        echo "  ✓ /etc/munge/munge.key exists"
+        ls -la /etc/munge/munge.key
+    else
+        echo "  ✗ /etc/munge/munge.key NOT found!"
+    fi
+    echo ""
+    echo "=== 7. munge authentication test ==="
+    munge -n 2>/dev/null | unmunge 2>&1 | head -5 || echo "  ✗ munge test failed"
+    echo ""
+    echo "=== 8. Recent journalctl logs ==="
+    run_sudo journalctl -u slurmd -n 20 --no-pager 2>&1 || true
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║  COMMON CAUSES OF SLURMD FAILURE:                        ║"
+    echo "║  1. munge.key mismatch with controller                   ║"
+    echo "║  2. slurm.conf mismatch (version, hostname, etc.)        ║"
+    echo "║  3. Cannot reach slurmctld (network/firewall)            ║"
+    echo "║  4. Wrong slurmd binary path                             ║"
+    echo "║  5. Time sync issue (munge requires synced clocks)       ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
 fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "✅ Offline package installation complete!"
+if [[ $DEPLOY_STATUS -eq 0 ]]; then
+    echo "✅ Offline package installation complete!"
+else
+    echo "⚠️  Offline package installation completed with WARNINGS!"
+    echo "   slurmd service failed to start - see diagnosis above"
+fi
 echo ""
 echo "Slurm configuration:"
-echo "  - slurmd: $(systemctl is-active slurmd 2>/dev/null || echo 'unknown')"
+echo "  - slurmd: $(systemctl is-active slurmd 2>/dev/null || echo 'FAILED')"
 echo "  - Config: /etc/slurm/slurm.conf"
 echo ""
 echo "GlusterFS autofs configuration:"
@@ -861,6 +921,9 @@ echo "  - Timeout: 300s (unmount after 5min idle)"
 echo ""
 echo "Test with: ls $GLUSTER_MOUNT"
 echo "═══════════════════════════════════════════════════════════"
+
+# slurmd 실패 시 비정상 종료 코드 반환
+exit $DEPLOY_STATUS
 EOFREMOTE
 
     if [[ $? -eq 0 ]]; then
@@ -987,6 +1050,8 @@ EOPY
     done
 
     # 결과 집계
+    local failed_nodes=""
+    local success_nodes=""
     if [[ -f /tmp/deploy_results_$$.txt ]]; then
         success_count=$(grep -c "^SUCCESS:" /tmp/deploy_results_$$.txt 2>/dev/null || true)
         failed_count=$(grep -c "^FAILED:" /tmp/deploy_results_$$.txt 2>/dev/null || true)
@@ -995,15 +1060,48 @@ EOPY
         failed_count=${failed_count//[^0-9]/}
         [[ -z "$success_count" ]] && success_count=0
         [[ -z "$failed_count" ]] && failed_count=0
+
+        # 실패한 노드 목록 추출
+        failed_nodes=$(grep "^FAILED:" /tmp/deploy_results_$$.txt 2>/dev/null | cut -d: -f2 | tr '\n' ' ' || true)
+        success_nodes=$(grep "^SUCCESS:" /tmp/deploy_results_$$.txt 2>/dev/null | cut -d: -f2 | tr '\n' ' ' || true)
         rm -f /tmp/deploy_results_$$.txt
     fi
 
     echo ""
-    log_info "Deployment Summary:"
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║              DEPLOYMENT SUMMARY                            ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo ""
     log_success "  Successful: $success_count nodes"
+    if [[ -n "$success_nodes" ]]; then
+        echo "    → $success_nodes"
+    fi
 
     if [[ "$failed_count" -gt 0 ]]; then
         log_error "  Failed: $failed_count nodes"
+        echo "    → $failed_nodes"
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════╗"
+        echo "║  TROUBLESHOOTING FAILED NODES                              ║"
+        echo "╚════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "  각 실패한 노드에서 다음을 확인하세요:"
+        echo ""
+        echo "  1. SSH로 접속하여 slurmd 상태 확인:"
+        echo "     ssh <node> 'sudo systemctl status slurmd'"
+        echo ""
+        echo "  2. slurmd 로그 확인:"
+        echo "     ssh <node> 'sudo journalctl -u slurmd -n 50'"
+        echo ""
+        echo "  3. munge 인증 테스트:"
+        echo "     ssh <node> 'munge -n | unmunge'"
+        echo ""
+        echo "  4. munge.key 존재 여부:"
+        echo "     ssh <node> 'ls -la /etc/munge/munge.key'"
+        echo ""
+        echo "  5. slurm.conf 존재 여부:"
+        echo "     ssh <node> 'ls -la /etc/slurm/slurm.conf'"
+        echo ""
         return 1
     fi
 
