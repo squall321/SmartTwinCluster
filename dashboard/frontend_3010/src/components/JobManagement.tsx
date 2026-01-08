@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Trash2, Search, Plus,
-  Clock, User, Cpu, CheckCircle, XCircle, AlertCircle
+  Clock, User, Cpu, CheckCircle, XCircle, AlertCircle, Eye
 } from 'lucide-react';
 import { SlurmJob, JobSubmitRequest } from '../types';
 import { UploadedFile } from './JobManagement/types';
@@ -16,6 +16,7 @@ import { useTemplates } from '../hooks/useTemplates';
 import { Template } from '../types/template';
 import { ApptainerImageSelector, ApptainerConfig } from './JobManagement/ApptainerImageSelector';
 import { TemplateFileUpload, UploadedFileInfo } from './JobManagement/TemplateFileUpload';
+import { JobLogViewer } from './JobManagement/JobLogViewer';
 
 interface JobManagementProps {
   apiMode: 'mock' | 'production';
@@ -50,6 +51,8 @@ export const JobManagement: React.FC<JobManagementProps> = ({
   const [stateFilter, setStateFilter] = useState<string>('all');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<SlurmJob | null>(null);
+  const [showLogViewer, setShowLogViewer] = useState(false);
+  const [selectedJobIdForLogs, setSelectedJobIdForLogs] = useState<string | null>(null);
 
   // External control of submit modal
   useEffect(() => {
@@ -305,6 +308,16 @@ export const JobManagement: React.FC<JobManagementProps> = ({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                     <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setSelectedJobIdForLogs(job.jobId);
+                          setShowLogViewer(true);
+                        }}
+                        className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                        title="View Logs"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
                       {(job.state === 'RUNNING' || job.state === 'PENDING') && (
                         <button
                           onClick={() => handleJobAction(job.jobId, 'cancel')}
@@ -360,6 +373,18 @@ export const JobManagement: React.FC<JobManagementProps> = ({
         <JobDetailsModal
           job={selectedJob}
           onClose={() => setSelectedJob(null)}
+        />
+      )}
+
+      {/* 작업 로그 뷰어 */}
+      {selectedJobIdForLogs && (
+        <JobLogViewer
+          jobId={selectedJobIdForLogs}
+          isOpen={showLogViewer}
+          onClose={() => {
+            setShowLogViewer(false);
+            setSelectedJobIdForLogs(null);
+          }}
         />
       )}
     </div>
@@ -587,21 +612,21 @@ const JobSubmitModal: React.FC<JobSubmitModalProps> = ({ apiMode, template, onCl
         jobName: template.name || '',
         partition: template.config.partition || 'group1',
         nodes: template.config.nodes || 1,
-        cpus: template.config.cpus || 128,
-        memory: template.config.memory || '16GB',
+        cpus: template.config.cpus || 2,
+        memory: template.config.memory || '1G',
         time: template.config.time || '01:00:00',
         script: template.config.script || createDefaultScript(),
         gpus: template.config.gpu,
         files: [],
       };
     }
-    // Default values
+    // Default values - adjusted for test cluster (2 CPUs, 4GB RAM per node)
     return {
       jobName: '',
-      partition: 'group1',
+      partition: 'normal',
       nodes: 1,
-      cpus: 128,
-      memory: '16GB',
+      cpus: 2,
+      memory: '1G',
       time: '01:00:00',
       script: createDefaultScript(),
       files: [],
@@ -1121,7 +1146,7 @@ const JobSubmitModal: React.FC<JobSubmitModalProps> = ({ apiMode, template, onCl
                   value={formData.memory}
                   onChange={(e) => setFormData({ ...formData, memory: e.target.value })}
                   className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder={selectedTemplateForJob?.slurm?.mem || "16GB"}
+                  placeholder={selectedTemplateForJob?.slurm?.mem || "1G"}
                 />
                 {selectedTemplateForJob && (
                   <p className="text-xs text-gray-500 mt-1">
@@ -1183,7 +1208,7 @@ const JobSubmitModal: React.FC<JobSubmitModalProps> = ({ apiMode, template, onCl
 #SBATCH --partition=${selectedTemplateForJob.slurm?.partition || 'N/A'}
 #SBATCH --nodes=${selectedTemplateForJob.slurm?.nodes || 1}
 #SBATCH --ntasks=${selectedTemplateForJob.slurm?.ntasks || 1}
-#SBATCH --mem=${formData.memory || selectedTemplateForJob.slurm?.mem || '16G'}
+#SBATCH --mem=${formData.memory || selectedTemplateForJob.slurm?.mem || '1G'}
 #SBATCH --time=${formData.time || selectedTemplateForJob.slurm?.time || '01:00:00'}
 
 # Apptainer: ${selectedApptainerImage?.name || 'Will be selected'}

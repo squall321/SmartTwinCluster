@@ -268,8 +268,55 @@ stop_existing_services() {
                 sleep 1
             fi
         done
+
+        # ============================================================================
+        # 기존 HPC 관련 systemd 서비스 정리 (clean install 보장)
+        # ============================================================================
+        log_info "Cleaning up existing HPC systemd services..."
+        local hpc_services=(
+            "auth_backend" "auth_frontend" "dashboard_backend" "websocket_service"
+            "cae_backend" "cae_automation" "saml_idp" "vnc_service"
+            "prometheus" "node_exporter" "moonlight_backend"
+        )
+        for svc in "${hpc_services[@]}"; do
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                log_info "  Stopping $svc..."
+                systemctl stop "$svc" 2>/dev/null || true
+            fi
+            if systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                log_info "  Disabling $svc..."
+                systemctl disable "$svc" 2>/dev/null || true
+            fi
+            if [[ -f "/etc/systemd/system/${svc}.service" ]]; then
+                log_info "  Removing ${svc}.service..."
+                rm -f "/etc/systemd/system/${svc}.service"
+            fi
+        done
+
+        # ============================================================================
+        # Nginx 중복 설정 정리
+        # ============================================================================
+        log_info "Cleaning up duplicate Nginx configurations..."
+
+        # sites-enabled에서 HPC 관련 심볼릭 링크 제거 (conf.d 사용)
+        rm -f /etc/nginx/sites-enabled/hpc-portal.conf 2>/dev/null || true
+        rm -f /etc/nginx/sites-enabled/hpc_web_services.conf 2>/dev/null || true
+        rm -f /etc/nginx/sites-enabled/auth-portal.conf 2>/dev/null || true
+
+        # conf.d에서 백업/disabled 파일 정리
+        rm -f /etc/nginx/conf.d/*.backup* 2>/dev/null || true
+        rm -f /etc/nginx/conf.d/*.disabled* 2>/dev/null || true
+        rm -f /etc/nginx/conf.d/*.bak 2>/dev/null || true
+
+        log_success "Nginx configurations cleaned up"
+
+        # systemd 데몬 리로드
+        systemctl daemon-reload
+        log_success "Existing HPC services cleaned up"
     else
         log_info "[DRY-RUN] Would stop nginx, redis, and backend services"
+        log_info "[DRY-RUN] Would clean up existing HPC systemd services"
+        log_info "[DRY-RUN] Would clean up duplicate Nginx configurations"
     fi
 }
 
@@ -1658,7 +1705,8 @@ run_database_migrations() {
         if [[ -f "$backend_dir/.env" ]]; then
             db_path=$(grep "^DATABASE_PATH=" "$backend_dir/.env" 2>/dev/null | cut -d= -f2)
         fi
-        db_path="${db_path:-/home/koopark/web_services/backend/dashboard.db}"
+        # Use backend_5010/database/dashboard.db as default (matches database.py)
+        db_path="${db_path:-$backend_dir/database/dashboard.db}"
 
         # Create DB directory if not exists
         local db_dir=$(dirname "$db_path")
@@ -1818,7 +1866,8 @@ init_cluster_config_from_yaml() {
     if [[ -f "$backend_dir/.env" ]]; then
         db_path=$(grep "^DATABASE_PATH=" "$backend_dir/.env" 2>/dev/null | cut -d= -f2)
     fi
-    db_path="${db_path:-/home/koopark/web_services/backend/dashboard.db}"
+    # Use backend_5010/database/dashboard.db as default (matches database.py)
+    db_path="${db_path:-$backend_dir/database/dashboard.db}"
 
     if [[ "$DRY_RUN" == false ]]; then
         # Parse YAML and generate cluster_config JSON
@@ -2669,13 +2718,13 @@ configure_nginx() {
                     bash generate_nginx_conf.sh
                     cd "$PROJECT_ROOT"
 
-                    # Check if config was generated in sites-available and symlink it
+                    # Check if config was generated in sites-available, copy to conf.d (not symlink)
                     if [[ -f "/etc/nginx/sites-available/hpc-portal.conf" ]]; then
-                        ln -sf /etc/nginx/sites-available/hpc-portal.conf /etc/nginx/sites-enabled/hpc-portal.conf
-                        log_success "Created symlink for generated hpc-portal.conf"
+                        cp /etc/nginx/sites-available/hpc-portal.conf /etc/nginx/conf.d/hpc-portal.conf
+                        log_success "Copied hpc-portal.conf to conf.d"
                     elif [[ -f "/etc/nginx/sites-available/hpc_web_services.conf" ]]; then
-                        ln -sf /etc/nginx/sites-available/hpc_web_services.conf /etc/nginx/sites-enabled/hpc_web_services.conf
-                        log_success "Created symlink for generated hpc_web_services.conf"
+                        cp /etc/nginx/sites-available/hpc_web_services.conf /etc/nginx/conf.d/hpc-portal.conf
+                        log_success "Copied hpc_web_services.conf to conf.d as hpc-portal.conf"
                     else
                         log_error "No nginx config was generated"
                         return 1
@@ -2766,20 +2815,13 @@ configure_nginx() {
             log_info "nginx.conf already includes conf.d/*.conf"
         fi
 
-        # Also handle case where config might be in sites-available but not enabled
-        # Check if our config exists in sites-available but we're using conf.d
-        if [[ -f "/etc/nginx/sites-available/hpc-portal.conf" ]] && [[ ! -L "/etc/nginx/sites-enabled/hpc-portal.conf" ]]; then
-            log_info "Found hpc-portal.conf in sites-available, creating symlink to sites-enabled..."
-            ln -sf /etc/nginx/sites-available/hpc-portal.conf /etc/nginx/sites-enabled/hpc-portal.conf
-            log_success "Created symlink for hpc-portal.conf in sites-enabled"
-        fi
-
-        # Same for hpc_web_services.conf (legacy name)
-        if [[ -f "/etc/nginx/sites-available/hpc_web_services.conf" ]] && [[ ! -L "/etc/nginx/sites-enabled/hpc_web_services.conf" ]]; then
-            log_info "Found hpc_web_services.conf in sites-available, creating symlink to sites-enabled..."
-            ln -sf /etc/nginx/sites-available/hpc_web_services.conf /etc/nginx/sites-enabled/hpc_web_services.conf
-            log_success "Created symlink for hpc_web_services.conf in sites-enabled"
-        fi
+        # NOTE: We only use conf.d for nginx configs, NOT sites-enabled
+        # This avoids duplicate upstream errors when both conf.d and sites-enabled include same config
+        # If sites-available has configs, they should be copied to conf.d, not symlinked to sites-enabled
+        log_info "Ensuring no duplicate configs in sites-enabled (using conf.d only)..."
+        rm -f /etc/nginx/sites-enabled/hpc-portal.conf 2>/dev/null || true
+        rm -f /etc/nginx/sites-enabled/hpc_web_services.conf 2>/dev/null || true
+        rm -f /etc/nginx/sites-enabled/auth-portal.conf 2>/dev/null || true
 
         # Test Nginx configuration
         if nginx -t 2>&1; then

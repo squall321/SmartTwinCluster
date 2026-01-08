@@ -146,6 +146,9 @@ from file_listing_api import file_listing_bp
 # v5.1.0 신규 기능 Blueprint 임포트 (YAML Node Group Loader)
 from yaml_node_loader import yaml_loader_bp
 
+# v5.2.0 신규 기능 Blueprint 임포트 (Job Logs API)
+from job_logs_api import job_logs_bp
+
 app = Flask(__name__)
 CORS(app)
 
@@ -296,6 +299,10 @@ print("✅ File Listing API registered: /api/files")
 # v5.1.0 신규 기능 Blueprint 등록 (YAML Node Group Loader)
 app.register_blueprint(yaml_loader_bp)
 print("✅ YAML Node Loader API registered: /api/yaml")
+
+# v5.2.0 신규 기능 Blueprint 등록 (Job Logs API)
+app.register_blueprint(job_logs_bp)
+print("✅ Job Logs API registered: /api/jobs/<job_id>/logs")
 
 # Initialize template watcher (Hot Reload)
 try:
@@ -568,14 +575,18 @@ def collect_real_metrics():
 
 @app.route('/api/slurm/jobs', methods=['GET'])
 def get_slurm_jobs():
-    """작업 목록 조회 (Mock 모드 지원)"""
+    """작업 목록 조회 (Mock 모드 지원) - 현재 작업 + 완료된 작업 포함"""
     try:
+        # 쿼리 파라미터로 기간 설정 (기본: 최근 7일)
+        days = request.args.get('days', '7')
+        include_completed = request.args.get('include_completed', 'true').lower() == 'true'
+
         if MOCK_MODE:
             # Mock 작업 데이터 생성
             states = ['RUNNING', 'PENDING', 'COMPLETED', 'FAILED']
             users = ['user01', 'user02', 'user03', 'admin', 'researcher']
             partitions = ['group1', 'group2', 'group3', 'gpu', 'debug']
-            
+
             mock_jobs = [
                 {
                     'jobId': str(10000 + i),
@@ -594,7 +605,7 @@ def get_slurm_jobs():
                 }
                 for i in range(20)
             ]
-            
+
             return jsonify({
                 'success': True,
                 'mode': 'mock',
@@ -603,38 +614,131 @@ def get_slurm_jobs():
                 'timestamp': datetime.now().isoformat()
             })
         else:
-            # Production: 실제 squeue 명령 실행 (개선됨)
-            result = get_squeue('-h', '-o', '%i|%P|%j|%u|%T|%D|%C|%m|%S|%M|%Q', timeout=5)
-            
             jobs = []
-            for line in result.stdout.strip().split('\n'):
-                if not line:
-                    continue
-                    
-                parts = line.split('|')
-                if len(parts) >= 7:
-                    try:
-                        jobs.append({
-                            'jobId': parts[0].strip(),
-                            'partition': parts[1].strip(),
-                            'jobName': parts[2].strip(),
-                            'userId': parts[3].strip(),
-                            'state': parts[4].strip(),
-                            'nodes': int(parts[5].strip()),
-                            'cpus': int(parts[6].strip()),
-                            'memory': parts[7].strip() if len(parts) > 7 else 'N/A',
-                            'startTime': parts[8].strip() if len(parts) > 8 else None,
-                            'runTime': parts[9].strip() if len(parts) > 9 else '00:00:00',
-                            'qos': parts[10].strip() if len(parts) > 10 else 'normal',
-                            'priority': random.randint(100, 1000),
-                            'account': 'research',
-                        })
-                    except (ValueError, IndexError) as e:
-                        print(f"⚠️  Skipping malformed job line: {line}, error: {e}")
+            seen_job_ids = set()  # 중복 방지
+
+            # 1. squeue로 현재 RUNNING/PENDING 작업 조회
+            try:
+                result = get_squeue('-h', '-o', '%i|%P|%j|%u|%T|%D|%C|%m|%S|%M|%Q', timeout=5)
+
+                for line in result.stdout.strip().split('\n'):
+                    if not line:
                         continue
-            
-            print(f"📋 Loaded {len(jobs)} jobs from Slurm")
-            
+
+                    parts = line.split('|')
+                    if len(parts) >= 7:
+                        try:
+                            job_id = parts[0].strip()
+                            if job_id in seen_job_ids:
+                                continue
+                            seen_job_ids.add(job_id)
+
+                            jobs.append({
+                                'jobId': job_id,
+                                'partition': parts[1].strip(),
+                                'jobName': parts[2].strip(),
+                                'userId': parts[3].strip(),
+                                'state': parts[4].strip(),
+                                'nodes': int(parts[5].strip()) if parts[5].strip().isdigit() else 1,
+                                'cpus': int(parts[6].strip()) if parts[6].strip().isdigit() else 1,
+                                'memory': parts[7].strip() if len(parts) > 7 else 'N/A',
+                                'startTime': parts[8].strip() if len(parts) > 8 else None,
+                                'runTime': parts[9].strip() if len(parts) > 9 else '00:00:00',
+                                'qos': parts[10].strip() if len(parts) > 10 else 'normal',
+                                'priority': random.randint(100, 1000),
+                                'account': 'research',
+                                'source': 'squeue'
+                            })
+                        except (ValueError, IndexError) as e:
+                            print(f"⚠️  Skipping malformed squeue line: {line}, error: {e}")
+                            continue
+
+                print(f"📋 Loaded {len(jobs)} active jobs from squeue")
+            except Exception as e:
+                print(f"⚠️  squeue failed (will try sacct): {e}")
+
+            # 2. sacct로 완료된 작업 조회 (include_completed가 true인 경우)
+            if include_completed:
+                try:
+                    # sacct 포맷: JobID|Partition|JobName|User|State|NNodes|NCPUs|ReqMem|Start|Elapsed|ExitCode
+                    # -X: 전체 작업만 (단계 제외), -n: 헤더 없음, -P: 파싱 가능 출력
+                    result = get_sacct(
+                        '-X', '-n', '-P',
+                        f'--starttime=now-{days}days',
+                        '--format=JobID,Partition,JobName,User,State,NNodes,NCPUs,ReqMem,Start,Elapsed,ExitCode',
+                        timeout=10
+                    )
+
+                    for line in result.stdout.strip().split('\n'):
+                        if not line:
+                            continue
+
+                        parts = line.split('|')
+                        if len(parts) >= 5:
+                            try:
+                                job_id = parts[0].strip()
+                                # 이미 squeue에서 가져온 작업은 건너뛰기
+                                if job_id in seen_job_ids:
+                                    continue
+                                # JobID에 '.'이 포함된 것은 작업 단계 (건너뛰기)
+                                if '.' in job_id or '_' in job_id:
+                                    continue
+
+                                seen_job_ids.add(job_id)
+
+                                state = parts[4].strip() if len(parts) > 4 else 'UNKNOWN'
+                                # sacct의 상태값 정규화
+                                if state.startswith('CANCELLED'):
+                                    state = 'CANCELLED'
+                                elif state.startswith('FAILED'):
+                                    state = 'FAILED'
+                                elif state.startswith('COMPLETED'):
+                                    state = 'COMPLETED'
+                                elif state.startswith('TIMEOUT'):
+                                    state = 'TIMEOUT'
+
+                                # 메모리 값 파싱 (예: "1G", "500M")
+                                memory = parts[7].strip() if len(parts) > 7 else 'N/A'
+
+                                # NCPUs 파싱 (빈 값이면 1)
+                                cpus_str = parts[6].strip() if len(parts) > 6 else '1'
+                                cpus = int(cpus_str) if cpus_str.isdigit() else 1
+
+                                # NNodes 파싱
+                                nodes_str = parts[5].strip() if len(parts) > 5 else '1'
+                                nodes = int(nodes_str) if nodes_str.isdigit() else 1
+
+                                jobs.append({
+                                    'jobId': job_id,
+                                    'partition': parts[1].strip() if len(parts) > 1 else 'N/A',
+                                    'jobName': parts[2].strip() if len(parts) > 2 else 'N/A',
+                                    'userId': parts[3].strip() if len(parts) > 3 else 'N/A',
+                                    'state': state,
+                                    'nodes': nodes,
+                                    'cpus': cpus,
+                                    'memory': memory,
+                                    'startTime': parts[8].strip() if len(parts) > 8 else None,
+                                    'runTime': parts[9].strip() if len(parts) > 9 else '00:00:00',
+                                    'exitCode': parts[10].strip() if len(parts) > 10 else '0:0',
+                                    'qos': 'normal',
+                                    'priority': 0,
+                                    'account': 'research',
+                                    'source': 'sacct'
+                                })
+                            except (ValueError, IndexError) as e:
+                                print(f"⚠️  Skipping malformed sacct line: {line}, error: {e}")
+                                continue
+
+                    completed_count = len([j for j in jobs if j.get('source') == 'sacct'])
+                    print(f"📋 Loaded {completed_count} completed jobs from sacct")
+                except Exception as e:
+                    print(f"⚠️  sacct failed: {e}")
+
+            # JobID로 정렬 (최신 작업이 먼저)
+            jobs.sort(key=lambda x: int(x['jobId']) if x['jobId'].isdigit() else 0, reverse=True)
+
+            print(f"📋 Total jobs: {len(jobs)}")
+
             return jsonify({
                 'success': True,
                 'mode': 'production',
@@ -642,18 +746,18 @@ def get_slurm_jobs():
                 'count': len(jobs),
                 'timestamp': datetime.now().isoformat()
             })
-        
+
     except subprocess.TimeoutExpired:
-        print("⚠️  squeue command timeout")
+        print("⚠️  Slurm command timeout")
         return jsonify({
             'success': False,
             'error': 'Slurm command timeout'
         }), 500
     except subprocess.CalledProcessError as e:
-        print(f"❌ squeue command failed: {e}")
+        print(f"❌ Slurm command failed: {e}")
         return jsonify({
             'success': False,
-            'error': f'squeue failed: {e.stderr if e.stderr else str(e)}'
+            'error': f'Slurm command failed: {e.stderr if e.stderr else str(e)}'
         }), 500
     except Exception as e:
         print(f"❌ Error in get_slurm_jobs: {e}")
@@ -669,6 +773,16 @@ def submit_job():
     """작업 제출 - JWT 인증 필요"""
     try:
         data = request.json
+
+        # 디버깅: 요청 데이터 로그
+        print(f"📝 Job Submit Request:")
+        print(f"   - jobName: {data.get('jobName')}")
+        print(f"   - partition: {data.get('partition')}")
+        print(f"   - nodes: {data.get('nodes')}")
+        print(f"   - cpus: {data.get('cpus')}")
+        print(f"   - memory: {data.get('memory')}")
+        print(f"   - time: {data.get('time')}")
+
         job_id = data.get('jobId')  # Frontend에서 전달한 임시 job_id
 
         # 업로드된 파일 정보 조회 (job_id가 있는 경우)
@@ -816,10 +930,17 @@ def submit_job():
         
     except Exception as e:
         print(f"❌ Error submitting job: {e}")
-        return jsonify({
+        # 디버깅을 위해 요청 데이터도 포함
+        error_response = {
             'success': False,
-            'error': str(e)
-        }), 500
+            'error': str(e),
+            'debug': {
+                'partition': data.get('partition') if data else None,
+                'jobName': data.get('jobName') if data else None,
+                'nodes': data.get('nodes') if data else None,
+            }
+        }
+        return jsonify(error_response), 500
 
 @app.route('/api/slurm/jobs/<job_id>/cancel', methods=['POST'])
 @jwt_required

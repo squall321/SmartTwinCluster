@@ -17,6 +17,19 @@ import { API_CONFIG } from '../config/api.config';
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '';
 const AUTH_PORTAL_URL = (import.meta as any).env?.VITE_AUTH_PORTAL_URL || 'http://localhost:4431';
 
+/**
+ * API URL 생성 헬퍼 함수
+ * 상대 경로를 전체 URL로 변환 (파일 다운로드 등에 사용)
+ */
+export function getApiUrl(path: string): string {
+  // Production에서는 동일 호스트 사용
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}${path}`;
+  }
+  // 개발환경에서는 현재 호스트 기반 URL 생성
+  return `${window.location.origin}${path}`;
+}
+
 // ============================================================================
 // SSO Configuration
 // ============================================================================

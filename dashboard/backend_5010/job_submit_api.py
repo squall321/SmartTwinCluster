@@ -23,6 +23,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from werkzeug.utils import secure_filename
 from template_validator import TemplateValidator
+from middleware.jwt_middleware import jwt_required, permission_required
 
 # 절대 경로 import (systemd 환경에서 PATH 제한으로 필요)
 from slurm_commands import SSH, SBATCH
@@ -667,9 +668,10 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
     script += f"export JOB_MEMORY=\"{slurm_config.get('mem', slurm_config.get('memory', '16G'))}\"\n"
     script += f"export JOB_TIME=\"{slurm_config['time']}\"\n\n"
 
-    # Apptainer 이미지
-    script += "# --- Apptainer 이미지 ---\n"
-    script += f"export APPTAINER_IMAGE=\"{job_config['apptainer_image_path']}\"\n\n"
+    # Apptainer 이미지 (이미지가 있는 경우에만)
+    if job_config.get('apptainer_image_path'):
+        script += "# --- Apptainer 이미지 ---\n"
+        script += f"export APPTAINER_IMAGE=\"{job_config['apptainer_image_path']}\"\n\n"
 
     # 작업 디렉토리
     script += "# --- 작업 디렉토리 ---\n"
@@ -752,9 +754,11 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
 
 
 @job_submit_bp.route('/api/jobs/submit', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def submit_job():
     """
-    Job 제출 (신규 Template 시스템)
+    Job 제출 (신규 Template 시스템) - JWT 인증 및 dashboard 권한 필요
 
     Request (multipart/form-data):
         - template_id: str
@@ -835,46 +839,71 @@ def submit_job():
         apptainer_config = normalized_template['apptainer_normalized']
 
         # 3. Apptainer 이미지 결정
+        image_required = apptainer_config.get('required', True)
         log_info(request_id, 'image_selection_start', {
             'user_selectable': apptainer_config['user_selectable'],
-            'mode': apptainer_config['mode']
+            'mode': apptainer_config['mode'],
+            'required': image_required
         })
+
+        image = None  # 이미지 없이 실행 가능한 경우를 위한 초기화
 
         try:
             if apptainer_config['user_selectable']:
                 # 사용자가 선택한 이미지 사용
                 image_id = request.form.get('apptainer_image_id')
                 if not image_id:
-                    log_error(request_id, ErrorCode.IMAGE_REQUIRED, 'apptainer_image_id required')
-                    return jsonify({
-                        'success': False,
-                        'error': 'apptainer_image_id required',
-                        'error_code': ErrorCode.IMAGE_REQUIRED,
-                        'request_id': request_id
-                    }), 400
-
-                image = get_apptainer_image(image_id)
-                log_info(request_id, 'image_selected', {
-                    'image_id': image_id,
-                    'image_name': image.get('name')
-                })
+                    # 이미지가 필수가 아니면 이미지 없이 진행
+                    if not image_required:
+                        log_info(request_id, 'image_skipped', {
+                            'reason': 'Image not required and not provided'
+                        })
+                    else:
+                        log_error(request_id, ErrorCode.IMAGE_REQUIRED, 'apptainer_image_id required')
+                        return jsonify({
+                            'success': False,
+                            'error': 'apptainer_image_id required',
+                            'error_code': ErrorCode.IMAGE_REQUIRED,
+                            'request_id': request_id
+                        }), 400
+                else:
+                    image = get_apptainer_image(image_id)
+                    log_info(request_id, 'image_selected', {
+                        'image_id': image_id,
+                        'image_name': image.get('name')
+                    })
             else:
                 # Template에 고정된 이미지 사용
-                image = get_apptainer_image_by_name(apptainer_config['image_name'])
-                log_info(request_id, 'image_fixed', {
-                    'image_name': apptainer_config['image_name']
-                })
+                image_name = apptainer_config.get('image_name')
+                if image_name:
+                    image = get_apptainer_image_by_name(image_name)
+                    log_info(request_id, 'image_fixed', {
+                        'image_name': image_name
+                    })
+                elif not image_required:
+                    log_info(request_id, 'image_skipped', {
+                        'reason': 'No image configured and not required'
+                    })
+                else:
+                    raise FileNotFoundError("No apptainer image configured in template")
         except FileNotFoundError as e:
-            log_error(request_id, ErrorCode.IMAGE_NOT_FOUND, str(e), {
-                'image_id': request.form.get('apptainer_image_id'),
-                'image_name': apptainer_config.get('image_name')
-            })
-            return jsonify({
-                'success': False,
-                'error': f'Apptainer image not found: {str(e)}',
-                'error_code': ErrorCode.IMAGE_NOT_FOUND,
-                'request_id': request_id
-            }), 404
+            # 이미지가 필수가 아니면 이미지 없이 진행
+            if not image_required:
+                log_info(request_id, 'image_skipped_after_error', {
+                    'reason': str(e)
+                })
+                image = None
+            else:
+                log_error(request_id, ErrorCode.IMAGE_NOT_FOUND, str(e), {
+                    'image_id': request.form.get('apptainer_image_id'),
+                    'image_name': apptainer_config.get('image_name')
+                })
+                return jsonify({
+                    'success': False,
+                    'error': f'Apptainer image not found: {str(e)}',
+                    'error_code': ErrorCode.IMAGE_NOT_FOUND,
+                    'request_id': request_id
+                }), 404
 
         # 4. 업로드된 파일 처리
         log_info(request_id, 'file_upload_start', {
@@ -946,7 +975,7 @@ def submit_job():
             script = generate_slurm_script(
                 template=normalized_template,
                 job_config={
-                    'apptainer_image_path': image['path'],
+                    'apptainer_image_path': image['path'] if image else None,
                     'uploaded_files': uploaded_files,
                     'slurm_overrides': slurm_overrides,
                     'job_name': job_name
@@ -1066,7 +1095,7 @@ def submit_job():
                 template=normalized_template,
                 user_id=user_id,
                 slurm_config=slurm_config,
-                apptainer_image=image['path'],
+                apptainer_image=image['path'] if image else None,
                 uploaded_files=uploaded_files,
                 script_path=script_path
             )
@@ -1122,9 +1151,11 @@ def submit_job():
 
 
 @job_submit_bp.route('/api/jobs/preview', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def preview_script():
     """
-    스크립트 미리보기 (Phase 6.1)
+    스크립트 미리보기 (Phase 6.1) - JWT 인증 및 dashboard 권한 필요
 
     Job을 제출하지 않고 생성될 스크립트만 미리 확인
 
@@ -1169,19 +1200,31 @@ def preview_script():
             }), 400
 
         apptainer_config = normalized_template['apptainer_normalized']
+        image_required = apptainer_config.get('required', True)
 
         # 3. Apptainer 이미지 결정
-        if apptainer_config['user_selectable']:
-            image_id = request.form.get('apptainer_image_id')
-            if not image_id:
-                return jsonify({
-                    'success': False,
-                    'error': 'apptainer_image_id required',
-                    'request_id': request_id
-                }), 400
-            image = get_apptainer_image(image_id)
-        else:
-            image = get_apptainer_image_by_name(apptainer_config['image_name'])
+        image = None
+        try:
+            if apptainer_config['user_selectable']:
+                image_id = request.form.get('apptainer_image_id')
+                if not image_id:
+                    if image_required:
+                        return jsonify({
+                            'success': False,
+                            'error': 'apptainer_image_id required',
+                            'request_id': request_id
+                        }), 400
+                else:
+                    image = get_apptainer_image(image_id)
+            else:
+                image_name = apptainer_config.get('image_name')
+                if image_name:
+                    image = get_apptainer_image_by_name(image_name)
+                elif image_required:
+                    raise FileNotFoundError("No apptainer image configured in template")
+        except FileNotFoundError:
+            if image_required:
+                raise
 
         # 4. 스크립트 생성 (파일 업로드 없이)
         slurm_overrides = json.loads(request.form.get('slurm_overrides', '{}'))
@@ -1190,7 +1233,7 @@ def preview_script():
         script = generate_slurm_script(
             template=normalized_template,
             job_config={
-                'apptainer_image_path': image['path'],
+                'apptainer_image_path': image['path'] if image else None,
                 'uploaded_files': {},  # 미리보기에서는 파일 없음
                 'slurm_overrides': slurm_overrides,
                 'job_name': job_name

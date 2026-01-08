@@ -10,69 +10,35 @@ from database import get_db_connection
 
 groups_bp = Blueprint('groups', __name__, url_prefix='/api/groups')
 
-# 노드당 CPU 코어 수 (고정값)
-CPUS_PER_NODE = 128
+# 노드당 CPU 코어 수 (환경변수 또는 기본값)
+# 실제 클러스터 환경에 맞게 설정 필요
+CPUS_PER_NODE = int(os.getenv('CPUS_PER_NODE', '2'))
 
 # Mock 모드 체크 함수 (매번 환경변수 확인)
 def is_mock_mode():
     """현재 MOCK_MODE 환경변수 확인"""
     return os.getenv('MOCK_MODE', 'true').lower() == 'true'
 
-# Mock 그룹 데이터 - 실제 initialData.ts와 일치하도록 수정
+# Mock 그룹 데이터 - 테스트 환경용 (노드당 2 CPU 기준)
+# Production에서는 DB에서 실제 값을 가져옴
 MOCK_GROUPS = [
     {
         'id': 1,
-        'name': 'Group 1',
-        'partitionName': 'group1',
-        'qosName': 'group1_qos',
-        'allowedCoreSizes': [8192],
+        'name': 'Normal',
+        'partitionName': 'normal',
+        'qosName': 'normal_qos',
+        'allowedCoreSizes': [1, 2],  # 노드당 최대 2 CPU
         'color': '#3b82f6',
-        'description': 'Large scale jobs'
+        'description': 'Compute nodes for batch jobs'
     },
     {
         'id': 2,
-        'name': 'Group 2',
-        'partitionName': 'group2',
-        'qosName': 'group2_qos',
-        'allowedCoreSizes': [1024],
+        'name': 'Visualization',
+        'partitionName': 'viz',
+        'qosName': 'viz_qos',
+        'allowedCoreSizes': [1, 2],  # 노드당 최대 2 CPU
         'color': '#10b981',
-        'description': 'Medium jobs'
-    },
-    {
-        'id': 3,
-        'name': 'Group 3',
-        'partitionName': 'group3',
-        'qosName': 'group3_qos',
-        'allowedCoreSizes': [1024],
-        'color': '#f59e0b',
-        'description': 'Medium jobs'
-    },
-    {
-        'id': 4,
-        'name': 'Group 4',
-        'partitionName': 'group4',
-        'qosName': 'group4_qos',
-        'allowedCoreSizes': [128],
-        'color': '#ef4444',
-        'description': 'Small jobs'
-    },
-    {
-        'id': 5,
-        'name': 'Group 5',
-        'partitionName': 'group5',
-        'qosName': 'group5_qos',
-        'allowedCoreSizes': [128],
-        'color': '#8b5cf6',
-        'description': 'Small jobs'
-    },
-    {
-        'id': 6,
-        'name': 'Group 6',
-        'partitionName': 'group6',
-        'qosName': 'group6_qos',
-        'allowedCoreSizes': [8, 16, 32, 64],
-        'color': '#ec4899',
-        'description': 'Flexible jobs'
+        'description': 'Visualization nodes for VNC/GPU desktop'
     }
 ]
 
