@@ -330,9 +330,17 @@ log_info "Copying Slurm binaries..."
 mkdir -p "$INSTALL_PREFIX"
 cp -a "${SCRIPT_DIR}${INSTALL_PREFIX}"/* "$INSTALL_PREFIX/"
 
-# 심볼릭 링크 생성
+# 심볼릭 링크 생성 (기존 디렉토리 우선 제거)
 log_info "Creating symbolic links..."
-ln -sf "$INSTALL_PREFIX" /usr/local/slurm
+
+# /usr/local/slurm이 이미 디렉토리로 존재하면 제거 (심볼릭 링크로 교체)
+if [[ -d /usr/local/slurm && ! -L /usr/local/slurm ]]; then
+    log_warning "/usr/local/slurm is a directory, removing to create symlink..."
+    rm -rf /usr/local/slurm
+fi
+
+# 심볼릭 링크 생성 (기존 링크도 덮어씀)
+ln -sfn "$INSTALL_PREFIX" /usr/local/slurm
 
 # /usr/local/bin에 주요 명령어 심볼릭 링크 생성 (시스템 전역 PATH에 포함)
 # 이렇게 하면 /etc/profile.d 로드 없이도 모든 셸에서 slurm 명령어 사용 가능
@@ -479,11 +487,13 @@ chown -R slurm:slurm "$CONFIG_DIR"
 # ============================================================================
 log_info "Verifying installation..."
 
-# 심볼릭 링크 검증
+# /usr/local/slurm 심볼릭 링크 검증
 if [[ -L /usr/local/slurm && -d /usr/local/slurm/bin ]]; then
     log_success "Symbolic link verified: /usr/local/slurm -> $(readlink -f /usr/local/slurm)"
 else
     log_error "Symbolic link failed! /usr/local/slurm does not point to valid directory"
+    log_error "Expected: symlink -> $INSTALL_PREFIX"
+    log_error "Actual: $(ls -la /usr/local/slurm 2>&1 || echo 'not found')"
     exit 1
 fi
 

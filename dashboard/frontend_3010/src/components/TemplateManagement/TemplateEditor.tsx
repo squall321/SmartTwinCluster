@@ -244,12 +244,13 @@ echo "종료 시간: $(date)"`;
       lines.push('');
 
       [...requiredFiles, ...optionalFiles].forEach(file => {
-        const varName = file.file_key.toUpperCase();
-        lines.push(`# ${file.name} (${file.pattern})`);
+        const varName = file.file_key?.toUpperCase() || 'UNKNOWN';
+        const filePattern = file.pattern || file.validation?.extensions?.join(', ') || '*.*';
+        lines.push(`# ${file.name || 'File'} (${filePattern})`);
         lines.push(`# export FILE_${varName}="/path/to/uploaded/file"`);
 
         // 복수 파일 가능성 체크 (pattern에 *가 있거나 설명에 복수 언급)
-        if (file.pattern.includes('*') || file.description.includes('들') || file.description.includes('파일들')) {
+        if (file.pattern?.includes('*') || file.description?.includes('들') || file.description?.includes('파일들')) {
           lines.push(`# export FILE_${varName}_COUNT=1  # 업로드된 파일 개수`);
         }
         lines.push('');
@@ -476,8 +477,8 @@ echo "종료 시간: $(date)"`;
       console.log('  YAML Preview:', yamlContent.substring(0, 200));
 
       const endpoint = isNew
-        ? '/api/v2/templates'
-        : `/api/v2/templates/${actualTemplateId}`;
+        ? '/api/jobs/templates'
+        : `/api/jobs/templates/${actualTemplateId}`;
 
       console.log('  Endpoint:', endpoint);
 
@@ -1065,7 +1066,7 @@ echo "종료 시간: $(date)"`;
                             <code className="text-xs font-mono">
                               $FILE_{file.file_key.toUpperCase()}
                             </code>
-                            {(file.pattern.includes('*') || file.description.includes('들')) && (
+                            {(file.pattern?.includes('*') || file.description?.includes('들')) && (
                               <>
                                 <br />
                                 <code className="text-xs font-mono">
@@ -1084,7 +1085,7 @@ echo "종료 시간: $(date)"`;
                         </label>
                         <input
                           type="text"
-                          value={file.pattern}
+                          value={file.pattern || ''}
                           onChange={(e) => updateRequiredFile(index, 'pattern', e.target.value)}
                           placeholder="*.stl"
                           className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
@@ -1097,7 +1098,7 @@ echo "종료 시간: $(date)"`;
                         </label>
                         <input
                           type="text"
-                          value={file.max_size}
+                          value={file.max_size || file.validation?.max_size || ''}
                           onChange={(e) => updateRequiredFile(index, 'max_size', e.target.value)}
                           placeholder="500MB"
                           className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
@@ -1188,13 +1189,13 @@ echo "종료 시간: $(date)"`;
                         {[...requiredFiles, ...optionalFiles].map((file, idx) => (
                           <li key={idx}>
                             <code className="bg-white dark:bg-gray-800 px-1 rounded">
-                              $FILE_{file.file_key.toUpperCase()}
+                              $FILE_{file.file_key?.toUpperCase() || 'UNKNOWN'}
                             </code>
-                            <span className="text-gray-600 dark:text-gray-400 ml-1">- {file.name || file.pattern}</span>
-                            {(file.pattern.includes('*') || file.description.includes('들')) && (
+                            <span className="text-gray-600 dark:text-gray-400 ml-1">- {file.name || file.pattern || 'File'}</span>
+                            {(file.pattern?.includes('*') || file.description?.includes('들')) && (
                               <div className="ml-4 text-gray-500">
                                 <code className="bg-white dark:bg-gray-800 px-1 rounded">
-                                  $FILE_{file.file_key.toUpperCase()}_COUNT
+                                  $FILE_{file.file_key?.toUpperCase() || 'UNKNOWN'}_COUNT
                                 </code>
                               </div>
                             )}

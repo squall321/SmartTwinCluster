@@ -159,7 +159,7 @@ export const TemplateCatalog: React.FC = () => {
       }
       // Don't set Content-Type for FormData - browser will set it automatically with boundary
 
-      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/v2/templates/import`, {
+      const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/jobs/templates/import`, {
         method: 'POST',
         headers,
         body: formData,
@@ -216,7 +216,7 @@ export const TemplateCatalog: React.FC = () => {
       }
 
       const response = await fetch(
-        `${API_CONFIG.API_BASE_URL}/api/v2/templates/export/${template.template_id}`,
+        `${API_CONFIG.API_BASE_URL}/api/jobs/templates/export/${template.template_id}`,
         {
           headers,
         }
@@ -275,7 +275,7 @@ export const TemplateCatalog: React.FC = () => {
       }
 
       const response = await fetch(
-        `${API_CONFIG.API_BASE_URL}/api/v2/templates/${templateId}`,
+        `${API_CONFIG.API_BASE_URL}/api/jobs/templates/${templateId}`,
         {
           method: 'DELETE',
           headers,

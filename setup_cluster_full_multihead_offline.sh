@@ -374,7 +374,8 @@ if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
     echo "  ✓ Phase 4: Slurm 멀티 마스터"
     echo "  ✓ Phase 5: Keepalived VIP 관리"
     echo "  ✓ Phase 6: 웹 서비스 (8개)"
-    echo "  ✓ Phase 7: 검증 및 헬스체크"
+    echo "  ✓ Phase 7: GPU 드라이버 (NVIDIA/ROCm)"
+    echo "  ✓ Phase 8: 컨테이너 이미지 배포"
     echo ""
 else
     echo "【Part 2】 멀티헤드 클러스터 서비스 (건너뜀)"
@@ -565,13 +566,39 @@ else
     # 멀티헤드 환경에서는 모든 컨트롤러 간 SSH 키 필요
     log_info "멀티헤드 환경: 모든 컨트롤러 간 SSH 키 설정 필요"
 
-    # SSH 키가 없으면 생성
-    if [ ! -f ~/.ssh/id_rsa ]; then
+    # 실제 사용자 (sudo로 실행 시 SUDO_USER, 아니면 현재 사용자)
+    SETUP_USER="${SUDO_USER:-$(whoami)}"
+    SETUP_USER_HOME=$(getent passwd "$SETUP_USER" | cut -d: -f6)
+    SETUP_SSH_DIR="${SETUP_USER_HOME}/.ssh"
+    SETUP_SSH_KEY="${SETUP_SSH_DIR}/id_rsa"
+
+    log_info "SSH 설정 사용자: $SETUP_USER (홈: $SETUP_USER_HOME)"
+
+    # .ssh 디렉토리가 없으면 생성
+    if [ ! -d "$SETUP_SSH_DIR" ]; then
+        log_info ".ssh 디렉토리 생성 중..."
+        mkdir -p "$SETUP_SSH_DIR"
+        chown "$SETUP_USER:$SETUP_USER" "$SETUP_SSH_DIR"
+        chmod 700 "$SETUP_SSH_DIR"
+    fi
+
+    # SSH 키가 없으면 생성 (기존 키가 있으면 삭제 후 재생성 - 권한 문제 방지)
+    if [ ! -f "$SETUP_SSH_KEY" ]; then
         log_info "SSH 키 생성 중..."
-        ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
-        log_success "SSH 키 생성 완료"
+        # 기존에 손상된 키 파일이 있으면 삭제
+        rm -f "$SETUP_SSH_KEY" "$SETUP_SSH_KEY.pub" 2>/dev/null || true
+        # 실제 사용자로 SSH 키 생성
+        sudo -u "$SETUP_USER" ssh-keygen -t rsa -b 4096 -N "" -f "$SETUP_SSH_KEY"
+        log_success "SSH 키 생성 완료: $SETUP_SSH_KEY"
     else
-        log_success "SSH 키가 이미 존재합니다"
+        # 기존 키 권한 확인 및 수정
+        if [ ! -r "$SETUP_SSH_KEY" ]; then
+            log_warning "SSH 키 권한 문제 발견, 수정 중..."
+            chown "$SETUP_USER:$SETUP_USER" "$SETUP_SSH_KEY" "$SETUP_SSH_KEY.pub" 2>/dev/null || true
+            chmod 600 "$SETUP_SSH_KEY" 2>/dev/null || true
+            chmod 644 "$SETUP_SSH_KEY.pub" 2>/dev/null || true
+        fi
+        log_success "SSH 키가 이미 존재합니다: $SETUP_SSH_KEY"
     fi
 
     # setup_ssh_passwordless_multihead.sh 실행 (멀티헤드용)

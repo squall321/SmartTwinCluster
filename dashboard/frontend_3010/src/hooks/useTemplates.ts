@@ -78,7 +78,7 @@ export function useTemplates(options: UseTemplatesOptions = {}): UseTemplatesRes
         params.append('source', source);
       }
 
-      const url = `${API_BASE_URL}/api/v2/templates${params.toString() ? `?${params.toString()}` : ''}`;
+      const url = `${API_BASE_URL}/api/jobs/templates${params.toString() ? `?${params.toString()}` : ''}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -124,7 +124,7 @@ export function useTemplates(options: UseTemplatesOptions = {}): UseTemplatesRes
       setLoading(true);
       setError(null);
 
-      const url = `${API_BASE_URL}/api/v2/templates/scan`;
+      const url = `${API_BASE_URL}/api/jobs/templates/scan`;
 
       const response = await fetch(url, {
         method: 'POST',
@@ -200,7 +200,7 @@ export function useTemplate(templateId: string | null) {
         setLoading(true);
         setError(null);
 
-        const url = `${API_BASE_URL}/api/v2/templates/${templateId}`;
+        const url = `${API_BASE_URL}/api/jobs/templates/${templateId}`;
 
         const response = await fetch(url, {
           method: 'GET',

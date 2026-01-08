@@ -207,7 +207,7 @@ function App() {
           image_id: selectedImageId,
           geometry: '1920x1080',
           duration_hours: 4,
-          gpu_count: 1
+          gpu_count: 0
         })
       })
 

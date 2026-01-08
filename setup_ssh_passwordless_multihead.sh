@@ -39,18 +39,30 @@ mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 chown "$REAL_USER:$REAL_USER" "$SSH_DIR" 2>/dev/null || true
 
-# SSH 키 생성 (없으면)
+# SSH 키 생성 (없으면) - 실제 사용자로 실행
 if [ ! -f "$SSH_KEY" ]; then
     echo "🔑 SSH 키 생성 중..."
-    ssh-keygen -t rsa -b 4096 -N "" -f "$SSH_KEY" -q
-    chown "$REAL_USER:$REAL_USER" "$SSH_KEY" "$SSH_KEY.pub" 2>/dev/null || true
-    echo "✅ SSH 키 생성 완료"
+    # sudo 환경에서는 실제 사용자로 키 생성
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        sudo -u "$REAL_USER" ssh-keygen -t rsa -b 4096 -N "" -f "$SSH_KEY" -q
+    else
+        ssh-keygen -t rsa -b 4096 -N "" -f "$SSH_KEY" -q
+    fi
+    echo "✅ SSH 키 생성 완료: $SSH_KEY"
 else
+    # 기존 키 권한 확인 및 수정
+    if [[ "$(stat -c '%U' "$SSH_KEY" 2>/dev/null)" != "$REAL_USER" ]]; then
+        echo "⚠️  SSH 키 소유자 수정 중..."
+        chown "$REAL_USER:$REAL_USER" "$SSH_KEY" "$SSH_KEY.pub" 2>/dev/null || true
+        chmod 600 "$SSH_KEY" 2>/dev/null || true
+    fi
     echo "✅ 기존 SSH 키 사용: $SSH_KEY"
 fi
 
 # ssh-copy-id가 올바른 키를 사용하도록 환경변수 설정
 export SSH_KEY_FILE="$SSH_KEY"
+export SSH_REAL_USER="$REAL_USER"
+export SSH_USE_SUDO="${SUDO_USER:+yes}"  # SUDO_USER가 있으면 "yes"
 
 echo ""
 echo "📤 공개키 복사 중..."
@@ -124,20 +136,26 @@ for node in nodes:
 
     print(f"  📤 {hostname} ({node['ip']})... ", end='', flush=True)
 
-    # 항상 SSH 키를 재배포 (sudo 환경에서 일관성 보장)
     # SSH_KEY_FILE 환경변수에서 키 파일 경로 가져오기
     ssh_key_file = os.environ.get('SSH_KEY_FILE', os.path.expanduser('~/.ssh/id_rsa'))
+    real_user = os.environ.get('SSH_REAL_USER', '')
+    use_sudo = os.environ.get('SSH_USE_SUDO', '')
+
+    # ssh-copy-id 명령어 구성
+    ssh_copy_cmd = ['ssh-copy-id', '-i', ssh_key_file,
+                    '-o', 'StrictHostKeyChecking=no',
+                    '-o', 'ConnectTimeout=5', target]
 
     # Try to copy SSH key using sshpass if password is available
     if ssh_password:
-        result = subprocess.run(
-            ['sshpass', '-p', ssh_password, 'ssh-copy-id',
-             '-i', ssh_key_file,
-             '-o', 'StrictHostKeyChecking=no',
-             '-o', 'ConnectTimeout=5', target],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        # sshpass + ssh-copy-id
+        cmd = ['sshpass', '-p', ssh_password] + ssh_copy_cmd
+
+        # sudo 환경에서는 실제 사용자로 실행
+        if use_sudo and real_user:
+            cmd = ['sudo', '-u', real_user] + cmd
+
+        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         if result.returncode == 0:
             print("✅")
@@ -149,11 +167,11 @@ for node in nodes:
         # No password in YAML, use interactive mode
         print("비밀번호 입력: ", end='', flush=True)
 
-        result = subprocess.run(
-            ['ssh-copy-id', '-i', ssh_key_file,
-             '-o', 'StrictHostKeyChecking=no',
-             '-o', 'ConnectTimeout=5', target]
-        )
+        cmd = ssh_copy_cmd
+        if use_sudo and real_user:
+            cmd = ['sudo', '-u', real_user] + cmd
+
+        result = subprocess.run(cmd)
 
         if result.returncode == 0:
             print(f"    ✅ {hostname} 완료")

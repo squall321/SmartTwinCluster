@@ -1,49 +1,20 @@
 /**
  * SAML IdP Configuration File
  * User database for authentication
+ * Auto-generated from YAML config
  */
 
 module.exports = {
   user: {
-    "koopark@hpc.local": {
-      password: "admin123",
-      email: "koopark@hpc.local",
-      userName: "koopark",
-      firstName: "Kook Jin",
-      lastName: "Park",
-      displayName: "박국진 관리자",
-      groups: "HPC-Admins",
-      department: "IT관리팀"
-    },
     "admin@hpc.local": {
-      password: "admin123",
+      password: "0OzRTNlmSEu$IUYm",
       email: "admin@hpc.local",
       userName: "admin",
-      firstName: "시스템",
-      lastName: "관리자",
-      displayName: "시스템 관리자",
+      firstName: "System",
+      lastName: "Admin",
+      displayName: "System Administrator",
       groups: "HPC-Admins",
-      department: "IT관리팀"
-    },
-    "dx_user@hpc.local": {
-      password: "password123",
-      email: "dx_user@hpc.local",
-      userName: "dx_user",
-      firstName: "DX",
-      lastName: "사용자",
-      displayName: "DX 사용자",
-      groups: "DX-Users",
-      department: "디지털전환팀"
-    },
-    "caeg_user@hpc.local": {
-      password: "password123",
-      email: "caeg_user@hpc.local",
-      userName: "caeg_user",
-      firstName: "CAEG",
-      lastName: "사용자",
-      displayName: "CAEG 사용자",
-      groups: "CAEG-Users",
-      department: "CAE해석팀"
+      department: "IT"
     }
   },
   metadata: [

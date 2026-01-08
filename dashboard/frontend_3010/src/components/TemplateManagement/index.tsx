@@ -96,7 +96,7 @@ export const TemplateManagement: React.FC<TemplateManagementProps> = ({
     }
 
     try {
-      const response = await apiDelete(`/api/v2/templates/${template.template_id}`);
+      const response = await apiDelete(`/api/jobs/templates/${template.template_id}`);
       if (response.success) {
         toast.success('Template deleted successfully');
         refetch();

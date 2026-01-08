@@ -472,6 +472,15 @@ EOFAUTOFS
     else
         echo "  WARNING: GlusterFS mount test failed (will auto-mount on access)"
     fi
+
+    # Create /shared symlink to GlusterFS mount point
+    if [[ ! -L /shared ]]; then
+        run_sudo rm -rf /shared 2>/dev/null || true
+        run_sudo ln -sf "$GLUSTER_MOUNT" /shared
+        echo "  ✓ /shared -> $GLUSTER_MOUNT symlink created"
+    else
+        echo "  ✓ /shared symlink already exists"
+    fi
 else
     echo "  Skipping GlusterFS setup (no server configured)"
 fi

@@ -156,7 +156,11 @@ def run_slurm_command(command: List[str], timeout: int = 10,
         print(f"   Return code: {e.returncode}")
         print(f"   Stderr: {e.stderr}")
         if check:
-            raise
+            # stderr를 포함한 더 명확한 에러 메시지
+            error_msg = f"Command failed (exit {e.returncode})"
+            if e.stderr:
+                error_msg += f": {e.stderr.strip()}"
+            raise RuntimeError(error_msg) from None
         return e
     except FileNotFoundError:
         print(f"❌ Command not found: {command[0]}")

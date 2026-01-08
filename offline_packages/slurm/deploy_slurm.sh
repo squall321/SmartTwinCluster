@@ -35,77 +35,6 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # ============================================================================
-# Slurm 필수 의존성 설치 (libhwloc15 등)
-# ============================================================================
-# 문제: APT 오프라인 저장소가 제대로 설정되지 않은 경우 hwloc 패키지가 설치 안됨
-# 해결: dpkg로 직접 설치 시도
-log_info "Checking Slurm dependencies..."
-
-# libhwloc15 확인 - slurmd가 필요로 하는 공유 라이브러리
-if ! ldconfig -p | grep -q "libhwloc.so.15"; then
-    log_warning "libhwloc15 not found, attempting to install..."
-
-    # APT 패키지 디렉토리 찾기
-    APT_PKG_DIR=""
-    if [[ -d "${SCRIPT_DIR}/../apt_packages" ]]; then
-        APT_PKG_DIR="${SCRIPT_DIR}/../apt_packages"
-    elif [[ -d "$HOME/offline_packages/apt_packages" ]]; then
-        APT_PKG_DIR="$HOME/offline_packages/apt_packages"
-    elif [[ -d "/home/koopark/offline_packages/apt_packages" ]]; then
-        APT_PKG_DIR="/home/koopark/offline_packages/apt_packages"
-    fi
-
-    if [[ -n "$APT_PKG_DIR" && -d "$APT_PKG_DIR" ]]; then
-        log_info "Found APT packages at: $APT_PKG_DIR"
-
-        # 로컬 APT 저장소가 설정되어 있는지 확인
-        REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
-        if [[ -f "$REPO_LIST" ]]; then
-            # 로컬 저장소를 통해 apt로 설치 (의존성 자동 해결, 완전 오프라인)
-            log_info "Installing hwloc packages via apt (offline mode with dependencies)..."
-            APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
-            apt-get "${APT_OPTS[@]}" install -y libhwloc15 libhwloc-plugins hwloc-nox 2>/dev/null || {
-                log_warning "APT install failed, falling back to dpkg..."
-                # dpkg fallback
-                for pkg in libhwloc15 libhwloc-plugins hwloc-nox; do
-                    pkg_file=$(ls "$APT_PKG_DIR"/${pkg}_*.deb 2>/dev/null | head -1)
-                    if [[ -f "$pkg_file" ]]; then
-                        log_info "Installing $pkg from $pkg_file..."
-                        dpkg -i "$pkg_file" 2>/dev/null || true
-                    fi
-                done
-                # 오프라인 모드로 의존성 해결
-                apt-get "${APT_OPTS[@]}" -f install -y 2>/dev/null || apt-get -f install -y 2>/dev/null || true
-            }
-        else
-            # 로컬 저장소 없으면 dpkg 직접 설치
-            log_info "No local APT repo, installing via dpkg..."
-            for pkg in libhwloc15 libhwloc-plugins hwloc-nox; do
-                pkg_file=$(ls "$APT_PKG_DIR"/${pkg}_*.deb 2>/dev/null | head -1)
-                if [[ -f "$pkg_file" ]]; then
-                    log_info "Installing $pkg from $pkg_file..."
-                    dpkg -i "$pkg_file" 2>/dev/null || true
-                fi
-            done
-            apt-get -f install -y 2>/dev/null || true
-        fi
-
-        # ldconfig 갱신
-        ldconfig
-
-        if ldconfig -p | grep -q "libhwloc.so.15"; then
-            log_success "libhwloc15 installed successfully"
-        else
-            log_warning "libhwloc15 installation may have failed - slurmd might not start"
-        fi
-    else
-        log_warning "APT packages directory not found - hwloc must be installed manually"
-    fi
-else
-    log_success "libhwloc15 already available"
-fi
-
-# ============================================================================
 # apt 패키지로 설치된 Slurm 서비스 중지 (21.08.5 -> 23.11.10 전환)
 # ============================================================================
 log_info "Checking for existing apt Slurm services..."
@@ -166,16 +95,9 @@ log_info "  Source: ${SCRIPT_DIR}/opt/slurm"
 log_info "  Destination: $INSTALL_PREFIX"
 
 if [[ -d "${SCRIPT_DIR}/opt/slurm" ]]; then
-    # 기존 설치 정리 (깨끗한 상태에서 복사)
-    if [[ -d "$INSTALL_PREFIX" ]]; then
-        log_info "Cleaning existing installation at $INSTALL_PREFIX..."
-        rm -rf "$INSTALL_PREFIX"
-    fi
     mkdir -p "$INSTALL_PREFIX"
     cp -a "${SCRIPT_DIR}/opt/slurm"/* "$INSTALL_PREFIX/"
     log_success "Slurm binaries copied successfully"
-    log_info "  Installed $(ls -1 ${INSTALL_PREFIX}/bin 2>/dev/null | wc -l) binaries in bin/"
-    log_info "  Installed $(ls -1 ${INSTALL_PREFIX}/sbin 2>/dev/null | wc -l) binaries in sbin/"
 else
     log_error "Source directory not found: ${SCRIPT_DIR}/opt/slurm"
     log_error "tar extraction may have failed. Contents of SCRIPT_DIR:"
@@ -183,13 +105,18 @@ else
     exit 1
 fi
 
-# 심볼릭 링크 생성
+# 심볼릭 링크 생성 (기존 디렉토리/파일 우선 제거)
 log_info "Creating symbolic links..."
-# 기존 /usr/local/slurm이 디렉토리나 심볼릭 링크로 존재하면 제거
-if [[ -e /usr/local/slurm || -L /usr/local/slurm ]]; then
+
+# /usr/local/slurm이 이미 디렉토리로 존재하면 제거 (심볼릭 링크로 교체)
+if [[ -e /usr/local/slurm && ! -L /usr/local/slurm ]]; then
+    log_warning "/usr/local/slurm exists as directory/file, removing to create symlink..."
     rm -rf /usr/local/slurm
 fi
-ln -sf "$INSTALL_PREFIX" /usr/local/slurm
+
+# 심볼릭 링크 생성 (기존 링크도 덮어씀)
+ln -sfn "$INSTALL_PREFIX" /usr/local/slurm
+log_info "Created symlink: /usr/local/slurm -> $INSTALL_PREFIX"
 
 # /usr/local/bin에 주요 명령어 심볼릭 링크 생성 (시스템 전역 PATH에 포함)
 # 이렇게 하면 /etc/profile.d 로드 없이도 모든 셸에서 slurm 명령어 사용 가능
@@ -300,11 +227,30 @@ chown -R slurm:slurm "$CONFIG_DIR"
 # ============================================================================
 log_info "Verifying installation..."
 
-# 심볼릭 링크 검증
-if [[ -L /usr/local/slurm && -d /usr/local/slurm/bin ]]; then
+# 심볼릭 링크 검증 (상세 디버깅)
+log_info "Checking /usr/local/slurm status..."
+log_info "  Is symlink (-L): $([[ -L /usr/local/slurm ]] && echo yes || echo no)"
+log_info "  Exists (-e): $([[ -e /usr/local/slurm ]] && echo yes || echo no)"
+log_info "  Is dir (-d): $([[ -d /usr/local/slurm ]] && echo yes || echo no)"
+log_info "  readlink: $(readlink /usr/local/slurm 2>/dev/null || echo 'N/A')"
+log_info "  ls -la: $(ls -la /usr/local/slurm 2>&1 | head -1)"
+
+# bin 디렉토리 확인
+if [[ -d /usr/local/slurm/bin ]]; then
+    log_info "  /usr/local/slurm/bin exists: yes"
+    log_info "  sinfo exists: $([[ -x /usr/local/slurm/bin/sinfo ]] && echo yes || echo no)"
+else
+    log_info "  /usr/local/slurm/bin exists: no"
+    log_info "  Checking $INSTALL_PREFIX/bin directly..."
+    log_info "  $INSTALL_PREFIX/bin exists: $([[ -d $INSTALL_PREFIX/bin ]] && echo yes || echo no)"
+fi
+
+# 심볼릭 링크 또는 직접 디렉토리 모두 허용
+if [[ -d /usr/local/slurm/bin && -x /usr/local/slurm/bin/sinfo ]]; then
     log_success "Symbolic link verified: /usr/local/slurm -> $(readlink -f /usr/local/slurm)"
 else
     log_error "Symbolic link failed! /usr/local/slurm does not point to valid directory"
+    log_error "Expected: $INSTALL_PREFIX with bin/sinfo"
     exit 1
 fi
 

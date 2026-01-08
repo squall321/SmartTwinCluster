@@ -126,10 +126,12 @@ nodes:
         threads_per_core: 1
         memory_mb: 3584
         tmp_disk_mb: 1024000
-        gpus: 1
-        gpu_type: amd
-        gres: gpu:amd:1
-  
+        # GPU 없음 - VNC는 CPU만 사용
+        # 실제 GPU가 있는 노드에만 아래 설정 추가:
+        # gpus: 1
+        # gpu_type: nvidia  # 또는 amd
+        # gres: gpu:nvidia:1
+
     - hostname: viz-node002
       ip_address: 192.168.122.223
       ssh_user: koopark
@@ -144,9 +146,7 @@ nodes:
         threads_per_core: 1
         memory_mb: 3584
         tmp_disk_mb: 1024000
-        gpus: 1
-        gpu_type: amd
-        gres: gpu:amd:1
+        # GPU 없음 - VNC는 CPU만 사용
 
 # ============================================================================
 # Virtual IP (VIP) Configuration
@@ -665,22 +665,13 @@ clustering:
 # Environment Variables (Template)
 # ============================================================================
 environment:
-  # MariaDB 관리자 비밀번호
-  DB_ROOT_PASSWORD: "mariadb_root_secure_password"
-  DB_SST_PASSWORD: "galera_sst_secure_password"
-
-  # 데이터베이스 사용자
-  DB_SLURM_PASSWORD: "slurm_secure_password"
-  DB_AUTH_PASSWORD: "auth_secure_password"
-
-  # Redis
-  REDIS_PASSWORD: "redis_cluster_secret"
-
-  # JWT
-  JWT_SECRET_KEY: "jwt_super_secret_key_change_me"
-
-  # Grafana
-  GRAFANA_PASSWORD: "grafana_admin_password"
+  DB_ROOT_PASSWORD: "Soseks314!"
+  DB_SST_PASSWORD: "Soseks314!"
+  DB_SLURM_PASSWORD: "Soseks314!"
+  DB_AUTH_PASSWORD: "Soseks314!"
+  REDIS_PASSWORD: "Soseks314!"
+  JWT_SECRET_KEY: "Soseks314!"
+  GRAFANA_PASSWORD: "Soseks314!"
 
   # Slack (선택)
   SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"

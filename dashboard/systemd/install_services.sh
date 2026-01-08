@@ -263,6 +263,18 @@ generate_service_file() {
     local full_path="$DASHBOARD_DIR/$service_dir"
     local service_file="/etc/systemd/system/${service_name}.service"
 
+    # SSH 키 경로 결정 (실행 사용자의 홈 디렉토리)
+    local run_user_home=$(getent passwd "$RUN_USER" | cut -d: -f6)
+    local ssh_key_path="${run_user_home}/.ssh/id_rsa"
+
+    # SSH 키 존재 확인 (첫 번째 서비스에서만 경고)
+    if [ "$SSH_KEY_WARNED" != "true" ] && [ ! -f "$ssh_key_path" ]; then
+        echo -e "  ${YELLOW}⚠ SSH 키 없음: $ssh_key_path${NC}"
+        echo -e "  ${YELLOW}  viz 노드 SSH 연결이 필요한 기능(VNC 등)이 작동하지 않을 수 있습니다.${NC}"
+        echo -e "  ${YELLOW}  해결: ssh-keygen -t rsa -N '' -f $ssh_key_path${NC}"
+        SSH_KEY_WARNED="true"
+    fi
+
     # websocket은 python 직접 실행
     if [[ "$service_dir" == *"websocket"* ]]; then
         cat > "$service_file" << EOF
@@ -277,6 +289,8 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$full_path
 Environment="PATH=$full_path/venv/bin"
+Environment="SSH_KEY_PATH=$ssh_key_path"
+Environment="HOME=$run_user_home"
 EnvironmentFile=-$full_path/.env
 ExecStart=$full_path/venv/bin/python websocket_server_enhanced.py
 Restart=on-failure
@@ -304,6 +318,8 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$full_path
 Environment="PATH=$full_path/venv/bin"
+Environment="SSH_KEY_PATH=$ssh_key_path"
+Environment="HOME=$run_user_home"
 EnvironmentFile=-$full_path/.env
 ExecStart=$full_path/venv/bin/gunicorn -c gunicorn_config.py '$app_module'
 ExecReload=/bin/kill -s HUP \$MAINPID

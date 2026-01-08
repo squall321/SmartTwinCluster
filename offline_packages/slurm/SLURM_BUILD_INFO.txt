@@ -1,0 +1,30 @@
+Slurm Prebuilt Package
+======================
+
+Build Information:
+  Version:          23.11.10
+  Build Date:       2026. 01. 02. (금) 01:24:54 UTC
+  Build Host:       smarttwincluster
+  Install Prefix:   /opt/slurm
+  Config Directory: /opt/slurm/etc
+
+Features:
+  cgroup v2:        Yes (with systemd support)
+  PAM:              Yes
+  PMIx:             Yes
+  HWLOC:            Yes
+
+Deployment:
+  1. Extract tarball:
+     tar -xzf slurm-23.11.10-prebuilt.tar.gz
+
+  2. Run deployment script:
+     cd slurm-23.11.10-prebuilt
+     sudo bash deploy_slurm.sh
+
+  3. Configure:
+     Edit /opt/slurm/etc/slurm.conf
+
+  4. Start services:
+     systemctl start slurmctld  # on controller
+     systemctl start slurmd     # on compute nodes

@@ -37,7 +37,7 @@ export const useTemplateSchema = (templateId?: string) => {
 
       try {
         // Template API v2에서 템플릿 정보 가져오기
-        const response = await fetch(`/api/v2/templates/${templateId}`);
+        const response = await fetch(`/api/jobs/templates/${templateId}`);
 
         if (!response.ok) {
           throw new Error('Failed to fetch template');

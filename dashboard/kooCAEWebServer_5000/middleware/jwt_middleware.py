@@ -5,8 +5,8 @@ Validates JWT tokens from Auth Portal for API access
 from functools import wraps
 from flask import request, jsonify, g
 import jwt
-import yaml
 import os
+import yaml
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -28,7 +28,7 @@ def _load_sso_config():
     env_sso = os.getenv('SSO_ENABLED', '').lower()
     if env_sso in ('true', 'false'):
         enabled = env_sso == 'true'
-        print(f"[CAE SSO Config] Loaded from environment variable: SSO_ENABLED={enabled}")
+        print(f"[SSO Config] Loaded from environment variable: SSO_ENABLED={enabled}")
         return enabled
 
     # 2. YAML 파일 확인
@@ -44,15 +44,15 @@ def _load_sso_config():
             with open(yaml_path) as f:
                 config = yaml.safe_load(f)
                 enabled = config.get('sso', {}).get('enabled', True)
-                print(f"[CAE SSO Config] Loaded from YAML ({yaml_path}): sso.enabled={enabled}")
+                print(f"[SSO Config] Loaded from YAML ({yaml_path}): sso.enabled={enabled}")
                 return enabled
         else:
-            print(f"[CAE SSO Config] YAML file not found: {yaml_path}")
+            print(f"[SSO Config] YAML file not found: {yaml_path}")
     except Exception as e:
-        print(f"[CAE SSO Config] Error loading YAML: {e}")
+        print(f"[SSO Config] Error loading YAML: {e}")
 
     # 3. 기본값
-    print("[CAE SSO Config] Using default: SSO enabled")
+    print("[SSO Config] Using default: SSO enabled")
     return True  # Default to SSO enabled
 
 SSO_ENABLED = _load_sso_config()

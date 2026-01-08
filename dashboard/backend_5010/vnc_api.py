@@ -466,7 +466,7 @@ def get_available_vnc_port():
     raise Exception("No available VNC ports")
 
 
-def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=1):
+def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0):
     """VNC 세션용 Slurm Job 스크립트 생성"""
 
     display_num = vnc_port - 5900
@@ -603,7 +603,7 @@ echo "VNC Session Terminated (Sandbox preserved for reuse)"
     return script
 
 
-def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=1):
+def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0):
     """Slurm Job 제출"""
 
     if MOCK_MODE:
@@ -795,7 +795,7 @@ def create_vnc_session():
     image_id = data.get('image_id', 'xfce4')
     geometry = data.get('geometry', '1920x1080')
     duration_hours = int(data.get('duration_hours', 4))
-    gpu_count = int(data.get('gpu_count', 1))
+    gpu_count = int(data.get('gpu_count', 0))  # 기본값 0: GPU 없이 VNC 세션 시작
 
     # 시스템 사용자 (YAML의 ssh_user) - VNC 세션 실행용
     # 웹 로그인 사용자(admin 등)가 아닌 실제 시스템 사용자 사용
