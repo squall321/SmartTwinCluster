@@ -19,20 +19,18 @@ fi
 # 키 설치
 mkdir -p /etc/munge
 
-# munge.key 찾기 (여러 위치 확인)
+# 기존 munge.key 제거 (강제 교체)
+rm -f /etc/munge/munge.key 2>/dev/null || true
+
+# munge.key 찾기 (전송된 키만 사용 - 기존 키 무시)
 MUNGE_KEY=""
 if [[ -f "${SCRIPT_DIR}/munge.key" ]]; then
     MUNGE_KEY="${SCRIPT_DIR}/munge.key"
-elif [[ -f "/etc/munge/munge.key" ]]; then
-    echo "  Using existing munge.key at /etc/munge/munge.key"
-    MUNGE_KEY="/etc/munge/munge.key"
 fi
 
 if [[ -n "$MUNGE_KEY" && -f "$MUNGE_KEY" ]]; then
-    if [[ "$MUNGE_KEY" != "/etc/munge/munge.key" ]]; then
-        cp "$MUNGE_KEY" /etc/munge/munge.key
-        echo "  Installed munge.key from $MUNGE_KEY"
-    fi
+    cp -f "$MUNGE_KEY" /etc/munge/munge.key
+    echo "  Installed munge.key from $MUNGE_KEY"
     chown munge:munge /etc/munge/munge.key
     chmod 400 /etc/munge/munge.key
 else

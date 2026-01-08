@@ -556,6 +556,37 @@ echo "  Offline Package Installation (Compute Node)"
 echo "  Package directory: $PKG_DIR"
 echo "═══════════════════════════════════════════════════════════"
 
+# 0. 강제 초기화 - 기존 서비스 중지 및 설정 정리
+echo ""
+echo "Step 0: Force cleanup (idempotent deployment)..."
+
+# slurmd 강제 중지
+echo "  Stopping slurmd..."
+run_sudo systemctl stop slurmd 2>/dev/null || true
+run_sudo systemctl disable slurmd 2>/dev/null || true
+
+# munge 강제 중지
+echo "  Stopping munge..."
+run_sudo systemctl stop munge 2>/dev/null || true
+
+# 기존 slurm 설정 정리
+echo "  Cleaning old slurm configs..."
+run_sudo rm -f /etc/slurm/slurm.conf 2>/dev/null || true
+run_sudo rm -f /usr/local/slurm/etc/slurm.conf 2>/dev/null || true
+run_sudo rm -f /etc/slurm/gres.conf 2>/dev/null || true
+run_sudo rm -f /usr/local/slurm/etc/gres.conf 2>/dev/null || true
+
+# 기존 munge 키 정리 (새 키로 교체 준비)
+echo "  Cleaning old munge key..."
+run_sudo rm -f /etc/munge/munge.key 2>/dev/null || true
+
+# PID 파일 정리
+echo "  Cleaning stale PID files..."
+run_sudo rm -f /run/slurm/slurmd.pid 2>/dev/null || true
+run_sudo rm -f /run/munge/munged.pid 2>/dev/null || true
+
+echo "  ✓ Cleanup complete"
+
 # 1. APT 패키지 설치
 if [[ -f "$PKG_DIR/apt_packages/install_offline_packages.sh" ]]; then
     echo ""
@@ -615,13 +646,8 @@ if [[ -f "$SLURM_CONF_SRC" ]]; then
     run_sudo mkdir -p /etc/slurm
     run_sudo mkdir -p /usr/local/slurm/etc
 
-    # 기존 파일 백업
-    if [[ -f "$SLURM_CONF_DEST" ]]; then
-        run_sudo mv "$SLURM_CONF_DEST" "${SLURM_CONF_DEST}.bak.$(date +%Y%m%d_%H%M%S)"
-    fi
-
-    # 복사
-    run_sudo cp "$SLURM_CONF_SRC" "$SLURM_CONF_DEST"
+    # 강제 덮어쓰기 (Step 0에서 이미 삭제됨)
+    run_sudo cp -f "$SLURM_CONF_SRC" "$SLURM_CONF_DEST"
     run_sudo cp "$SLURM_CONF_SRC" "$SLURM_LOCAL_CONF"
     run_sudo chown slurm:slurm "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF" 2>/dev/null || true
     run_sudo chmod 644 "$SLURM_CONF_DEST" "$SLURM_LOCAL_CONF"
@@ -733,24 +759,11 @@ fi
 echo ""
 echo "Step 5: Starting slurmd service..."
 
-# slurmd.service 생성/재생성 (잘못된 경로나 Type=forking 문제 방지)
+# slurmd.service 강제 재생성 (멱등성 보장)
 SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
-SLURMD_NEEDS_UPDATE=false
 
-# 서비스 파일이 없거나, /usr/sbin 경로 사용하거나, Type=forking이면 재생성
-if [[ ! -f "$SLURMD_SERVICE" ]]; then
-    echo "  Creating slurmd.service..."
-    SLURMD_NEEDS_UPDATE=true
-elif grep -q "/usr/sbin/slurmd" "$SLURMD_SERVICE" 2>/dev/null; then
-    echo "  slurmd.service uses /usr/sbin path, recreating..."
-    SLURMD_NEEDS_UPDATE=true
-elif grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
-    echo "  slurmd.service has Type=forking, recreating..."
-    SLURMD_NEEDS_UPDATE=true
-fi
-
-if [[ "$SLURMD_NEEDS_UPDATE" == "true" ]]; then
-    run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
+echo "  Creating/recreating slurmd.service..."
+run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
 After=network-online.target munge.service
@@ -774,9 +787,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOFSVC
-    run_sudo systemctl daemon-reload
-    echo "  ✓ slurmd.service created/updated"
-fi
+run_sudo systemctl daemon-reload
+echo "  ✓ slurmd.service created/updated"
 
 # /run/slurm 디렉토리 생성
 run_sudo mkdir -p /run/slurm
