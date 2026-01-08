@@ -591,12 +591,14 @@ else
         sudo -u "$SETUP_USER" ssh-keygen -t rsa -b 4096 -N "" -f "$SETUP_SSH_KEY"
         log_success "SSH 키 생성 완료: $SETUP_SSH_KEY"
     else
-        # 기존 키 권한 확인 및 수정
-        if [ ! -r "$SETUP_SSH_KEY" ]; then
-            log_warning "SSH 키 권한 문제 발견, 수정 중..."
+        # 기존 키 소유권 확인 및 수정 (소유자가 SETUP_USER가 아니면 수정)
+        KEY_OWNER=$(stat -c '%U' "$SETUP_SSH_KEY" 2>/dev/null)
+        if [ "$KEY_OWNER" != "$SETUP_USER" ]; then
+            log_warning "SSH 키 소유자가 $KEY_OWNER입니다. $SETUP_USER로 변경 중..."
             chown "$SETUP_USER:$SETUP_USER" "$SETUP_SSH_KEY" "$SETUP_SSH_KEY.pub" 2>/dev/null || true
             chmod 600 "$SETUP_SSH_KEY" 2>/dev/null || true
             chmod 644 "$SETUP_SSH_KEY.pub" 2>/dev/null || true
+            log_success "SSH 키 소유권 수정 완료"
         fi
         log_success "SSH 키가 이미 존재합니다: $SETUP_SSH_KEY"
     fi
