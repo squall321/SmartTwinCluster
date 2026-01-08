@@ -763,7 +763,10 @@ echo "Step 5: Starting slurmd service..."
 SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
 
 echo "  Creating/recreating slurmd.service..."
-run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
+
+# 임시 파일에 서비스 내용 작성 후 sudo cp로 복사 (run_sudo tee의 stdin 문제 회피)
+SLURMD_TMP="/tmp/slurmd.service.$$"
+cat > "$SLURMD_TMP" << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
 After=network-online.target munge.service
@@ -775,7 +778,7 @@ Type=simple
 EnvironmentFile=-/etc/default/slurmd
 ExecStartPre=/bin/mkdir -p /run/slurm
 ExecStartPre=/bin/chown slurm:slurm /run/slurm
-ExecStart=/usr/local/slurm/sbin/slurmd -D $SLURMD_OPTIONS
+ExecStart=/usr/local/slurm/sbin/slurmd -D
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
 LimitNOFILE=131072
@@ -787,6 +790,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOFSVC
+run_sudo cp -f "$SLURMD_TMP" "$SLURMD_SERVICE"
+rm -f "$SLURMD_TMP"
 run_sudo systemctl daemon-reload
 echo "  ✓ slurmd.service created/updated"
 
