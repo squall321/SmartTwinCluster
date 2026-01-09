@@ -709,6 +709,50 @@ if [[ -f "$PKG_DIR/munge/deploy_munge.sh" ]]; then
     echo "Step 3: Deploying Munge..."
     cd "$PKG_DIR/munge"
     run_sudo bash deploy_munge.sh
+
+    # Munge 서비스 재시작 확인 및 slurmd 재시작
+    echo ""
+    echo "  Verifying munge service..."
+    sleep 2  # munge 시작 대기
+
+    if run_sudo systemctl is-active --quiet munge; then
+        echo "  ✓ Munge is running"
+    else
+        echo "  ⚠️  Munge not running, attempting restart..."
+        run_sudo systemctl restart munge
+        sleep 3
+        if run_sudo systemctl is-active --quiet munge; then
+            echo "  ✓ Munge restarted successfully"
+        else
+            echo "  ✗ ERROR: Munge failed to start"
+            run_sudo systemctl status munge --no-pager || true
+        fi
+    fi
+
+    # slurmd 재시작 (새 munge key 적용)
+    echo "  Restarting slurmd to apply new munge key..."
+    if run_sudo systemctl is-active --quiet slurmd; then
+        run_sudo systemctl restart slurmd
+    else
+        echo "  Note: slurmd not running yet (will be started in Step 5)"
+    fi
+
+    echo "  Waiting for services to stabilize..."
+    sleep 5
+
+    # 최종 서비스 상태 확인
+    echo "  Final service status check:"
+    if run_sudo systemctl is-active --quiet munge; then
+        echo "    ✓ munge: running"
+    else
+        echo "    ✗ munge: NOT running"
+    fi
+
+    if run_sudo systemctl is-active --quiet slurmd 2>/dev/null; then
+        echo "    ✓ slurmd: running"
+    else
+        echo "    - slurmd: not started yet (normal if first deployment)"
+    fi
 else
     echo "WARNING: Munge package not found"
 fi
