@@ -123,8 +123,8 @@ if ! id slurm &>/dev/null; then
 
     log_success "User 'slurm' created with UID=$(id -u slurm), GID=$(id -g slurm)"
 else
-    local existing_uid=$(id -u slurm)
-    local existing_gid=$(id -g slurm)
+    existing_uid=$(id -u slurm)
+    existing_gid=$(id -g slurm)
     log_info "User 'slurm' already exists (UID=$existing_uid, GID=$existing_gid)"
 
     # UID/GID가 헤드노드와 다르면 경고
