@@ -127,11 +127,31 @@ else
     existing_gid=$(id -g slurm)
     log_info "User 'slurm' already exists (UID=$existing_uid, GID=$existing_gid)"
 
-    # UID/GID가 헤드노드와 다르면 경고
+    # UID/GID가 헤드노드와 다르면 자동 수정
     if [[ "$existing_uid" != "$TARGET_SLURM_UID" ]] || [[ "$existing_gid" != "$TARGET_SLURM_GID" ]]; then
-        log_warning "UID/GID mismatch with headnode ($TARGET_SLURM_UID/$TARGET_SLURM_GID)!"
+        log_warning "UID/GID mismatch with headnode (expected: $TARGET_SLURM_UID/$TARGET_SLURM_GID)!"
         log_warning "This will cause 'security violation' errors in Slurm!"
-        log_warning "Please manually fix: userdel slurm && groupdel slurm, then re-run deployment"
+        log_info "Automatically recreating slurm user with correct UID/GID..."
+
+        # slurmd 중지 (실행 중일 수 있음)
+        systemctl stop slurmd 2>/dev/null || true
+
+        # 기존 프로세스 종료
+        pkill -u slurm 2>/dev/null || true
+        sleep 1
+
+        # 사용자 삭제
+        userdel -r slurm 2>/dev/null || userdel slurm 2>/dev/null || true
+        groupdel slurm 2>/dev/null || true
+
+        # 올바른 UID/GID로 재생성
+        groupadd -g "$TARGET_SLURM_GID" slurm 2>/dev/null || groupadd slurm 2>/dev/null || true
+        useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>/dev/null || \
+            useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true
+
+        log_success "User 'slurm' recreated with UID=$(id -u slurm), GID=$(id -g slurm)"
+    else
+        log_success "UID/GID matches headnode - OK"
     fi
 fi
 
