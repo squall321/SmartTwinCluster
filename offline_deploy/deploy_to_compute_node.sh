@@ -401,17 +401,33 @@ deploy_to_node() {
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if /usr/bin/sudo test -f "$MUNGE_KEY_LOCAL"; then
         # 원격에서 $HOME 환경변수를 사용하여 경로 확장 (~ 대신 $HOME 사용)
-        $ssh_cmd "$node_user@$node_ip" 'mkdir -p $HOME/offline_packages/munge' || true
-        # ssh_cmd_stdin 사용 (파이프로 stdin 전달 필요)
+        $ssh_cmd "$node_user@$node_ip" 'mkdir -p $HOME/offline_packages/munge' || {
+            log_error "[$node_hostname] Failed to create munge directory"
+            return 1
+        }
+
         # sudo cat 사용 (munge.key는 400 권한이라 일반 사용자가 읽을 수 없음)
         # 원격 셸에서 $HOME이 확장되도록 작은따옴표 사용
-        /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" 'cat > $HOME/offline_packages/munge/munge.key' || {
-            log_warning "[$node_hostname] Failed to transfer munge.key (will use existing)"
-        }
-        log_success "[$node_hostname] munge.key transferred"
+        if /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" 'cat > $HOME/offline_packages/munge/munge.key'; then
+            # 전송 확인 (파일 크기 비교)
+            local local_size=$(/usr/bin/sudo stat -c%s "$MUNGE_KEY_LOCAL" 2>/dev/null || echo "0")
+            local remote_size=$($ssh_cmd "$node_user@$node_ip" 'stat -c%s $HOME/offline_packages/munge/munge.key 2>/dev/null || echo "0"')
+
+            if [[ "$local_size" -eq "$remote_size" ]] && [[ "$local_size" -gt 0 ]]; then
+                log_success "[$node_hostname] munge.key transferred and verified ($local_size bytes)"
+            else
+                log_error "[$node_hostname] munge.key transfer verification failed (local: $local_size, remote: $remote_size)"
+                return 1
+            fi
+        else
+            log_error "[$node_hostname] Failed to transfer munge.key"
+            log_error "[$node_hostname] Munge authentication WILL fail without matching key!"
+            return 1
+        fi
     else
-        log_warning "[$node_hostname] Controller munge.key not found at $MUNGE_KEY_LOCAL"
-        log_warning "[$node_hostname] Munge authentication may fail if keys don't match!"
+        log_error "[$node_hostname] Controller munge.key not found at $MUNGE_KEY_LOCAL"
+        log_error "[$node_hostname] Cannot deploy without munge key - run setup on controller first!"
+        return 1
     fi
 
     log_success "[$node_hostname] Packages transferred"
