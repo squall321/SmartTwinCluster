@@ -156,6 +156,9 @@ pip3 install pyyaml jinja2
 # 헬스 체크
 ./health_check.sh
 
+# Job Template 배포 (헤드노드에서 실행)
+sudo ./deploy_templates.sh
+
 # 환경 전환
 ./web_services/scripts/reconfigure_web_services.sh production
 
