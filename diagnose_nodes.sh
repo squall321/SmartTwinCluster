@@ -92,13 +92,13 @@ echo "2. NODE STATE SUMMARY"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
-# 노드 상태 카운트 (grep -c는 매치 없을 시 0, 에러 시 빈 문자열 반환)
-IDLE_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "^idle$" | wc -l 2>/dev/null || echo "0")
-IDLE_STAR_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "idle\*" | wc -l 2>/dev/null || echo "0")
-DOWN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "down" | wc -l 2>/dev/null || echo "0")
-DRAIN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "drain" | wc -l 2>/dev/null || echo "0")
-ALLOC_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "alloc" | wc -l 2>/dev/null || echo "0")
-MIX_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "mix" | wc -l 2>/dev/null || echo "0")
+# 노드 상태 카운트 (정확한 매칭을 위해 awk 사용)
+IDLE_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | awk '$1 == "idle" {count++} END {print count+0}')
+IDLE_STAR_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | awk '$1 ~ /^idle[\*+]/ {count++} END {print count+0}')
+DOWN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | awk '$1 ~ /down/ {count++} END {print count+0}')
+DRAIN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | awk '$1 ~ /drain/ {count++} END {print count+0}')
+ALLOC_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | awk '$1 ~ /alloc/ {count++} END {print count+0}')
+MIX_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | awk '$1 ~ /mix/ {count++} END {print count+0}')
 
 # 숫자가 아닌 값 제거 및 기본값 설정
 IDLE_COUNT=$(echo "$IDLE_COUNT" | tr -cd '0-9' | head -c 10)
@@ -117,15 +117,34 @@ MIX_COUNT=$(echo "$MIX_COUNT" | tr -cd '0-9' | head -c 10)
 : ${MIX_COUNT:=0}
 
 log_success "IDLE (healthy):        $IDLE_COUNT nodes"
+
 if [[ "$IDLE_STAR_COUNT" -gt 0 ]]; then
     log_warning "IDLE* (not responding): $IDLE_STAR_COUNT nodes"
+    # idle* 노드 목록 표시
+    IDLE_STAR_NODES=$($SINFO -N -h -o "%N %T" 2>/dev/null | awk '$2 ~ /^idle[\*+]/ {print "    - " $1 " (" $2 ")"}')
+    if [[ -n "$IDLE_STAR_NODES" ]]; then
+        echo "$IDLE_STAR_NODES"
+    fi
 fi
+
 if [[ "$DOWN_COUNT" -gt 0 ]]; then
     log_error "DOWN:                  $DOWN_COUNT nodes"
+    # down 노드 목록 표시
+    DOWN_NODES=$($SINFO -N -h -o "%N %T" 2>/dev/null | awk '$2 ~ /down/ {print "    - " $1 " (" $2 ")"}')
+    if [[ -n "$DOWN_NODES" ]]; then
+        echo "$DOWN_NODES"
+    fi
 fi
+
 if [[ "$DRAIN_COUNT" -gt 0 ]]; then
     log_warning "DRAIN:                 $DRAIN_COUNT nodes"
+    # drain 노드 목록 표시
+    DRAIN_NODES=$($SINFO -N -h -o "%N %T" 2>/dev/null | awk '$2 ~ /drain/ {print "    - " $1 " (" $2 ")"}')
+    if [[ -n "$DRAIN_NODES" ]]; then
+        echo "$DRAIN_NODES"
+    fi
 fi
+
 if [[ "$ALLOC_COUNT" -gt 0 ]]; then
     log_info "ALLOCATED:             $ALLOC_COUNT nodes"
 fi
@@ -135,8 +154,9 @@ fi
 
 echo ""
 
-# 문제 노드 목록 추출
-PROBLEM_NODES=$($SINFO -N -h -o "%N %T" 2>/dev/null | grep -E "down|drain|idle\*|unknown" | awk '{print $1}' || true)
+# 문제 노드 목록 추출 (idle 제외한 모든 비정상 상태)
+# idle*는 "idle+NOT_RESPONDING" 같은 형태로 나옴
+PROBLEM_NODES=$($SINFO -N -h -o "%N %T" 2>/dev/null | awk '$2 !~ /^idle$/ && $2 !~ /^alloc/ && $2 !~ /^mix/ {print $1}' || true)
 
 if [[ -z "$PROBLEM_NODES" ]]; then
     log_success "All nodes are healthy! (IDLE or ALLOCATED)"
@@ -180,9 +200,12 @@ NODE_NUM=0
 for node in $PROBLEM_NODES; do
     NODE_NUM=$((NODE_NUM + 1))
 
+    # sinfo에서 노드 상태 가져오기
+    NODE_SINFO_STATE=$($SINFO -N -h -n "$node" -o "%T" 2>/dev/null || echo "UNKNOWN")
+
     echo ""
     echo "───────────────────────────────────────────────────────────"
-    echo "Problem Node #$NODE_NUM: $node"
+    echo "Problem Node #$NODE_NUM: $node (State: $NODE_SINFO_STATE)"
     echo "───────────────────────────────────────────────────────────"
 
     # scontrol로 노드 상태 확인
