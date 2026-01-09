@@ -92,27 +92,44 @@ echo "2. NODE STATE SUMMARY"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
-IDLE_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep -c "^idle$" || echo 0)
-IDLE_STAR_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep -c "idle\*" || echo 0)
-DOWN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep -c "down" || echo 0)
-DRAIN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep -c "drain" || echo 0)
-ALLOC_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep -c "alloc" || echo 0)
-MIX_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep -c "mix" || echo 0)
+# 노드 상태 카운트 (grep -c는 매치 없을 시 0, 에러 시 빈 문자열 반환)
+IDLE_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "^idle$" | wc -l 2>/dev/null || echo "0")
+IDLE_STAR_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "idle\*" | wc -l 2>/dev/null || echo "0")
+DOWN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "down" | wc -l 2>/dev/null || echo "0")
+DRAIN_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "drain" | wc -l 2>/dev/null || echo "0")
+ALLOC_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "alloc" | wc -l 2>/dev/null || echo "0")
+MIX_COUNT=$($SINFO -N -h -o "%T" 2>/dev/null | grep "mix" | wc -l 2>/dev/null || echo "0")
+
+# 숫자가 아닌 값 제거 및 기본값 설정
+IDLE_COUNT=$(echo "$IDLE_COUNT" | tr -cd '0-9' | head -c 10)
+IDLE_STAR_COUNT=$(echo "$IDLE_STAR_COUNT" | tr -cd '0-9' | head -c 10)
+DOWN_COUNT=$(echo "$DOWN_COUNT" | tr -cd '0-9' | head -c 10)
+DRAIN_COUNT=$(echo "$DRAIN_COUNT" | tr -cd '0-9' | head -c 10)
+ALLOC_COUNT=$(echo "$ALLOC_COUNT" | tr -cd '0-9' | head -c 10)
+MIX_COUNT=$(echo "$MIX_COUNT" | tr -cd '0-9' | head -c 10)
+
+# 빈 문자열이면 0으로 설정
+: ${IDLE_COUNT:=0}
+: ${IDLE_STAR_COUNT:=0}
+: ${DOWN_COUNT:=0}
+: ${DRAIN_COUNT:=0}
+: ${ALLOC_COUNT:=0}
+: ${MIX_COUNT:=0}
 
 log_success "IDLE (healthy):        $IDLE_COUNT nodes"
-if [[ $IDLE_STAR_COUNT -gt 0 ]]; then
+if [[ "$IDLE_STAR_COUNT" -gt 0 ]]; then
     log_warning "IDLE* (not responding): $IDLE_STAR_COUNT nodes"
 fi
-if [[ $DOWN_COUNT -gt 0 ]]; then
+if [[ "$DOWN_COUNT" -gt 0 ]]; then
     log_error "DOWN:                  $DOWN_COUNT nodes"
 fi
-if [[ $DRAIN_COUNT -gt 0 ]]; then
+if [[ "$DRAIN_COUNT" -gt 0 ]]; then
     log_warning "DRAIN:                 $DRAIN_COUNT nodes"
 fi
-if [[ $ALLOC_COUNT -gt 0 ]]; then
+if [[ "$ALLOC_COUNT" -gt 0 ]]; then
     log_info "ALLOCATED:             $ALLOC_COUNT nodes"
 fi
-if [[ $MIX_COUNT -gt 0 ]]; then
+if [[ "$MIX_COUNT" -gt 0 ]]; then
     log_info "MIXED:                 $MIX_COUNT nodes"
 fi
 
