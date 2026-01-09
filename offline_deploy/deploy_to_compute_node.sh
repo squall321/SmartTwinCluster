@@ -1077,6 +1077,33 @@ EOPY
     local failed_count=0
     local pids=()
 
+    # ============================================================================
+    # SSH host key 사전 등록 (idle* 문제 방지)
+    # ============================================================================
+    log_info "Pre-registering SSH host keys to prevent idle* issues..."
+
+    local hostkey_count=0
+    while IFS='|' read -r hostname ip user; do
+        [[ -z "$hostname" ]] && continue
+
+        # 특정 노드만 배포 시 해당 노드만 처리
+        if [[ -n "$SPECIFIC_NODE" ]] && [[ "$hostname" != "$SPECIFIC_NODE" ]]; then
+            continue
+        fi
+
+        # SSH host key를 known_hosts에 추가
+        log_info "  Registering SSH key for $hostname ($ip)..."
+
+        # hostname과 ip 모두 등록
+        ssh-keyscan -H "$hostname" >> ~/.ssh/known_hosts 2>/dev/null || true
+        ssh-keyscan -H "$ip" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+        ((hostkey_count++))
+    done < "$nodes_list_file"
+
+    log_success "Registered $hostkey_count SSH host keys"
+    echo ""
+
     # 노드 순회 (파일에서 직접 읽기 - 더 안정적)
     while IFS='|' read -r hostname ip user; do
         # 빈 줄 스킵
