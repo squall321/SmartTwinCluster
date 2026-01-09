@@ -35,6 +35,33 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # ============================================================================
+# Slurm 의존성 확인 (hwloc, munge 등)
+# ============================================================================
+log_info "Checking Slurm dependencies..."
+
+# libhwloc15 확인 (필수)
+if ! dpkg -l | grep -q "^ii.*libhwloc15"; then
+    log_error "libhwloc15 is not installed!"
+    log_error "Slurm requires libhwloc15 to run."
+    log_error ""
+    log_error "Please install it first:"
+    log_error "  cd ~/offline_packages/apt_packages"
+    log_error "  sudo bash install_offline_packages.sh"
+    log_error ""
+    log_error "Or manually:"
+    log_error "  sudo dpkg -i libhwloc15_*.deb libhwloc-plugins_*.deb"
+    exit 1
+fi
+log_success "  libhwloc15: installed"
+
+# munge 확인 (권장)
+if ! command -v munge &>/dev/null; then
+    log_warning "  munge: not installed (authentication will fail)"
+else
+    log_success "  munge: installed"
+fi
+
+# ============================================================================
 # apt 패키지로 설치된 Slurm 서비스 중지 (21.08.5 -> 23.11.10 전환)
 # ============================================================================
 log_info "Checking for existing apt Slurm services..."
