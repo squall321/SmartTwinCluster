@@ -103,16 +103,36 @@ if [[ -f /usr/bin/sinfo ]]; then
 fi
 
 # Slurm 사용자 생성
-# NOTE: UID 64001 사용 - 일반 시스템 계정(1000~)과 충돌 방지
+# NOTE: 헤드노드와 동일한 UID/GID 사용 (환경변수에서 전달받음)
 # 이미 존재하면 건너뜀 (phase3_slurm.sh에서 YAML 기반 UID로 먼저 생성됨)
 log_info "Creating slurm user..."
+
+# 환경변수에서 UID/GID 가져오기 (기본값: 64001)
+TARGET_SLURM_UID="${SLURM_UID:-64001}"
+TARGET_SLURM_GID="${SLURM_GID:-64001}"
+
 if ! id slurm &>/dev/null; then
-    # 64001 사용 (기본값), 충돌 시 자동 할당
-    groupadd -g 64001 slurm 2>/dev/null || groupadd slurm 2>/dev/null || true
-    useradd -u 64001 -g slurm -m -s /bin/bash slurm 2>/dev/null || useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true
-    log_success "User 'slurm' created"
+    log_info "  Target UID/GID: $TARGET_SLURM_UID/$TARGET_SLURM_GID (from headnode)"
+
+    # 그룹 생성
+    groupadd -g "$TARGET_SLURM_GID" slurm 2>/dev/null || groupadd slurm 2>/dev/null || true
+
+    # 사용자 생성 (지정된 UID 사용, 충돌 시 자동 할당)
+    useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>/dev/null || \
+        useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true
+
+    log_success "User 'slurm' created with UID=$(id -u slurm), GID=$(id -g slurm)"
 else
-    log_info "User 'slurm' already exists (using existing UID: $(id -u slurm))"
+    local existing_uid=$(id -u slurm)
+    local existing_gid=$(id -g slurm)
+    log_info "User 'slurm' already exists (UID=$existing_uid, GID=$existing_gid)"
+
+    # UID/GID가 헤드노드와 다르면 경고
+    if [[ "$existing_uid" != "$TARGET_SLURM_UID" ]] || [[ "$existing_gid" != "$TARGET_SLURM_GID" ]]; then
+        log_warning "UID/GID mismatch with headnode ($TARGET_SLURM_UID/$TARGET_SLURM_GID)!"
+        log_warning "This will cause 'security violation' errors in Slurm!"
+        log_warning "Please manually fix: userdel slurm && groupdel slurm, then re-run deployment"
+    fi
 fi
 
 # 디렉토리 복사

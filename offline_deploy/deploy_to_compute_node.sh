@@ -550,13 +550,15 @@ EOFHOSTS2
     fi
 
     # heredoc을 사용하므로 stdin이 필요한 ssh_cmd_stdin 사용
-    $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" << 'EOFREMOTE'
+    $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" "$HEADNODE_SLURM_UID" "$HEADNODE_SLURM_GID" << 'EOFREMOTE'
 set -e
 
 GLUSTER_SERVER="$1"
 GLUSTER_VOLUME="$2"
 GLUSTER_MOUNT="$3"
 SUDO_PASS_B64="$4"
+SLURM_UID="$5"
+SLURM_GID="$6"
 
 # 패키지 디렉토리 (홈 디렉토리 사용)
 PKG_DIR="$HOME/offline_packages"
@@ -660,9 +662,9 @@ if [[ -n "$SLURM_PKG" && -f "$SLURM_PKG" ]]; then
         ls -la
     fi
 
-    # deploy_slurm.sh 실행
+    # deploy_slurm.sh 실행 (UID/GID 환경변수 전달)
     if [[ -f "deploy_slurm.sh" ]]; then
-        run_sudo bash deploy_slurm.sh
+        SLURM_UID="$SLURM_UID" SLURM_GID="$SLURM_GID" run_sudo -E bash deploy_slurm.sh
     else
         echo "  ✗ deploy_slurm.sh not found after extraction"
     fi
@@ -1412,6 +1414,52 @@ main() {
 
     # SSH 인증 설정 (YAML에서 ssh_password 로드, sshpass 확인)
     setup_ssh_auth
+
+    # 헤드노드의 slurm UID/GID 확인 (계산 노드와 동일하게 맞추기 위함)
+    log_info "Detecting headnode slurm UID/GID..."
+    HEADNODE_SLURM_UID=""
+    HEADNODE_SLURM_GID=""
+
+    # YAML에서 헤드노드 정보 가져오기
+    local headnode_ip=$(python3 -c "
+import yaml
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+    controllers = config.get('nodes', {}).get('controllers', [])
+    if controllers:
+        print(controllers[0].get('ip_address', ''))
+except:
+    pass
+" 2>/dev/null)
+
+    if [[ -n "$headnode_ip" ]]; then
+        # 헤드노드에서 slurm UID/GID 가져오기
+        local uid_gid_output=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            "koopark@$headnode_ip" "id slurm 2>/dev/null" 2>/dev/null || echo "")
+
+        if [[ -n "$uid_gid_output" ]]; then
+            HEADNODE_SLURM_UID=$(echo "$uid_gid_output" | grep -oP 'uid=\K[0-9]+')
+            HEADNODE_SLURM_GID=$(echo "$uid_gid_output" | grep -oP 'gid=\K[0-9]+')
+
+            if [[ -n "$HEADNODE_SLURM_UID" ]] && [[ -n "$HEADNODE_SLURM_GID" ]]; then
+                log_success "Detected headnode slurm UID=$HEADNODE_SLURM_UID, GID=$HEADNODE_SLURM_GID"
+            else
+                log_warning "Could not parse slurm UID/GID from headnode, using default 64001"
+                HEADNODE_SLURM_UID=64001
+                HEADNODE_SLURM_GID=64001
+            fi
+        else
+            log_warning "Could not detect slurm user on headnode, using default 64001"
+            HEADNODE_SLURM_UID=64001
+            HEADNODE_SLURM_GID=64001
+        fi
+    else
+        log_warning "Could not find headnode IP, using default UID/GID 64001"
+        HEADNODE_SLURM_UID=64001
+        HEADNODE_SLURM_GID=64001
+    fi
+    echo ""
 
     log_info "Config:       $CONFIG_FILE"
     log_info "Package Dir:  $PACKAGE_DIR"
