@@ -12,7 +12,7 @@
 #   - 병렬 배포 지원
 #
 # 사용법:
-#   sudo ./deploy_to_compute_node.sh --config my_multihead_cluster.yaml
+#   ./deploy_to_compute_node.sh --config my_multihead_cluster.yaml
 #
 # 옵션:
 #   --config PATH        YAML 설정 파일
