@@ -153,23 +153,43 @@ else
         fi
 
         # 사용자 삭제 (홈 디렉토리는 보존)
-        userdel slurm 2>/dev/null || true
-        groupdel slurm 2>/dev/null || true
+        if ! userdel slurm 2>&1 | grep -v "userdel: slurm mail spool" | grep -v "^$" >&2; then
+            if id slurm &>/dev/null; then
+                log_error "Failed to delete slurm user!"
+                exit 1
+            fi
+        fi
 
-        # 사용자/그룹이 완전히 삭제되었는지 확인
+        # 그룹 삭제
+        if ! groupdel slurm 2>&1 | grep -v "^$" >&2; then
+            if getent group slurm &>/dev/null; then
+                log_error "Failed to delete slurm group!"
+                exit 1
+            fi
+        fi
+
+        # 사용자/그룹이 완전히 삭제되었는지 재확인
         if id slurm &>/dev/null; then
-            log_error "Failed to delete existing slurm user!"
+            log_error "slurm user still exists after deletion!"
+            exit 1
+        fi
+        if getent group slurm &>/dev/null; then
+            log_error "slurm group still exists after deletion!"
             exit 1
         fi
 
         # 올바른 UID/GID로 재생성
-        if ! groupadd -g "$TARGET_SLURM_GID" slurm 2>/dev/null; then
+        GROUP_ADD_OUTPUT=$(groupadd -g "$TARGET_SLURM_GID" slurm 2>&1)
+        if [[ $? -ne 0 ]]; then
             log_error "Failed to create slurm group with GID $TARGET_SLURM_GID"
+            echo "$GROUP_ADD_OUTPUT" >&2
             exit 1
         fi
 
-        if ! useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>/dev/null; then
+        USER_ADD_OUTPUT=$(useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>&1)
+        if [[ $? -ne 0 ]]; then
             log_error "Failed to create slurm user with UID $TARGET_SLURM_UID"
+            echo "$USER_ADD_OUTPUT" >&2
             exit 1
         fi
 
