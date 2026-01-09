@@ -140,16 +140,43 @@ else
         pkill -u slurm 2>/dev/null || true
         sleep 1
 
-        # UID/GID 충돌 확인 (다른 사용자/그룹이 사용중인지)
-        if getent passwd "$TARGET_SLURM_UID" | grep -v "^slurm:" &>/dev/null; then
-            log_error "UID $TARGET_SLURM_UID is already used by another user!"
-            getent passwd "$TARGET_SLURM_UID"
-            exit 1
+        # UID/GID 충돌 확인 및 해결 (다른 사용자/그룹이 사용중이면 강제로 변경)
+        CONFLICTING_USER=$(getent passwd "$TARGET_SLURM_UID" | grep -v "^slurm:" | cut -d: -f1)
+        if [[ -n "$CONFLICTING_USER" ]]; then
+            log_warning "UID $TARGET_SLURM_UID is used by '$CONFLICTING_USER'"
+            log_info "Changing $CONFLICTING_USER to a different UID to free up $TARGET_SLURM_UID for slurm..."
+
+            # 사용 가능한 새 UID 찾기 (65000번대 사용)
+            NEW_UID=65000
+            while getent passwd "$NEW_UID" &>/dev/null; do
+                ((NEW_UID++))
+            done
+
+            log_info "  Moving $CONFLICTING_USER from UID $TARGET_SLURM_UID to $NEW_UID..."
+            usermod -u "$NEW_UID" "$CONFLICTING_USER" 2>&1 || {
+                log_error "Failed to change UID of $CONFLICTING_USER"
+                exit 1
+            }
+            log_success "  $CONFLICTING_USER UID changed: $TARGET_SLURM_UID → $NEW_UID"
         fi
-        if getent group "$TARGET_SLURM_GID" | grep -v "^slurm:" &>/dev/null; then
-            log_error "GID $TARGET_SLURM_GID is already used by another group!"
-            getent group "$TARGET_SLURM_GID"
-            exit 1
+
+        CONFLICTING_GROUP=$(getent group "$TARGET_SLURM_GID" | grep -v "^slurm:" | cut -d: -f1)
+        if [[ -n "$CONFLICTING_GROUP" ]]; then
+            log_warning "GID $TARGET_SLURM_GID is used by '$CONFLICTING_GROUP'"
+            log_info "Changing $CONFLICTING_GROUP to a different GID to free up $TARGET_SLURM_GID for slurm..."
+
+            # 사용 가능한 새 GID 찾기 (65000번대 사용)
+            NEW_GID=65000
+            while getent group "$NEW_GID" &>/dev/null; do
+                ((NEW_GID++))
+            done
+
+            log_info "  Moving $CONFLICTING_GROUP from GID $TARGET_SLURM_GID to $NEW_GID..."
+            groupmod -g "$NEW_GID" "$CONFLICTING_GROUP" 2>&1 || {
+                log_error "Failed to change GID of $CONFLICTING_GROUP"
+                exit 1
+            }
+            log_success "  $CONFLICTING_GROUP GID changed: $TARGET_SLURM_GID → $NEW_GID"
         fi
 
         # 사용자 삭제 (홈 디렉토리는 보존)
