@@ -1124,6 +1124,159 @@ EOPY
     return 0
 }
 
+# 배포 후 노드 상태 검증
+verify_deployed_nodes() {
+    local config_file="$1"
+
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║          POST-DEPLOYMENT VERIFICATION                      ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    log_info "Waiting 10 seconds for services to stabilize..."
+    sleep 10
+
+    log_info "Checking Slurm cluster node states..."
+    echo ""
+
+    # sinfo로 노드 상태 확인
+    if ! command -v sinfo &>/dev/null && [[ -x /usr/local/slurm/bin/sinfo ]]; then
+        SINFO="/usr/local/slurm/bin/sinfo"
+    else
+        SINFO="sinfo"
+    fi
+
+    $SINFO -N -l 2>/dev/null || {
+        log_error "Failed to run sinfo - is slurmctld running on controller?"
+        return 1
+    }
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "Detailed Node Verification"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+
+    # YAML에서 배포된 노드 목록 가져오기
+    local nodes_list=$(python3 << EOPY
+import yaml
+try:
+    with open('$config_file', 'r') as f:
+        config = yaml.safe_load(f)
+
+    nodes = []
+    for node in config.get('nodes', {}).get('compute_nodes', []):
+        nodes.append(f"{node.get('hostname')}|{node.get('ip_address')}|{node.get('ssh_user', 'koopark')}")
+
+    for node in config.get('nodes', {}).get('viz_nodes', []):
+        nodes.append(f"{node.get('hostname')}|{node.get('ip_address')}|{node.get('ssh_user', 'koopark')}")
+
+    for node in nodes:
+        print(node)
+except Exception as e:
+    print(f"ERROR: {e}", file=sys.stderr)
+EOPY
+)
+
+    local total_nodes=0
+    local healthy_nodes=0
+    local problem_nodes=0
+
+    for node_info in $nodes_list; do
+        IFS='|' read -r hostname ip user <<< "$node_info"
+        total_nodes=$((total_nodes + 1))
+
+        echo "Checking $hostname ($ip)..."
+
+        # Slurm 상태 확인
+        local slurm_state=$($SINFO -N -h -n "$hostname" -o "%T" 2>/dev/null || echo "UNKNOWN")
+
+        if [[ "$slurm_state" == "idle" ]]; then
+            log_success "  ✓ Slurm state: $slurm_state"
+            healthy_nodes=$((healthy_nodes + 1))
+        else
+            log_warning "  ⚠️  Slurm state: $slurm_state"
+            problem_nodes=$((problem_nodes + 1))
+
+            # 문제 노드는 상세 진단
+            echo "  → Running diagnostic checks..."
+
+            # SSH 연결 테스트
+            if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$user@$ip" "echo ok" &>/dev/null; then
+                # slurmd 상태
+                local slurmd_status=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$user@$ip" "systemctl is-active slurmd 2>/dev/null || echo 'inactive'")
+                if [[ "$slurmd_status" == "active" ]]; then
+                    echo "    slurmd service: ✓ running"
+                else
+                    log_error "    slurmd service: ✗ $slurmd_status"
+                fi
+
+                # munge 상태
+                local munge_status=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$user@$ip" "systemctl is-active munge 2>/dev/null || echo 'inactive'")
+                if [[ "$munge_status" == "active" ]]; then
+                    echo "    munge service: ✓ running"
+                else
+                    log_error "    munge service: ✗ $munge_status"
+                fi
+
+                # munge 인증 테스트
+                local munge_test=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$user@$ip" "munge -n 2>/dev/null | unmunge 2>&1 | grep -q SUCCESS && echo 'OK' || echo 'FAIL'")
+                if [[ "$munge_test" == "OK" ]]; then
+                    echo "    munge auth: ✓ success"
+                else
+                    log_error "    munge auth: ✗ failed"
+                fi
+
+                # 시간 동기화 체크
+                local node_time=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$user@$ip" "date +%s 2>/dev/null || echo '0'")
+                local controller_time=$(date +%s)
+                if [[ "$node_time" != "0" ]]; then
+                    local time_diff=$((controller_time - node_time))
+                    local abs_diff=${time_diff#-}
+                    if [[ $abs_diff -gt 300 ]]; then
+                        log_error "    time sync: ✗ ${abs_diff}s difference (>5min)"
+                    elif [[ $abs_diff -gt 60 ]]; then
+                        log_warning "    time sync: ⚠️  ${abs_diff}s difference"
+                    else
+                        echo "    time sync: ✓ ${abs_diff}s difference"
+                    fi
+                fi
+
+                # 최근 slurmd 에러 로그
+                echo "    Recent slurmd errors:"
+                ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$user@$ip" "sudo journalctl -u slurmd -p err -n 3 --no-pager 2>/dev/null | sed 's/^/      /'" || echo "      (no errors or journalctl failed)"
+
+            else
+                log_error "    SSH connection: ✗ failed"
+            fi
+        fi
+        echo ""
+    done
+
+    echo "═══════════════════════════════════════════════════════════"
+    echo "Verification Summary"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    echo "Total nodes checked: $total_nodes"
+    log_success "Healthy (IDLE):      $healthy_nodes"
+    if [[ $problem_nodes -gt 0 ]]; then
+        log_error "Problem nodes:       $problem_nodes"
+        echo ""
+        echo "Problem nodes require attention. Common fixes:"
+        echo "  1. Time sync: Install chrony/ntp on all nodes"
+        echo "  2. Munge key: Verify /etc/munge/munge.key matches controller"
+        echo "  3. Restart services: sudo systemctl restart munge slurmd"
+        echo "  4. Check logs: sudo journalctl -u slurmd -n 50"
+        echo ""
+        return 1
+    else
+        echo ""
+        log_success "All nodes are healthy!"
+        return 0
+    fi
+}
+
 # 요약
 print_summary() {
     echo ""
@@ -1238,9 +1391,17 @@ if controllers:
     echo ""
 
     if deploy_all_nodes "" "$gluster_server" "$gluster_volume" "$gluster_mount"; then
-        print_summary
-        log_success "All nodes deployed successfully!"
-        exit 0
+        # 배포 후 노드 상태 검증
+        if verify_deployed_nodes "$CONFIG_FILE"; then
+            print_summary
+            log_success "All nodes deployed successfully and verified healthy!"
+            exit 0
+        else
+            print_summary
+            log_warning "Deployment completed but some nodes have issues"
+            log_warning "Run ./diagnose_nodes.sh $CONFIG_FILE for detailed diagnosis"
+            exit 1
+        fi
     else
         log_error "Some nodes failed to deploy"
         exit 1
