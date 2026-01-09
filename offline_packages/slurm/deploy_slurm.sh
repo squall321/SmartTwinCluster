@@ -140,16 +140,48 @@ else
         pkill -u slurm 2>/dev/null || true
         sleep 1
 
-        # 사용자 삭제
-        userdel -r slurm 2>/dev/null || userdel slurm 2>/dev/null || true
+        # UID/GID 충돌 확인 (다른 사용자/그룹이 사용중인지)
+        if getent passwd "$TARGET_SLURM_UID" | grep -v "^slurm:" &>/dev/null; then
+            log_error "UID $TARGET_SLURM_UID is already used by another user!"
+            getent passwd "$TARGET_SLURM_UID"
+            exit 1
+        fi
+        if getent group "$TARGET_SLURM_GID" | grep -v "^slurm:" &>/dev/null; then
+            log_error "GID $TARGET_SLURM_GID is already used by another group!"
+            getent group "$TARGET_SLURM_GID"
+            exit 1
+        fi
+
+        # 사용자 삭제 (홈 디렉토리는 보존)
+        userdel slurm 2>/dev/null || true
         groupdel slurm 2>/dev/null || true
 
-        # 올바른 UID/GID로 재생성
-        groupadd -g "$TARGET_SLURM_GID" slurm 2>/dev/null || groupadd slurm 2>/dev/null || true
-        useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>/dev/null || \
-            useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true
+        # 사용자/그룹이 완전히 삭제되었는지 확인
+        if id slurm &>/dev/null; then
+            log_error "Failed to delete existing slurm user!"
+            exit 1
+        fi
 
-        log_success "User 'slurm' recreated with UID=$(id -u slurm), GID=$(id -g slurm)"
+        # 올바른 UID/GID로 재생성
+        if ! groupadd -g "$TARGET_SLURM_GID" slurm 2>/dev/null; then
+            log_error "Failed to create slurm group with GID $TARGET_SLURM_GID"
+            exit 1
+        fi
+
+        if ! useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>/dev/null; then
+            log_error "Failed to create slurm user with UID $TARGET_SLURM_UID"
+            exit 1
+        fi
+
+        # 검증: 실제로 원하는 UID/GID로 생성되었는지 확인
+        new_uid=$(id -u slurm)
+        new_gid=$(id -g slurm)
+        if [[ "$new_uid" != "$TARGET_SLURM_UID" ]] || [[ "$new_gid" != "$TARGET_SLURM_GID" ]]; then
+            log_error "User created but UID/GID mismatch! Got $new_uid/$new_gid, expected $TARGET_SLURM_UID/$TARGET_SLURM_GID"
+            exit 1
+        fi
+
+        log_success "User 'slurm' recreated with UID=$new_uid, GID=$new_gid"
     else
         log_success "UID/GID matches headnode - OK"
     fi
