@@ -169,8 +169,46 @@ echo "Summary:"
 echo "  Official templates:  $OFFICIAL_COUNT"
 echo "  Community templates: $COMMUNITY_COUNT"
 echo ""
-echo "Next steps:"
-echo "  1. Restart backend service: sudo systemctl restart dashboard_backend"
-echo "  2. Trigger template scan: curl -X POST http://localhost:5010/api/jobs/templates/scan"
-echo "  3. Verify templates: curl http://localhost:5010/api/jobs/templates"
+
+# Backend 서비스 재시작 (템플릿 새로고침)
+log_info "Restarting backend service to reload templates..."
+if systemctl is-active --quiet dashboard_backend 2>/dev/null; then
+    systemctl restart dashboard_backend
+    sleep 3
+
+    if systemctl is-active --quiet dashboard_backend; then
+        log_success "Backend service restarted successfully"
+
+        # Template 스캔 트리거 (DB 동기화)
+        log_info "Triggering template scan..."
+        SCAN_RESULT=$(curl -s -X POST http://localhost:5010/api/jobs/templates/scan 2>/dev/null || echo "")
+
+        if [[ -n "$SCAN_RESULT" ]]; then
+            log_success "Template scan completed"
+
+            # 배포된 템플릿 확인
+            log_info "Verifying deployed templates..."
+            TEMPLATE_LIST=$(curl -s http://localhost:5010/api/jobs/templates 2>/dev/null || echo "")
+
+            if [[ -n "$TEMPLATE_LIST" ]]; then
+                TEMPLATE_API_COUNT=$(echo "$TEMPLATE_LIST" | grep -o '"id"' | wc -l)
+                log_success "API reports $TEMPLATE_API_COUNT templates available"
+            else
+                log_warning "Could not verify templates via API"
+            fi
+        else
+            log_warning "Template scan may have failed (check backend logs)"
+        fi
+    else
+        log_error "Backend service failed to start"
+        echo "  Check logs: sudo journalctl -u dashboard_backend -n 50"
+    fi
+else
+    log_warning "Backend service not running - templates deployed but not loaded into API"
+    echo "  Start backend: sudo systemctl start dashboard_backend"
+    echo "  Or run start.sh if using development mode"
+fi
+
+echo ""
+log_success "Template deployment complete!"
 echo ""
