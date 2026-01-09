@@ -5,15 +5,19 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/my_cluster.yaml"
+CONFIG_FILE="$SCRIPT_DIR/my_multihead_cluster_2.yaml"
 
 # 옵션 플래그
 UPDATE_ONLY=false  # --update: 이미지만 업데이트 (Apptainer 설치 스킵)
 SKIP_APPTAINER_INSTALL=false
 
 # 인자 파싱
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --config)
+            CONFIG_FILE="$2"
+            shift 2
+            ;;
         --update)
             UPDATE_ONLY=true
             SKIP_APPTAINER_INSTALL=true
@@ -27,17 +31,30 @@ for arg in "$@"; do
             echo "사용법: $0 [옵션]"
             echo ""
             echo "옵션:"
+            echo "  --config FILE   YAML 설정 파일 지정 (기본: my_multihead_cluster_2.yaml)"
             echo "  --update        이미지만 업데이트 (Apptainer 설치 스킵)"
             echo "  --skip-install  Apptainer 설치 스킵"
             echo "  --help, -h      이 도움말 표시"
             echo ""
             echo "예시:"
-            echo "  $0              # 전체 배포 (Apptainer + 이미지)"
-            echo "  $0 --update     # 이미지만 업데이트"
+            echo "  $0                                    # 전체 배포 (기본 YAML)"
+            echo "  $0 --config my_cluster.yaml           # 다른 YAML 파일 사용"
+            echo "  $0 --update                           # 이미지만 업데이트"
             exit 0
+            ;;
+        *)
+            echo "알 수 없는 옵션: $1"
+            echo "$0 --help 로 사용법 확인"
+            exit 1
             ;;
     esac
 done
+
+# YAML 파일 확인
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file not found: $CONFIG_FILE"
+    exit 1
+fi
 
 # 색상 정의
 RED='\033[0;31m'
@@ -65,24 +82,79 @@ NODE_IMAGE_PATH="/opt/apptainers"
 # 작업 디렉토리: /scratch (쓰기 가능)
 NODE_SCRATCH_PATH="/scratch"
 
-# 노드 목록 (my_cluster.yaml에서 읽기)
+# 노드 목록 (YAML에서 자동으로 읽기)
 declare -A NODE_IPS
 declare -A NODE_TYPES
 
-# compute 노드
-NODE_IPS[node001]="192.168.122.90"
-NODE_TYPES[node001]="compute"
+echo "YAML 설정 파일에서 노드 정보 로딩: $CONFIG_FILE"
 
-NODE_IPS[node002]="192.168.122.103"
-NODE_TYPES[node002]="compute"
+# Python으로 YAML 파싱하여 노드 정보 추출
+read -r -d '' PYTHON_SCRIPT << 'EOPY'
+import yaml
+import sys
 
-# viz 노드
-NODE_IPS[viz-node001]="192.168.122.252"
-NODE_TYPES[viz-node001]="viz"
+try:
+    with open(sys.argv[1], 'r') as f:
+        config = yaml.safe_load(f)
+except Exception as e:
+    print(f"ERROR: Failed to read YAML: {e}", file=sys.stderr)
+    sys.exit(1)
 
-# SSH 사용자
-SSH_USER="koopark"
+nodes = config.get('nodes', {})
+
+# compute_nodes
+for node in nodes.get('compute_nodes', []):
+    hostname = node.get('hostname', '')
+    ip = node.get('ip_address', '')
+    if hostname and ip:
+        print(f"{hostname}|{ip}|compute")
+
+# viz_nodes
+for node in nodes.get('viz_nodes', []):
+    hostname = node.get('hostname', '')
+    ip = node.get('ip_address', '')
+    if hostname and ip:
+        print(f"{hostname}|{ip}|viz")
+EOPY
+
+# YAML에서 노드 정보 읽기
+NODE_COUNT=0
+while IFS='|' read -r hostname ip node_type; do
+    if [[ -z "$hostname" ]]; then
+        continue
+    fi
+    NODE_IPS[$hostname]="$ip"
+    NODE_TYPES[$hostname]="$node_type"
+    ((NODE_COUNT++))
+done < <(python3 -c "$PYTHON_SCRIPT" "$CONFIG_FILE")
+
+if [[ $NODE_COUNT -eq 0 ]]; then
+    echo "ERROR: No compute_nodes or viz_nodes found in YAML"
+    exit 1
+fi
+
+echo "총 $NODE_COUNT 개 노드 발견 (compute + viz)"
+
+# SSH 사용자 (YAML에서 읽기, 기본값: koopark)
+SSH_USER=$(python3 -c "
+import yaml
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+    # compute_nodes의 첫 번째 노드에서 ssh_user 읽기
+    nodes = config.get('nodes', {}).get('compute_nodes', [])
+    if nodes:
+        print(nodes[0].get('ssh_user', 'koopark'))
+    else:
+        print('koopark')
+except:
+    print('koopark')
+" 2>/dev/null || echo "koopark")
+
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+
+echo "SSH 사용자: $SSH_USER"
+echo ""
 
 # 배포 함수
 deploy_to_node() {
