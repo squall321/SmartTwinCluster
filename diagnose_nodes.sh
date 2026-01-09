@@ -284,7 +284,60 @@ EOPY
     $SSH_CMD "$NODE_USER@$NODE_IP" bash << 'EOFDIAG'
 
 echo "  ┌─────────────────────────────────────────────────────┐"
-echo "  │ 1. slurmd service status                            │"
+echo "  │ 1. Time synchronization check (CRITICAL)            │"
+echo "  └─────────────────────────────────────────────────────┘"
+
+# 현재 노드 시간
+NODE_TIME=$(date +%s)
+echo "    Node time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo "    Unix timestamp: $NODE_TIME"
+
+# Controller 시간과 비교 (slurmctld host에서 가져오기)
+if [[ -f /etc/slurm/slurm.conf ]]; then
+    SLURMCTLD=$(grep -E "^SlurmctldHost=" /etc/slurm/slurm.conf 2>/dev/null | head -1 | sed 's/SlurmctldHost=\([^(]*\).*/\1/' | tr -d ' ')
+    if [[ -n "$SLURMCTLD" ]]; then
+        # SSH로 controller 시간 가져오기 (타임아웃 2초)
+        CONTROLLER_TIME=$(timeout 2 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no "$SLURMCTLD" "date +%s" 2>/dev/null || echo "")
+        if [[ -n "$CONTROLLER_TIME" ]]; then
+            TIME_DIFF=$((NODE_TIME - CONTROLLER_TIME))
+            ABS_TIME_DIFF=${TIME_DIFF#-}  # 절대값
+            echo "    Controller time diff: ${TIME_DIFF}s"
+
+            if [[ $ABS_TIME_DIFF -gt 300 ]]; then
+                echo "    ✗ Time difference > 5 minutes!"
+                echo "      This WILL cause munge authentication failure!"
+                echo "      Fix: Install and configure NTP/chrony"
+            elif [[ $ABS_TIME_DIFF -gt 60 ]]; then
+                echo "    ⚠️  Time difference > 1 minute (${ABS_TIME_DIFF}s)"
+                echo "      May cause issues, recommend NTP sync"
+            else
+                echo "    ✓ Time is synchronized (diff: ${ABS_TIME_DIFF}s)"
+            fi
+        else
+            echo "    ⚠️  Could not get controller time"
+        fi
+    fi
+fi
+
+# NTP/chrony 상태 확인
+if systemctl is-active --quiet chronyd 2>/dev/null; then
+    echo "    ✓ chronyd is running"
+    CHRONY_STATUS=$(chronyc tracking 2>/dev/null | grep "System time" || echo "")
+    if [[ -n "$CHRONY_STATUS" ]]; then
+        echo "    $CHRONY_STATUS" | sed 's/^/    /'
+    fi
+elif systemctl is-active --quiet ntp 2>/dev/null; then
+    echo "    ✓ ntp is running"
+elif systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
+    echo "    ✓ systemd-timesyncd is running"
+else
+    echo "    ⚠️  No time sync daemon running (chronyd/ntp/timesyncd)"
+    echo "      Install: sudo apt install chrony"
+fi
+
+echo ""
+echo "  ┌─────────────────────────────────────────────────────┐"
+echo "  │ 2. slurmd service status                            │"
 echo "  └─────────────────────────────────────────────────────┘"
 
 if systemctl is-active --quiet slurmd; then
