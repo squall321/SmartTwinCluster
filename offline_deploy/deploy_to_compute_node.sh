@@ -406,9 +406,17 @@ deploy_to_node() {
             return 1
         }
 
-        # 기존 munge.key 제거 (이전 배포에서 root 소유일 수 있음)
-        log_info "[$node_hostname] Removing old munge.key if exists..."
-        $ssh_cmd "$node_user@$node_ip" 'rm -f $HOME/offline_packages/munge/munge.key 2>/dev/null || sudo rm -f $HOME/offline_packages/munge/munge.key 2>/dev/null' || true
+        # 기존 munge.key 및 디렉토리 권한 정리 (이전 배포에서 root 소유일 수 있음)
+        log_info "[$node_hostname] Cleaning old munge.key and fixing permissions..."
+        # 원격에서 run_sudo 사용 - 디렉토리 소유권을 현재 사용자로 변경 후 파일 삭제
+        $ssh_cmd "$node_user@$node_ip" "bash -s" <<EOFCLEAN
+# 디렉토리가 존재하면 소유권을 현재 사용자로 변경
+if [[ -d \$HOME/offline_packages/munge ]]; then
+    echo "$SUDO_PASS" | sudo -S chown -R \$(whoami):\$(whoami) \$HOME/offline_packages/munge 2>/dev/null || true
+fi
+# 이제 일반 사용자 권한으로 파일 삭제 가능
+rm -f \$HOME/offline_packages/munge/munge.key 2>/dev/null || true
+EOFCLEAN
 
         # sudo cat 사용 (munge.key는 400 권한이라 일반 사용자가 읽을 수 없음)
         # 원격 셸에서 $HOME이 확장되도록 작은따옴표 사용
