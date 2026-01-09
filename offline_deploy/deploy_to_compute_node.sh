@@ -317,28 +317,16 @@ deploy_to_node() {
 
     log_success "[$node_hostname] SSH connection OK"
 
-    # 원격 디렉토리 생성 (sudo 비밀번호 자동 전달)
-    if [[ -n "$SSH_PASSWORD" ]]; then
-        # base64로 인코딩하여 특수문자 문제 방지
-        local encoded_pass=$(echo -n "$SSH_PASSWORD" | base64)
-        $ssh_cmd "$node_user@$node_ip" "echo $encoded_pass | base64 -d | sudo -S mkdir -p /opt/offline_packages" 2>/dev/null || {
-            log_error "[$node_hostname] Failed to create remote directory"
-            return 1
-        }
-    else
-        $ssh_cmd "$node_user@$node_ip" "sudo mkdir -p /opt/offline_packages" || {
-            log_error "[$node_hostname] Failed to create remote directory"
-            return 1
-        }
-    fi
-
     # scp로 패키지 전송 (rsync 권한 문제 회피)
-    # 홈 디렉토리 사용 (/tmp 권한 문제 회피)
+    # 홈 디렉토리 사용 - 사용자 권한으로 접근 가능
     local REMOTE_PKG_DIR="~/offline_packages"
     log_info "[$node_hostname] Transferring packages to $REMOTE_PKG_DIR (this may take 5-10 minutes)..."
 
-    # 원격 디렉토리 생성
-    $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR" || true
+    # 원격 디렉토리 생성 (일반 사용자 권한)
+    $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR" || {
+        log_error "[$node_hostname] Failed to create remote directory $REMOTE_PKG_DIR"
+        return 1
+    }
 
     # 개별 디렉토리 전송 (munge/munge.key 권한 문제 회피)
     # offline_packages/munge/munge.key는 root만 읽기 가능하므로 scp로 복사 불가
@@ -623,6 +611,12 @@ run_sudo rm -f /etc/munge/munge.key 2>/dev/null || true
 echo "  Cleaning stale PID files..."
 run_sudo rm -f /run/slurm/slurmd.pid 2>/dev/null || true
 run_sudo rm -f /run/munge/munged.pid 2>/dev/null || true
+
+# $HOME/offline_packages 디렉토리 소유권 복원 (root가 만든 파일이 있을 수 있음)
+echo "  Restoring ownership of $PKG_DIR..."
+if [[ -d "$PKG_DIR" ]]; then
+    run_sudo chown -R $(whoami):$(whoami) "$PKG_DIR" 2>/dev/null || true
+fi
 
 echo "  ✓ Cleanup complete"
 
