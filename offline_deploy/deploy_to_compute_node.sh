@@ -397,7 +397,8 @@ deploy_to_node() {
         # 기존 munge.key 및 디렉토리 권한 정리 (이전 배포에서 root 소유일 수 있음)
         log_info "[$node_hostname] Cleaning old munge.key and fixing permissions..."
         # 원격에서 run_sudo 사용 - 디렉토리 소유권을 현재 사용자로 변경 후 파일 삭제
-        $ssh_cmd "$node_user@$node_ip" "bash -s" <<EOFCLEAN
+        # ssh_cmd_stdin 사용 (heredoc이므로 stdin 필요)
+        $ssh_cmd_stdin "$node_user@$node_ip" "bash -s" <<EOFCLEAN
 # 디렉토리가 존재하면 소유권을 현재 사용자로 변경
 if [[ -d \$HOME/offline_packages/munge ]]; then
     echo "$SUDO_PASS" | sudo -S chown -R \$(whoami):\$(whoami) \$HOME/offline_packages/munge 2>/dev/null || true
