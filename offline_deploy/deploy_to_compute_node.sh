@@ -406,6 +406,10 @@ deploy_to_node() {
             return 1
         }
 
+        # 기존 munge.key 제거 (이전 배포에서 root 소유일 수 있음)
+        log_info "[$node_hostname] Removing old munge.key if exists..."
+        $ssh_cmd "$node_user@$node_ip" 'rm -f $HOME/offline_packages/munge/munge.key 2>/dev/null || sudo rm -f $HOME/offline_packages/munge/munge.key 2>/dev/null' || true
+
         # sudo cat 사용 (munge.key는 400 권한이라 일반 사용자가 읽을 수 없음)
         # 원격 셸에서 $HOME이 확장되도록 작은따옴표 사용
         if /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" 'cat > $HOME/offline_packages/munge/munge.key'; then
