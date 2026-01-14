@@ -478,6 +478,7 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
 #SBATCH --job-name=vnc-{username}
 #SBATCH --partition=viz
 #SBATCH --nodes=1
+#SBATCH --cpus-per-task=16
 {gpu_line}
 #SBATCH --time={duration_hours}:00:00
 #SBATCH --chdir=/tmp
@@ -495,6 +496,7 @@ echo "VNC Port: {vnc_port}"
 echo "noVNC Port: {novnc_port}"
 echo "Display: :{display_num}"
 echo "Geometry: {geometry}"
+echo "CPU Cores: 16"
 echo "GPU Count: {gpu_count}"
 echo "Image: {sif_image_path}"
 echo "Node: $(hostname)"
