@@ -132,7 +132,7 @@ NOVNC_PORT_OFFSET = 1000  # noVNC 포트 = VNC 포트 + 1000
 VNC_IMAGES_DIR = "/opt/apptainers"           # 읽기 전용 이미지 저장소
 VNC_SANDBOXES_DIR = "/scratch/vnc_sandboxes" # 쓰기 가능 샌드박스
 VNC_SESSIONS_DIR = "/scratch/vnc_sessions"   # 세션 데이터
-VNC_LOG_DIR = "/scratch/vnc_logs"            # 로그 (재부팅 후에도 유지)
+VNC_LOG_DIR = "/mnt/gluster/logs"            # 로그 (GlusterFS 공유 스토리지)
 
 # Health check용 기본 SIF 이미지 경로
 SIF_IMAGE_PATH = f"{VNC_IMAGES_DIR}/vnc_desktop.sif"
@@ -479,6 +479,7 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
 #SBATCH --partition=viz
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
 {gpu_line}
 #SBATCH --time={duration_hours}:00:00
 #SBATCH --chdir=/tmp
@@ -497,6 +498,7 @@ echo "noVNC Port: {novnc_port}"
 echo "Display: :{display_num}"
 echo "Geometry: {geometry}"
 echo "CPU Cores: 16"
+echo "Memory: 128G"
 echo "GPU Count: {gpu_count}"
 echo "Image: {sif_image_path}"
 echo "Node: $(hostname)"
