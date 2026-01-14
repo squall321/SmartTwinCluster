@@ -760,7 +760,14 @@ else
         mkdir -p "$MOUNT_POINT"/{frontend_builds,slurm/{state,logs,spool},uploads,config}
         mkdir -p "$MOUNT_POINT"/{templates/{official,community,user},logs,jobs,apptainer/metadata}
 
-        log "SUCCESS" "Directory structure created"
+        # Set permissions for shared directories
+        # logs and jobs need to be writable by all users (for Slurm jobs)
+        chmod 1777 "$MOUNT_POINT/logs" 2>/dev/null || true   # sticky bit + rwx for all
+        chmod 1777 "$MOUNT_POINT/jobs" 2>/dev/null || true   # sticky bit + rwx for all
+        chmod 755 "$MOUNT_POINT/templates" 2>/dev/null || true
+        chmod 755 "$MOUNT_POINT/uploads" 2>/dev/null || true
+
+        log "SUCCESS" "Directory structure created with appropriate permissions"
     fi
 
     # Create /shared symlink for backward compatibility

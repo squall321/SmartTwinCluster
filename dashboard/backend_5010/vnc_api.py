@@ -132,7 +132,7 @@ NOVNC_PORT_OFFSET = 1000  # noVNC 포트 = VNC 포트 + 1000
 VNC_IMAGES_DIR = "/opt/apptainers"           # 읽기 전용 이미지 저장소
 VNC_SANDBOXES_DIR = "/scratch/vnc_sandboxes" # 쓰기 가능 샌드박스
 VNC_SESSIONS_DIR = "/scratch/vnc_sessions"   # 세션 데이터
-VNC_LOG_DIR = "/mnt/gluster/logs"            # 로그 (GlusterFS 공유 스토리지)
+VNC_LOG_DIR = "/shared/logs"                 # 로그 (공유 스토리지, job_logs_api ALT_LOGS_DIR과 일치)
 
 # Health check용 기본 SIF 이미지 경로
 SIF_IMAGE_PATH = f"{VNC_IMAGES_DIR}/vnc_desktop.sif"
