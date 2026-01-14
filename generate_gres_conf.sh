@@ -74,8 +74,9 @@ gres_nodes = []
 # compute_nodes 확인
 for node in nodes.get('compute_nodes', []):
     hostname = node.get('hostname', '')
-    gpus = node.get('gpus', 0)
-    gpu_type = node.get('gpu_type', 'nvidia')  # 기본값: nvidia
+    hardware = node.get('hardware', {})
+    gpus = hardware.get('gpus', 0)
+    gpu_type = hardware.get('gpu_type', 'nvidia')  # 기본값: nvidia
 
     if gpus > 0:
         gres_nodes.append({
@@ -87,8 +88,9 @@ for node in nodes.get('compute_nodes', []):
 # viz_nodes 확인
 for node in nodes.get('viz_nodes', []):
     hostname = node.get('hostname', '')
-    gpus = node.get('gpus', 0)
-    gpu_type = node.get('gpu_type', 'nvidia')  # 기본값: nvidia
+    hardware = node.get('hardware', {})
+    gpus = hardware.get('gpus', 0)
+    gpu_type = hardware.get('gpu_type', 'nvidia')  # 기본값: nvidia
 
     if gpus > 0:
         gres_nodes.append({

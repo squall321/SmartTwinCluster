@@ -2087,16 +2087,18 @@ gpu_entries = []
 # compute_nodes 확인
 for node in nodes.get('compute_nodes', []):
     hostname = node.get('hostname', '')
-    gpus = node.get('gpus', 0)
-    gpu_type = node.get('gpu_type', 'nvidia')
+    hardware = node.get('hardware', {})
+    gpus = hardware.get('gpus', 0)
+    gpu_type = hardware.get('gpu_type', 'nvidia')
     if gpus > 0:
         gpu_entries.append(f"{hostname}|{gpus}|{gpu_type}")
 
 # viz_nodes 확인
 for node in nodes.get('viz_nodes', []):
     hostname = node.get('hostname', '')
-    gpus = node.get('gpus', 0)
-    gpu_type = node.get('gpu_type', 'nvidia')
+    hardware = node.get('hardware', {})
+    gpus = hardware.get('gpus', 0)
+    gpu_type = hardware.get('gpu_type', 'nvidia')
     if gpus > 0:
         gpu_entries.append(f"{hostname}|{gpus}|{gpu_type}")
 
