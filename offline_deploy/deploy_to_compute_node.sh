@@ -383,6 +383,18 @@ deploy_to_node() {
         log_warning "[$node_hostname] Controller slurm.conf not found at $SLURM_CONF_LOCAL"
     fi
 
+    # gres.conf 전송 (GPU 노드용)
+    log_info "[$node_hostname] Transferring gres.conf from controller (if exists)..."
+    local GRES_CONF_LOCAL="/etc/slurm/gres.conf"
+    if [[ -f "$GRES_CONF_LOCAL" ]]; then
+        $scp_cmd "$GRES_CONF_LOCAL" "$node_user@$node_ip:$REMOTE_PKG_DIR/gres.conf" || {
+            log_warning "[$node_hostname] Failed to transfer gres.conf"
+        }
+        log_success "[$node_hostname] gres.conf transferred"
+    else
+        log_info "[$node_hostname] gres.conf not found on controller (OK for non-GPU clusters)"
+    fi
+
     # 컨트롤러의 munge.key 전송 (모든 노드가 동일한 키 사용 필수)
     # sudo cat으로 파이프하여 권한 문제 회피 (munge.key는 400 권한, munge 소유)
     log_info "[$node_hostname] Transferring munge.key from controller..."
@@ -703,6 +715,36 @@ if [[ -f "$SLURM_CONF_SRC" ]]; then
 else
     echo "  WARNING: slurm.conf not found in $PKG_DIR/"
     echo "  Using existing configuration (may cause PluginDir errors)"
+fi
+
+# 2.6. gres.conf 복사 (GPU 노드인 경우)
+echo ""
+echo "Step 2.6: Configuring gres.conf (GPU resources)..."
+GRES_CONF_SRC="$PKG_DIR/gres.conf"
+GRES_CONF_DEST="/etc/slurm/gres.conf"
+
+if [[ -f "$GRES_CONF_SRC" ]]; then
+    echo "  Found gres.conf from controller"
+
+    # /etc/slurm 디렉토리 생성 (이미 있을 것임)
+    run_sudo mkdir -p /etc/slurm
+
+    # 강제 덮어쓰기
+    run_sudo cp -f "$GRES_CONF_SRC" "$GRES_CONF_DEST"
+    run_sudo chown slurm:slurm "$GRES_CONF_DEST" 2>/dev/null || true
+    run_sudo chmod 644 "$GRES_CONF_DEST"
+
+    echo "  ✓ gres.conf installed to $GRES_CONF_DEST"
+
+    # 이 노드가 GPU 노드인지 확인
+    HOSTNAME=$(hostname)
+    if grep -q "^NodeName=$HOSTNAME.*Name=gpu" "$GRES_CONF_DEST" 2>/dev/null; then
+        echo "  ✓ This node ($HOSTNAME) is configured for GPU resources"
+    else
+        echo "  ℹ️  This node ($HOSTNAME) has no GPU configuration (OK for non-GPU nodes)"
+    fi
+else
+    echo "  ℹ️  gres.conf not found - no GPU resources configured"
 fi
 
 # 3. Munge 배포

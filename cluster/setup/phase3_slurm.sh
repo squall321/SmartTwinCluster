@@ -2063,6 +2063,114 @@ generate_cgroup_config() {
     log SUCCESS "cgroup.conf written to $CGROUP_CONFIG_FILE"
 }
 
+generate_gres_config() {
+    # Generate gres.conf for GPU nodes
+    log INFO "Generating gres.conf for GPU resource management..."
+
+    local GRES_CONFIG_DIR="/etc/slurm"
+    local GRES_CONFIG_FILE="${GRES_CONFIG_DIR}/gres.conf"
+
+    # YAML에서 GPU 노드 정보 추출
+    local gpu_nodes=$(python3 <<EOPY
+import yaml
+import sys
+
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+except Exception as e:
+    sys.exit(0)  # YAML 읽기 실패 시 조용히 종료
+
+nodes = config.get('nodes', {})
+gpu_entries = []
+
+# compute_nodes 확인
+for node in nodes.get('compute_nodes', []):
+    hostname = node.get('hostname', '')
+    gpus = node.get('gpus', 0)
+    gpu_type = node.get('gpu_type', 'nvidia')
+    if gpus > 0:
+        gpu_entries.append(f"{hostname}|{gpus}|{gpu_type}")
+
+# viz_nodes 확인
+for node in nodes.get('viz_nodes', []):
+    hostname = node.get('hostname', '')
+    gpus = node.get('gpus', 0)
+    gpu_type = node.get('gpu_type', 'nvidia')
+    if gpus > 0:
+        gpu_entries.append(f"{hostname}|{gpus}|{gpu_type}")
+
+for entry in gpu_entries:
+    print(entry)
+EOPY
+)
+
+    # GPU 노드가 없으면 건너뜀
+    if [[ -z "$gpu_nodes" ]]; then
+        log INFO "No GPU nodes found in YAML, skipping gres.conf generation"
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log INFO "[DRY-RUN] Would write gres.conf to: $GRES_CONFIG_FILE"
+        log INFO "[DRY-RUN] GPU nodes:"
+        while IFS='|' read -r hostname gpu_count gpu_type; do
+            log INFO "  $hostname: $gpu_count x $gpu_type"
+        done <<< "$gpu_nodes"
+        return 0
+    fi
+
+    # gres.conf 생성
+    mkdir -p "$GRES_CONFIG_DIR"
+    {
+        echo "################################################################################"
+        echo "# gres.conf - Generic Resource (GRES) Configuration for Slurm"
+        echo "#"
+        echo "# Auto-generated from: $CONFIG_FILE"
+        echo "# Generated on: $(date)"
+        echo "################################################################################"
+        echo ""
+
+        while IFS='|' read -r hostname gpu_count gpu_type; do
+            [[ -z "$hostname" ]] && continue
+
+            echo "# Node: $hostname ($gpu_count x $gpu_type GPU)"
+            for ((i=0; i<gpu_count; i++)); do
+                case "$gpu_type" in
+                    nvidia)
+                        device_file="/dev/nvidia$i"
+                        ;;
+                    amd)
+                        device_file="/dev/dri/renderD$((128+i))"
+                        ;;
+                    *)
+                        device_file="/dev/gpu$i"
+                        ;;
+                esac
+                echo "NodeName=$hostname Name=gpu Type=$gpu_type File=$device_file"
+            done
+            echo ""
+        done <<< "$gpu_nodes"
+
+        echo "################################################################################"
+        echo "# GPU Detection Commands:"
+        echo "#   NVIDIA: nvidia-smi"
+        echo "#   AMD:    rocm-smi"
+        echo "################################################################################"
+    } > "$GRES_CONFIG_FILE"
+
+    chmod 644 "$GRES_CONFIG_FILE"
+    chown slurm:slurm "$GRES_CONFIG_FILE"
+
+    log SUCCESS "gres.conf written to $GRES_CONFIG_FILE"
+
+    # GPU 노드 목록 출력
+    log INFO "GPU nodes configured:"
+    while IFS='|' read -r hostname gpu_count gpu_type; do
+        log INFO "  $hostname: $gpu_count x $gpu_type"
+    done <<< "$gpu_nodes"
+}
+
 setup_slurmdbd() {
     log INFO "Setting up SlurmDBD..."
 
@@ -3070,6 +3178,9 @@ main() {
 
         # Step 10.5: Generate cgroup.conf (if cgroup enabled)
         generate_cgroup_config
+
+        # Step 10.6: Generate gres.conf (if GPU nodes exist)
+        generate_gres_config
 
         # Step 11: Setup SlurmDBD if requested
         if [[ "$SETUP_DBD" == "true" ]]; then

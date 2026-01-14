@@ -156,6 +156,34 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLeve
 echo "SSH 사용자: $SSH_USER"
 echo ""
 
+# gres.conf 확인 (GPU 노드가 있으면 경고)
+if [[ $NODE_COUNT -gt 0 ]]; then
+    GRES_CONF_PATH="/etc/slurm/gres.conf"
+    if [[ ! -f "$GRES_CONF_PATH" ]]; then
+        # YAML에서 GPU 노드가 있는지 확인
+        GPU_NODE_COUNT=$(python3 <<EOPY
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+nodes = config.get('nodes', {})
+gpu_count = 0
+for node in nodes.get('compute_nodes', []) + nodes.get('viz_nodes', []):
+    if node.get('gpus', 0) > 0:
+        gpu_count += 1
+print(gpu_count)
+EOPY
+)
+        if [[ "$GPU_NODE_COUNT" -gt 0 ]]; then
+            echo -e "${YELLOW}WARNING:${NC} GPU nodes detected in YAML but gres.conf not found!"
+            echo -e "${YELLOW}         ${NC} Run this to generate gres.conf:"
+            echo -e "${YELLOW}         ${NC}   cd cluster/setup && sudo ./phase3_slurm.sh --config ../../$CONFIG_FILE"
+            echo -e "${YELLOW}         ${NC} Or deploy compute nodes first:"
+            echo -e "${YELLOW}         ${NC}   ./offline_deploy/deploy_to_compute_node.sh --all"
+            echo ""
+        fi
+    fi
+fi
+
 # 배포 함수
 deploy_to_node() {
     local node=$1
