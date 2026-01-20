@@ -35,6 +35,7 @@ function App() {
   const [sessions, setSessions] = useState<VNCSession[]>([])
   const [images, setImages] = useState<VNCImage[]>([])
   const [selectedImageId, setSelectedImageId] = useState<string>('xfce4')
+  const [gpuCount, setGpuCount] = useState<number>(1)  // GPU 개수 선택
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [resetDialogSession, setResetDialogSession] = useState<string | null>(null)
@@ -207,7 +208,7 @@ function App() {
           image_id: selectedImageId,
           geometry: '1920x1080',
           duration_hours: 4,
-          gpu_count: 0
+          gpu_count: gpuCount
         })
       })
 
@@ -377,6 +378,20 @@ function App() {
                   {image.icon} {image.name}
                 </option>
               ))}
+            </select>
+          </div>
+          <div className="gpu-selector">
+            <label htmlFor="gpu-select">GPU 개수:</label>
+            <select
+              id="gpu-select"
+              value={gpuCount}
+              onChange={(e) => setGpuCount(Number(e.target.value))}
+              className="gpu-select"
+            >
+              <option value={0}>0 (CPU only)</option>
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={4}>4</option>
             </select>
           </div>
           <button
