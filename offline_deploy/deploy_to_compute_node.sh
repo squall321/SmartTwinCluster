@@ -889,6 +889,38 @@ EOFAUTOFS
         echo "  WARNING: GlusterFS mount test failed (server may be down)"
         echo "  Mount will be attempted automatically when accessed"
     fi
+
+    # /shared 심볼릭 링크 생성
+    echo "  Setting up /shared symlinks..."
+    if [[ "$GLUSTER_MOUNT" != "/shared" ]]; then
+        if run_sudo test -L /shared; then
+            # Already a symlink
+            CURRENT_TARGET=\$(run_sudo readlink -f /shared 2>/dev/null || echo "")
+            if [[ "\$CURRENT_TARGET" != "$GLUSTER_MOUNT" ]]; then
+                echo "  Updating /shared symlink -> $GLUSTER_MOUNT"
+                run_sudo rm -f /shared
+                run_sudo ln -s "$GLUSTER_MOUNT" /shared
+            fi
+        elif run_sudo test -d /shared; then
+            # /shared exists as directory - create symlinks for logs and jobs
+            echo "  /shared exists as directory, creating symlinks for logs and jobs..."
+            run_sudo mkdir -p "$GLUSTER_MOUNT/logs" "$GLUSTER_MOUNT/jobs" 2>/dev/null || true
+
+            if ! run_sudo test -L /shared/logs; then
+                run_sudo ln -sf "$GLUSTER_MOUNT/logs" /shared/logs 2>/dev/null || true
+                echo "  ✓ Created /shared/logs -> $GLUSTER_MOUNT/logs"
+            fi
+
+            if ! run_sudo test -L /shared/jobs; then
+                run_sudo ln -sf "$GLUSTER_MOUNT/jobs" /shared/jobs 2>/dev/null || true
+                echo "  ✓ Created /shared/jobs -> $GLUSTER_MOUNT/jobs"
+            fi
+        else
+            # /shared doesn't exist - create symlink
+            run_sudo ln -s "$GLUSTER_MOUNT" /shared
+            echo "  ✓ Created /shared symlink -> $GLUSTER_MOUNT"
+        fi
+    fi
 else
     echo "  Skipping GlusterFS setup (no server configured)"
 fi

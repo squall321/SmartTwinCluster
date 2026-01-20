@@ -803,7 +803,28 @@ else
             fi
         elif [[ -d "/shared" ]]; then
             log "WARNING" "/shared exists as directory, not creating symlink"
-            log "WARNING" "Services expecting /shared may not work correctly"
+            log "INFO" "Creating symlinks for logs and jobs to GlusterFS..."
+
+            # Create symlinks for logs and jobs to GlusterFS
+            if [[ ! -L "/shared/logs" && -d "$MOUNT_POINT/logs" ]]; then
+                # Backup existing /shared/logs if it exists and is not a symlink
+                if [[ -d "/shared/logs" && ! -L "/shared/logs" ]]; then
+                    log "INFO" "Backing up existing /shared/logs to /shared/logs.bak"
+                    mv /shared/logs /shared/logs.bak.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+                fi
+                ln -sf "$MOUNT_POINT/logs" /shared/logs
+                log "SUCCESS" "Created /shared/logs -> $MOUNT_POINT/logs"
+            fi
+
+            if [[ ! -L "/shared/jobs" && -d "$MOUNT_POINT/jobs" ]]; then
+                # Backup existing /shared/jobs if it exists and is not a symlink
+                if [[ -d "/shared/jobs" && ! -L "/shared/jobs" ]]; then
+                    log "INFO" "Backing up existing /shared/jobs to /shared/jobs.bak"
+                    mv /shared/jobs /shared/jobs.bak.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+                fi
+                ln -sf "$MOUNT_POINT/jobs" /shared/jobs
+                log "SUCCESS" "Created /shared/jobs -> $MOUNT_POINT/jobs"
+            fi
         else
             log "INFO" "Creating /shared symlink -> $MOUNT_POINT"
             ln -s "$MOUNT_POINT" "/shared"
