@@ -701,7 +701,23 @@ else
         umount -f "$MOUNT_POINT" 2>/dev/null || true
         umount -l "$MOUNT_POINT" 2>/dev/null || true
         rm -rf "$MOUNT_POINT" || true
-        mkdir -p "$MOUNT_POINT"
+
+        # Ensure parent directory exists with correct permissions
+        local PARENT_DIR=$(dirname "$MOUNT_POINT")
+        if [[ ! -d "$PARENT_DIR" ]]; then
+            log "INFO" "Creating parent directory: $PARENT_DIR"
+            mkdir -p "$PARENT_DIR" || {
+                log "ERROR" "Failed to create parent directory: $PARENT_DIR"
+                exit 1
+            }
+        fi
+
+        # Retry mkdir
+        if ! mkdir -p "$MOUNT_POINT"; then
+            log "ERROR" "Failed to create mount point: $MOUNT_POINT"
+            log "ERROR" "Check permissions: ls -la $(dirname $MOUNT_POINT)"
+            exit 1
+        fi
     fi
 
     # Check if already mounted
