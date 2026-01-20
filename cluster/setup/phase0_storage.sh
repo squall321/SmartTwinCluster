@@ -753,9 +753,9 @@ else
         fi
     fi
 
-    # Create directory structure (only if bootstrap)
-    if [[ "$MODE" == "bootstrap" && -d "$MOUNT_POINT" ]]; then
-        log "INFO" "Creating directory structure..."
+    # Create directory structure (always create if MOUNT_POINT exists)
+    if [[ -d "$MOUNT_POINT" ]]; then
+        log "INFO" "Creating directory structure at $MOUNT_POINT..."
 
         mkdir -p "$MOUNT_POINT"/{frontend_builds,slurm/{state,logs,spool},uploads,config}
         mkdir -p "$MOUNT_POINT"/{templates/{official,community,user},logs,jobs,apptainer/metadata}
@@ -768,6 +768,8 @@ else
         chmod 755 "$MOUNT_POINT/uploads" 2>/dev/null || true
 
         log "SUCCESS" "Directory structure created with appropriate permissions"
+    elif [[ "$MODE" == "bootstrap" ]]; then
+        log "WARNING" "MOUNT_POINT $MOUNT_POINT does not exist, skipping directory creation"
     fi
 
     # Create /shared symlink for backward compatibility
