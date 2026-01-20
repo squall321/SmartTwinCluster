@@ -895,8 +895,8 @@ EOFAUTOFS
     if [[ "$GLUSTER_MOUNT" != "/shared" ]]; then
         if run_sudo test -L /shared; then
             # Already a symlink
-            CURRENT_TARGET=\$(run_sudo readlink -f /shared 2>/dev/null || echo "")
-            if [[ "\$CURRENT_TARGET" != "$GLUSTER_MOUNT" ]]; then
+            CURRENT_TARGET=$(run_sudo readlink -f /shared 2>/dev/null || echo "")
+            if [[ "$CURRENT_TARGET" != "$GLUSTER_MOUNT" ]]; then
                 echo "  Updating /shared symlink -> $GLUSTER_MOUNT"
                 run_sudo rm -f /shared
                 run_sudo ln -s "$GLUSTER_MOUNT" /shared
