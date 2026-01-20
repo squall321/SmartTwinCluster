@@ -116,12 +116,14 @@ LOG_PATHS=(
 
 FOUND_LOGS=()
 for path_pattern in "${LOG_PATHS[@]}"; do
-    for file in $path_pattern 2>/dev/null; do
+    shopt -s nullglob
+    for file in $path_pattern; do
         if [[ -f "$file" ]]; then
             FOUND_LOGS+=("$file")
             echo "  ✓ 발견: $file"
         fi
     done
+    shopt -u nullglob
 done
 echo ""
 
