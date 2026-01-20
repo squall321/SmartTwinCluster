@@ -151,6 +151,29 @@ Phase 번호 참조:
     6. 계산 노드 자동 배포:
        ./offline_deploy/deploy_to_compute_node.sh
 
+Bootstrap 모드란?
+    클러스터의 첫 번째 노드를 초기화하는 모드입니다.
+
+    자동 판단 기준:
+    - GlusterFS: 기존 볼륨이 없으면 → bootstrap (새 볼륨 생성)
+    - MariaDB Galera: 기존 클러스터 없으면 → bootstrap (gcomm://)
+    - 첫 컨트롤러는 보통 bootstrap 모드로 실행됨
+
+    Bootstrap 모드에서만 실행되는 작업:
+    - GlusterFS 볼륨 생성 (새 클러스터)
+    - MariaDB root 비밀번호 초기 설정
+    - Slurm 데이터베이스 스키마 생성
+
+    모든 모드에서 실행되는 작업:
+    - /shared/logs, /shared/jobs 디렉토리 생성 ✅
+    - Slurm 설정 파일 생성
+    - 웹 서비스 배포
+
+    단일 노드 환경:
+    - 첫 실행은 자동으로 bootstrap 모드
+    - 재실행 시 기존 서비스에 조인 시도
+    - 문제 발생 시 --reset-* 옵션 사용
+
 주의사항:
     - YAML 파일에 민감 정보가 포함되므로 권한 설정 필요:
       chmod 600 my_multihead_cluster.yaml
