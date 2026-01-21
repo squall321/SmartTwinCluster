@@ -6,16 +6,42 @@ echo "viz 노드 /shared/logs 디렉토리 생성"
 echo "=========================================="
 echo ""
 
-# YAML에서 viz 노드 목록 가져오기
-if [[ ! -f my_multihead_cluster_2.yaml ]]; then
-    echo "ERROR: my_multihead_cluster_2.yaml 파일이 없습니다"
+# 인자로 노드 지정 가능
+if [[ $# -gt 0 ]]; then
+    VIZ_NODES="$@"
+    echo "인자로 지정된 viz 노드:"
+    for node in $VIZ_NODES; do
+        echo "  - $node"
+    done
+    echo ""
+else
+    echo "YAML 파일에서 viz 노드 자동 검색..."
+    echo ""
+
+# YAML 파일 찾기
+YAML_FILE=""
+for file in my_multihead_cluster_2.yaml my_multihead_cluster.yaml cluster_config.yaml; do
+    if [[ -f "$file" ]]; then
+        YAML_FILE="$file"
+        break
+    fi
+done
+
+if [[ -z "$YAML_FILE" ]]; then
+    echo "ERROR: YAML 설정 파일을 찾을 수 없습니다"
+    echo "현재 디렉토리의 YAML 파일:"
+    ls -la *.yaml 2>/dev/null || echo "  YAML 파일 없음"
     exit 1
 fi
 
-VIZ_NODES=$(python3 << 'EOPY'
+echo "사용 중인 YAML 파일: $YAML_FILE"
+echo ""
+
+VIZ_NODES=$(python3 << EOPY
 import yaml
+import sys
 try:
-    with open('my_multihead_cluster_2.yaml', 'r') as f:
+    with open('$YAML_FILE', 'r') as f:
         config = yaml.safe_load(f)
 
     viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
@@ -26,9 +52,17 @@ except Exception as e:
 EOPY
 )
 
-if [[ -z "$VIZ_NODES" ]]; then
-    echo "ERROR: viz 노드를 찾을 수 없습니다"
-    exit 1
+    if [[ -z "$VIZ_NODES" ]]; then
+        echo "ERROR: viz 노드를 찾을 수 없습니다"
+        echo ""
+        echo "사용법:"
+        echo "  $0 <viz-node1> [viz-node2] ..."
+        echo ""
+        echo "예시:"
+        echo "  $0 viz-node001"
+        echo "  $0 viz-node001 viz-node002"
+        exit 1
+    fi
 fi
 
 echo "viz 노드 목록:"
