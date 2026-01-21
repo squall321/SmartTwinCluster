@@ -807,43 +807,58 @@ fi
 echo ""
 echo "Step 3.5: Installing apptainer..."
 
-APPTAINER_DEB="$PKG_DIR/apt_packages/apptainer_1.4.5-1~jammy_amd64.deb"
+# apptainer가 이미 설치되어 있는지 확인
+if command -v apptainer &>/dev/null; then
+    CURRENT_VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
+    echo "  ✓ apptainer already installed: $CURRENT_VERSION"
+else
+    echo "  Installing apptainer via APT (uses local offline repository)..."
 
-if [[ -f "$APPTAINER_DEB" ]]; then
-    echo "  Found: $APPTAINER_DEB"
+    # APT 로컬 저장소 설정 확인
+    REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
+    if [[ -f "$REPO_LIST" ]]; then
+        echo "  ✓ Offline APT repository found: $REPO_LIST"
 
-    # apptainer가 이미 설치되어 있는지 확인
-    if command -v apptainer &>/dev/null; then
-        CURRENT_VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
-        echo "  ✓ apptainer already installed: $CURRENT_VERSION"
-    else
-        echo "  Installing apptainer..."
-
-        # 의존성 확인 및 설치
-        if ! run_sudo dpkg -i "$APPTAINER_DEB" 2>/dev/null; then
-            echo "  Resolving dependencies..."
-            run_sudo apt-get install -f -y -qq 2>/dev/null || true
-        fi
-
-        # 설치 확인
-        if command -v apptainer &>/dev/null; then
+        # apt-get install로 설치 (의존성 및 설정 파일 자동 처리)
+        APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
+        if run_sudo apt-get "${APT_OPTS[@]}" install -y apptainer 2>/dev/null; then
             VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
-            echo "  ✓ apptainer installed: $VERSION"
+            echo "  ✓ apptainer installed via APT: $VERSION"
         else
-            echo "  ✗ ERROR: apptainer installation failed"
+            echo "  ⚠️  APT install failed, trying with all sources..."
+            if run_sudo apt-get install -y apptainer 2>/dev/null; then
+                VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
+                echo "  ✓ apptainer installed: $VERSION"
+            else
+                echo "  ✗ ERROR: apptainer installation failed"
+                echo "  Check: $PKG_DIR/apt_packages/apptainer_*.deb exists"
+            fi
+        fi
+    else
+        echo "  ⚠️  WARNING: Offline APT repository not configured"
+        echo "  Step 1 (APT packages) should have configured it"
+        echo "  Falling back to direct dpkg install..."
+
+        # Fallback: dpkg 직접 설치
+        APPTAINER_DEB="$PKG_DIR/apt_packages/apptainer_1.4.5-1~jammy_amd64.deb"
+        if [[ -f "$APPTAINER_DEB" ]]; then
+            if run_sudo dpkg -i "$APPTAINER_DEB" 2>/dev/null || run_sudo apt-get install -f -y; then
+                VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
+                echo "  ✓ apptainer installed via dpkg: $VERSION"
+            else
+                echo "  ✗ ERROR: apptainer installation failed"
+            fi
+        else
+            echo "  ✗ ERROR: apptainer package not found: $APPTAINER_DEB"
         fi
     fi
-
-    # /scratch/vnc_sandboxes 디렉토리 생성 (VNC 세션용)
-    echo "  Creating /scratch/vnc_sandboxes..."
-    run_sudo mkdir -p /scratch/vnc_sandboxes
-    run_sudo chmod 1777 /scratch/vnc_sandboxes
-    echo "  ✓ /scratch/vnc_sandboxes created"
-else
-    echo "  ⚠️  WARNING: apptainer package not found: $APPTAINER_DEB"
-    echo "  Apptainer is required for running Slurm jobs!"
-    echo "  Check: offline_packages/apt_packages/ directory"
 fi
+
+# /scratch/vnc_sandboxes 디렉토리 생성 (VNC 세션용)
+echo "  Creating /scratch/vnc_sandboxes..."
+run_sudo mkdir -p /scratch/vnc_sandboxes
+run_sudo chmod 1777 /scratch/vnc_sandboxes
+echo "  ✓ /scratch/vnc_sandboxes created"
 
 # 4. GlusterFS 클라이언트 + autofs 설정
 echo ""
