@@ -79,12 +79,26 @@ fi
 echo ""
 log_info "Step 1: Setting up local APT repository..."
 
-# 기존 온라인 저장소 백업 및 비활성화 (선택사항)
+# 기존 온라인 저장소 백업 및 비활성화 (오프라인 환경 필수)
 if [[ -f /etc/apt/sources.list ]]; then
     if [[ ! -f /etc/apt/sources.list.backup-offline ]]; then
         cp /etc/apt/sources.list /etc/apt/sources.list.backup-offline
         log_info "  Backed up /etc/apt/sources.list"
     fi
+    # 온라인 저장소 완전 비활성화 (오프라인 환경)
+    echo "# Disabled for offline installation" > /etc/apt/sources.list
+    log_info "  Disabled online repositories in /etc/apt/sources.list"
+fi
+
+# sources.list.d의 온라인 저장소도 비활성화
+if ls /etc/apt/sources.list.d/*.list &>/dev/null; then
+    for f in /etc/apt/sources.list.d/*.list; do
+        # offline-local.list는 제외
+        if [[ "$f" != "$REPO_LIST" ]]; then
+            mv "$f" "$f.disabled-offline" 2>/dev/null || true
+        fi
+    done
+    log_info "  Disabled online repositories in /etc/apt/sources.list.d/"
 fi
 
 # 로컬 저장소 추가
@@ -92,10 +106,8 @@ echo "deb [trusted=yes] file://$SCRIPT_DIR ./" > "$REPO_LIST"
 log_success "  Local repository configured: $REPO_LIST"
 
 echo ""
-log_info "Step 2: Updating APT cache..."
-apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" \
-               -o Dir::Etc::sourceparts="-" \
-               -o APT::Get::List-Cleanup="0" 2>/dev/null || apt-get update
+log_info "Step 2: Updating APT cache (local repository only)..."
+apt-get update 2>&1 | grep -v "^W:" || true
 
 log_success "  APT cache updated"
 
@@ -145,17 +157,16 @@ log_info "  Packages after filtering: ${#PACKAGES_TO_INSTALL[@]}"
 PACKAGES_TO_INSTALL=($(printf '%s\n' "${PACKAGES_TO_INSTALL[@]}" | sort -u))
 
 # apt install 실행 (의존성 자동 해결)
-# 중요: 오프라인 환경에서는 로컬 저장소만 사용하도록 설정
+# 중요: 오프라인 환경에서는 로컬 저장소만 사용 (온라인 저장소는 이미 비활성화됨)
 log_info "  Running: apt-get install -y ${#PACKAGES_TO_INSTALL[@]} packages..."
 
-# APT가 로컬 저장소만 사용하도록 설정 (오프라인 환경 대응)
-APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
-
-apt-get "${APT_OPTS[@]}" install -y --no-install-recommends "${PACKAGES_TO_INSTALL[@]}" 2>&1 || {
+# 온라인 저장소가 이미 비활성화되었으므로 일반 apt-get 사용
+apt-get install -y --no-install-recommends "${PACKAGES_TO_INSTALL[@]}" 2>&1 || {
     log_warning "Some packages may have failed. Retrying with -f flag..."
-    apt-get "${APT_OPTS[@]}" install -f -y 2>&1 || {
-        log_warning "APT failed with local-only mode, trying with all sources..."
-        apt-get install -f -y
+    apt-get install -f -y 2>&1 || {
+        log_error "APT installation failed"
+        log_info "Check if all required packages are in $SCRIPT_DIR"
+        exit 1
     }
 }
 
@@ -168,7 +179,7 @@ log_info "Step 4: Cleanup..."
 # apt-get update
 
 log_info "  Local repository kept at: $REPO_LIST"
-log_info "  To remove: sudo rm $REPO_LIST && sudo apt-get update"
+log_info "  Online repositories disabled (backed up)"
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
@@ -179,7 +190,10 @@ log_info "Installed packages summary:"
 echo "  Total installed: $(dpkg -l | grep "^ii" | wc -l)"
 echo ""
 log_info "Tips:"
-echo "  - To restore online repos: sudo mv /etc/apt/sources.list.backup-offline /etc/apt/sources.list"
+echo "  - To restore online repos:"
+echo "    sudo mv /etc/apt/sources.list.backup-offline /etc/apt/sources.list"
+echo "    sudo mv /etc/apt/sources.list.d/*.disabled-offline /etc/apt/sources.list.d/ (remove .disabled-offline)"
+echo "    sudo apt-get update"
 echo "  - To install more packages: sudo apt-get install <package-name>"
-echo "  - Repository will use local .deb files first"
+echo "  - Repository is using local .deb files only (offline mode)"
 echo ""

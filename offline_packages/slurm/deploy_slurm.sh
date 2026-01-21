@@ -35,33 +35,6 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # ============================================================================
-# Slurm 의존성 확인 (hwloc, munge 등)
-# ============================================================================
-log_info "Checking Slurm dependencies..."
-
-# libhwloc15 확인 (필수)
-if ! dpkg -l | grep -q "^ii.*libhwloc15"; then
-    log_error "libhwloc15 is not installed!"
-    log_error "Slurm requires libhwloc15 to run."
-    log_error ""
-    log_error "Please install it first:"
-    log_error "  cd ~/offline_packages/apt_packages"
-    log_error "  sudo bash install_offline_packages.sh"
-    log_error ""
-    log_error "Or manually:"
-    log_error "  sudo dpkg -i libhwloc15_*.deb libhwloc-plugins_*.deb"
-    exit 1
-fi
-log_success "  libhwloc15: installed"
-
-# munge 확인 (권장)
-if ! command -v munge &>/dev/null; then
-    log_warning "  munge: not installed (authentication will fail)"
-else
-    log_success "  munge: installed"
-fi
-
-# ============================================================================
 # apt 패키지로 설치된 Slurm 서비스 중지 (21.08.5 -> 23.11.10 전환)
 # ============================================================================
 log_info "Checking for existing apt Slurm services..."
@@ -103,135 +76,16 @@ if [[ -f /usr/bin/sinfo ]]; then
 fi
 
 # Slurm 사용자 생성
-# NOTE: 헤드노드와 동일한 UID/GID 사용 (환경변수에서 전달받음)
+# NOTE: UID 64001 사용 - 일반 시스템 계정(1000~)과 충돌 방지
 # 이미 존재하면 건너뜀 (phase3_slurm.sh에서 YAML 기반 UID로 먼저 생성됨)
 log_info "Creating slurm user..."
-
-# 환경변수에서 UID/GID 가져오기 (기본값: 64001)
-TARGET_SLURM_UID="${SLURM_UID:-64001}"
-TARGET_SLURM_GID="${SLURM_GID:-64001}"
-
 if ! id slurm &>/dev/null; then
-    log_info "  Target UID/GID: $TARGET_SLURM_UID/$TARGET_SLURM_GID (from headnode)"
-
-    # 그룹 생성
-    groupadd -g "$TARGET_SLURM_GID" slurm 2>/dev/null || groupadd slurm 2>/dev/null || true
-
-    # 사용자 생성 (지정된 UID 사용, 충돌 시 자동 할당)
-    useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>/dev/null || \
-        useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true
-
-    log_success "User 'slurm' created with UID=$(id -u slurm), GID=$(id -g slurm)"
+    # 64001 사용 (기본값), 충돌 시 자동 할당
+    groupadd -g 64001 slurm 2>/dev/null || groupadd slurm 2>/dev/null || true
+    useradd -u 64001 -g slurm -m -s /bin/bash slurm 2>/dev/null || useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true
+    log_success "User 'slurm' created"
 else
-    existing_uid=$(id -u slurm)
-    existing_gid=$(id -g slurm)
-    log_info "User 'slurm' already exists (UID=$existing_uid, GID=$existing_gid)"
-
-    # UID/GID가 헤드노드와 다르면 자동 수정
-    if [[ "$existing_uid" != "$TARGET_SLURM_UID" ]] || [[ "$existing_gid" != "$TARGET_SLURM_GID" ]]; then
-        log_warning "UID/GID mismatch with headnode (expected: $TARGET_SLURM_UID/$TARGET_SLURM_GID)!"
-        log_warning "This will cause 'security violation' errors in Slurm!"
-        log_info "Automatically recreating slurm user with correct UID/GID..."
-
-        # slurmd 중지 (실행 중일 수 있음)
-        systemctl stop slurmd 2>/dev/null || true
-
-        # 기존 프로세스 종료
-        pkill -u slurm 2>/dev/null || true
-        sleep 1
-
-        # UID/GID 충돌 확인 및 해결 (다른 사용자/그룹이 사용중이면 강제로 변경)
-        CONFLICTING_USER=$(getent passwd "$TARGET_SLURM_UID" | grep -v "^slurm:" | cut -d: -f1)
-        if [[ -n "$CONFLICTING_USER" ]]; then
-            log_warning "UID $TARGET_SLURM_UID is used by '$CONFLICTING_USER'"
-            log_info "Changing $CONFLICTING_USER to a different UID to free up $TARGET_SLURM_UID for slurm..."
-
-            # 사용 가능한 새 UID 찾기 (65000번대 사용)
-            NEW_UID=65000
-            while getent passwd "$NEW_UID" &>/dev/null; do
-                ((NEW_UID++))
-            done
-
-            log_info "  Moving $CONFLICTING_USER from UID $TARGET_SLURM_UID to $NEW_UID..."
-            usermod -u "$NEW_UID" "$CONFLICTING_USER" 2>&1 || {
-                log_error "Failed to change UID of $CONFLICTING_USER"
-                exit 1
-            }
-            log_success "  $CONFLICTING_USER UID changed: $TARGET_SLURM_UID → $NEW_UID"
-        fi
-
-        CONFLICTING_GROUP=$(getent group "$TARGET_SLURM_GID" | grep -v "^slurm:" | cut -d: -f1)
-        if [[ -n "$CONFLICTING_GROUP" ]]; then
-            log_warning "GID $TARGET_SLURM_GID is used by '$CONFLICTING_GROUP'"
-            log_info "Changing $CONFLICTING_GROUP to a different GID to free up $TARGET_SLURM_GID for slurm..."
-
-            # 사용 가능한 새 GID 찾기 (65000번대 사용)
-            NEW_GID=65000
-            while getent group "$NEW_GID" &>/dev/null; do
-                ((NEW_GID++))
-            done
-
-            log_info "  Moving $CONFLICTING_GROUP from GID $TARGET_SLURM_GID to $NEW_GID..."
-            groupmod -g "$NEW_GID" "$CONFLICTING_GROUP" 2>&1 || {
-                log_error "Failed to change GID of $CONFLICTING_GROUP"
-                exit 1
-            }
-            log_success "  $CONFLICTING_GROUP GID changed: $TARGET_SLURM_GID → $NEW_GID"
-        fi
-
-        # 사용자 삭제 (홈 디렉토리는 보존)
-        if ! userdel slurm 2>&1 | grep -v "userdel: slurm mail spool" | grep -v "^$" >&2; then
-            if id slurm &>/dev/null; then
-                log_error "Failed to delete slurm user!"
-                exit 1
-            fi
-        fi
-
-        # 그룹 삭제
-        if ! groupdel slurm 2>&1 | grep -v "^$" >&2; then
-            if getent group slurm &>/dev/null; then
-                log_error "Failed to delete slurm group!"
-                exit 1
-            fi
-        fi
-
-        # 사용자/그룹이 완전히 삭제되었는지 재확인
-        if id slurm &>/dev/null; then
-            log_error "slurm user still exists after deletion!"
-            exit 1
-        fi
-        if getent group slurm &>/dev/null; then
-            log_error "slurm group still exists after deletion!"
-            exit 1
-        fi
-
-        # 올바른 UID/GID로 재생성
-        GROUP_ADD_OUTPUT=$(groupadd -g "$TARGET_SLURM_GID" slurm 2>&1)
-        if [[ $? -ne 0 ]]; then
-            log_error "Failed to create slurm group with GID $TARGET_SLURM_GID"
-            echo "$GROUP_ADD_OUTPUT" >&2
-            exit 1
-        fi
-
-        USER_ADD_OUTPUT=$(useradd -u "$TARGET_SLURM_UID" -g slurm -m -s /bin/bash slurm 2>&1)
-        if [[ $? -ne 0 ]]; then
-            log_error "Failed to create slurm user with UID $TARGET_SLURM_UID"
-            echo "$USER_ADD_OUTPUT" >&2
-            exit 1
-        fi
-
-        # 검증: 실제로 원하는 UID/GID로 생성되었는지 확인
-        new_uid=$(id -u slurm)
-        new_gid=$(id -g slurm)
-        if [[ "$new_uid" != "$TARGET_SLURM_UID" ]] || [[ "$new_gid" != "$TARGET_SLURM_GID" ]]; then
-            log_error "User created but UID/GID mismatch! Got $new_uid/$new_gid, expected $TARGET_SLURM_UID/$TARGET_SLURM_GID"
-            exit 1
-        fi
-
-        log_success "User 'slurm' recreated with UID=$new_uid, GID=$new_gid"
-    else
-        log_success "UID/GID matches headnode - OK"
-    fi
+    log_info "User 'slurm' already exists (using existing UID: $(id -u slurm))"
 fi
 
 # 디렉토리 복사
