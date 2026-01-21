@@ -20,7 +20,7 @@ else
 
 # YAML 파일 찾기
 YAML_FILE=""
-for file in my_multihead_cluster_2.yaml my_multihead_cluster.yaml cluster_config.yaml; do
+for file in my_multihead_cluster.yaml my_multihead_cluster_2.yaml cluster_config.yaml; do
     if [[ -f "$file" ]]; then
         YAML_FILE="$file"
         break
@@ -44,7 +44,16 @@ try:
     with open('$YAML_FILE', 'r') as f:
         config = yaml.safe_load(f)
 
-    viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
+    nodes = config.get('nodes', {})
+
+    # viz_nodes 섹션 확인 (구 버전)
+    viz_nodes = nodes.get('viz_nodes', [])
+
+    # compute_nodes 안에서 node_type=viz 찾기 (신 버전)
+    if not viz_nodes:
+        compute_nodes = nodes.get('compute_nodes', [])
+        viz_nodes = [n for n in compute_nodes if n.get('node_type') == 'viz']
+
     for node in viz_nodes:
         print(node.get('hostname'))
 except Exception as e:
