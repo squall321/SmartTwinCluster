@@ -205,17 +205,19 @@ except yaml.YAMLError as e:
 
 nodes = []
 
-# compute_nodes 추출
+# compute_nodes 추출 (node_type 필드로 compute/viz 구분)
 compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
 for node in compute_nodes:
     if 'hostname' not in node or 'ip_address' not in node:
         print(f"WARNING: Skipping invalid compute node (missing hostname or ip_address): {node}", file=sys.stderr)
         continue
+    # node_type 필드로 viz 노드 구분 (기본값: compute)
+    node_type = node.get('node_type', 'compute')
     nodes.append({
         'hostname': node['hostname'],
         'ip': node['ip_address'],
         'user': node.get('ssh_user', 'koopark'),
-        'type': 'compute'
+        'type': node_type
     })
 
 # viz_nodes 추출 (slurmd도 필요)
@@ -799,6 +801,48 @@ if [[ -f "$PKG_DIR/munge/deploy_munge.sh" ]]; then
     fi
 else
     echo "WARNING: Munge package not found"
+fi
+
+# 3.5. apptainer 설치 (모든 compute/viz 노드 필수 - 모든 Slurm job을 apptainer로 실행)
+echo ""
+echo "Step 3.5: Installing apptainer..."
+
+APPTAINER_DEB="$PKG_DIR/apt_packages/apptainer_1.4.5-1~jammy_amd64.deb"
+
+if [[ -f "$APPTAINER_DEB" ]]; then
+    echo "  Found: $APPTAINER_DEB"
+
+    # apptainer가 이미 설치되어 있는지 확인
+    if command -v apptainer &>/dev/null; then
+        CURRENT_VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
+        echo "  ✓ apptainer already installed: $CURRENT_VERSION"
+    else
+        echo "  Installing apptainer..."
+
+        # 의존성 확인 및 설치
+        if ! run_sudo dpkg -i "$APPTAINER_DEB" 2>/dev/null; then
+            echo "  Resolving dependencies..."
+            run_sudo apt-get install -f -y -qq 2>/dev/null || true
+        fi
+
+        # 설치 확인
+        if command -v apptainer &>/dev/null; then
+            VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
+            echo "  ✓ apptainer installed: $VERSION"
+        else
+            echo "  ✗ ERROR: apptainer installation failed"
+        fi
+    fi
+
+    # /scratch/vnc_sandboxes 디렉토리 생성 (VNC 세션용)
+    echo "  Creating /scratch/vnc_sandboxes..."
+    run_sudo mkdir -p /scratch/vnc_sandboxes
+    run_sudo chmod 1777 /scratch/vnc_sandboxes
+    echo "  ✓ /scratch/vnc_sandboxes created"
+else
+    echo "  ⚠️  WARNING: apptainer package not found: $APPTAINER_DEB"
+    echo "  Apptainer is required for running Slurm jobs!"
+    echo "  Check: offline_packages/apt_packages/ directory"
 fi
 
 # 4. GlusterFS 클라이언트 + autofs 설정
@@ -1480,6 +1524,7 @@ print_summary() {
     echo "  ✓ APT 패키지 (오프라인)"
     echo "  ✓ Slurm (slurmd)"
     echo "  ✓ Munge 인증"
+    echo "  ✓ apptainer (컨테이너 런타임)"
     echo "  ✓ GlusterFS 클라이언트 + autofs"
     echo ""
     log_info "Next Steps:"
