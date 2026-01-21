@@ -1138,7 +1138,7 @@ except Exception as e:
     print(f"ERROR: Failed to read config: {e}", file=sys.stderr)
     sys.exit(1)
 
-# compute_nodes
+# compute_nodes (compute + viz 모두 포함)
 compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
 for node in compute_nodes:
     hostname = node.get('hostname', '')
@@ -1147,7 +1147,7 @@ for node in compute_nodes:
     if hostname and ip:
         print(f"{hostname}|{ip}|{user}")
 
-# viz_nodes (slurmd 필요)
+# viz_nodes (별도 섹션 - 구버전 YAML 지원)
 viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
 for node in viz_nodes:
     hostname = node.get('hostname', '')
