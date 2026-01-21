@@ -890,9 +890,31 @@ EOFAUTOFS
         echo "  Mount will be attempted automatically when accessed"
     fi
 
-    # /shared 심볼릭 링크 생성
+    # /shared 심볼릭 링크 및 로그 디렉토리 생성
     echo "  Setting up /shared symlinks..."
+
+    # autofs를 사용하는 경우 마운트 트리거
     if [[ "$GLUSTER_MOUNT" != "/shared" ]]; then
+        echo "  Triggering autofs mount by accessing $GLUSTER_MOUNT..."
+        run_sudo ls "$GLUSTER_MOUNT" >/dev/null 2>&1 || true
+        sleep 2
+
+        # 마운트 확인
+        if run_sudo test -d "$GLUSTER_MOUNT"; then
+            echo "  ✓ $GLUSTER_MOUNT is accessible"
+
+            # logs와 jobs 디렉토리 생성 (GlusterFS에)
+            run_sudo mkdir -p "$GLUSTER_MOUNT/logs" "$GLUSTER_MOUNT/jobs" 2>/dev/null || true
+            run_sudo chmod 1777 "$GLUSTER_MOUNT/logs" 2>/dev/null || true
+            run_sudo chmod 1777 "$GLUSTER_MOUNT/jobs" 2>/dev/null || true
+            echo "  ✓ Created logs and jobs directories in GlusterFS"
+        else
+            echo "  ⚠ Warning: $GLUSTER_MOUNT not accessible, creating local directories"
+            run_sudo mkdir -p /shared/logs /shared/jobs 2>/dev/null || true
+            run_sudo chmod 1777 /shared/logs /shared/jobs 2>/dev/null || true
+        fi
+
+        # /shared 처리
         if run_sudo test -L /shared; then
             # Already a symlink
             CURRENT_TARGET=$(run_sudo readlink -f /shared 2>/dev/null || echo "")
@@ -904,15 +926,20 @@ EOFAUTOFS
         elif run_sudo test -d /shared; then
             # /shared exists as directory - create symlinks for logs and jobs
             echo "  /shared exists as directory, creating symlinks for logs and jobs..."
-            run_sudo mkdir -p "$GLUSTER_MOUNT/logs" "$GLUSTER_MOUNT/jobs" 2>/dev/null || true
 
             if ! run_sudo test -L /shared/logs; then
-                run_sudo ln -sf "$GLUSTER_MOUNT/logs" /shared/logs 2>/dev/null || true
+                if run_sudo test -d /shared/logs && ! run_sudo test -L /shared/logs; then
+                    run_sudo mv /shared/logs "/shared/logs.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+                fi
+                run_sudo ln -sf "$GLUSTER_MOUNT/logs" /shared/logs
                 echo "  ✓ Created /shared/logs -> $GLUSTER_MOUNT/logs"
             fi
 
             if ! run_sudo test -L /shared/jobs; then
-                run_sudo ln -sf "$GLUSTER_MOUNT/jobs" /shared/jobs 2>/dev/null || true
+                if run_sudo test -d /shared/jobs && ! run_sudo test -L /shared/jobs; then
+                    run_sudo mv /shared/jobs "/shared/jobs.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+                fi
+                run_sudo ln -sf "$GLUSTER_MOUNT/jobs" /shared/jobs
                 echo "  ✓ Created /shared/jobs -> $GLUSTER_MOUNT/jobs"
             fi
         else
@@ -920,6 +947,11 @@ EOFAUTOFS
             run_sudo ln -s "$GLUSTER_MOUNT" /shared
             echo "  ✓ Created /shared symlink -> $GLUSTER_MOUNT"
         fi
+    else
+        # GLUSTER_MOUNT == /shared인 경우 - 직접 디렉토리 생성
+        run_sudo mkdir -p /shared/logs /shared/jobs 2>/dev/null || true
+        run_sudo chmod 1777 /shared/logs /shared/jobs 2>/dev/null || true
+        echo "  ✓ Created /shared/logs and /shared/jobs directories"
     fi
 else
     echo "  Skipping GlusterFS setup (no server configured)"
