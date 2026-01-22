@@ -36,6 +36,7 @@ interface CreateSessionRequest {
   image_id: string;
   geometry: string;
   duration_hours: number;
+  gpu_count?: number;
 }
 
 export const VNCSessionManager: React.FC = () => {
@@ -49,6 +50,7 @@ export const VNCSessionManager: React.FC = () => {
   const [selectedImageId, setSelectedImageId] = useState('xfce4');
   const [geometry, setGeometry] = useState('1920x1080');
   const [durationHours, setDurationHours] = useState(2);
+  const [gpuCount, setGpuCount] = useState(0);
 
   // JWT token from localStorage
   const getToken = () => localStorage.getItem('jwt_token');
@@ -126,6 +128,7 @@ export const VNCSessionManager: React.FC = () => {
         image_id: selectedImageId,
         geometry,
         duration_hours: durationHours,
+        gpu_count: gpuCount,
       };
 
       const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/vnc/sessions`, {
@@ -390,9 +393,24 @@ export const VNCSessionManager: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  GPU Count
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="8"
+                  value={gpuCount}
+                  onChange={(e) => setGpuCount(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <p className="text-xs text-gray-500 mt-1">Number of GPUs to request (0 for CPU-only)</p>
+              </div>
+
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-800">
-                  A new Slurm job will be submitted with GPU access for your VNC desktop session.
+                  A new Slurm job will be submitted {gpuCount > 0 ? `with ${gpuCount} GPU${gpuCount > 1 ? 's' : ''}` : 'without GPU'} for your VNC desktop session.
                 </p>
               </div>
             </div>
