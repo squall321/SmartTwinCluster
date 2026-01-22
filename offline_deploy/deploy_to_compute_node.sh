@@ -574,7 +574,13 @@ EOFHOSTS2
     fi
 
     # heredoc을 사용하므로 stdin이 필요한 ssh_cmd_stdin 사용
-    $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" "$HEADNODE_SLURM_UID" "$HEADNODE_SLURM_GID" << 'EOFREMOTE'
+    log_info "[$node_hostname] Starting remote deployment script via SSH heredoc..."
+    log_info "[$node_hostname] SSH command: $ssh_cmd_stdin $node_user@$node_ip bash -s [args...]"
+
+    # 에러 캡처를 위한 임시 파일
+    local ssh_error_log="/tmp/deploy_ssh_error_${node_hostname}_$$.log"
+
+    if ! $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" "$HEADNODE_SLURM_UID" "$HEADNODE_SLURM_GID" 2>"$ssh_error_log" << 'EOFREMOTE'
 set -e
 
 GLUSTER_SERVER="$1"
@@ -1175,12 +1181,31 @@ echo "════════════════════════�
 # slurmd 실패 시 비정상 종료 코드 반환
 exit $DEPLOY_STATUS
 EOFREMOTE
-
-    if [[ $? -eq 0 ]]; then
+    then
         log_success "[$node_hostname] Deployment complete!"
+        rm -f "$ssh_error_log"
         return 0
     else
-        log_error "[$node_hostname] Deployment failed"
+        log_error "[$node_hostname] Deployment failed - SSH heredoc execution error"
+        log_error "[$node_hostname] Exit code: $?"
+
+        # 에러 로그 출력
+        if [[ -f "$ssh_error_log" ]] && [[ -s "$ssh_error_log" ]]; then
+            log_error "[$node_hostname] SSH Error output:"
+            echo "========================================" >&2
+            cat "$ssh_error_log" >&2
+            echo "========================================" >&2
+        else
+            log_error "[$node_hostname] No SSH error output captured"
+        fi
+
+        # 에러 로그를 영구 저장
+        if [[ -f "$ssh_error_log" ]]; then
+            local permanent_log="/tmp/deploy_error_${node_hostname}_$(date +%Y%m%d_%H%M%S).log"
+            mv "$ssh_error_log" "$permanent_log"
+            log_error "[$node_hostname] Error log saved to: $permanent_log"
+        fi
+
         return 1
     fi
 }
