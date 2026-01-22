@@ -659,20 +659,61 @@ fi
 
 echo "  ✓ Cleanup complete"
 
+# 현재 노드가 controller인지 확인
+IS_CONTROLLER=false
+HOSTNAME=$(hostname)
+if systemctl is-active --quiet slurmctld 2>/dev/null || \
+   systemctl is-enabled --quiet slurmctld 2>/dev/null || \
+   [[ -f /etc/systemd/system/slurmctld.service ]] || \
+   pgrep -x slurmctld >/dev/null 2>&1; then
+    IS_CONTROLLER=true
+    echo ""
+    echo "  ℹ️  Detected: This node ($HOSTNAME) is a controller"
+    echo "  ℹ️  Controller+compute/viz mode: installing only missing packages"
+fi
+
 # 1. APT 패키지 설치
 if [[ -f "$PKG_DIR/apt_packages/install_offline_packages.sh" ]]; then
     echo ""
-    echo "Step 1: Installing APT packages..."
-    cd "$PKG_DIR/apt_packages"
-    run_sudo bash install_offline_packages.sh
+    if [[ "$IS_CONTROLLER" == "true" ]]; then
+        echo "Step 1: Installing missing packages (controller already has most)..."
+
+        # apptainer만 체크해서 설치
+        if ! command -v apptainer &>/dev/null; then
+            echo "  Installing apptainer for job execution..."
+            run_sudo apt-get update >/dev/null 2>&1
+            run_sudo apt-get install -y apptainer 2>&1 | grep -E "Setting up|installed|apptainer" || true
+            if command -v apptainer &>/dev/null; then
+                echo "  ✓ apptainer installed: $(apptainer --version)"
+            else
+                echo "  ⚠️  apptainer installation failed - trying offline packages"
+                cd "$PKG_DIR/apt_packages"
+                run_sudo bash install_offline_packages.sh
+            fi
+        else
+            echo "  ✓ apptainer already installed: $(apptainer --version)"
+        fi
+    else
+        echo "Step 1: Installing APT packages..."
+        cd "$PKG_DIR/apt_packages"
+        run_sudo bash install_offline_packages.sh
+    fi
 else
     echo "WARNING: APT packages not found"
 fi
 
-# 2. Slurm 배포
+# 2. Slurm 배포 (controller는 이미 설치되어 있으므로 스킵)
+if [[ "$IS_CONTROLLER" == "true" ]]; then
+    echo ""
+    echo "Step 2: Skipping Slurm deployment (already installed as controller)..."
+    echo "  ✓ Slurm version: $(sinfo --version 2>/dev/null || echo 'installed')"
+    # Skip to Step 2.5
+fi
+
+# 2. Slurm 배포 (compute 노드만)
 # Note: [[ -f glob ]]는 glob 확장하지 않으므로 ls 사용
 SLURM_PKG=$(ls "$PKG_DIR/slurm"/slurm-*-prebuilt.tar.gz 2>/dev/null | head -1 || true)
-if [[ -n "$SLURM_PKG" && -f "$SLURM_PKG" ]]; then
+if [[ "$IS_CONTROLLER" == "false" ]] && [[ -n "$SLURM_PKG" && -f "$SLURM_PKG" ]]; then
     echo ""
     echo "Step 2: Deploying Slurm..."
     echo "  Found: $SLURM_PKG"
