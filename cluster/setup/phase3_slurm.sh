@@ -1189,12 +1189,72 @@ EOFPATH
     fix_systemd_service_files
 
     # Disable slurmd on controller nodes (only run slurmctld)
+    # UNLESS this controller is also a compute/viz node
     if [[ "$SETUP_CONTROLLER" == "true" ]] && [[ "$SETUP_COMPUTE" == "false" ]]; then
-        log INFO "Controller node: disabling slurmd service"
-        systemctl stop slurmd 2>/dev/null || true
-        systemctl disable slurmd 2>/dev/null || true
-        systemctl mask slurmd 2>/dev/null || true
-        log SUCCESS "slurmd disabled on controller"
+        # Check if this controller is also in compute_nodes (for GPU/viz usage)
+        local hostname=$(hostname)
+        local is_also_compute=false
+
+        if [[ -f "$CONFIG_FILE" ]]; then
+            is_also_compute=$(python3 << EOPY
+import yaml
+import sys
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+    hostname = '$hostname'
+    compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
+    for node in compute_nodes:
+        if node.get('hostname') == hostname:
+            print('true')
+            sys.exit(0)
+    print('false')
+except:
+    print('false')
+EOPY
+)
+        fi
+
+        if [[ "$is_also_compute" == "true" ]]; then
+            log INFO "Controller node also used as compute/viz - keeping slurmd enabled"
+            log INFO "Installing compute node requirements (apptainer, etc.)..."
+
+            # Install apptainer if not present
+            if ! command -v apptainer &>/dev/null; then
+                log INFO "Installing apptainer for job execution..."
+                apt-get update >/dev/null 2>&1
+                apt-get install -y apptainer 2>&1 | grep -v "^W:" || {
+                    log WARNING "apptainer installation failed - may need manual installation"
+                }
+                if command -v apptainer &>/dev/null; then
+                    log SUCCESS "apptainer installed: $(apptainer --version)"
+                fi
+            else
+                log SUCCESS "apptainer already installed: $(apptainer --version)"
+            fi
+
+            # Create /scratch/vnc_sandboxes for VNC jobs
+            mkdir -p /scratch/vnc_sandboxes
+            chmod 1777 /scratch/vnc_sandboxes
+            log SUCCESS "/scratch/vnc_sandboxes created"
+
+            # Ensure slurmd is enabled and started
+            systemctl unmask slurmd 2>/dev/null || true
+            systemctl enable slurmd 2>/dev/null || true
+            systemctl restart slurmd 2>/dev/null || true
+
+            if systemctl is-active --quiet slurmd; then
+                log SUCCESS "slurmd enabled and running on controller+compute node"
+            else
+                log WARNING "slurmd failed to start - check systemctl status slurmd"
+            fi
+        else
+            log INFO "Controller-only node: disabling slurmd service"
+            systemctl stop slurmd 2>/dev/null || true
+            systemctl disable slurmd 2>/dev/null || true
+            systemctl mask slurmd 2>/dev/null || true
+            log SUCCESS "slurmd disabled on controller"
+        fi
     fi
 
     # Disable slurmctld on compute-only nodes
