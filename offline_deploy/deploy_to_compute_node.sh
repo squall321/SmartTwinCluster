@@ -1207,14 +1207,18 @@ except Exception as e:
     print(f"ERROR: Failed to read config: {e}", file=sys.stderr)
     sys.exit(1)
 
+# 중복 제거를 위한 set (hostname 기준)
+seen_hostnames = set()
+
 # compute_nodes (compute + viz 모두 포함)
 compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
 for node in compute_nodes:
     hostname = node.get('hostname', '')
     ip = node.get('ip_address', '')
     user = node.get('ssh_user', 'koopark')
-    if hostname and ip:
+    if hostname and ip and hostname not in seen_hostnames:
         print(f"{hostname}|{ip}|{user}")
+        seen_hostnames.add(hostname)
 
 # viz_nodes (별도 섹션 - 구버전 YAML 지원)
 viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
@@ -1222,8 +1226,9 @@ for node in viz_nodes:
     hostname = node.get('hostname', '')
     ip = node.get('ip_address', '')
     user = node.get('ssh_user', 'koopark')
-    if hostname and ip:
+    if hostname and ip and hostname not in seen_hostnames:
         print(f"{hostname}|{ip}|{user}")
+        seen_hostnames.add(hostname)
 EOPY
 
     if [[ $? -ne 0 ]] || [[ ! -s "$nodes_list_file" ]]; then
