@@ -325,11 +325,20 @@ deploy_to_node() {
     log_info "[$node_hostname] Transferring packages to $REMOTE_PKG_DIR (this may take 5-10 minutes)..."
 
     # 기존 디렉토리 삭제 후 재생성 (완전히 새로운 패키지로 배포)
-    $ssh_cmd "$node_user@$node_ip" "rm -rf $REMOTE_PKG_DIR && mkdir -p $REMOTE_PKG_DIR" || {
-        log_error "[$node_hostname] Failed to recreate remote directory $REMOTE_PKG_DIR"
-        return 1
-    }
-    log_info "[$node_hostname] Cleaned previous packages (fresh deployment)"
+    log_info "[$node_hostname] Removing old packages directory: $REMOTE_PKG_DIR"
+
+    # 권한 문제 대비: 먼저 소유권 복원 시도 (root 소유 파일 방지)
+    $ssh_cmd "$node_user@$node_ip" "if [[ -d $REMOTE_PKG_DIR ]]; then sudo chown -R \$(whoami):\$(whoami) $REMOTE_PKG_DIR 2>/dev/null || true; fi"
+
+    # 삭제 후 재생성
+    if ! $ssh_cmd "$node_user@$node_ip" "rm -rf $REMOTE_PKG_DIR && mkdir -p $REMOTE_PKG_DIR"; then
+        log_warning "[$node_hostname] Failed to remove with user permission, trying sudo..."
+        $ssh_cmd "$node_user@$node_ip" "sudo rm -rf $REMOTE_PKG_DIR && mkdir -p $REMOTE_PKG_DIR" || {
+            log_error "[$node_hostname] Failed to recreate remote directory $REMOTE_PKG_DIR"
+            return 1
+        }
+    fi
+    log_success "[$node_hostname] Old packages removed - starting fresh deployment"
 
     # 개별 디렉토리 전송 (munge/munge.key 권한 문제 회피)
     # offline_packages/munge/munge.key는 root만 읽기 가능하므로 scp로 복사 불가
