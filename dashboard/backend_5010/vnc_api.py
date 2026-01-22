@@ -744,11 +744,16 @@ def get_user_vnc_sessions(username):
     if REDIS_AVAILABLE and vnc_session_manager:
         # Get all sessions and filter by username or web_user
         all_sessions = vnc_session_manager.list_sessions()
+        print(f"🔍 [GET_SESSIONS] Total sessions in Redis: {len(all_sessions)}")
+        for s in all_sessions:
+            print(f"🔍 [GET_SESSIONS] Session: {s.get('session_id')}, username={s.get('username')}, web_user={s.get('web_user')}")
         sessions = [s for s in all_sessions
                     if s.get('username') == username or s.get('web_user') == username]
+        print(f"🔍 [GET_SESSIONS] Filtered sessions for '{username}': {len(sessions)}")
     else:
         sessions = [s for s in vnc_sessions_memory.values()
                     if s.get('username') == username or s.get('web_user') == username]
+        print(f"🔍 [GET_SESSIONS] Using memory, filtered sessions for '{username}': {len(sessions)}")
 
     return sessions
 
@@ -805,6 +810,9 @@ def create_vnc_session():
     # 웹 로그인 사용자(admin 등)가 아닌 실제 시스템 사용자 사용
     system_user = get_default_system_user()
     web_user = user['username']  # 웹 로그인 사용자 (감사 추적용)
+
+    print(f"🔍 [VNC CREATE] JWT user: {user}")
+    print(f"🔍 [VNC CREATE] web_user: {web_user}, system_user: {system_user}")
 
     # 이미지 유효성 검사
     if image_id not in VNC_IMAGES:
@@ -895,6 +903,9 @@ def list_vnc_sessions():
     """
 
     user = g.user
+
+    print(f"🔍 [VNC LIST] JWT user: {user}")
+    print(f"🔍 [VNC LIST] Searching sessions for username: {user['username']}")
 
     # 사용자의 세션 조회
     sessions = get_user_vnc_sessions(user['username'])
