@@ -581,7 +581,7 @@ EOFHOSTS2
     local ssh_error_log="/tmp/deploy_ssh_error_${node_hostname}_$$.log"
 
     if ! $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" "$HEADNODE_SLURM_UID" "$HEADNODE_SLURM_GID" 2>"$ssh_error_log" << 'EOFREMOTE'
-set -e
+# set -e는 Step 0 이후에 활성화 (초기화 작업은 실패해도 계속 진행)
 
 GLUSTER_SERVER="$1"
 GLUSTER_VOLUME="$2"
@@ -593,10 +593,14 @@ SLURM_GID="$6"
 # 패키지 디렉토리 (홈 디렉토리 사용)
 PKG_DIR="$HOME/offline_packages"
 
-# base64 디코딩하여 실제 비밀번호 복원
+# base64 디코딩하여 실제 비밀번호 복원 (실패해도 계속 진행)
 SUDO_PASS=""
 if [[ -n "$SUDO_PASS_B64" ]]; then
-    SUDO_PASS=$(echo "$SUDO_PASS_B64" | base64 -d)
+    SUDO_PASS=$(echo "$SUDO_PASS_B64" | base64 -d 2>/dev/null) || {
+        echo "ERROR: Failed to decode password (base64 invalid input)"
+        echo "This may indicate SSH_PASSWORD is not properly set"
+        exit 1
+    }
 fi
 
 # sudo 래퍼 함수 (비밀번호 자동 전달)
@@ -681,6 +685,9 @@ if [[ -d "$PKG_DIR" ]]; then
 fi
 
 echo "  ✓ Cleanup complete"
+
+# Step 0 완료 - 이제부터 set -e 활성화 (에러 발생 시 즉시 종료)
+set -e
 
 # 현재 노드가 controller인지 확인
 IS_CONTROLLER=false
