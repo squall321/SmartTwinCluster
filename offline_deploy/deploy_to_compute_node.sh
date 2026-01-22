@@ -580,7 +580,8 @@ EOFHOSTS2
     # 에러 캡처를 위한 임시 파일
     local ssh_error_log="/tmp/deploy_ssh_error_${node_hostname}_$$.log"
 
-    if ! $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" "$HEADNODE_SLURM_UID" "$HEADNODE_SLURM_GID" 2>"$ssh_error_log" << 'EOFREMOTE'
+    # SSH heredoc 실행 (exit code 저장)
+    $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" "$HEADNODE_SLURM_UID" "$HEADNODE_SLURM_GID" 2>"$ssh_error_log" << 'EOFREMOTE'
 # set -e는 Step 0 이후에 활성화 (초기화 작업은 실패해도 계속 진행)
 
 GLUSTER_SERVER="$1"
@@ -1252,13 +1253,28 @@ echo "════════════════════════�
 # slurmd 실패 시 비정상 종료 코드 반환
 exit $DEPLOY_STATUS
 EOFREMOTE
-    then
+
+    # SSH 실행 결과 저장
+    local ssh_exit_code=$?
+
+    # Exit code 기반 성공/실패 판단 (stderr 내용은 무시)
+    if [[ $ssh_exit_code -eq 0 ]]; then
         log_success "[$node_hostname] Deployment complete!"
+
+        # stderr에 systemd 정보성 메시지가 있을 수 있으므로 경고만 표시
+        if [[ -f "$ssh_error_log" ]] && [[ -s "$ssh_error_log" ]]; then
+            # systemd-sysv-install 같은 정보성 메시지는 무시
+            if ! grep -q "systemd-sysv-install\|Synchronizing state" "$ssh_error_log"; then
+                log_warning "[$node_hostname] Deployment succeeded but had warnings:"
+                cat "$ssh_error_log" | head -20
+            fi
+        fi
+
         rm -f "$ssh_error_log"
         return 0
     else
         log_error "[$node_hostname] Deployment failed - SSH heredoc execution error"
-        log_error "[$node_hostname] Exit code: $?"
+        log_error "[$node_hostname] Exit code: $ssh_exit_code"
 
         # 에러 로그 출력
         if [[ -f "$ssh_error_log" ]] && [[ -s "$ssh_error_log" ]]; then
