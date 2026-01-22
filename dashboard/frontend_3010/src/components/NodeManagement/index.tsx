@@ -171,6 +171,58 @@ const NodeManagement: React.FC = () => {
     }
   };
 
+  // Resume All 실행 (idle이 아닌 모든 노드)
+  const resumeAllNonIdleNodes = async () => {
+    // idle이 아닌 노드 필터링 (drain, down, inval 상태 등)
+    const nonIdleNodes = nodes.filter(node => {
+      const lowerState = node.state.toLowerCase();
+      return lowerState.includes('drain') ||
+             lowerState.includes('down') ||
+             lowerState.includes('inval');
+    });
+
+    if (nonIdleNodes.length === 0) {
+      alert('No nodes to resume. All nodes are in normal state.');
+      return;
+    }
+
+    const nodeNames = nonIdleNodes.map(n => n.name).join(', ');
+    if (!confirm(`Resume ${nonIdleNodes.length} node(s)?\n\n${nodeNames}`)) {
+      return;
+    }
+
+    setActionLoading('resume-all');
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const node of nonIdleNodes) {
+      try {
+        const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/nodes/resume`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ node_name: node.name, reason: 'Bulk resume' })
+        });
+
+        const data: ActionResponse = await response.json();
+        if (data.success) {
+          successCount++;
+        } else {
+          failCount++;
+          console.error(`Failed to resume ${node.name}:`, data.message);
+        }
+      } catch (err) {
+        failCount++;
+        console.error(`Error resuming ${node.name}:`, err);
+      }
+    }
+
+    alert(`Resume All completed!\n\nSuccess: ${successCount}\nFailed: ${failCount}`);
+    await fetchNodes(); // 목록 새로고침
+    setActionLoading(null);
+  };
+
   // 초기 로드 및 자동 새로고침
   useEffect(() => {
     console.log('[NodeManagement] Component mounted, fetching nodes...');
@@ -250,8 +302,8 @@ const NodeManagement: React.FC = () => {
           {/* Mode Badge */}
           {mode !== null && (
             <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-              mode === 'mock' 
-                ? 'bg-yellow-100 text-yellow-800' 
+              mode === 'mock'
+                ? 'bg-yellow-100 text-yellow-800'
                 : 'bg-green-100 text-green-800'
             }`}>
               {mode === 'mock' ? '🎭 MOCK MODE' : '🚀 PRODUCTION'}
@@ -262,6 +314,20 @@ const NodeManagement: React.FC = () => {
               ⏳ Loading...
             </span>
           )}
+
+          {/* Resume All Button */}
+          <button
+            onClick={resumeAllNonIdleNodes}
+            disabled={actionLoading === 'resume-all' || nodes.filter(n => {
+              const lowerState = n.state.toLowerCase();
+              return lowerState.includes('drain') || lowerState.includes('down') || lowerState.includes('inval');
+            }).length === 0}
+            className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Resume all non-idle nodes (drain/down/invalid)"
+          >
+            <PlayCircle className={`w-4 h-4 inline mr-1 ${actionLoading === 'resume-all' ? 'animate-spin' : ''}`} />
+            Resume All
+          </button>
 
           {/* Auto Refresh Toggle */}
           <button
