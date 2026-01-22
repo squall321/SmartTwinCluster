@@ -625,7 +625,30 @@ run_sudo systemctl disable slurmd 2>/dev/null || true
 
 # 기존 slurmd.service 파일 삭제 (잘못된 경로 설정 방지)
 echo "  Removing old slurmd.service..."
-run_sudo rm -f /etc/systemd/system/slurmd.service 2>/dev/null || true
+
+# 여러 방법으로 삭제 시도 (권한 문제 대비)
+if [[ -f /etc/systemd/system/slurmd.service ]]; then
+    echo "  Found existing slurmd.service, removing..."
+    run_sudo rm -f /etc/systemd/system/slurmd.service 2>/dev/null || \
+    sudo rm -f /etc/systemd/system/slurmd.service 2>/dev/null || \
+    rm -f /etc/systemd/system/slurmd.service 2>/dev/null || true
+
+    # 삭제 확인
+    if [[ -f /etc/systemd/system/slurmd.service ]]; then
+        echo "  ⚠️  WARNING: Failed to remove slurmd.service, forcing removal..."
+        sudo chmod 666 /etc/systemd/system/slurmd.service 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/slurmd.service 2>/dev/null || true
+    fi
+
+    if [[ ! -f /etc/systemd/system/slurmd.service ]]; then
+        echo "  ✓ Old slurmd.service removed successfully"
+    else
+        echo "  ✗ ERROR: Could not remove slurmd.service!"
+    fi
+else
+    echo "  No old slurmd.service found"
+fi
+
 run_sudo rm -f /lib/systemd/system/slurmd.service 2>/dev/null || true
 run_sudo systemctl daemon-reload 2>/dev/null || true
 
