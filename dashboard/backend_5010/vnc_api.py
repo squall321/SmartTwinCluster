@@ -936,7 +936,12 @@ def list_vnc_sessions():
                 if node:
                     session['node'] = node
                     novnc_port = session['novnc_port']
+                    vnc_port = session['vnc_port']
                     session_id = session['session_id']
+
+                    # 에러 및 접속 가능 여부 초기화
+                    session['error'] = None
+                    session['is_accessible'] = False
 
                     # SSH 터널이 아직 생성되지 않았으면 생성
                     if session_id not in SSH_TUNNEL_PIDS:
@@ -946,13 +951,40 @@ def list_vnc_sessions():
                             create_ssh_tunnel(node, novnc_port, novnc_port, session_id)
                             print(f"📡 SSH tunnel created for session {session_id}: {node}:{novnc_port} → localhost:{novnc_port}")
                         except Exception as e:
-                            print(f"⚠️  SSH tunnel creation failed for {session_id}: {e}")
+                            error_msg = f"SSH tunnel creation failed: {str(e)}"
+                            print(f"⚠️  {error_msg}")
+                            session['error'] = error_msg
 
                     # 외부 접근 가능한 URL 생성 (nginx reverse proxy 경로 사용)
                     # autoconnect=true: 자동 연결
                     # resize=scale: 브라우저 창 크기에 맞게 자동 스케일링
                     # nginx에서 /vncproxy/<port>/ 로 프록시됨
                     session['novnc_url'] = f"/vncproxy/{novnc_port}/vnc.html?autoconnect=true&resize=scale"
+
+                    # VNC 포트 접속 가능 여부 체크 (원격 노드에서 확인)
+                    try:
+                        import socket
+                        # SSH를 통해 원격 노드의 VNC 포트 체크
+                        ssh_opts = get_ssh_opts()
+                        check_cmd = f"nc -zv localhost {vnc_port}"
+                        result = subprocess.run(
+                            ['ssh'] + ssh_opts + [f'{get_default_system_user()}@{node}', check_cmd],
+                            capture_output=True,
+                            timeout=5
+                        )
+                        # nc 명령어는 성공 시 exit code 0 반환
+                        if result.returncode == 0:
+                            session['is_accessible'] = True
+                        else:
+                            session['error'] = f"VNC server not listening on port {vnc_port}"
+                            print(f"⚠️  VNC port {vnc_port} not accessible on {node}")
+                    except Exception as e:
+                        session['error'] = f"Failed to check VNC accessibility: {str(e)}"
+                        print(f"⚠️  VNC accessibility check failed: {e}")
+                else:
+                    # Job은 RUNNING인데 노드 정보를 못 가져온 경우
+                    session['error'] = "Cannot determine node allocation"
+                    print(f"⚠️  Job {job_id} is RUNNING but node is unknown")
 
             # 세션 상태 업데이트 (모든 상태에 대해 저장)
             save_vnc_session(session['session_id'], session)

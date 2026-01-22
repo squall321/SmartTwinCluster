@@ -21,6 +21,8 @@ interface VNCSession {
   duration_hours: number;
   gpu_count: number;
   created_at: string;
+  error?: string; // 에러 메시지
+  is_accessible?: boolean; // VNC 접속 가능 여부
 }
 
 interface VNCImage {
@@ -286,7 +288,28 @@ export const VNCSessionManager: React.FC = () => {
                           {session.node}
                         </span>
                       )}
+                      {/* 에러 뱃지 */}
+                      {session.error && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-white bg-red-600">
+                          <AlertCircle className="w-3 h-3" />
+                          Error
+                        </span>
+                      )}
+                      {/* 접속 불가 경고 */}
+                      {session.status === 'running' && session.is_accessible === false && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-white bg-orange-500">
+                          <AlertCircle className="w-3 h-3" />
+                          Not Accessible
+                        </span>
+                      )}
                     </div>
+                    {/* 에러 메시지 표시 */}
+                    {session.error && (
+                      <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                        <AlertCircle className="w-4 h-4 inline mr-1" />
+                        {session.error}
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="text-gray-500">Resolution:</span>{' '}
@@ -313,7 +336,13 @@ export const VNCSessionManager: React.FC = () => {
                     {session.status === 'running' && session.novnc_url && (
                       <button
                         onClick={() => openVNCViewer(session)}
-                        className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                        disabled={session.is_accessible === false}
+                        className={`flex items-center gap-1 px-3 py-2 rounded transition ${
+                          session.is_accessible === false
+                            ? 'bg-gray-400 text-white cursor-not-allowed'
+                            : 'bg-green-600 text-white hover:bg-green-700'
+                        }`}
+                        title={session.is_accessible === false ? 'VNC server not accessible' : 'Open VNC viewer'}
                       >
                         <ExternalLink className="w-4 h-4" />
                         Open
