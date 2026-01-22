@@ -393,9 +393,14 @@ const NodeManagement: React.FC = () => {
                           e.stopPropagation();
                           executeNodeAction('resume', node.name);
                         }}
-                        disabled={actionLoading === `resume-${node.name}` || !node.state.toLowerCase().includes('drain')}
+                        disabled={
+                          actionLoading === `resume-${node.name}` ||
+                          !(node.state.toLowerCase().includes('drain') ||
+                            node.state.toLowerCase().includes('down') ||
+                            node.state.toLowerCase().includes('inval'))
+                        }
                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Resume node"
+                        title="Resume node (drain/down/invalid)"
                       >
                         <PlayCircle className="w-5 h-5" />
                       </button>
