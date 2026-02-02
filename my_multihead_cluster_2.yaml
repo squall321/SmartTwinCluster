@@ -152,7 +152,7 @@ nodes:
 # Virtual IP (VIP) Configuration
 # ============================================================================
 network:
-  management_network: 192.168.1.0/24
+  management_network: 192.168.122.0/24
   compute_network: 192.168.122.0/24
 
   # VIP 설정 (Keepalived)

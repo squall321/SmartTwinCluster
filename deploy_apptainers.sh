@@ -89,7 +89,7 @@ declare -A NODE_TYPES
 echo "YAML 설정 파일에서 노드 정보 로딩: $CONFIG_FILE"
 
 # Python으로 YAML 파싱하여 노드 정보 추출
-read -r -d '' PYTHON_SCRIPT << 'EOPY'
+read -r -d '' PYTHON_SCRIPT << 'EOPY' || true
 import yaml
 import sys
 
@@ -125,7 +125,7 @@ while IFS='|' read -r hostname ip node_type; do
     fi
     NODE_IPS[$hostname]="$ip"
     NODE_TYPES[$hostname]="$node_type"
-    ((NODE_COUNT++))
+    NODE_COUNT=$((NODE_COUNT + 1))
 done < <(python3 -c "$PYTHON_SCRIPT" "$CONFIG_FILE")
 
 if [[ $NODE_COUNT -eq 0 ]]; then
@@ -212,13 +212,21 @@ deploy_to_node() {
             }
 
             # 원격에서 압축 해제 및 설치
-            ssh $SSH_OPTS ${SSH_USER}@${ip} "cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz && sudo install -m 755 apptainer /usr/local/bin/ && sudo install -m 644 apptainer.conf /usr/local/etc/ && rm -f apptainer apptainer.conf apptainer-binary-1.3.3.tar.gz && apptainer --version" || {
+            ssh $SSH_OPTS ${SSH_USER}@${ip} "cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz && sudo install -m 755 apptainer /usr/local/bin/ && sudo mkdir -p /usr/local/etc/apptainer && sudo install -m 644 apptainer.conf /usr/local/etc/apptainer/ && rm -f apptainer apptainer.conf apptainer-binary-1.3.3.tar.gz && apptainer --version" || {
                 echo -e "${RED}[${node}]${NC} ⚠️  Apptainer 설치 실패 - 계속 진행"
             }
 
             echo -e "${GREEN}[${node}]${NC} ✅ Apptainer installed"
         else
             echo -e "${GREEN}[${node}]${NC} ✅ Apptainer already installed"
+            # apptainer.conf가 없으면 배포 (기존에 바이너리만 설치된 경우)
+            if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "test -f /usr/local/etc/apptainer/apptainer.conf" &>/dev/null; then
+                echo -e "${YELLOW}[${node}]${NC} apptainer.conf 누락 - 배포 중..."
+                scp $SSH_OPTS ${SCRIPT_DIR}/apptainer/apptainer-binary-1.3.3.tar.gz ${SSH_USER}@${ip}:/tmp/ && \
+                ssh $SSH_OPTS ${SSH_USER}@${ip} "cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz && sudo mkdir -p /usr/local/etc/apptainer && sudo install -m 644 apptainer.conf /usr/local/etc/apptainer/ && rm -f apptainer apptainer.conf apptainer-binary-1.3.3.tar.gz" && \
+                echo -e "${GREEN}[${node}]${NC} ✅ apptainer.conf 배포 완료" || \
+                echo -e "${RED}[${node}]${NC} ⚠️  apptainer.conf 배포 실패"
+            fi
         fi
     else
         echo -e "${YELLOW}[${node}]${NC} ⏭️  Apptainer 설치 스킵 (--update 모드)"
