@@ -649,13 +649,14 @@ echo "VNC Session Terminated (Sandbox preserved for reuse)"
 
 
 def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0):
-    """Slurm Job 제출"""
+    """Slurm Job 제출. Returns (job_id, warning_message)"""
 
     if MOCK_MODE:
-        # Mock 모드: 가짜 Job ID 반환
         mock_job_id = random.randint(10000, 99999)
         print(f"[MOCK] VNC Job submitted: {mock_job_id}")
-        return mock_job_id
+        return mock_job_id, None
+
+    warning = None
 
     # 실제 Slurm Job 제출
     job_script = generate_vnc_job_script(
@@ -674,16 +675,31 @@ def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duratio
         text=True
     )
 
+    # GPU 요청 실패 시 CPU 모드로 fallback
+    if result.returncode != 0 and gpu_count > 0 and 'gres' in result.stderr.lower():
+        print(f"⚠️  GPU 요청 실패, CPU 모드로 재시도: {result.stderr.strip()}")
+        warning = f"GPU를 이용할 수 없습니다 (GPU {gpu_count}개 요청 실패). CPU 모드로 실행합니다."
+
+        # GPU 없이 재생성
+        job_script = generate_vnc_job_script(
+            username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0
+        )
+        with open(script_path, 'w') as f:
+            f.write(job_script)
+
+        result = subprocess.run(
+            [SBATCH, script_path],
+            capture_output=True,
+            text=True
+        )
+
     if result.returncode != 0:
         raise Exception(f"Job submission failed: {result.stderr}")
 
     # Job ID 추출
     job_id = int(result.stdout.strip().split()[-1])
 
-    # 스크립트 파일 보존 (디버깅용)
-    # os.remove(script_path)
-
-    return job_id
+    return job_id, warning
 
 
 def get_job_status(job_id):
@@ -880,7 +896,7 @@ def create_vnc_session():
 
     # Slurm Job 제출 (시스템 사용자로 실행)
     try:
-        job_id = submit_vnc_job(
+        job_id, gpu_warning = submit_vnc_job(
             system_user,  # YAML의 ssh_user 사용
             session_id,
             vnc_port,
@@ -896,6 +912,9 @@ def create_vnc_session():
     except Exception as e:
         return jsonify({'error': f'Job submission failed: {str(e)}'}), 500
 
+    # GPU fallback 시 실제 gpu_count를 0으로 반영
+    actual_gpu_count = 0 if gpu_warning else gpu_count
+
     # 세션 정보 생성
     session_data = {
         'session_id': session_id,
@@ -909,12 +928,15 @@ def create_vnc_session():
         'novnc_port': novnc_port,
         'geometry': geometry,
         'duration_hours': duration_hours,
-        'gpu_count': gpu_count,
+        'gpu_count': actual_gpu_count,
         'status': 'pending',
         'node': None,
         'novnc_url': None,
         'created_at': datetime.utcnow().isoformat()
     }
+
+    if gpu_warning:
+        session_data['warning'] = gpu_warning
 
     # Redis에 저장
     save_vnc_session(session_id, session_data, ttl_hours=duration_hours + 1)
