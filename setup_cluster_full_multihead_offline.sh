@@ -886,6 +886,46 @@ echo "╚═══════════════════════�
 echo ""
 
 ################################################################################
+# Part 2.5: GPU 드라이버 설치 (NVIDIA/ROCm)
+################################################################################
+
+GPU_SETUP_SCRIPT="cluster/setup/phase6_gpu.sh"
+
+if [ -f "$GPU_SETUP_SCRIPT" ]; then
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  Phase 7: GPU 드라이버 설치 (NVIDIA/ROCm)                     ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    chmod +x "$GPU_SETUP_SCRIPT"
+
+    GPU_OPTS="--config $CONFIG_FILE"
+    if [ "$DRY_RUN" = true ]; then
+        GPU_OPTS="$GPU_OPTS --dry-run"
+    fi
+
+    if [ "$EUID" -eq 0 ]; then
+        bash "$GPU_SETUP_SCRIPT" $GPU_OPTS
+        GPU_RESULT=$?
+    else
+        sudo -E bash "$GPU_SETUP_SCRIPT" $GPU_OPTS
+        GPU_RESULT=$?
+    fi
+
+    if [ $GPU_RESULT -eq 0 ]; then
+        log_success "GPU 드라이버 설치 완료!"
+    elif [ $GPU_RESULT -eq 100 ]; then
+        log_warning "GPU 드라이버 설치 완료 - 일부 노드 리부트 필요"
+    else
+        log_warning "GPU 드라이버 설치 실패 또는 GPU 노드 없음 (계속 진행)"
+    fi
+    echo ""
+else
+    log_info "GPU 설치 스크립트 없음 - 건너뜀 ($GPU_SETUP_SCRIPT)"
+fi
+
+################################################################################
 # Part 3: 컴퓨트 노드 자동 배포
 ################################################################################
 
