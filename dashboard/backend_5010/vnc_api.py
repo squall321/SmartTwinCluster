@@ -562,7 +562,8 @@ apptainer exec instance://$INSTANCE_NAME /bin/bash -c "rm -rf /tmp/.ICE-unix/* /
 
 # Instance 내부에서 VNC + Desktop 시작 (이미지별 스크립트 사용)
 echo "Starting VNC + {desktop_env} using {start_script} script..."
-apptainer exec --cleanenv instance://$INSTANCE_NAME /bin/bash -c "VNC_PORT={vnc_port} VNC_GEOMETRY={geometry} {start_script} {display_num}" > /tmp/vnc_{username}_{display_num}.log 2>&1 &
+# GNOME은 D-Bus, systemd 등 환경변수가 필요하므로 --cleanenv 대신 --env로 필요한 변수만 설정
+apptainer exec --env "VNC_PORT={vnc_port},VNC_GEOMETRY={geometry},DISPLAY=:{display_num},XDG_RUNTIME_DIR=/tmp/runtime-root" instance://$INSTANCE_NAME /bin/bash -c "{start_script} {display_num}" > /tmp/vnc_{username}_{display_num}.log 2>&1 &
 
 sleep 10
 echo 'VNC server and {desktop_env} started in instance'
