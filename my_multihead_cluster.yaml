@@ -618,7 +618,7 @@ slurm_config:
       max_time: "60-00:00:00"
       max_nodes: 1
       state: UP
-      gres: gpu:1
+      gres: gpu:nvidia:2
       exclusive: false
 
 # ============================================================================

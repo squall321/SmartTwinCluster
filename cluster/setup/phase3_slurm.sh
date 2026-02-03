@@ -1985,6 +1985,12 @@ generate_slurm_config() {
     config_content="${config_content//\{\{PARTITION_DEFINITIONS\}\}/$PARTITION_DEFINITIONS}"
     config_content="${config_content//\{\{DEFAULT_PARTITION\}\}/$DEFAULT_PARTITION}"
 
+    # GPU 노드가 있으면 GresTypes=gpu 자동 활성화
+    if echo "$NODE_DEFINITIONS" | grep -q "Gres="; then
+        config_content="${config_content/# GresTypes=gpu/GresTypes=gpu}"
+        log INFO "GPU nodes detected: enabling GresTypes=gpu"
+    fi
+
     # Substitute cgroup-related placeholders
     local PROCTRACK_TYPE
     local TASK_PLUGIN
@@ -2929,6 +2935,28 @@ EOPY
                 fi
             fi
 
+            # Sync gres.conf if exists
+            local local_gres_conf
+            if [[ -f "/etc/slurm/gres.conf" ]]; then
+                local_gres_conf="/etc/slurm/gres.conf"
+            elif [[ -f "/etc/slurm-llnl/gres.conf" ]]; then
+                local_gres_conf="/etc/slurm-llnl/gres.conf"
+            fi
+
+            if [[ -n "$local_gres_conf" && -f "$local_gres_conf" ]]; then
+                local remote_config_dir=$(dirname "$remote_slurm_conf")
+                scp $SCP_OPTS \
+                    "$local_gres_conf" \
+                    "$ssh_user@$ip_address:/tmp/gres.conf" &>/dev/null
+
+                ssh $SSH_OPTS "$ssh_user@$ip_address" \
+                    "sudo mv /tmp/gres.conf ${remote_config_dir}/gres.conf && \
+                     sudo chown slurm:slurm ${remote_config_dir}/gres.conf && \
+                     sudo chmod 644 ${remote_config_dir}/gres.conf" &>/dev/null
+
+                log INFO "  gres.conf synced to $hostname"
+            fi
+
             # Restart slurmd
             ssh $SSH_OPTS "$ssh_user@$ip_address" \
                 "sudo systemctl restart slurmd" &>/dev/null
@@ -3000,12 +3028,25 @@ EOPY
             # Extract and deploy prebuilt package
             log INFO "  Deploying prebuilt Slurm on $hostname..."
 
+            # 최신 deploy_slurm.sh를 별도로 전송 (tar 안의 버전보다 우선)
+            local DEPLOY_SCRIPT="${PROJECT_ROOT}/offline_packages/slurm/deploy_slurm.sh"
+            if [[ -f "$DEPLOY_SCRIPT" ]]; then
+                scp $SCP_OPTS "$DEPLOY_SCRIPT" "$ssh_user@$ip_address:/tmp/deploy_slurm_latest.sh" 2>/dev/null || true
+            fi
+
             # Create dedicated extraction directory to avoid /tmp permission issues
+            # slurmstepd kill + sbin pre-delete: Text file busy 에러 방지
             if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
                 "sudo rm -rf /tmp/slurm_prebuilt && \
                  mkdir -p /tmp/slurm_prebuilt && \
                  cd /tmp/slurm_prebuilt && \
                  tar --no-same-owner --no-same-permissions -xzf /tmp/slurm-23.11.10-prebuilt.tar.gz && \
+                 sudo pkill -9 slurmstepd 2>/dev/null; \
+                 sudo pkill -9 slurmd 2>/dev/null; \
+                 sudo pkill -9 -f slurmstepd 2>/dev/null; \
+                 sleep 2; \
+                 sudo rm -f /opt/slurm/sbin/* 2>/dev/null; \
+                 if [ -f /tmp/deploy_slurm_latest.sh ]; then cp /tmp/deploy_slurm_latest.sh deploy_slurm.sh; fi; \
                  sudo bash deploy_slurm.sh" >> "$install_log" 2>&1; then
                 local install_exit_code=$?
                 log ERROR "Failed to deploy prebuilt Slurm on $hostname (exit code: $install_exit_code)"
@@ -3172,6 +3213,29 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
                 else
                     log WARNING "Failed to copy cgroup.conf to $hostname"
                 fi
+            fi
+        fi
+
+        # Copy gres.conf if exists
+        local local_gres_conf
+        if [[ -f "/etc/slurm/gres.conf" ]]; then
+            local_gres_conf="/etc/slurm/gres.conf"
+        elif [[ -f "/etc/slurm-llnl/gres.conf" ]]; then
+            local_gres_conf="/etc/slurm-llnl/gres.conf"
+        fi
+
+        if [[ -n "$local_gres_conf" && -f "$local_gres_conf" ]]; then
+            local remote_config_dir=$(dirname "$remote_slurm_conf")
+            if scp $SCP_OPTS \
+                "$local_gres_conf" \
+                "$ssh_user@$ip_address:/tmp/gres.conf" &>/dev/null; then
+                ssh $SSH_OPTS "$ssh_user@$ip_address" \
+                    "sudo mv /tmp/gres.conf ${remote_config_dir}/gres.conf && \
+                     sudo chown slurm:slurm ${remote_config_dir}/gres.conf && \
+                     sudo chmod 644 ${remote_config_dir}/gres.conf" &>/dev/null
+                log SUCCESS "gres.conf copied to $hostname (${remote_config_dir}/gres.conf)"
+            else
+                log WARNING "Failed to copy gres.conf to $hostname"
             fi
         fi
 
