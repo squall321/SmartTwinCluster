@@ -747,18 +747,20 @@ fix_systemd_service_files() {
     chown slurm:slurm /run/slurm 2>/dev/null || true
     chmod 755 /run/slurm
 
-    # Check slurmctld service file - fix if pointing to /usr/sbin (apt package path) OR Type=forking
-    if [[ -f /etc/systemd/system/slurmctld.service ]]; then
-        if grep -q "/usr/sbin/slurmctld" /etc/systemd/system/slurmctld.service 2>/dev/null || \
-           grep -q "Type=forking" /etc/systemd/system/slurmctld.service 2>/dev/null; then
-            log WARNING "Found slurmctld.service needs update (apt path or Type=forking)"
-            log INFO "Updating slurmctld.service to use source-built path with Type=simple..."
+    # Check slurmctld service file - create if missing, fix if pointing to wrong path
+    local slurmctld_needs_create=false
+    if [[ ! -f /etc/systemd/system/slurmctld.service ]]; then
+        log INFO "slurmctld.service not found, creating..."
+        slurmctld_needs_create=true
+    elif grep -q "/usr/sbin/slurmctld" /etc/systemd/system/slurmctld.service 2>/dev/null || \
+         grep -q "Type=forking" /etc/systemd/system/slurmctld.service 2>/dev/null; then
+        log WARNING "Found slurmctld.service needs update (apt path or Type=forking)"
+        cp /etc/systemd/system/slurmctld.service /etc/systemd/system/slurmctld.service.backup.$(date +%Y%m%d_%H%M%S)
+        slurmctld_needs_create=true
+    fi
 
-            # Backup old service file
-            cp /etc/systemd/system/slurmctld.service /etc/systemd/system/slurmctld.service.backup.$(date +%Y%m%d_%H%M%S)
-
-            # Create new service file with source-built paths
-            cat > /etc/systemd/system/slurmctld.service << SLURMCTLD_SERVICE
+    if [[ "$slurmctld_needs_create" == "true" ]]; then
+        cat > /etc/systemd/system/slurmctld.service << SLURMCTLD_SERVICE
 [Unit]
 Description=Slurm controller daemon
 After=network.target munge.service slurmdbd.service
@@ -786,9 +788,8 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 SLURMCTLD_SERVICE
-            log SUCCESS "slurmctld.service updated to use $SLURM_SBIN/slurmctld"
-            needs_reload=true
-        fi
+        log SUCCESS "slurmctld.service created with $SLURM_SBIN/slurmctld"
+        needs_reload=true
     fi
 
     # Check slurmdbd service file
