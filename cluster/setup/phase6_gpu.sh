@@ -227,7 +227,52 @@ install_nvidia_driver() {
     deb_count=$(ls -1 "$gpu_pkg_dir"/*.deb 2>/dev/null | wc -l)
 
     if [[ "$deb_count" -eq 0 ]]; then
-        log_warning "[$hostname] NVIDIA deb 패키지 없음: $gpu_pkg_dir"
+        # .run 파일 확인 (deb 없을 때 fallback)
+        local run_file
+        run_file=$(ls -1 "$gpu_pkg_dir"/NVIDIA-Linux-*.run 2>/dev/null | head -1)
+
+        if [[ -n "$run_file" ]]; then
+            log_info "[$hostname] .run 파일로 NVIDIA 드라이버 설치: $(basename $run_file)"
+
+            if [[ "$DRY_RUN" == "true" ]]; then
+                log_info "[DRY-RUN] scp $run_file $user@$ip:/tmp/"
+                log_info "[DRY-RUN] ssh $user@$ip 'bash /tmp/$(basename $run_file) --silent'"
+            else
+                # Nouveau 확인
+                local nouveau_active
+                nouveau_active=$(ssh -o ConnectTimeout=10 "$user@$ip" "lsmod | grep -c nouveau 2>/dev/null || echo 0")
+                if [[ "$nouveau_active" -gt 0 ]]; then
+                    ssh "$user@$ip" "
+                        echo 'blacklist nouveau' > /etc/modprobe.d/blacklist-nouveau.conf
+                        echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nouveau.conf
+                        update-initramfs -u
+                    "
+                    log_warning "[$hostname] Nouveau 비활성화됨 - 재부팅 후 다시 실행 필요"
+                    return 100
+                fi
+
+                # .run 파일 전송 및 설치
+                scp -o ConnectTimeout=60 "$run_file" "$user@$ip:/tmp/" || {
+                    log_error "[$hostname] .run 파일 전송 실패"
+                    return 1
+                }
+
+                ssh -o ConnectTimeout=300 "$user@$ip" "
+                    sudo bash /tmp/$(basename $run_file) --silent --no-questions --ui=none 2>&1
+                    rm -f /tmp/$(basename $run_file)
+                "
+                local exit_code=$?
+                if [[ $exit_code -eq 0 ]]; then
+                    log_success "[$hostname] NVIDIA 드라이버 설치 완료 (.run)"
+                else
+                    log_error "[$hostname] NVIDIA 드라이버 .run 설치 실패 (exit: $exit_code)"
+                    return 1
+                fi
+            fi
+            return 0
+        fi
+
+        log_warning "[$hostname] NVIDIA deb/run 패키지 없음: $gpu_pkg_dir"
         log_info "  온라인 apt 설치 시도..."
 
         # 온라인 설치 (apt 사용)
