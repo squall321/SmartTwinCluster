@@ -466,13 +466,53 @@ def get_available_vnc_port():
     raise Exception("No available VNC ports")
 
 
+def _detect_gpu_type():
+    """Slurm gres.conf에서 GPU 타입 자동 감지 (nvidia, amd 등)"""
+    try:
+        # scontrol show config에서 GresTypes 확인
+        result = subprocess.run(
+            [SCONTROL, 'show', 'config'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'GresTypes' in line and 'gpu' in line.lower():
+                    break
+
+        # gres.conf에서 타입 추출
+        for gres_path in ['/etc/slurm/gres.conf', '/opt/slurm/etc/gres.conf', '/usr/local/slurm/etc/gres.conf']:
+            try:
+                with open(gres_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('#') or not line:
+                            continue
+                        # NodeName=xxx Name=gpu Type=nvidia File=...
+                        if 'Name=gpu' in line and 'Type=' in line:
+                            gpu_type = line.split('Type=')[1].split()[0]
+                            print(f"GPU type detected from {gres_path}: {gpu_type}")
+                            return gpu_type
+            except FileNotFoundError:
+                continue
+    except Exception as e:
+        print(f"GPU type detection failed: {e}")
+    return None
+
+
 def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0):
     """VNC 세션용 Slurm Job 스크립트 생성"""
 
     display_num = vnc_port - 5900
 
     # GPU 요청 라인 생성 (gpu_count > 0 일 때만)
-    gpu_line = f"#SBATCH --gres=gpu:{gpu_count}" if gpu_count > 0 else ""
+    # Slurm에서 GPU 타입을 자동 감지 (gres.conf에 gpu:nvidia:N 등으로 등록된 경우 타입 필요)
+    gpu_line = ""
+    if gpu_count > 0:
+        gpu_type = _detect_gpu_type()
+        if gpu_type:
+            gpu_line = f"#SBATCH --gres=gpu:{gpu_type}:{gpu_count}"
+        else:
+            gpu_line = f"#SBATCH --gres=gpu:{gpu_count}"
 
     script = f"""#!/bin/bash
 #SBATCH --job-name=vnc-{username}
