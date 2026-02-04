@@ -10,6 +10,7 @@ CONFIG_FILE="$SCRIPT_DIR/my_multihead_cluster_2.yaml"
 # 옵션 플래그
 UPDATE_ONLY=false  # --update: 이미지만 업데이트 (Apptainer 설치 스킵)
 SKIP_APPTAINER_INSTALL=false
+TARGET_IMAGE=""    # --image: 특정 이미지만 배포
 
 # 인자 파싱
 while [[ $# -gt 0 ]]; do
@@ -27,6 +28,11 @@ while [[ $# -gt 0 ]]; do
             SKIP_APPTAINER_INSTALL=true
             shift
             ;;
+        --image)
+            TARGET_IMAGE="$2"
+            SKIP_APPTAINER_INSTALL=true
+            shift 2
+            ;;
         --help|-h)
             echo "사용법: $0 [옵션]"
             echo ""
@@ -34,12 +40,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --config FILE   YAML 설정 파일 지정 (기본: my_multihead_cluster_2.yaml)"
             echo "  --update        이미지만 업데이트 (Apptainer 설치 스킵)"
             echo "  --skip-install  Apptainer 설치 스킵"
+            echo "  --image FILE    특정 SIF 이미지만 모든 노드에 배포"
             echo "  --help, -h      이 도움말 표시"
             echo ""
             echo "예시:"
             echo "  $0                                    # 전체 배포 (기본 YAML)"
             echo "  $0 --config my_cluster.yaml           # 다른 YAML 파일 사용"
             echo "  $0 --update                           # 이미지만 업데이트"
+            echo "  $0 --image vnc_gnome_lsprepost.sif    # 특정 이미지만 배포"
             exit 0
             ;;
         *)
@@ -383,6 +391,84 @@ echo ""
 echo "=== VNC/Viz Node Images ==="
 ls -lh ${VIZ_IMAGES_SOURCE}/ 2>/dev/null || echo "(없음)"
 echo ""
+
+# --image 모드: 특정 이미지만 모든 노드에 배포
+if [[ -n "$TARGET_IMAGE" ]]; then
+    # 이미지 파일 찾기 (compute/viz 소스 디렉토리 양쪽 검색)
+    IMAGE_FILE=""
+    for search_dir in "${COMPUTE_IMAGES_SOURCE}" "${VIZ_IMAGES_SOURCE}"; do
+        if [[ -f "${search_dir}/${TARGET_IMAGE}" ]]; then
+            IMAGE_FILE="${search_dir}/${TARGET_IMAGE}"
+            break
+        fi
+    done
+
+    if [[ -z "$IMAGE_FILE" ]]; then
+        echo -e "${RED}❌ 이미지 파일을 찾을 수 없음: ${TARGET_IMAGE}${NC}"
+        echo "검색 경로:"
+        echo "  - ${COMPUTE_IMAGES_SOURCE}/"
+        echo "  - ${VIZ_IMAGES_SOURCE}/"
+        exit 1
+    fi
+
+    IMG_SIZE=$(du -h "$IMAGE_FILE" | cut -f1)
+    echo ""
+    echo "=========================================="
+    echo -e "${YELLOW}특정 이미지 배포 모드${NC}"
+    echo "  이미지: ${TARGET_IMAGE} (${IMG_SIZE})"
+    echo "  소스:   ${IMAGE_FILE}"
+    echo "=========================================="
+    echo ""
+
+    # Controller 로컬 배포
+    echo -e "${YELLOW}[controller]${NC} ${TARGET_IMAGE} 배포 중..."
+    sudo cp "$IMAGE_FILE" ${NODE_IMAGE_PATH}/
+    sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE}
+    sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}
+    echo -e "${GREEN}[controller]${NC} ✅ 배포 완료"
+
+    # 모든 노드에 배포
+    for node in "${!NODE_IPS[@]}"; do
+        local_ip=$(hostname -I | awk '{print $1}')
+        ip="${NODE_IPS[$node]}"
+
+        # 자기 자신은 스킵 (이미 로컬 배포함)
+        if [[ "$ip" == "$local_ip" ]]; then
+            echo -e "${YELLOW}[${node}]${NC} ⏭️  현재 노드 - 스킵"
+            continue
+        fi
+
+        echo -e "${YELLOW}[${node}]${NC} ${TARGET_IMAGE} 배포 중 (${ip})..."
+
+        # SSH 접속 확인
+        if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "exit" 2>/dev/null; then
+            echo -e "${RED}[${node}]${NC} ❌ SSH 접속 실패 - 스킵"
+            continue
+        fi
+
+        # 원격 디렉토리 생성
+        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mkdir -p ${NODE_IMAGE_PATH}" 2>/dev/null
+
+        # SIF 전송
+        scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:/tmp/ || {
+            echo -e "${RED}[${node}]${NC} ❌ 전송 실패"
+            continue
+        }
+
+        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}" || {
+            echo -e "${RED}[${node}]${NC} ❌ 설치 실패"
+            continue
+        }
+
+        echo -e "${GREEN}[${node}]${NC} ✅ 배포 완료"
+    done
+
+    echo ""
+    echo "=========================================="
+    echo -e "${GREEN}✅ ${TARGET_IMAGE} 배포 완료!${NC}"
+    echo "=========================================="
+    exit 0
+fi
 
 # Controller 먼저 배포
 echo ""
