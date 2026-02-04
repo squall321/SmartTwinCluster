@@ -309,12 +309,11 @@ install_nvidia_driver() {
         return 0
     fi
 
-    # 오프라인 apt 설치 (deb 패키지)
-    log_info "[$hostname] 오프라인 deb 패키지 전송 중 ($deb_count 개)..."
+    # 오프라인 로컬 APT 저장소를 통한 설치 (deb 패키지)
+    log_info "[$hostname] 오프라인 로컬 APT 저장소로 NVIDIA 드라이버 설치 중..."
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log_info "[DRY-RUN] scp $gpu_pkg_dir/*.deb $user@$ip:/tmp/nvidia_debs/"
-        log_info "[DRY-RUN] ssh $user@$ip 'dpkg -i /tmp/nvidia_debs/*.deb && apt-get -f install -y'"
+        log_info "[DRY-RUN] deb 패키지를 로컬 APT 저장소에 등록 후 apt install"
     else
         # Nouveau 확인
         local nouveau_active
@@ -329,25 +328,31 @@ install_nvidia_driver() {
             return 100
         fi
 
-        # deb 패키지 전송
-        ssh "$user@$ip" "mkdir -p /tmp/nvidia_debs"
-        scp -o ConnectTimeout=60 "$gpu_pkg_dir"/*.deb "$user@$ip:/tmp/nvidia_debs/" || {
+        # deb 패키지를 로컬 APT 저장소 디렉토리로 전송
+        local remote_repo_dir="/opt/offline_packages/gpu/nvidia"
+        ssh "$user@$ip" "sudo mkdir -p $remote_repo_dir"
+        scp -o ConnectTimeout=60 "$gpu_pkg_dir"/*.deb "$user@$ip:/tmp/" || {
             log_error "[$hostname] 파일 전송 실패"
             return 1
         }
+        ssh "$user@$ip" "sudo mv /tmp/*.deb $remote_repo_dir/ 2>/dev/null || true"
 
-        # dpkg로 설치 후 apt로 의존성 해결
+        # 로컬 APT 저장소 등록 및 설치
         ssh -o ConnectTimeout=120 "$user@$ip" "
-            cd /tmp/nvidia_debs
-            echo '=== deb 패키지 설치 ==='
-            dpkg -i *.deb 2>/dev/null || true
+            cd $remote_repo_dir
+            sudo dpkg-scanpackages . /dev/null 2>/dev/null | gzip -9c > Packages.gz
 
-            echo '=== 의존성 해결 ==='
-            apt-get -f install -y 2>/dev/null || {
-                echo 'WARNING: 일부 의존성 해결 실패 (오프라인 환경에서는 정상)'
+            # 로컬 저장소 등록
+            echo 'deb [trusted=yes] file://$remote_repo_dir ./' | sudo tee /etc/apt/sources.list.d/nvidia-local.list > /dev/null
+
+            sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nvidia-local.list -o Dir::Etc::sourceparts='-' -o APT::Get::List-Cleanup='0' 2>/dev/null
+
+            echo '=== NVIDIA 드라이버 설치 ==='
+            DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --allow-unauthenticated nvidia-driver-550 || {
+                echo 'WARNING: apt install 실패, dpkg fallback 시도'
+                sudo dpkg -i $remote_repo_dir/*.deb 2>/dev/null || true
+                sudo apt-get -f install -y 2>/dev/null || true
             }
-
-            rm -rf /tmp/nvidia_debs
         "
 
         local exit_code=$?
@@ -356,7 +361,7 @@ install_nvidia_driver() {
             return 1
         fi
 
-        log_success "[$hostname] NVIDIA 드라이버 설치 완료 (오프라인 apt)"
+        log_success "[$hostname] NVIDIA 드라이버 설치 완료 (로컬 APT 저장소)"
     fi
 }
 
