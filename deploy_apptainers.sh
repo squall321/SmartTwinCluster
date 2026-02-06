@@ -219,14 +219,15 @@ deploy_to_node() {
                 return 1
             }
 
-            # 원격에서 압축 해제 및 설치 (바이너리 + conf + libexec)
+            # 원격에서 압축 해제 및 설치 (바이너리 + etc/apptainer + libexec)
             ssh $SSH_OPTS ${SSH_USER}@${ip} "cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz && \
                 sudo install -m 755 apptainer /usr/local/bin/ && \
-                sudo mkdir -p /usr/local/etc/apptainer && \
-                sudo install -m 644 apptainer.conf /usr/local/etc/apptainer/ && \
+                sudo mkdir -p /usr/local/etc && \
+                sudo cp -r etc/apptainer /usr/local/etc/ && \
+                sudo mkdir -p /usr/local/libexec && \
                 sudo cp -r libexec/apptainer /usr/local/libexec/ && \
                 sudo chmod 755 /usr/local/libexec/apptainer/bin/starter && \
-                rm -rf apptainer apptainer.conf libexec apptainer-binary-1.3.3.tar.gz && \
+                rm -rf apptainer etc libexec apptainer-binary-1.3.3.tar.gz && \
                 apptainer --version" || {
                 echo -e "${RED}[${node}]${NC} ⚠️  Apptainer 설치 실패 - 계속 진행"
             }
@@ -244,16 +245,21 @@ deploy_to_node() {
                 echo -e "${YELLOW}[${node}]${NC} libexec/apptainer/bin/starter 누락 감지"
                 needs_fix=true
             fi
+            # capability.json 누락도 체크
+            if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "test -f /usr/local/etc/apptainer/capability.json" &>/dev/null; then
+                echo -e "${YELLOW}[${node}]${NC} capability.json 누락 감지"
+                needs_fix=true
+            fi
             if [[ "$needs_fix" == "true" ]]; then
                 echo -e "${YELLOW}[${node}]${NC} 누락 파일 배포 중..."
                 scp $SSH_OPTS ${SCRIPT_DIR}/apptainer/apptainer-binary-1.3.3.tar.gz ${SSH_USER}@${ip}:/tmp/ && \
                 ssh $SSH_OPTS ${SSH_USER}@${ip} "cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz && \
-                    sudo mkdir -p /usr/local/etc/apptainer && \
-                    sudo install -m 644 apptainer.conf /usr/local/etc/apptainer/ && \
+                    sudo mkdir -p /usr/local/etc && \
+                    sudo cp -r etc/apptainer /usr/local/etc/ && \
                     sudo mkdir -p /usr/local/libexec && \
                     sudo cp -r libexec/apptainer /usr/local/libexec/ && \
                     sudo chmod 755 /usr/local/libexec/apptainer/bin/starter && \
-                    rm -rf apptainer apptainer.conf libexec apptainer-binary-1.3.3.tar.gz" && \
+                    rm -rf apptainer etc libexec apptainer-binary-1.3.3.tar.gz" && \
                 echo -e "${GREEN}[${node}]${NC} ✅ 누락 파일 배포 완료" || \
                 echo -e "${RED}[${node}]${NC} ⚠️  누락 파일 배포 실패"
             fi
