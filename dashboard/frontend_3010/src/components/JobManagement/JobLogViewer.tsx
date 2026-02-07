@@ -33,6 +33,7 @@ interface JobFile {
   modified: string;
   type: 'file' | 'log';
   logType?: 'stdout' | 'stderr';
+  isViewable?: boolean;
 }
 
 interface JobLogViewerProps {
@@ -88,11 +89,15 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
   const [logContent, setLogContent] = useState<string>('');
   const [logType, setLogType] = useState<'out' | 'err'>('out');
   const [files, setFiles] = useState<JobFile[]>([]);
+  const [workDir, setWorkDir] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [activeTab, setActiveTab] = useState<'logs' | 'files'>('logs');
   const [showFilesPanel, setShowFilesPanel] = useState(true);
+  const [selectedFile, setSelectedFile] = useState<JobFile | null>(null);
+  const [fileContent, setFileContent] = useState<string>('');
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
 
   const logContainerRef = useRef<HTMLPreElement>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -146,13 +151,43 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
         success: boolean;
         files: JobFile[];
         fileCount: number;
+        workDir?: string;
       }>(`/api/jobs/${jobId}/files`);
 
       if (response.success) {
         setFiles(response.files);
+        setWorkDir(response.workDir || null);
       }
     } catch (error) {
       console.error('Failed to fetch files:', error);
+    }
+  }, [jobId]);
+
+  // Fetch file content for viewing
+  const fetchFileContent = useCallback(async (file: JobFile) => {
+    setIsLoadingFile(true);
+    setSelectedFile(file);
+    try {
+      const pathParam = file.logType === 'stdout' ? 'stdout' :
+                        file.logType === 'stderr' ? 'stderr' :
+                        file.path;
+      const response = await apiGet<{
+        success: boolean;
+        content: string;
+        fileName: string;
+        truncated?: boolean;
+      }>(`/api/jobs/${jobId}/files/view?path=${encodeURIComponent(pathParam)}`);
+
+      if (response.success) {
+        setFileContent(response.content);
+      } else {
+        setFileContent('[Error loading file content]');
+      }
+    } catch (error) {
+      console.error('Failed to fetch file content:', error);
+      setFileContent('[Error loading file content]');
+    } finally {
+      setIsLoadingFile(false);
     }
   }, [jobId]);
 
@@ -295,6 +330,12 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
                       <div>Start: {jobInfo.startTime}</div>
                       <div>End: {jobInfo.endTime || 'N/A'}</div>
                     </div>
+                    {workDir && (
+                      <div className="text-xs text-gray-500 mt-1 break-all">
+                        <span className="text-gray-400">WorkDir:</span>
+                        <div className="font-mono">{workDir}</div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -313,20 +354,26 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
                       files.map((file, idx) => (
                         <div
                           key={idx}
-                          className="flex items-center justify-between p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer group"
+                          className={`flex items-center justify-between p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded group ${
+                            file.isViewable ? 'cursor-pointer' : 'cursor-default'
+                          } ${selectedFile?.path === file.path ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                           onClick={() => {
                             if (file.logType === 'stdout') {
                               handleLogTypeChange('out');
-                              setActiveTab('logs');
+                              setSelectedFile(null);
                             } else if (file.logType === 'stderr') {
                               handleLogTypeChange('err');
-                              setActiveTab('logs');
+                              setSelectedFile(null);
+                            } else if (file.isViewable) {
+                              fetchFileContent(file);
                             }
                           }}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             {file.type === 'log' ? (
                               <FileText className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                            ) : file.isViewable ? (
+                              <FileText className="w-4 h-4 text-green-500 flex-shrink-0" />
                             ) : (
                               <File className="w-4 h-4 text-gray-400 flex-shrink-0" />
                             )}
@@ -363,35 +410,51 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
             {showFilesPanel ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
 
-          {/* Right Panel - Logs */}
+          {/* Right Panel - Logs / File Content */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Log Type Tabs */}
+            {/* Tab Bar */}
             <div className="flex items-center justify-between px-4 py-2 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleLogTypeChange('out')}
-                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                    logType === 'out'
-                      ? 'bg-blue-500 text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  stdout
-                </button>
-                <button
-                  onClick={() => handleLogTypeChange('err')}
-                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                    logType === 'err'
-                      ? 'bg-red-500 text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  stderr
-                </button>
+              <div className="flex gap-2 items-center">
+                {selectedFile && !selectedFile.logType ? (
+                  <>
+                    <button
+                      onClick={() => setSelectedFile(null)}
+                      className="px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                    >
+                      &larr; Back to logs
+                    </button>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {selectedFile.name}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { handleLogTypeChange('out'); setSelectedFile(null); }}
+                      className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                        logType === 'out' && !selectedFile
+                          ? 'bg-blue-500 text-white'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      stdout
+                    </button>
+                    <button
+                      onClick={() => { handleLogTypeChange('err'); setSelectedFile(null); }}
+                      className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                        logType === 'err' && !selectedFile
+                          ? 'bg-red-500 text-white'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      stderr
+                    </button>
+                  </>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
-                {jobInfo?.state === 'RUNNING' && (
+                {!selectedFile && jobInfo?.state === 'RUNNING' && (
                   <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                     <input
                       type="checkbox"
@@ -403,25 +466,39 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
                   </label>
                 )}
                 <button
-                  onClick={handleCopyLogs}
+                  onClick={() => {
+                    const content = selectedFile && !selectedFile.logType ? fileContent : logContent;
+                    navigator.clipboard.writeText(content);
+                    toast.success('Copied to clipboard');
+                  }}
                   className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
-                  title="Copy logs"
+                  title="Copy"
                 >
                   <Copy className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={() => handleDownloadFile({ name: `${jobId}.${logType}`, path: logType === 'out' ? 'stdout' : 'stderr', size: 0, modified: '', type: 'log', logType: logType === 'out' ? 'stdout' : 'stderr' })}
-                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
-                  title="Download log"
-                >
-                  <Download className="w-4 h-4" />
-                </button>
+                {selectedFile ? (
+                  <button
+                    onClick={() => handleDownloadFile(selectedFile)}
+                    className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+                    title="Download file"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleDownloadFile({ name: `${jobId}.${logType}`, path: logType === 'out' ? 'stdout' : 'stderr', size: 0, modified: '', type: 'log', logType: logType === 'out' ? 'stdout' : 'stderr' })}
+                    className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+                    title="Download log"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Log Content */}
+            {/* Content Area */}
             <div className="flex-1 overflow-hidden bg-gray-900">
-              {isLoading ? (
+              {isLoading || isLoadingFile ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
                 </div>
@@ -430,7 +507,10 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
                   ref={logContainerRef}
                   className="h-full overflow-auto p-4 text-sm font-mono text-green-400 whitespace-pre-wrap break-all"
                 >
-                  {logContent || '[No log content]'}
+                  {selectedFile && !selectedFile.logType
+                    ? (fileContent || '[No content]')
+                    : (logContent || '[No log content]')
+                  }
                 </pre>
               )}
             </div>

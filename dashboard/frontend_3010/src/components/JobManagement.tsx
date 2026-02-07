@@ -49,6 +49,9 @@ export const JobManagement: React.FC<JobManagementProps> = ({
   const [filteredJobs, setFilteredJobs] = useState<SlurmJob[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [stateFilter, setStateFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<string>('active');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<SlurmJob | null>(null);
   const [showLogViewer, setShowLogViewer] = useState(false);
@@ -123,6 +126,31 @@ export const JobManagement: React.FC<JobManagementProps> = ({
   useEffect(() => {
     let filtered = jobs;
 
+    // 날짜 필터
+    if (dateFilter === 'active') {
+      filtered = filtered.filter(job => job.state === 'RUNNING' || job.state === 'PENDING');
+    } else if (dateFilter !== 'all') {
+      const now = new Date();
+      let startOfDay: Date;
+      if (dateFilter === 'today') {
+        startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      } else if (dateFilter === 'yesterday') {
+        startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      } else if (dateFilter === '7days') {
+        startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+      } else {
+        startOfDay = new Date(0);
+      }
+      const endOfDay = dateFilter === 'yesterday'
+        ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        : now;
+      filtered = filtered.filter(job => {
+        if (!job.startTime) return false;
+        const jobDate = new Date(job.startTime);
+        return jobDate >= startOfDay && jobDate <= endOfDay;
+      });
+    }
+
     if (searchTerm) {
       filtered = filtered.filter(job =>
         job.jobName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -136,7 +164,8 @@ export const JobManagement: React.FC<JobManagementProps> = ({
     }
 
     setFilteredJobs(filtered);
-  }, [searchTerm, stateFilter, jobs]);
+    setCurrentPage(1);
+  }, [searchTerm, stateFilter, dateFilter, jobs]);
 
   // 작업 제어
   const handleJobAction = async (jobId: string, action: 'cancel' | 'hold' | 'release') => {
@@ -216,6 +245,17 @@ export const JobManagement: React.FC<JobManagementProps> = ({
           
           <div className="flex gap-2">
             <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="active">Active Jobs</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="all">All</option>
+            </select>
+            <select
               value={stateFilter}
               onChange={(e) => setStateFilter(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -272,7 +312,7 @@ export const JobManagement: React.FC<JobManagementProps> = ({
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredJobs.map((job) => (
+              {filteredJobs.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((job) => (
                 <tr key={job.jobId} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {job.jobId}
@@ -347,6 +387,68 @@ export const JobManagement: React.FC<JobManagementProps> = ({
         {filteredJobs.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             No jobs found
+          </div>
+        )}
+
+        {/* 페이지네이션 */}
+        {filteredJobs.length > 0 && (
+          <div className="flex items-center justify-between px-6 py-3 border-t bg-gray-50">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span>
+                {Math.min((currentPage - 1) * pageSize + 1, filteredJobs.length)}-{Math.min(currentPage * pageSize, filteredJobs.length)} of {filteredJobs.length}
+              </span>
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                className="ml-2 px-2 py-1 border border-gray-300 rounded text-sm"
+              >
+                <option value={25}>25/page</option>
+                <option value={50}>50/page</option>
+                <option value={100}>100/page</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Prev
+              </button>
+              {Array.from({ length: Math.min(Math.ceil(filteredJobs.length / pageSize), 7) }, (_, i) => {
+                const totalPages = Math.ceil(filteredJobs.length / pageSize);
+                let page: number;
+                if (totalPages <= 7) {
+                  page = i + 1;
+                } else if (currentPage <= 4) {
+                  page = i + 1;
+                } else if (currentPage >= totalPages - 3) {
+                  page = totalPages - 6 + i;
+                } else {
+                  page = currentPage - 3 + i;
+                }
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-1 text-sm border rounded ${
+                      currentPage === page
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 hover:bg-gray-100'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredJobs.length / pageSize), p + 1))}
+                disabled={currentPage >= Math.ceil(filteredJobs.length / pageSize)}
+                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>

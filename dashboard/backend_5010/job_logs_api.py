@@ -80,7 +80,43 @@ def get_job_dir(job_id: str) -> str:
     if os.path.exists(path):
         return path
 
+    # 3. sacct에서 WorkDir 조회
+    try:
+        result = get_sacct(
+            '-j', job_id, '-X', '-n', '-P',
+            '--format=WorkDir',
+            timeout=5
+        )
+        work_dir = result.stdout.strip().split('\n')[0].strip()
+        if work_dir and os.path.isdir(work_dir):
+            return work_dir
+    except Exception as e:
+        print(f"⚠️  sacct WorkDir lookup failed for job {job_id}: {e}")
+
     return None
+
+
+# 파일 열람 불가 확장자 (바이너리/대용량)
+NON_VIEWABLE_EXTENSIONS = {
+    '.sif', '.tar', '.gz', '.zip', '.bz2', '.xz', '.7z',
+    '.bin', '.o', '.so', '.a', '.dll', '.exe',
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.svg',
+    '.mp4', '.avi', '.mov', '.mkv', '.mp3', '.wav',
+    '.h5', '.hdf5', '.nc', '.npy', '.npz',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+    '.d3plot', '.binout',
+}
+
+# d3plot 패턴 (d3plot01, d3plot02 등)
+def is_viewable_file(filename: str, size: int) -> bool:
+    """파일이 웹에서 열람 가능한지 확인"""
+    if size > 10 * 1024 * 1024:  # 10MB 초과
+        return False
+    name_lower = filename.lower()
+    if 'd3plot' in name_lower or 'binout' in name_lower:
+        return False
+    _, ext = os.path.splitext(name_lower)
+    return ext not in NON_VIEWABLE_EXTENSIONS
 
 
 def get_job_info_from_slurm(job_id: str) -> dict:
@@ -381,7 +417,8 @@ def list_job_files(job_id: str):
                 'size': stat.st_size,
                 'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 'type': 'log',
-                'logType': 'stdout'
+                'logType': 'stdout',
+                'isViewable': True
             })
 
         if stderr_path and os.path.exists(stderr_path):
@@ -392,7 +429,8 @@ def list_job_files(job_id: str):
                 'size': stat.st_size,
                 'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 'type': 'log',
-                'logType': 'stderr'
+                'logType': 'stderr',
+                'isViewable': True
             })
 
         # 2. 작업 디렉토리 파일 추가
@@ -409,7 +447,8 @@ def list_job_files(job_id: str):
                         'fullPath': filepath,
                         'size': stat.st_size,
                         'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                        'type': 'file'
+                        'type': 'file',
+                        'isViewable': is_viewable_file(filename, stat.st_size)
                     })
 
         return jsonify({
@@ -427,6 +466,79 @@ def list_job_files(job_id: str):
             'success': False,
             'error': str(e)
         }), 500
+
+
+@job_logs_bp.route('/<job_id>/files/view', methods=['GET'])
+@optional_jwt
+def view_job_file(job_id: str):
+    """
+    Job 파일 내용 조회 (텍스트 파일만)
+
+    Query params:
+        - path: 파일 경로 (작업 디렉토리 기준 상대 경로 또는 'stdout', 'stderr')
+
+    Returns:
+        { "success": true, "content": "...", "fileName": "...", "size": 123 }
+    """
+    try:
+        file_path = request.args.get('path')
+        if not file_path:
+            return jsonify({'success': False, 'error': 'path parameter required'}), 400
+
+        # 특수 경로 처리 (stdout, stderr)
+        if file_path in ['stdout', 'out']:
+            actual_path = get_log_path(job_id, 'out')
+        elif file_path in ['stderr', 'err']:
+            actual_path = get_log_path(job_id, 'err')
+        else:
+            job_dir = get_job_dir(job_id)
+            if job_dir:
+                actual_path = os.path.join(job_dir, file_path)
+            else:
+                actual_path = None
+
+        if not actual_path or not os.path.exists(actual_path):
+            return jsonify({'success': False, 'error': f'File not found: {file_path}'}), 404
+
+        # 경로 검증 (path traversal 방지)
+        job_dir = get_job_dir(job_id)
+        if job_dir:
+            real_job_dir = os.path.realpath(job_dir)
+            real_file_path = os.path.realpath(actual_path)
+            if not real_file_path.startswith(real_job_dir) and \
+               not real_file_path.startswith(os.path.realpath(LOGS_DIR)) and \
+               not real_file_path.startswith(os.path.realpath(ALT_LOGS_DIR)):
+                return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+        # 파일 크기 및 viewable 확인
+        stat = os.stat(actual_path)
+        filename = os.path.basename(actual_path)
+        if not is_viewable_file(filename, stat.st_size):
+            return jsonify({
+                'success': False,
+                'error': f'File is not viewable (binary or too large): {filename} ({stat.st_size} bytes)'
+            }), 400
+
+        # 파일 읽기 (최대 1MB)
+        max_size = 1024 * 1024
+        with open(actual_path, 'r', errors='replace') as f:
+            content = f.read(max_size + 1)
+
+        truncated = len(content) > max_size
+        if truncated:
+            content = content[:max_size] + '\n\n[... truncated at 1MB ...]\n'
+
+        return jsonify({
+            'success': True,
+            'content': content,
+            'fileName': filename,
+            'size': stat.st_size,
+            'truncated': truncated
+        })
+
+    except Exception as e:
+        print(f"❌ Error viewing file: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @job_logs_bp.route('/<job_id>/files/download', methods=['GET'])
