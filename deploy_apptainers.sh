@@ -265,6 +265,11 @@ deploy_to_node() {
                 echo -e "${YELLOW}[${node}]${NC} squashfuse_ll 누락 감지"
                 needs_fix=true
             fi
+            # libfuse.so.2 누락 체크
+            if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "test -f /lib/x86_64-linux-gnu/libfuse.so.2" &>/dev/null; then
+                echo -e "${YELLOW}[${node}]${NC} libfuse.so.2 누락 감지"
+                needs_fix=true
+            fi
             if [[ "$needs_fix" == "true" ]]; then
                 echo -e "${YELLOW}[${node}]${NC} 누락 파일 배포 중..."
                 scp $SSH_OPTS ${SCRIPT_DIR}/apptainer/apptainer-binary-1.3.3.tar.gz ${SSH_USER}@${ip}:/tmp/ && \
