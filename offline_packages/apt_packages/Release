@@ -5,3 +5,6 @@ Codename: offline
 Architectures: amd64
 Components: main
 Description: Local offline APT repository
+SHA256:
+ c574d4c58bf79cdb532d728ac58b8f9ed6c5855053db9256eb74f0abc2035d6f 615082 Packages
+ fb309cb2fca9f2f8487a82c6ec010e8483e38e3f20572bd4125c3e6ce92f3f6e 174810 Packages.gz

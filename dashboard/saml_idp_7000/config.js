@@ -7,7 +7,7 @@
 module.exports = {
   user: {
     "admin@hpc.local": {
-      password: "0OzRTNlmSEu$IUYm",
+      password: "VMlebJk*yCPdbhQM",
       email: "admin@hpc.local",
       userName: "admin",
       firstName: "System",

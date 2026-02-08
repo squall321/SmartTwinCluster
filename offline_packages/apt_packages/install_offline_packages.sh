@@ -54,13 +54,12 @@ if [[ $DEB_COUNT -eq 0 ]]; then
     exit 1
 fi
 
-# Packages.gz 확인 (없으면 생성)
-if [[ ! -f "$SCRIPT_DIR/Packages.gz" ]]; then
+# Packages.gz 확인 (헤드노드에서 미리 생성된 인덱스 사용)
+if [[ ! -f "$SCRIPT_DIR/Packages.gz" ]] || [[ ! -f "$SCRIPT_DIR/Packages" ]]; then
     log_warning "Packages.gz not found. Creating repository index..."
 
     if ! command -v dpkg-scanpackages &> /dev/null; then
         log_info "Installing dpkg-dev for dpkg-scanpackages..."
-        # 먼저 dpkg-dev가 로컬에 있는지 확인
         if ls "$SCRIPT_DIR"/dpkg-dev*.deb &>/dev/null; then
             dpkg -i "$SCRIPT_DIR"/dpkg-dev*.deb 2>/dev/null || apt-get install -f -y
         else
@@ -74,6 +73,8 @@ if [[ ! -f "$SCRIPT_DIR/Packages.gz" ]]; then
     gzip -k -f Packages
     cd - > /dev/null
     log_success "Repository index created"
+else
+    log_success "Using pre-built repository index (Packages.gz)"
 fi
 
 echo ""
@@ -107,7 +108,16 @@ log_success "  Local repository configured: $REPO_LIST"
 
 echo ""
 log_info "Step 2: Updating APT cache (local repository only)..."
+
+# APT 캐시 완전 초기화 (이전 온라인 저장소 캐시가 남아있으면 로컬 패키지를 못 찾음)
+rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+apt-get clean 2>/dev/null || true
+
 apt-get update 2>&1 | grep -v "^W:" || true
+
+# 로컬 저장소에서 패키지를 인식하는지 확인
+LOCAL_PKG_COUNT=$(apt-cache pkgnames 2>/dev/null | wc -l)
+log_info "  APT recognizes $LOCAL_PKG_COUNT packages from local repository"
 
 log_success "  APT cache updated"
 
@@ -163,12 +173,44 @@ log_info "  Running: apt-get install -y ${#PACKAGES_TO_INSTALL[@]} packages..."
 # 온라인 저장소가 이미 비활성화되었으므로 일반 apt-get 사용
 apt-get install -y --no-install-recommends "${PACKAGES_TO_INSTALL[@]}" 2>&1 || {
     log_warning "Some packages may have failed. Retrying with -f flag..."
-    apt-get install -f -y 2>&1 || {
-        log_error "APT installation failed"
-        log_info "Check if all required packages are in $SCRIPT_DIR"
-        exit 1
-    }
+    apt-get install -f -y 2>&1 || true
 }
+
+# ============================================================================
+# apt-get 일괄 설치 실패 시 핵심 패키지 개별 재시도 (apt-get만 사용)
+# 일괄 설치에서 일부가 실패하면 전체가 스킵될 수 있으므로,
+# 핵심 패키지를 개별적으로 apt-get install 시도
+# ============================================================================
+CRITICAL_PACKAGES=(
+    "libhwloc15"
+    "hwloc-nox"
+    "libhwloc-plugins"
+    "libmunge2"
+    "libmunge-dev"
+    "munge"
+    "autofs"
+    "net-tools"
+    "jq"
+    "libjq1"
+    "socat"
+    "pv"
+    "sshpass"
+)
+
+RETRY_COUNT=0
+for pkg in "${CRITICAL_PACKAGES[@]}"; do
+    if ! dpkg -s "$pkg" &>/dev/null 2>&1; then
+        log_info "  Retrying critical package: $pkg"
+        apt-get install -y --no-install-recommends "$pkg" 2>&1 || {
+            log_warning "  Failed to install $pkg (may not be available in local repository)"
+        }
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+    fi
+done
+
+if [[ $RETRY_COUNT -gt 0 ]]; then
+    log_info "  Retried $RETRY_COUNT critical packages individually"
+fi
 
 echo ""
 log_info "Step 4: Cleanup..."

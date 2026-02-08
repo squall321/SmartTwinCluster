@@ -122,7 +122,7 @@ export const JobManagement: React.FC<JobManagementProps> = ({
     return () => clearInterval(interval);
   }, [fetchJobs]);
 
-  // 필터링
+  // 필터링 (jobs 변경 시 현재 페이지 유지)
   useEffect(() => {
     let filtered = jobs;
 
@@ -164,8 +164,15 @@ export const JobManagement: React.FC<JobManagementProps> = ({
     }
 
     setFilteredJobs(filtered);
+    // 현재 페이지가 범위를 벗어나면 조정 (마지막 페이지로)
+    const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize));
+    setCurrentPage(prev => prev > maxPage ? maxPage : prev);
+  }, [jobs, searchTerm, stateFilter, dateFilter, pageSize]);
+
+  // 필터/검색 변경 시에만 1페이지로 리셋
+  useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, stateFilter, dateFilter, jobs]);
+  }, [searchTerm, stateFilter, dateFilter]);
 
   // 작업 제어
   const handleJobAction = async (jobId: string, action: 'cancel' | 'hold' | 'release') => {

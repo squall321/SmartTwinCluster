@@ -1109,6 +1109,14 @@ for arg in "$@"; do
             # start.sh에서만 처리하는 옵션 (이미 위에서 파싱됨, 전달하지 않음)
             shift
             ;;
+        --config)
+            # start_multihead.sh에서 전달되는 옵션 - start.sh에서는 무시
+            # --config 다음 인자(파일 경로)도 건너뜀
+            shift
+            if [[ -n "${1:-}" && ! "$1" =~ ^-- ]]; then
+                shift
+            fi
+            ;;
         --help|-h)
             show_help
             exit 0

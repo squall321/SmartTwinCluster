@@ -62,7 +62,7 @@ FULL_ACCESS_USER = {
     'username': 'admin',
     'email': 'admin@local',
     'groups': ['admin', 'users', 'GPU-Users', 'HPC-Admins'],
-    'permissions': ['admin', 'user', 'read', 'write', 'execute', 'delete']
+    'permissions': ['admin', 'user', 'read', 'write', 'execute', 'delete', 'dashboard', 'app', 'vnc', 'cae']
 }
 
 

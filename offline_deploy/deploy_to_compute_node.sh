@@ -623,10 +623,14 @@ echo "════════════════════════�
 echo ""
 echo "Step 0: Force cleanup (idempotent deployment)..."
 
-# slurmd 강제 중지
-echo "  Stopping slurmd..."
+# slurmd 및 slurmstepd 강제 중지
+echo "  Stopping slurmd and slurmstepd..."
 run_sudo systemctl stop slurmd 2>/dev/null || true
 run_sudo systemctl disable slurmd 2>/dev/null || true
+run_sudo pkill -9 slurmd 2>/dev/null || true
+run_sudo pkill -9 slurmstepd 2>/dev/null || true
+run_sudo pkill -9 -f slurmstepd 2>/dev/null || true
+sleep 2
 
 # 기존 slurmd.service 파일 삭제 (잘못된 경로 설정 방지)
 echo "  Removing old slurmd.service..."
