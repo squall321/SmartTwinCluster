@@ -29,6 +29,7 @@ offline_packages/**/Packages.gz
 dashboard/offline_packages/
 
 apptainer/
+!apptainer/apptainer-binary-*.tar.gz
 apptainers/
 
 # Keep scripts in offline_packages
