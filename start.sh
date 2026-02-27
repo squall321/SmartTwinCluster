@@ -1277,6 +1277,122 @@ except:
             echo ""
 
             # ============================================================================
+            # GlusterFS 마운트 확인 및 복구
+            # slurmctld가 /mnt/gluster/slurm/state, logs에 의존하므로 먼저 복구
+            # ============================================================================
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔧 GlusterFS 마운트 확인..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            # YAML에서 GlusterFS 설정 읽기
+            GLUSTER_MOUNT=""
+            GLUSTER_VOLUME=""
+            GLUSTER_SERVER=""
+            GLUSTER_BRICK=""
+
+            CONFIG_YAML=""
+            for candidate in "$SCRIPT_DIR/my_multihead_cluster_2.yaml" "$SCRIPT_DIR/my_multihead_cluster.yaml" "$SCRIPT_DIR/my_cluster.yaml" "$SCRIPT_DIR/dev_cluster.yaml"; do
+                if [[ -f "$candidate" ]]; then
+                    CONFIG_YAML="$candidate"
+                    break
+                fi
+            done
+
+            if [[ -n "$CONFIG_YAML" ]]; then
+                GLUSTER_CFG=$(python3 << EOPY 2>/dev/null || true
+import yaml, json
+with open('$CONFIG_YAML', 'r') as f:
+    config = yaml.safe_load(f)
+gluster = config.get('shared_storage', {}).get('glusterfs', {})
+controllers = config.get('nodes', {}).get('controllers', [])
+print(json.dumps({
+    'mount': gluster.get('mount_point', '/mnt/gluster'),
+    'volume': gluster.get('volume_name', 'shared_data'),
+    'brick': gluster.get('brick_path', '/srv/glusterfs/brick'),
+    'server': controllers[0]['ip_address'] if controllers else 'localhost'
+}))
+EOPY
+)
+                if [[ -n "$GLUSTER_CFG" ]]; then
+                    GLUSTER_MOUNT=$(echo "$GLUSTER_CFG" | python3 -c "import sys,json; print(json.load(sys.stdin)['mount'])" 2>/dev/null || echo "/mnt/gluster")
+                    GLUSTER_VOLUME=$(echo "$GLUSTER_CFG" | python3 -c "import sys,json; print(json.load(sys.stdin)['volume'])" 2>/dev/null || echo "shared_data")
+                    GLUSTER_SERVER=$(echo "$GLUSTER_CFG" | python3 -c "import sys,json; print(json.load(sys.stdin)['server'])" 2>/dev/null || echo "localhost")
+                    GLUSTER_BRICK=$(echo "$GLUSTER_CFG" | python3 -c "import sys,json; print(json.load(sys.stdin)['brick'])" 2>/dev/null || echo "/srv/glusterfs/brick")
+                fi
+            fi
+
+            # 기본값
+            GLUSTER_MOUNT="${GLUSTER_MOUNT:-/mnt/gluster}"
+            GLUSTER_VOLUME="${GLUSTER_VOLUME:-shared_data}"
+
+            if mountpoint -q "$GLUSTER_MOUNT" 2>/dev/null; then
+                echo "  ✅ GlusterFS 이미 마운트됨 ($GLUSTER_MOUNT)"
+            else
+                echo "  ⚠️  GlusterFS 마운트 안 됨 — 복구 시도..."
+
+                # glusterd 시작
+                if ! systemctl is-active --quiet glusterd 2>/dev/null; then
+                    echo "  → glusterd 시작 중..."
+                    sudo systemctl start glusterd 2>/dev/null || true
+                    sleep 3
+                fi
+
+                # 볼륨 시작
+                VOLUME_STATUS=$(sudo gluster volume info "$GLUSTER_VOLUME" 2>/dev/null | grep "Status:" | awk '{print $2}' || echo "unknown")
+                if [[ "$VOLUME_STATUS" != "Started" ]]; then
+                    echo "  → 볼륨 시작 중..."
+                    echo "y" | sudo gluster volume start "$GLUSTER_VOLUME" 2>/dev/null || true
+                    sleep 3
+                fi
+
+                # Brick 오프라인이면 volume stop/start
+                BRICK_ONLINE=$(sudo gluster volume status "$GLUSTER_VOLUME" 2>/dev/null | awk '/Online/{print $NF}' | head -1 || echo "")
+                if [[ "$BRICK_ONLINE" != "Y" ]]; then
+                    echo "  → Brick 오프라인 — volume 재시작..."
+                    echo "y" | sudo gluster volume stop "$GLUSTER_VOLUME" force 2>/dev/null || true
+                    sleep 2
+                    echo "y" | sudo gluster volume start "$GLUSTER_VOLUME" 2>/dev/null || true
+                    sleep 5
+                fi
+
+                # 마운트
+                sudo mkdir -p "$GLUSTER_MOUNT"
+                sudo mount -t glusterfs "localhost:/$GLUSTER_VOLUME" "$GLUSTER_MOUNT" 2>/dev/null || \
+                sudo mount -t glusterfs "$GLUSTER_SERVER:/$GLUSTER_VOLUME" "$GLUSTER_MOUNT" 2>/dev/null || true
+                sleep 2
+
+                if mountpoint -q "$GLUSTER_MOUNT" 2>/dev/null; then
+                    echo "  ✅ GlusterFS 마운트 복구 성공"
+                else
+                    echo "  ❌ GlusterFS 마운트 실패 — slurmctld가 시작 안 될 수 있음"
+                    echo "     수동 복구: sudo ./fix_gluster_mount.sh"
+                fi
+
+                # Slurm 필요 디렉토리 확인
+                for dir in slurm/logs slurm/state logs jobs; do
+                    if [[ ! -d "$GLUSTER_MOUNT/$dir" ]]; then
+                        sudo mkdir -p "$GLUSTER_MOUNT/$dir"
+                        sudo chown slurm:slurm "$GLUSTER_MOUNT/$dir" 2>/dev/null || true
+                    fi
+                done
+            fi
+
+            # slurmctld가 죽어있으면 재시작
+            if ! systemctl is-active --quiet slurmctld 2>/dev/null; then
+                echo "  → slurmctld 시작 중..."
+                sudo systemctl restart slurmctld 2>/dev/null || true
+                sleep 3
+                if systemctl is-active --quiet slurmctld 2>/dev/null; then
+                    echo "  ✅ slurmctld 시작 성공"
+                else
+                    echo "  ❌ slurmctld 시작 실패 — journalctl -u slurmctld 확인"
+                fi
+            else
+                echo "  ✅ slurmctld 이미 실행 중"
+            fi
+            echo ""
+
+            # ============================================================================
             # Slurm GRES (GPU) 설정 자동 수정
             # VNC 세션에서 --gres=gpu 사용 시 필요
             # ============================================================================
