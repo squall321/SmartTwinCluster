@@ -947,10 +947,11 @@ if [ -f "$DEPLOY_COMPUTE_SCRIPT" ]; then
     chmod +x "$DEPLOY_COMPUTE_SCRIPT"
 
     if bash "$DEPLOY_COMPUTE_SCRIPT" --config "$CONFIG_FILE" --yes; then
-        log_success "컴퓨트 노드 배포 완료!"
+        log_success "컴퓨트 노드 배포 완료! (SSH 교차 배포 포함)"
     else
         log_warning "일부 컴퓨트 노드 배포 실패 (수동 확인 필요)"
         log_info "수동 재시도: ./offline_deploy/deploy_to_compute_node.sh --config $CONFIG_FILE"
+        log_info "SSH 교차 배포만 재시도: ./setup_ssh_compute_to_compute.sh --config $CONFIG_FILE"
     fi
     echo ""
 else

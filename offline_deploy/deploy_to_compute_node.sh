@@ -1820,6 +1820,18 @@ if controllers:
     echo ""
 
     if deploy_all_nodes "" "$gluster_server" "$gluster_volume" "$gluster_mount"; then
+        # 컴퓨트 노드 간 SSH 키 교차 배포 (mpirun 멀티노드 실행용)
+        local SSH_CROSS_SCRIPT="$SCRIPT_DIR/../setup_ssh_compute_to_compute.sh"
+        if [[ -f "$SSH_CROSS_SCRIPT" ]]; then
+            source "$SSH_CROSS_SCRIPT"
+            log_info "Setting up compute-to-compute SSH keys..."
+            setup_cross_node_ssh "$CONFIG_FILE" || {
+                log_warning "SSH cross-node setup had issues (non-fatal, continuing...)"
+            }
+        else
+            log_warning "setup_ssh_compute_to_compute.sh not found, skipping cross-node SSH setup"
+        fi
+
         # 배포 후 노드 상태 검증
         if verify_deployed_nodes "$CONFIG_FILE"; then
             print_summary
