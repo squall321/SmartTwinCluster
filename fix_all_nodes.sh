@@ -358,76 +358,89 @@ EOFHOSTS
         fi
     fi
 
-    # ── 2. INVALID_REG 대응: 실제 하드웨어 스펙 조회 → slurm.conf 자동 수정 ──
-    if echo "$NODE_STATE" | grep -qi "INVALID_REG"; then
-        log_info "INVALID_REG 감지 → 실제 하드웨어 스펙 조회 중..."
+    # ── 2. 하드웨어 스펙 조회 → slurm.conf 자동 수정 ──
+    # 모든 비정상 노드에 대해 스펙 확인 (INVALID_REG, INVAL 등 잡기 위해 항상 실행)
+    log_info "하드웨어 스펙 조회 중..."
 
-        HW_INFO=$($SSH_CMD "$NODE_USER@$NODE_IP" bash << 'EOFHW'
-# CPU 정보
+    HW_INFO=$($SSH_CMD "$NODE_USER@$NODE_IP" bash << 'EOFHW'
 SOCKETS=$(lscpu | awk '/^Socket\(s\):/{print $2}')
 CORES=$(lscpu | awk '/^Core\(s\) per socket:/{print $NF}')
 THREADS=$(lscpu | awk '/^Thread\(s\) per core:/{print $NF}')
 TOTAL_CPUS=$((SOCKETS * CORES * THREADS))
-
-# 메모리 (MB, Slurm용 - 약간 줄여서 안전마진)
 TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 TOTAL_MEM_MB=$((TOTAL_MEM_KB / 1024))
-# Slurm은 RealMemory보다 약간 적은 메모리도 허용하므로 95% 사용
 SLURM_MEM=$((TOTAL_MEM_MB * 95 / 100))
-
 echo "$TOTAL_CPUS|$SOCKETS|$CORES|$THREADS|$SLURM_MEM|$TOTAL_MEM_MB"
 EOFHW
 )
 
-        if [[ -n "$HW_INFO" ]]; then
-            IFS='|' read -r REAL_CPUS REAL_SOCKETS REAL_CORES REAL_THREADS REAL_MEM TOTAL_MEM <<< "$HW_INFO"
-            log_info "실제 스펙: CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS Cores=$REAL_CORES Threads=$REAL_THREADS Mem=${TOTAL_MEM}MB"
+    if [[ -n "$HW_INFO" ]]; then
+        IFS='|' read -r REAL_CPUS REAL_SOCKETS REAL_CORES REAL_THREADS REAL_MEM TOTAL_MEM <<< "$HW_INFO"
+        log_info "실제 스펙: CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS Cores=$REAL_CORES Threads=$REAL_THREADS Mem=${TOTAL_MEM}MB"
 
-            # slurm.conf에서 현재 설정 확인
-            CURRENT_LINE=$(grep "^NodeName=$NODE_NAME " "$SLURM_CONF" 2>/dev/null)
-            if [[ -n "$CURRENT_LINE" ]]; then
-                CONF_CPUS=$(echo "$CURRENT_LINE" | grep -oP 'CPUs=\K[0-9]+')
-                CONF_SOCKETS=$(echo "$CURRENT_LINE" | grep -oP 'Sockets=\K[0-9]+')
-                CONF_CORES=$(echo "$CURRENT_LINE" | grep -oP 'CoresPerSocket=\K[0-9]+')
-                CONF_THREADS=$(echo "$CURRENT_LINE" | grep -oP 'ThreadsPerCore=\K[0-9]+')
-                CONF_MEM=$(echo "$CURRENT_LINE" | grep -oP 'RealMemory=\K[0-9]+')
+        CURRENT_LINE=$(grep "^NodeName=$NODE_NAME " "$SLURM_CONF" 2>/dev/null)
+        if [[ -n "$CURRENT_LINE" ]]; then
+            CONF_CPUS=$(echo "$CURRENT_LINE" | grep -oP 'CPUs=\K[0-9]+')
+            CONF_SOCKETS=$(echo "$CURRENT_LINE" | grep -oP 'Sockets=\K[0-9]+')
+            CONF_CORES=$(echo "$CURRENT_LINE" | grep -oP 'CoresPerSocket=\K[0-9]+')
+            CONF_THREADS=$(echo "$CURRENT_LINE" | grep -oP 'ThreadsPerCore=\K[0-9]+')
+            CONF_MEM=$(echo "$CURRENT_LINE" | grep -oP 'RealMemory=\K[0-9]+')
 
-                log_info "설정 스펙: CPUs=$CONF_CPUS Sockets=$CONF_SOCKETS Cores=$CONF_CORES Threads=$CONF_THREADS Mem=${CONF_MEM}MB"
+            log_info "설정 스펙: CPUs=$CONF_CPUS Sockets=$CONF_SOCKETS Cores=$CONF_CORES Threads=$CONF_THREADS Mem=${CONF_MEM}MB"
 
-                # 불일치 시 slurm.conf 수정
-                if [[ "$REAL_CPUS" != "$CONF_CPUS" ]] || \
-                   [[ "$REAL_SOCKETS" != "$CONF_SOCKETS" ]] || \
-                   [[ "$REAL_CORES" != "$CONF_CORES" ]] || \
-                   [[ "$REAL_THREADS" != "$CONF_THREADS" ]] || \
-                   [[ "$REAL_MEM" -ne "$CONF_MEM" && "$TOTAL_MEM" -ne "$CONF_MEM" ]]; then
+            if [[ "$REAL_CPUS" != "$CONF_CPUS" ]] || \
+               [[ "$REAL_SOCKETS" != "$CONF_SOCKETS" ]] || \
+               [[ "$REAL_CORES" != "$CONF_CORES" ]] || \
+               [[ "$REAL_THREADS" != "$CONF_THREADS" ]] || \
+               [[ "$REAL_MEM" -ne "$CONF_MEM" && "$TOTAL_MEM" -ne "$CONF_MEM" ]]; then
 
-                    log_warn "스펙 불일치 → slurm.conf 자동 수정"
+                log_warn "스펙 불일치 → slurm.conf 자동 수정"
 
-                    # NodeAddr 보존
-                    NODE_ADDR=$(echo "$CURRENT_LINE" | grep -oP 'NodeAddr=\K[^ ]+')
-                    # Gres 보존
-                    NODE_GRES=$(echo "$CURRENT_LINE" | grep -oP 'Gres=\K[^ ]+' || echo "")
+                NODE_ADDR=$(echo "$CURRENT_LINE" | grep -oP 'NodeAddr=\K[^ ]+')
+                NODE_GRES=$(echo "$CURRENT_LINE" | grep -oP 'Gres=\K[^ ]+' || echo "")
 
-                    NEW_LINE="NodeName=$NODE_NAME NodeAddr=$NODE_ADDR CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS CoresPerSocket=$REAL_CORES ThreadsPerCore=$REAL_THREADS RealMemory=$REAL_MEM State=UNKNOWN"
-                    if [[ -n "$NODE_GRES" ]]; then
-                        NEW_LINE="NodeName=$NODE_NAME NodeAddr=$NODE_ADDR CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS CoresPerSocket=$REAL_CORES ThreadsPerCore=$REAL_THREADS RealMemory=$REAL_MEM Gres=$NODE_GRES State=UNKNOWN"
-                    fi
-
-                    # slurm.conf 수정 (모든 위치)
-                    for conf in /etc/slurm/slurm.conf /usr/local/slurm/etc/slurm.conf /opt/slurm/etc/slurm.conf; do
-                        if [[ -f "$conf" ]]; then
-                            sudo sed -i "s|^NodeName=$NODE_NAME .*|$NEW_LINE|" "$conf"
-                        fi
-                    done
-
-                    log_ok "slurm.conf 수정 완료: $NEW_LINE"
-                    SLURM_CONF_MODIFIED=true
-                else
-                    log_ok "스펙 일치 — slurm.conf 수정 불필요"
+                NEW_LINE="NodeName=$NODE_NAME NodeAddr=$NODE_ADDR CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS CoresPerSocket=$REAL_CORES ThreadsPerCore=$REAL_THREADS RealMemory=$REAL_MEM State=UNKNOWN"
+                if [[ -n "$NODE_GRES" ]]; then
+                    NEW_LINE="NodeName=$NODE_NAME NodeAddr=$NODE_ADDR CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS CoresPerSocket=$REAL_CORES ThreadsPerCore=$REAL_THREADS RealMemory=$REAL_MEM Gres=$NODE_GRES State=UNKNOWN"
                 fi
+
+                for conf in /etc/slurm/slurm.conf /usr/local/slurm/etc/slurm.conf /opt/slurm/etc/slurm.conf; do
+                    if [[ -f "$conf" ]]; then
+                        sudo sed -i "s|^NodeName=$NODE_NAME .*|$NEW_LINE|" "$conf"
+                    fi
+                done
+
+                log_ok "slurm.conf 수정 완료"
+                SLURM_CONF_MODIFIED=true
+            else
+                log_ok "스펙 일치 — slurm.conf 수정 불필요"
             fi
+        fi
+    else
+        log_warn "하드웨어 스펙 조회 실패"
+    fi
+
+    # ── 2.5. munge.key 동기화 (헤드노드 → 컴퓨트노드) ──
+    log_info "munge.key 동기화 중..."
+    MUNGE_KEY_LOCAL="/etc/munge/munge.key"
+    if [[ -f "$MUNGE_KEY_LOCAL" ]] || sudo test -f "$MUNGE_KEY_LOCAL"; then
+        # 로컬 munge.key MD5
+        LOCAL_MUNGE_MD5=$(sudo md5sum "$MUNGE_KEY_LOCAL" 2>/dev/null | awk '{print $1}')
+        REMOTE_MUNGE_MD5=$($SSH_CMD "$NODE_USER@$NODE_IP" "sudo md5sum /etc/munge/munge.key 2>/dev/null | awk '{print \$1}'" 2>/dev/null)
+
+        if [[ "$LOCAL_MUNGE_MD5" != "$REMOTE_MUNGE_MD5" ]]; then
+            log_warn "munge.key 불일치 → 동기화"
+            # sudo cat으로 읽어서 원격에 전송
+            sudo cat "$MUNGE_KEY_LOCAL" | $SSH_CMD "$NODE_USER@$NODE_IP" "
+                cat > /tmp/munge.key.new
+                sudo cp /tmp/munge.key.new /etc/munge/munge.key
+                sudo chown munge:munge /etc/munge/munge.key
+                sudo chmod 400 /etc/munge/munge.key
+                rm -f /tmp/munge.key.new
+            " 2>/dev/null
+            log_ok "munge.key 동기화 완료"
         else
-            log_warn "하드웨어 스펙 조회 실패"
+            log_ok "munge.key 일치"
         fi
     fi
 
@@ -493,7 +506,42 @@ EOFHW
 
     if [[ "$SLURMD_RESULT" == "active" ]]; then
         log_ok "slurmd 실행 중"
-        FIXED_NODES="$FIXED_NODES $NODE_NAME"
+
+        # ── 6. 즉시 state resume 시도 + 검증 ──
+        sleep 2
+        sudo $SCONTROL update NodeName="$NODE_NAME" State=RESUME Reason="fix_all_nodes.sh" 2>/dev/null || true
+        sleep 1
+        # DRAIN이면 IDLE로 강제
+        CUR_STATE=$(sudo $SCONTROL show node "$NODE_NAME" 2>/dev/null | grep -oP 'State=\K\S+' || echo "")
+        if echo "$CUR_STATE" | grep -qiE "DRAIN|INVALID|INVAL"; then
+            sudo $SCONTROL update NodeName="$NODE_NAME" State=UNDRAIN 2>/dev/null || true
+            sudo $SCONTROL update NodeName="$NODE_NAME" State=IDLE 2>/dev/null || true
+            sleep 1
+            CUR_STATE=$(sudo $SCONTROL show node "$NODE_NAME" 2>/dev/null | grep -oP 'State=\K\S+' || echo "")
+        fi
+
+        # idle* 확인 → slurmd -C로 강제 등록 재시도
+        if echo "$CUR_STATE" | grep -q '\*'; then
+            log_warn "여전히 $CUR_STATE → slurmd 재등록 시도"
+            $SSH_CMD "$NODE_USER@$NODE_IP" "
+                sudo systemctl stop slurmd 2>/dev/null
+                sudo pkill -9 slurmd 2>/dev/null
+                sleep 1
+                sudo systemctl start slurmd 2>/dev/null
+            " 2>/dev/null
+            sleep 3
+            sudo $SCONTROL update NodeName="$NODE_NAME" State=RESUME 2>/dev/null || true
+            sleep 1
+            CUR_STATE=$(sudo $SCONTROL show node "$NODE_NAME" 2>/dev/null | grep -oP 'State=\K\S+' || echo "")
+        fi
+
+        if echo "$CUR_STATE" | grep -qiE "^IDLE$|^ALLOCATED|^MIXED|^COMPLETING"; then
+            log_ok "최종 상태: $CUR_STATE"
+            FIXED_NODES="$FIXED_NODES $NODE_NAME"
+        else
+            log_warn "최종 상태: $CUR_STATE (비정상 잔류)"
+            FIXED_NODES="$FIXED_NODES $NODE_NAME"
+        fi
     else
         log_fail "slurmd 시작 실패"
         # 실패 원인 표시
