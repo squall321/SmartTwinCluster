@@ -205,6 +205,159 @@ while read -r NODE_NAME NODE_STATE; do
     fi
     log_ok "SSH 접속 성공"
 
+    # ── 1.5a. 시간 동기화 확인 및 수정 ──
+    log_info "시간 동기화 확인 중..."
+    LOCAL_TIME=$(date +%s)
+    REMOTE_TIME=$($SSH_CMD "$NODE_USER@$NODE_IP" "date +%s" 2>/dev/null || echo "0")
+    if [[ "$REMOTE_TIME" != "0" ]]; then
+        TIME_DIFF=$(( LOCAL_TIME - REMOTE_TIME ))
+        [[ $TIME_DIFF -lt 0 ]] && TIME_DIFF=$(( -TIME_DIFF ))
+        if [[ $TIME_DIFF -gt 60 ]]; then
+            log_warn "시간차 ${TIME_DIFF}초 → 동기화 시도"
+            # 헤드노드 시간으로 강제 설정
+            CURRENT_DATETIME=$(date '+%Y-%m-%d %H:%M:%S')
+            $SSH_CMD "$NODE_USER@$NODE_IP" "
+                sudo timedatectl set-ntp false 2>/dev/null
+                sudo date -s '$CURRENT_DATETIME' >/dev/null 2>&1
+                sudo timedatectl set-ntp true 2>/dev/null
+                sudo hwclock --systohc 2>/dev/null
+            " 2>/dev/null
+            # 재확인
+            REMOTE_TIME2=$($SSH_CMD "$NODE_USER@$NODE_IP" "date +%s" 2>/dev/null || echo "0")
+            LOCAL_TIME2=$(date +%s)
+            NEW_DIFF=$(( LOCAL_TIME2 - REMOTE_TIME2 ))
+            [[ $NEW_DIFF -lt 0 ]] && NEW_DIFF=$(( -NEW_DIFF ))
+            if [[ $NEW_DIFF -le 5 ]]; then
+                log_ok "시간 동기화 완료 (차이: ${NEW_DIFF}초)"
+            else
+                log_warn "시간 동기화 불완전 (차이: ${NEW_DIFF}초) — NTP 서버 확인 필요"
+            fi
+        else
+            log_ok "시간 동기화 정상 (차이: ${TIME_DIFF}초)"
+        fi
+    else
+        log_warn "원격 시간 조회 실패"
+    fi
+
+    # ── 1.5b. 방화벽 확인 및 Slurm 포트 개방 ──
+    log_info "방화벽 확인 중..."
+    FW_RESULT=$($SSH_CMD "$NODE_USER@$NODE_IP" bash << 'EOFFW'
+FIXED=0
+# ufw 확인
+if command -v ufw &>/dev/null; then
+    UFW_STATUS=$(sudo ufw status 2>/dev/null | head -1)
+    if echo "$UFW_STATUS" | grep -qi "active"; then
+        # Slurm 포트 개방 (6817: slurmctld, 6818: slurmd, 6819: slurmdbd)
+        sudo ufw allow 6817:6819/tcp >/dev/null 2>&1
+        # Munge
+        sudo ufw allow 6818/tcp >/dev/null 2>&1
+        echo "UFW:OPENED"
+        FIXED=1
+    else
+        echo "UFW:INACTIVE"
+    fi
+else
+    echo "UFW:NONE"
+fi
+# iptables 확인 (ufw 없을 때)
+if [[ $FIXED -eq 0 ]] && command -v iptables &>/dev/null; then
+    # Slurm 포트가 DROP/REJECT 되는지 확인
+    BLOCKED=$(sudo iptables -L INPUT -n 2>/dev/null | grep -E "DROP|REJECT" | grep -c "681[789]" || echo "0")
+    if [[ "$BLOCKED" -gt 0 ]]; then
+        sudo iptables -I INPUT -p tcp --dport 6817:6819 -j ACCEPT 2>/dev/null
+        echo "IPTABLES:OPENED"
+    else
+        echo "IPTABLES:OK"
+    fi
+fi
+EOFFW
+)
+    case "$FW_RESULT" in
+        *UFW:OPENED*)    log_ok "UFW 방화벽 — Slurm 포트 개방 완료" ;;
+        *UFW:INACTIVE*)  log_ok "UFW 비활성 — 차단 없음" ;;
+        *IPTABLES:OPENED*) log_ok "iptables — Slurm 포트 개방 완료" ;;
+        *IPTABLES:OK*)   log_ok "iptables — Slurm 포트 차단 없음" ;;
+        *)               log_ok "방화벽 없음 또는 차단 없음" ;;
+    esac
+
+    # ── 1.5c. /etc/hosts 확인 및 수정 ──
+    log_info "/etc/hosts 확인 중..."
+    # 헤드노드의 /etc/hosts에서 클러스터 노드 엔트리 수집
+    HOSTS_ENTRIES=$(python3 << EOPY2
+import yaml, json
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+entries = []
+for section in ['controllers', 'compute_nodes', 'viz_nodes']:
+    for n in config.get('nodes', {}).get(section, []):
+        entries.append(f"{n['ip_address']} {n['hostname']}")
+# 중복 제거
+seen = set()
+for e in entries:
+    if e not in seen:
+        seen.add(e)
+        print(e)
+EOPY2
+)
+    # 노드의 /etc/hosts에 누락된 엔트리 추가
+    HOSTS_MISSING=$($SSH_CMD "$NODE_USER@$NODE_IP" bash << EOFHOSTS
+MISSING=0
+while IFS= read -r entry; do
+    IP=\$(echo "\$entry" | awk '{print \$1}')
+    HOST=\$(echo "\$entry" | awk '{print \$2}')
+    if ! grep -q "\$HOST" /etc/hosts 2>/dev/null; then
+        echo "\$entry" | sudo tee -a /etc/hosts >/dev/null
+        MISSING=\$((MISSING+1))
+    fi
+done << 'INNEREOF'
+$HOSTS_ENTRIES
+INNEREOF
+echo "\$MISSING"
+EOFHOSTS
+)
+    HOSTS_MISSING=$(echo "$HOSTS_MISSING" | tail -1)
+    if [[ "$HOSTS_MISSING" -gt 0 ]] 2>/dev/null; then
+        log_ok "/etc/hosts에 ${HOSTS_MISSING}개 엔트리 추가"
+    else
+        log_ok "/etc/hosts 정상"
+    fi
+
+    # ── 1.5d. slurm 유저 UID/GID 확인 및 수정 ──
+    log_info "slurm 유저 UID/GID 확인 중..."
+    LOCAL_SLURM_ID=$(id slurm 2>/dev/null || echo "")
+    if [[ -n "$LOCAL_SLURM_ID" ]]; then
+        LOCAL_UID=$(echo "$LOCAL_SLURM_ID" | grep -oP 'uid=\K[0-9]+')
+        LOCAL_GID=$(echo "$LOCAL_SLURM_ID" | grep -oP 'gid=\K[0-9]+')
+
+        REMOTE_SLURM_ID=$($SSH_CMD "$NODE_USER@$NODE_IP" "id slurm 2>/dev/null || echo 'NOUSER'" 2>/dev/null)
+
+        if [[ "$REMOTE_SLURM_ID" == "NOUSER" ]]; then
+            log_warn "slurm 유저 없음 → 생성 중 (uid=$LOCAL_UID, gid=$LOCAL_GID)"
+            $SSH_CMD "$NODE_USER@$NODE_IP" "
+                sudo groupadd -g $LOCAL_GID slurm 2>/dev/null || true
+                sudo useradd -u $LOCAL_UID -g $LOCAL_GID -r -s /usr/sbin/nologin slurm 2>/dev/null || true
+            " 2>/dev/null
+            log_ok "slurm 유저 생성 완료"
+        else
+            REMOTE_UID=$(echo "$REMOTE_SLURM_ID" | grep -oP 'uid=\K[0-9]+')
+            REMOTE_GID=$(echo "$REMOTE_SLURM_ID" | grep -oP 'gid=\K[0-9]+')
+
+            if [[ "$LOCAL_UID" != "$REMOTE_UID" ]] || [[ "$LOCAL_GID" != "$REMOTE_GID" ]]; then
+                log_warn "UID/GID 불일치 (로컬: $LOCAL_UID/$LOCAL_GID, 원격: $REMOTE_UID/$REMOTE_GID) → 수정 중"
+                $SSH_CMD "$NODE_USER@$NODE_IP" "
+                    sudo systemctl stop slurmd 2>/dev/null || true
+                    sudo usermod -u $LOCAL_UID slurm 2>/dev/null || true
+                    sudo groupmod -g $LOCAL_GID slurm 2>/dev/null || true
+                    sudo chown -R slurm:slurm /var/spool/slurm /var/log/slurm /run/slurm 2>/dev/null || true
+                    sudo chown -R slurm:slurm /usr/local/slurm/etc 2>/dev/null || true
+                " 2>/dev/null
+                log_ok "UID/GID 수정 완료 ($LOCAL_UID/$LOCAL_GID)"
+            else
+                log_ok "slurm UID/GID 일치 ($LOCAL_UID/$LOCAL_GID)"
+            fi
+        fi
+    fi
+
     # ── 2. INVALID_REG 대응: 실제 하드웨어 스펙 조회 → slurm.conf 자동 수정 ──
     if echo "$NODE_STATE" | grep -qi "INVALID_REG"; then
         log_info "INVALID_REG 감지 → 실제 하드웨어 스펙 조회 중..."
