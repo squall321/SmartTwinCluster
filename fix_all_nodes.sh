@@ -370,13 +370,24 @@ TOTAL_CPUS=$((SOCKETS * CORES * THREADS))
 TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 TOTAL_MEM_MB=$((TOTAL_MEM_KB / 1024))
 SLURM_MEM=$((TOTAL_MEM_MB * 95 / 100))
-echo "$TOTAL_CPUS|$SOCKETS|$CORES|$THREADS|$SLURM_MEM|$TOTAL_MEM_MB"
+# GPU 감지
+GPU_COUNT=0
+GPU_TYPE="generic"
+if command -v nvidia-smi &>/dev/null; then
+    GPU_COUNT=$(nvidia-smi --query-gpu=count --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "0")
+    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "")
+    if [[ -n "$GPU_NAME" ]]; then
+        # GPU 이름을 Slurm-safe 형태로 변환 (소문자, 공백/특수문자 제거)
+        GPU_TYPE=$(echo "$GPU_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/nvidia //g; s/geforce //g; s/ /_/g; s/[^a-z0-9_]//g')
+    fi
+fi
+echo "$TOTAL_CPUS|$SOCKETS|$CORES|$THREADS|$SLURM_MEM|$TOTAL_MEM_MB|$GPU_COUNT|$GPU_TYPE"
 EOFHW
 )
 
     if [[ -n "$HW_INFO" ]]; then
-        IFS='|' read -r REAL_CPUS REAL_SOCKETS REAL_CORES REAL_THREADS REAL_MEM TOTAL_MEM <<< "$HW_INFO"
-        log_info "실제 스펙: CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS Cores=$REAL_CORES Threads=$REAL_THREADS Mem=${TOTAL_MEM}MB"
+        IFS='|' read -r REAL_CPUS REAL_SOCKETS REAL_CORES REAL_THREADS REAL_MEM TOTAL_MEM REAL_GPU_COUNT REAL_GPU_TYPE <<< "$HW_INFO"
+        log_info "실제 스펙: CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS Cores=$REAL_CORES Threads=$REAL_THREADS Mem=${TOTAL_MEM}MB GPU=${REAL_GPU_COUNT}x${REAL_GPU_TYPE}"
 
         CURRENT_LINE=$(grep "^NodeName=$NODE_NAME " "$SLURM_CONF" 2>/dev/null)
         if [[ -n "$CURRENT_LINE" ]]; then
@@ -385,24 +396,48 @@ EOFHW
             CONF_CORES=$(echo "$CURRENT_LINE" | grep -oP 'CoresPerSocket=\K[0-9]+')
             CONF_THREADS=$(echo "$CURRENT_LINE" | grep -oP 'ThreadsPerCore=\K[0-9]+')
             CONF_MEM=$(echo "$CURRENT_LINE" | grep -oP 'RealMemory=\K[0-9]+')
+            CONF_GRES=$(echo "$CURRENT_LINE" | grep -oP 'Gres=\K[^ ]+' || echo "")
+            # slurm.conf의 GPU 카운트 추출 (Gres=gpu:type:N 또는 Gres=gpu:N)
+            CONF_GPU_COUNT=0
+            if [[ -n "$CONF_GRES" ]]; then
+                CONF_GPU_COUNT=$(echo "$CONF_GRES" | grep -oP 'gpu[^,]*:(\w+:)?(\d+)' | grep -oP '\d+$' || echo "0")
+                [[ -z "$CONF_GPU_COUNT" ]] && CONF_GPU_COUNT=0
+            fi
 
-            log_info "설정 스펙: CPUs=$CONF_CPUS Sockets=$CONF_SOCKETS Cores=$CONF_CORES Threads=$CONF_THREADS Mem=${CONF_MEM}MB"
+            log_info "설정 스펙: CPUs=$CONF_CPUS Sockets=$CONF_SOCKETS Cores=$CONF_CORES Threads=$CONF_THREADS Mem=${CONF_MEM}MB Gres=${CONF_GRES:-없음}(GPU=${CONF_GPU_COUNT})"
+
+            # GPU 수 불일치 확인
+            GPU_MISMATCH=false
+            REAL_GPU_COUNT=${REAL_GPU_COUNT:-0}
+            if [[ "$REAL_GPU_COUNT" != "$CONF_GPU_COUNT" ]]; then
+                GPU_MISMATCH=true
+                log_warn "GPU 수 불일치: 실제=${REAL_GPU_COUNT} vs 설정=${CONF_GPU_COUNT}"
+            fi
 
             if [[ "$REAL_CPUS" != "$CONF_CPUS" ]] || \
                [[ "$REAL_SOCKETS" != "$CONF_SOCKETS" ]] || \
                [[ "$REAL_CORES" != "$CONF_CORES" ]] || \
                [[ "$REAL_THREADS" != "$CONF_THREADS" ]] || \
-               [[ "$REAL_MEM" -ne "$CONF_MEM" && "$TOTAL_MEM" -ne "$CONF_MEM" ]]; then
+               [[ "$REAL_MEM" -ne "$CONF_MEM" && "$TOTAL_MEM" -ne "$CONF_MEM" ]] || \
+               [[ "$GPU_MISMATCH" == true ]]; then
 
                 log_warn "스펙 불일치 → slurm.conf 자동 수정"
 
                 NODE_ADDR=$(echo "$CURRENT_LINE" | grep -oP 'NodeAddr=\K[^ ]+')
-                NODE_GRES=$(echo "$CURRENT_LINE" | grep -oP 'Gres=\K[^ ]+' || echo "")
 
-                NEW_LINE="NodeName=$NODE_NAME NodeAddr=$NODE_ADDR CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS CoresPerSocket=$REAL_CORES ThreadsPerCore=$REAL_THREADS RealMemory=$REAL_MEM State=UNKNOWN"
-                if [[ -n "$NODE_GRES" ]]; then
-                    NEW_LINE="NodeName=$NODE_NAME NodeAddr=$NODE_ADDR CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS CoresPerSocket=$REAL_CORES ThreadsPerCore=$REAL_THREADS RealMemory=$REAL_MEM Gres=$NODE_GRES State=UNKNOWN"
+                # GPU Gres 결정: 실제 GPU 수 기반
+                REAL_GPU_TYPE=${REAL_GPU_TYPE:-generic}
+                if [[ "$REAL_GPU_COUNT" -gt 0 ]]; then
+                    NODE_GRES="gpu:${REAL_GPU_TYPE}:${REAL_GPU_COUNT}"
+                else
+                    NODE_GRES=""
                 fi
+
+                NEW_LINE="NodeName=$NODE_NAME NodeAddr=$NODE_ADDR CPUs=$REAL_CPUS Sockets=$REAL_SOCKETS CoresPerSocket=$REAL_CORES ThreadsPerCore=$REAL_THREADS RealMemory=$REAL_MEM"
+                if [[ -n "$NODE_GRES" ]]; then
+                    NEW_LINE="$NEW_LINE Gres=$NODE_GRES"
+                fi
+                NEW_LINE="$NEW_LINE State=UNKNOWN"
 
                 for conf in /etc/slurm/slurm.conf /usr/local/slurm/etc/slurm.conf /opt/slurm/etc/slurm.conf; do
                     if [[ -f "$conf" ]]; then
@@ -412,6 +447,19 @@ EOFHW
 
                 log_ok "slurm.conf 수정 완료"
                 SLURM_CONF_MODIFIED=true
+
+                # GPU Gres 변경 시 gres.conf도 업데이트
+                if [[ "$GPU_MISMATCH" == true ]] && [[ "$REAL_GPU_COUNT" -gt 0 ]]; then
+                    log_info "gres.conf 업데이트 중..."
+                    for gres_conf in /etc/slurm/gres.conf /usr/local/slurm/etc/gres.conf; do
+                        if [[ -f "$gres_conf" ]]; then
+                            # 해당 노드의 기존 gres.conf 항목 제거 후 추가
+                            sudo sed -i "/NodeName=$NODE_NAME /d" "$gres_conf"
+                            echo "NodeName=$NODE_NAME Name=gpu Type=$REAL_GPU_TYPE File=/dev/nvidia[0-$((REAL_GPU_COUNT-1))]" | sudo tee -a "$gres_conf" >/dev/null
+                        fi
+                    done
+                    log_ok "gres.conf 업데이트 완료 (gpu:${REAL_GPU_TYPE}:${REAL_GPU_COUNT})"
+                fi
             else
                 log_ok "스펙 일치 — slurm.conf 수정 불필요"
             fi
