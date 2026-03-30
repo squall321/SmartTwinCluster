@@ -40,7 +40,12 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/my_multihead_cluster.yaml"
-PACKAGE_DIR="${PROJECT_ROOT}/offline_packages"
+
+# OS 감지 및 오프라인 패키지 디렉토리 자동 선택
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+PACKAGE_DIR="$OFFLINE_PKG_DIR"
 SPECIFIC_NODE=""
 PARALLEL=3
 DRY_RUN=false
@@ -64,6 +69,26 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# SSH with retry and exponential backoff
+ssh_with_retry() {
+    local max_retries=5
+    local delay=2
+    local attempt=1
+    while [[ $attempt -le $max_retries ]]; do
+        if "$@" ; then
+            return 0
+        fi
+        if [[ $attempt -eq $max_retries ]]; then
+            return 1
+        fi
+        log_warning "SSH attempt $attempt/$max_retries failed, retrying in ${delay}s..."
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        attempt=$(( attempt + 1 ))
+    done
+    return 1
+}
 
 # 도움말
 show_help() {
@@ -312,8 +337,8 @@ deploy_to_node() {
         scp_cmd="sshpass -e scp -o StrictHostKeyChecking=no"
     fi
 
-    if ! $ssh_cmd -o ConnectTimeout=5 "$node_user@$node_ip" "echo OK" &>/dev/null; then
-        log_error "[$node_hostname] SSH connection failed"
+    if ! ssh_with_retry $ssh_cmd -o ConnectTimeout=5 "$node_user@$node_ip" "echo OK" &>/dev/null; then
+        log_error "[$node_hostname] SSH connection failed after retries"
         return 1
     fi
 
@@ -932,8 +957,8 @@ else
         echo "  Falling back to direct dpkg install..."
 
         # Fallback: dpkg 직접 설치
-        APPTAINER_DEB="$PKG_DIR/apt_packages/apptainer_1.4.5-1~jammy_amd64.deb"
-        if [[ -f "$APPTAINER_DEB" ]]; then
+        APPTAINER_DEB=$(ls "$PKG_DIR"/apt_packages/apptainer_*.deb 2>/dev/null | head -1)
+        if [[ -n "$APPTAINER_DEB" && -f "$APPTAINER_DEB" ]]; then
             if run_sudo dpkg -i "$APPTAINER_DEB" 2>/dev/null || run_sudo apt-get install -f -y; then
                 VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
                 echo "  ✓ apptainer installed via dpkg: $VERSION"

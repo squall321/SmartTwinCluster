@@ -604,6 +604,7 @@ create_tarball() {
     local TARBALL_NAME="slurm-${SLURM_VERSION}-prebuilt.tar.gz"
     local TARBALL_PATH="${OUTPUT_DIR}/${TARBALL_NAME}"
 
+    mkdir -p "$OUTPUT_DIR"
     cd "$BUILD_DIR"
 
     tar -czf "$TARBALL_PATH" -C staging .

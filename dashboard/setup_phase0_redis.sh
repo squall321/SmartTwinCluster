@@ -12,8 +12,8 @@ echo "=== Phase 0: Redis 설치 및 설정 ==="
 echo
 
 # Ubuntu 버전 확인
-if ! grep -q "Ubuntu 22.04" /etc/os-release 2>/dev/null; then
-    echo -e "${YELLOW}⚠${NC} 이 스크립트는 Ubuntu 22.04용으로 작성되었습니다."
+if ! grep -qE "Ubuntu (22\.04|24\.04)" /etc/os-release 2>/dev/null; then
+    echo -e "${YELLOW}⚠${NC} 이 스크립트는 Ubuntu 22.04/24.04용으로 작성되었습니다."
 fi
 
 # Redis 설치 확인

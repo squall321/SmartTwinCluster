@@ -356,7 +356,7 @@ class OfflinePackageManager:
         
         if os_type in ['centos', 'centos7', 'centos8', 'centos9', 'rhel', 'rhel7', 'rhel8', 'rhel9']:
             return self._install_rpm_offline(hostname, remote_dir)
-        elif os_type in ['ubuntu', 'ubuntu18', 'ubuntu20', 'ubuntu22']:
+        elif os_type in ['ubuntu', 'ubuntu18', 'ubuntu20', 'ubuntu22', 'ubuntu24']:
             return self._install_deb_offline(hostname, remote_dir)
         else:
             print(f"  ❌ 지원하지 않는 OS: {os_type}")

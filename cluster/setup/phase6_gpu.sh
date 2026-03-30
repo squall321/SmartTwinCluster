@@ -22,6 +22,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+
 CONFIG_PATH=""
 DRY_RUN=false
 NVIDIA_ONLY=false
@@ -210,7 +216,7 @@ install_nvidia_driver() {
     local user="$2"
     local hostname="$3"
 
-    local gpu_pkg_dir="$PROJECT_ROOT/offline_packages/gpu/nvidia"
+    local gpu_pkg_dir="${OFFLINE_PKG_DIR}/gpu/nvidia"
 
     # 이미 설치되어 있는지 확인
     if check_nvidia_installed "$ip" "$user"; then
@@ -257,7 +263,8 @@ install_nvidia_driver() {
                     return 1
                 }
 
-                ssh -o ConnectTimeout=300 "$user@$ip" "
+                # GPU 드라이버 설치는 10분+ 소요 가능 — 1200초 타임아웃
+                timeout 1200 ssh -o ConnectTimeout=30 -o ServerAliveInterval=60 -o ServerAliveCountMax=20 "$user@$ip" "
                     sudo bash /tmp/$(basename $run_file) --silent --no-questions --ui=none 2>&1
                     rm -f /tmp/$(basename $run_file)
                 "
@@ -373,7 +380,7 @@ install_rocm_driver() {
     local user="$2"
     local hostname="$3"
 
-    local gpu_pkg_dir="$PROJECT_ROOT/offline_packages/gpu/rocm"
+    local gpu_pkg_dir="${OFFLINE_PKG_DIR}/gpu/rocm"
 
     # 이미 설치되어 있는지 확인
     if check_rocm_installed "$ip" "$user"; then
@@ -398,7 +405,7 @@ install_rocm_driver() {
         else
             ssh -o ConnectTimeout=30 "$user@$ip" "
                 # ROCm 저장소 추가 및 설치
-                wget -q https://repo.radeon.com/amdgpu-install/6.0.2/ubuntu/jammy/amdgpu-install_6.0.60002-1_all.deb -O /tmp/amdgpu-install.deb
+                wget -q https://repo.radeon.com/amdgpu-install/6.0.2/ubuntu/${OS_CODENAME}/amdgpu-install_6.0.60002-1_all.deb -O /tmp/amdgpu-install.deb
                 dpkg -i /tmp/amdgpu-install.deb
                 amdgpu-install --usecase=rocm --no-dkms -y
                 rm -f /tmp/amdgpu-install.deb

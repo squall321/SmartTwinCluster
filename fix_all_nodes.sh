@@ -21,6 +21,14 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SSH_TIMEOUT=5
 
+# Prevent concurrent execution
+LOCK_FILE="/var/run/fix_all_nodes.lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo "ERROR: Another instance of fix_all_nodes.sh is already running."
+    exit 1
+fi
+
 # 색상
 RED='\033[0;31m'
 GREEN='\033[0;32m'

@@ -16,6 +16,12 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# OS 감지
+SCRIPT_DIR_DETECT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT_DETECT="$(cd "$SCRIPT_DIR_DETECT/../.." && pwd)"
+source "${PROJECT_ROOT_DETECT}/cluster/utils/detect_os.sh"
+detect_os_version
+
 # Configuration
 VNC_IMAGES_DIR="/home/koopark/claude/KooSlurmInstallAutomationRefactory/apptainer/viz-node-images"
 OUTPUT_DIR="/opt/apptainers"
@@ -116,7 +122,16 @@ for vnc_sif in "${!IMAGE_MAP[@]}"; do
     # Install Sunshine into sandbox
     print_info "Step 2: Installing Sunshine..."
 
-    apptainer exec --writable "$SANDBOX" /bin/bash <<'INSTALL_SUNSHINE'
+    # OS 버전에 따라 종속 패키지 버전 결정
+    if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
+        AVCODEC="libavcodec60"; AVFORMAT="libavformat60"; AVUTIL="libavutil58"; SWSCALE="libswscale7"
+        BOOST_VER="1.83.0"; SUNSHINE_OS="ubuntu-24.04"
+    else
+        AVCODEC="libavcodec58"; AVFORMAT="libavformat58"; AVUTIL="libavutil56"; SWSCALE="libswscale5"
+        BOOST_VER="1.74.0"; SUNSHINE_OS="ubuntu-22.04"
+    fi
+
+    apptainer exec --writable "$SANDBOX" /bin/bash <<INSTALL_SUNSHINE
 #!/bin/bash
 set -e
 
@@ -129,14 +144,14 @@ apt-get update
 apt-get install -y \
     wget \
     libssl3 \
-    libavcodec58 \
-    libavformat58 \
-    libavutil56 \
-    libswscale5 \
-    libboost-filesystem1.74.0 \
-    libboost-log1.74.0 \
-    libboost-program-options1.74.0 \
-    libboost-thread1.74.0 \
+    ${AVCODEC} \
+    ${AVFORMAT} \
+    ${AVUTIL} \
+    ${SWSCALE} \
+    libboost-filesystem${BOOST_VER} \
+    libboost-log${BOOST_VER} \
+    libboost-program-options${BOOST_VER} \
+    libboost-thread${BOOST_VER} \
     libpulse0 \
     libopus0 \
     libevdev2 \
@@ -152,7 +167,7 @@ apt-get install -y \
 # Download and install Sunshine
 SUNSHINE_VERSION="0.23.1"
 wget -O /tmp/sunshine.deb \
-    https://github.com/LizardByte/Sunshine/releases/download/v${SUNSHINE_VERSION}/sunshine-ubuntu-22.04-amd64.deb
+    https://github.com/LizardByte/Sunshine/releases/download/v\${SUNSHINE_VERSION}/sunshine-${SUNSHINE_OS}-amd64.deb
 
 apt-get install -y /tmp/sunshine.deb || {
     echo "Trying with --fix-broken..."
@@ -168,7 +183,7 @@ if ! command -v sunshine &> /dev/null; then
     exit 1
 fi
 
-echo "Sunshine installed: $(sunshine --version 2>&1 | head -1)"
+echo "Sunshine installed: \$(sunshine --version 2>&1 | head -1)"
 
 # Clean up
 apt-get clean

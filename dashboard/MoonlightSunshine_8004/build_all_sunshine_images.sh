@@ -17,10 +17,20 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# OS 감지
+SCRIPT_DIR_DETECT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT_DETECT="$(cd "$SCRIPT_DIR_DETECT/../.." && pwd)"
+source "${PROJECT_ROOT_DETECT}/cluster/utils/detect_os.sh"
+detect_os_version
+
 # Configuration
 BASE_DIR="/opt/apptainers"
 SUNSHINE_VERSION="v0.23.1"
-SUNSHINE_URL="https://github.com/LizardByte/Sunshine/releases/download/${SUNSHINE_VERSION}/sunshine-ubuntu-22.04-amd64.deb"
+if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
+    SUNSHINE_URL="https://github.com/LizardByte/Sunshine/releases/download/${SUNSHINE_VERSION}/sunshine-ubuntu-24.04-amd64.deb"
+else
+    SUNSHINE_URL="https://github.com/LizardByte/Sunshine/releases/download/${SUNSHINE_VERSION}/sunshine-ubuntu-22.04-amd64.deb"
+fi
 TMP_DIR="/tmp/sunshine_build_$$"
 
 # VNC → Sunshine 이미지 매핑

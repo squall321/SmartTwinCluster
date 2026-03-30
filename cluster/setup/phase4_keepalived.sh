@@ -34,6 +34,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+
 CONFIG_FILE="${PROJECT_ROOT}/my_multihead_cluster.yaml"
 PARSER_SCRIPT="${PROJECT_ROOT}/cluster/config/parser.py"
 KEEPALIVED_TEMPLATE="${PROJECT_ROOT}/cluster/config/keepalived_template.conf"
@@ -273,7 +279,7 @@ install_keepalived() {
     log INFO "Installing Keepalived..."
 
     # Check for offline packages first
-    local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
+    local offline_pkgs="${OFFLINE_PKG_DIR}/apt_packages"
     local keepalived_deb="$offline_pkgs/keepalived_*.deb"
 
     if [[ -d "$offline_pkgs" ]] && compgen -G "$keepalived_deb" > /dev/null 2>&1; then
@@ -348,10 +354,18 @@ CHECK_SLURM={{CHECK_SLURM}}
 # Exit code (0 = all healthy)
 EXIT_CODE=0
 
+# TCP port check helper (timeout 2s)
+check_port() {
+    timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/$1" 2>/dev/null
+}
+
 # Check GlusterFS
 if [[ "$CHECK_GLUSTERFS" == "true" ]]; then
     if ! systemctl is-active --quiet glusterd; then
         echo "GlusterFS is not running"
+        EXIT_CODE=1
+    elif ! check_port 24007; then
+        echo "GlusterFS port 24007 not responding"
         EXIT_CODE=1
     fi
 fi
@@ -361,6 +375,9 @@ if [[ "$CHECK_MARIADB" == "true" ]]; then
     if ! systemctl is-active --quiet mariadb; then
         echo "MariaDB is not running"
         EXIT_CODE=1
+    elif ! check_port 3306; then
+        echo "MariaDB port 3306 not responding"
+        EXIT_CODE=1
     fi
 fi
 
@@ -369,6 +386,9 @@ if [[ "$CHECK_REDIS" == "true" ]]; then
     if ! systemctl is-active --quiet redis-server && ! systemctl is-active --quiet redis; then
         echo "Redis is not running"
         EXIT_CODE=1
+    elif ! check_port 6379; then
+        echo "Redis port 6379 not responding"
+        EXIT_CODE=1
     fi
 fi
 
@@ -376,6 +396,9 @@ fi
 if [[ "$CHECK_SLURM" == "true" ]]; then
     if ! systemctl is-active --quiet slurmctld; then
         echo "Slurm controller is not running"
+        EXIT_CODE=1
+    elif ! check_port 6817; then
+        echo "Slurmctld port 6817 not responding"
         EXIT_CODE=1
     fi
 fi

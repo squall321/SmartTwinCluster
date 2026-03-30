@@ -166,8 +166,8 @@ fi
                 print(f"   오류: {stderr[:200]}")
         
         print("\n💡 사용 예시:")
-        print(f"   apptainer pull docker://ubuntu:22.04")
-        print(f"   apptainer run ubuntu_22.04.sif")
+        print(f"   apptainer pull docker://ubuntu:24.04")
+        print(f"   apptainer run ubuntu_24.04.sif")
         
         return True
     

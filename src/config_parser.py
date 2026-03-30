@@ -122,6 +122,8 @@ class ConfigParser:
             name = cluster_info['cluster_name']
             if not re.match(r'^[a-zA-Z0-9_-]+$', name):
                 self.errors.append("cluster_name에는 영문, 숫자, _, - 만 사용 가능")
+            if len(name) > 40:
+                self.errors.append(f"cluster_name이 너무 깁니다 ({len(name)}자, 최대 40자)")
         
         # 이메일 형식 검증
         if 'admin_email' in cluster_info:
@@ -176,7 +178,7 @@ class ConfigParser:
         
         # OS 타입 검증
         if 'os_type' in node:
-            valid_os = ['centos7', 'centos8', 'centos9', 'ubuntu18', 'ubuntu20', 'ubuntu22', 'rhel8', 'rhel9']
+            valid_os = ['centos7', 'centos8', 'centos9', 'ubuntu18', 'ubuntu20', 'ubuntu22', 'ubuntu24', 'rhel8', 'rhel9']
             if node['os_type'] not in valid_os:
                 self.errors.append(f"{node_path}.os_type이 지원되지 않음: {node['os_type']}. 지원 OS: {valid_os}")
         
@@ -265,6 +267,27 @@ class ConfigParser:
                     self.warnings.append("기본 파티션이 설정되지 않음")
                 elif default_partitions > 1:
                     self.errors.append("기본 파티션은 1개만 설정 가능")
+
+                # 파티션 노드가 실제 정의된 컴퓨트 노드인지 검증
+                defined_hostnames = set()
+                for node in self.config.get('nodes', {}).get('compute_nodes', []):
+                    if 'hostname' in node:
+                        defined_hostnames.add(node['hostname'])
+
+                if defined_hostnames:
+                    for partition in slurm['partitions']:
+                        pname = partition.get('name', '?')
+                        pnodes = partition.get('nodes', '')
+                        if isinstance(pnodes, str) and pnodes:
+                            # Slurm 노드 표현 (예: "node[01-04]") 은 복잡하므로
+                            # 단순 콤마 구분 목록만 검증
+                            if '[' not in pnodes:
+                                for n in pnodes.split(','):
+                                    n = n.strip()
+                                    if n and n not in defined_hostnames:
+                                        self.warnings.append(
+                                            f"파티션 '{pname}'의 노드 '{n}'가 compute_nodes에 정의되지 않음"
+                                        )
     
     def _validate_installation(self):
         """설치 방법 설정 검증"""

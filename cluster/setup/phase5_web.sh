@@ -40,6 +40,11 @@ readonly NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+
 # Default values
 CONFIG_PATH="$PROJECT_ROOT/my_multihead_cluster.yaml"
 DRY_RUN=false
@@ -317,6 +322,26 @@ stop_existing_services() {
         log_info "[DRY-RUN] Would stop nginx, redis, and backend services"
         log_info "[DRY-RUN] Would clean up existing HPC systemd services"
         log_info "[DRY-RUN] Would clean up duplicate Nginx configurations"
+    fi
+}
+
+# Pre-validate port conflicts (report only, no kill)
+preflight_port_check() {
+    local ports_to_check=(4430 4431 5000 5001 5010 5011 5173 5174 3000 3001 7000 8888 8889 8501 8502 9090 9100)
+    local conflicts=0
+
+    for port in "${ports_to_check[@]}"; do
+        local pid_info=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v "^State" | head -1)
+        if [[ -n "$pid_info" ]]; then
+            log_warning "Port $port already in use: $pid_info"
+            conflicts=$((conflicts + 1))
+        fi
+    done
+
+    if [[ $conflicts -gt 0 ]]; then
+        log_warning "$conflicts port conflict(s) detected. These will be stopped during setup."
+    else
+        log_success "No port conflicts detected"
     fi
 }
 
@@ -1407,19 +1432,24 @@ EOFPY
 setup_python_venvs() {
     local dashboard_dir=$1
     local project_root="$(dirname "$dashboard_dir")"
-    local wheels_base="${project_root}/offline_packages/python_wheels"
+    local wheels_base="${OFFLINE_PKG_DIR}/python_wheels"
 
     log_info "Setting up Python virtual environments for all services..."
 
     # Service to Python version mapping
     # Format: "service_name:python_version"
+    # 24.04(noble)에서는 Python 3.10이 없으므로 3.12로 통합
+    local py_legacy="3.10"
+    if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
+        py_legacy="3.12"
+    fi
     local service_python_map=(
-        "auth_portal_4430:3.10"
+        "auth_portal_4430:${py_legacy}"
         "backend_5010:3.12"
-        "websocket_5011:3.10"
+        "websocket_5011:${py_legacy}"
         "kooCAEWebServer_5000:3.13"
         "kooCAEWebAutomationServer_5001:3.13"
-        "MoonlightSunshine_8004/backend_moonlight_8004:3.10"
+        "MoonlightSunshine_8004/backend_moonlight_8004:${py_legacy}"
     )
 
     for mapping in "${service_python_map[@]}"; do
@@ -1595,7 +1625,7 @@ setup_jwt_authentication() {
                 # service_dir = /path/to/project/dashboard/service_name
                 # project_root = /path/to/project (2 levels up)
                 local project_root="$(dirname "$(dirname "$service_dir")")"
-                local wheels_dir="${project_root}/offline_packages/python_wheels"
+                local wheels_dir="${OFFLINE_PKG_DIR}/python_wheels"
                 local py_version=$(python --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "3.12")
                 local wheels_subdir="${wheels_dir}/python${py_version}"
 
@@ -1625,7 +1655,7 @@ setup_jwt_authentication() {
                         log_error "Expected offline wheels location: $wheels_subdir"
                         log_error "Please ensure offline packages are prepared:"
                         log_error "  1. Run download_python_wheels.sh on an online machine"
-                        log_error "  2. Copy offline_packages/ directory to the offline server"
+                        log_error "  2. Copy offline packages directory to the offline server"
                         echo ""
                         log_error "--- pip install output ---"
                         pip install -r requirements.txt 2>&1 | tail -50 || true
@@ -3609,6 +3639,7 @@ main() {
 
     check_root
     check_prerequisites
+    preflight_port_check        # Report port conflicts before taking action
     stop_existing_services      # Stop nginx, redis, and backend services first
     stop_manual_web_services
     load_config

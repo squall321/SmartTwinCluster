@@ -38,6 +38,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+
 CONFIG_FILE="${PROJECT_ROOT}/my_multihead_cluster.yaml"
 PARSER_SCRIPT="${PROJECT_ROOT}/cluster/config/parser.py"
 DISCOVERY_SCRIPT="${PROJECT_ROOT}/cluster/discovery/auto_discovery.sh"
@@ -159,7 +165,7 @@ run_command() {
 # Returns: 0 on success, 1 on failure
 install_offline_package() {
     local packages=("$@")
-    local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+    local offline_pkg_dir="${OFFLINE_PKG_DIR}/apt_packages"
 
     if [[ ! -d "$offline_pkg_dir" ]]; then
         log ERROR "Offline package directory not found: $offline_pkg_dir"
@@ -230,7 +236,7 @@ install_offline_package_remote() {
     local remote_ip="$2"
     shift 2
     local packages=("$@")
-    local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+    local offline_pkg_dir="${OFFLINE_PKG_DIR}/apt_packages"
     local remote_pkg_dir="/tmp/offline_packages"
     local repo_list="/etc/apt/sources.list.d/offline-local.list"
 
@@ -303,7 +309,7 @@ install_offline_package_remote() {
 setup_scp_offline_repo_remote() {
     local remote_user="$1"
     local remote_ip="$2"
-    local local_offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages"
+    local local_offline_pkg="${OFFLINE_PKG_DIR}/apt_packages"
     local remote_offline_pkg="/tmp/offline_packages"
     local repo_list="/etc/apt/sources.list.d/offline-local.list"
 
@@ -423,7 +429,7 @@ setup_glusterfs_offline_repo_remote() {
         log INFO "  Copying offline packages to GlusterFS..."
 
         # Copy from local offline_packages to GlusterFS if it doesn't exist
-        local local_offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages"
+        local local_offline_pkg="${OFFLINE_PKG_DIR}/apt_packages"
         if [[ -d "$local_offline_pkg" ]]; then
             mkdir -p "${GLUSTER_MOUNT}/offline_packages"
             rsync -a "$local_offline_pkg" "${GLUSTER_MOUNT}/offline_packages/" 2>/dev/null || {
@@ -479,7 +485,7 @@ setup_glusterfs_offline_repo_remote() {
 # This ensures all compute nodes can access offline packages
 sync_offline_packages_to_glusterfs() {
     local gluster_offline_pkg_path="${GLUSTER_MOUNT}/offline_packages/apt_packages"
-    local local_offline_pkg="${PROJECT_ROOT}/offline_packages/apt_packages"
+    local local_offline_pkg="${OFFLINE_PKG_DIR}/apt_packages"
 
     if [[ ! -d "$local_offline_pkg" ]]; then
         log WARNING "Local offline package directory not found: $local_offline_pkg"
@@ -1085,7 +1091,7 @@ EOFPATH
     # ============================================================================
     log INFO "소스 빌드 Slurm 23.x가 없습니다. 오프라인 프리빌드 패키지에서 설치합니다..."
 
-    local SLURM_PREBUILT_DIR="${PROJECT_ROOT}/offline_packages/slurm"
+    local SLURM_PREBUILT_DIR="${OFFLINE_PKG_DIR}/slurm"
     local SLURM_TARBALL=""
     local DEPLOY_SCRIPT=""
 
@@ -1584,7 +1590,7 @@ setup_munge() {
 
             if [[ "$munge_installed" == "no" ]]; then
                 log INFO "      Munge not installed on $ctrl_hostname, copying offline packages..."
-                local offline_pkg_dir="${PROJECT_ROOT}/offline_packages/apt_packages"
+                local offline_pkg_dir="${OFFLINE_PKG_DIR}/apt_packages"
                 local remote_pkg_dir="/tmp/munge_packages"
                 local repo_list="/etc/apt/sources.list.d/offline-munge.list"
 
@@ -2409,7 +2415,7 @@ EOFSLURMDBD
                 log ERROR "  apt/yum 패키지의 slurmdbd는 지원하지 않습니다."
                 log ERROR ""
                 log ERROR "  설치 방법:"
-                log ERROR "     cd ${PROJECT_ROOT}/offline_packages/slurm"
+                log ERROR "     cd ${OFFLINE_PKG_DIR}/slurm"
                 log ERROR "     tar -xzf slurm-23.11.10-prebuilt.tar.gz"
                 log ERROR "     sudo bash deploy_slurm.sh"
                 log ERROR ""
@@ -2980,7 +2986,7 @@ EOPY
         local install_log="/tmp/slurm_install_${hostname}.log"
 
         # Check for prebuilt Slurm package (preferred for offline environments)
-        local PREBUILT_TARBALL="${PROJECT_ROOT}/offline_packages/slurm/slurm-23.11.10-prebuilt.tar.gz"
+        local PREBUILT_TARBALL="$(ls ${OFFLINE_PKG_DIR}/slurm/slurm-*-prebuilt.tar.gz 2>/dev/null | head -1)"
         local use_prebuilt=false
 
         if [[ -f "$PREBUILT_TARBALL" ]]; then
@@ -3030,7 +3036,7 @@ EOPY
             log INFO "  Deploying prebuilt Slurm on $hostname..."
 
             # 최신 deploy_slurm.sh를 별도로 전송 (tar 안의 버전보다 우선)
-            local DEPLOY_SCRIPT="${PROJECT_ROOT}/offline_packages/slurm/deploy_slurm.sh"
+            local DEPLOY_SCRIPT="${OFFLINE_PKG_DIR}/slurm/deploy_slurm.sh"
             if [[ -f "$DEPLOY_SCRIPT" ]]; then
                 scp $SCP_OPTS "$DEPLOY_SCRIPT" "$ssh_user@$ip_address:/tmp/deploy_slurm_latest.sh" 2>/dev/null || true
             fi

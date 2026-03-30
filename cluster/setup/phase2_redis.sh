@@ -53,6 +53,12 @@ else
     DISCOVERY_SCRIPT="${PROJECT_ROOT}/cluster/discovery/auto_discovery.sh"
     REDIS_TEMPLATE="${PROJECT_ROOT}/cluster/config/redis_template.conf"
 fi
+
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+
 REDIS_CONFIG="/etc/redis/redis.conf"
 LOG_FILE="/var/log/cluster_redis_setup.log"
 
@@ -363,7 +369,7 @@ install_redis() {
     fi
 
     # Check for offline packages first
-    local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
+    local offline_pkgs="${OFFLINE_PKG_DIR}/apt_packages"
     local redis_deb="$offline_pkgs/redis-server_*.deb"
     local repo_list="/etc/apt/sources.list.d/offline-redis.list"
 
@@ -817,8 +823,12 @@ setup_sentinel() {
     local node1_ip=$(echo "$REDIS_CONTROLLERS" | jq -r '.[0].ip_address')
     local node2_ip=$(echo "$REDIS_CONTROLLERS" | jq -r '.[1].ip_address')
 
+    # Sentinel quorum = majority (n/2 + 1)
+    local sentinel_quorum=$(( TOTAL_REDIS_NODES / 2 + 1 ))
+
     log INFO "Node 1 (master): $node1_ip"
     log INFO "Node 2 (replica): $node2_ip"
+    log INFO "Sentinel quorum: $sentinel_quorum (total sentinels: $TOTAL_REDIS_NODES)"
 
     # Determine if current node is master or replica
     if [[ "$CURRENT_IP" == "$node1_ip" ]]; then
@@ -860,7 +870,7 @@ dir /var/lib/redis
 logfile /var/log/redis/sentinel.log
 
 # Monitor master
-sentinel monitor mymaster $node1_ip $REDIS_PORT 1
+sentinel monitor mymaster $node1_ip $REDIS_PORT $sentinel_quorum
 sentinel auth-pass mymaster $REDIS_PASSWORD
 sentinel down-after-milliseconds mymaster 5000
 sentinel parallel-syncs mymaster 1

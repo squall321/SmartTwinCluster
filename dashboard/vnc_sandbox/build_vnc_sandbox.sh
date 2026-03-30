@@ -6,7 +6,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEF_FILE="$SCRIPT_DIR/vnc_desktop.def"
+
+# OS 감지 — 24.04이면 _2404.def 사용
+PROJECT_ROOT_DETECT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "${PROJECT_ROOT_DETECT}/cluster/utils/detect_os.sh"
+detect_os_version
+
+if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
+    DEF_FILE="$SCRIPT_DIR/vnc_desktop_2404.def"
+else
+    DEF_FILE="$SCRIPT_DIR/vnc_desktop.def"
+fi
 SANDBOX_DIR="/scratch/apptainer_sandboxes/vnc_desktop"
 LOG_FILE="$SCRIPT_DIR/build.log"
 

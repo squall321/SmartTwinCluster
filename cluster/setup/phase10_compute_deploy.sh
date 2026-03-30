@@ -42,6 +42,11 @@ readonly NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+
 # Default values
 CONFIG_PATH=""
 SPECIFIC_NODE=""
@@ -60,6 +65,26 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${RED}[ERROR]${NC} $1"; }
 log_phase() { echo -e "${CYAN}[PHASE 10]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${CYAN}[PHASE 10]${NC} $1"; }
+
+# SSH with retry and exponential backoff
+ssh_with_retry() {
+    local max_retries=5
+    local delay=2
+    local attempt=1
+    while [[ $attempt -le $max_retries ]]; do
+        if "$@" ; then
+            return 0
+        fi
+        if [[ $attempt -eq $max_retries ]]; then
+            return 1
+        fi
+        log_warning "SSH attempt $attempt/$max_retries failed, retrying in ${delay}s..."
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        attempt=$(( attempt + 1 ))
+    done
+    return 1
+}
 
 # Show help
 show_help() {
@@ -132,7 +157,7 @@ check_prerequisites() {
     fi
 
     # Check offline packages directory
-    local pkg_dir="$PROJECT_ROOT/offline_packages"
+    local pkg_dir="${OFFLINE_PKG_DIR}"
     if [[ ! -d "$pkg_dir" ]]; then
         log_error "Offline packages directory not found: $pkg_dir"
         log_error "Run package collection scripts first"
@@ -241,7 +266,7 @@ deploy_to_node() {
     local gluster_server="$4"
     local gluster_volume="$5"
     local gluster_mount="$6"
-    local pkg_dir="$PROJECT_ROOT/offline_packages"
+    local pkg_dir="${OFFLINE_PKG_DIR}"
 
     log_info "[$node_hostname] Starting deployment..."
 
@@ -264,9 +289,9 @@ deploy_to_node() {
         scp_cmd="sshpass -e scp -o StrictHostKeyChecking=no"
     fi
 
-    # Test SSH connection
-    if ! $ssh_cmd "$node_user@$node_ip" "echo OK" &>/dev/null; then
-        log_error "[$node_hostname] SSH connection failed"
+    # Test SSH connection with retry
+    if ! ssh_with_retry $ssh_cmd "$node_user@$node_ip" "echo OK" &>/dev/null; then
+        log_error "[$node_hostname] SSH connection failed after retries"
         return 1
     fi
     log_success "[$node_hostname] SSH connection OK"
@@ -320,14 +345,18 @@ deploy_to_node() {
         log_warning "[$node_hostname] Controller slurm.conf not found"
     fi
 
-    # Transfer munge.key from controller
+    # Transfer munge.key from controller (보안: /tmp 대신 직접 /etc/munge로 전송)
     log_info "[$node_hostname] Transferring munge.key from controller..."
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if /usr/bin/sudo test -f "$MUNGE_KEY_LOCAL"; then
-        $ssh_cmd "$node_user@$node_ip" 'mkdir -p $HOME/offline_packages/munge' || true
-        /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" 'cat > $HOME/offline_packages/munge/munge.key' || {
+        $ssh_cmd "$node_user@$node_ip" 'sudo mkdir -p /etc/munge && sudo chmod 700 /etc/munge' || true
+        /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" \
+            'sudo tee /etc/munge/munge.key > /dev/null && sudo chown munge:munge /etc/munge/munge.key && sudo chmod 400 /etc/munge/munge.key' || {
             log_warning "[$node_hostname] Failed to transfer munge.key"
         }
+        # deploy 스크립트용 백업 복사
+        $ssh_cmd "$node_user@$node_ip" 'mkdir -p $HOME/offline_packages/munge' || true
+        $ssh_cmd "$node_user@$node_ip" 'sudo cp /etc/munge/munge.key $HOME/offline_packages/munge/munge.key 2>/dev/null' || true
     else
         log_warning "[$node_hostname] Controller munge.key not found"
     fi
@@ -628,6 +657,16 @@ EOPY
 
     log_info "Total compute nodes: $total_nodes"
     log_info "GlusterFS: $gluster_server:/$gluster_volume -> $gluster_mount"
+
+    # Auto-scale parallelism for large clusters (cap at 10)
+    if [[ $total_nodes -gt 20 && $PARALLEL -lt 5 ]]; then
+        PARALLEL=5
+        log_info "Auto-scaled parallelism to $PARALLEL for $total_nodes nodes"
+    fi
+    if [[ $PARALLEL -gt 10 ]]; then
+        PARALLEL=10
+        log_warning "Capped parallelism at 10 to avoid SSH overload"
+    fi
     log_info "Parallel deployments: $PARALLEL"
 
     if [[ -n "$SPECIFIC_NODE" ]]; then
@@ -746,7 +785,7 @@ main() {
     setup_ssh_auth
 
     log_info "Config:       $CONFIG_PATH"
-    log_info "Package Dir:  $PROJECT_ROOT/offline_packages"
+    log_info "Package Dir:  ${OFFLINE_PKG_DIR}"
     log_info "Parallel:     $PARALLEL"
     log_info "Dry-run:      $DRY_RUN"
     echo ""

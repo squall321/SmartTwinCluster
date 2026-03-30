@@ -429,7 +429,7 @@ class OSManagerFactory:
         
         if os_type_lower in ['centos7', 'centos8', 'centos9', 'rhel7', 'rhel8', 'rhel9']:
             return CentOSManager(ssh_manager, hostname)
-        elif os_type_lower in ['ubuntu18', 'ubuntu20', 'ubuntu22']:
+        elif os_type_lower in ['ubuntu18', 'ubuntu20', 'ubuntu22', 'ubuntu24']:
             return UbuntuManager(ssh_manager, hostname)
         else:
             raise ValueError(f"지원하지 않는 OS 타입: {os_type}")

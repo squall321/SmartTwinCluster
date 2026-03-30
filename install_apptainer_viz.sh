@@ -9,11 +9,17 @@ echo "=========================================="
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APPTAINER_DEB="$SCRIPT_DIR/offline_packages/apt_packages/apptainer_1.4.5-1~jammy_amd64.deb"
+
+# OS 감지 및 오프라인 패키지 디렉토리 자동 선택
+source "${SCRIPT_DIR}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$SCRIPT_DIR"
+
+APPTAINER_DEB=$(ls "${OFFLINE_PKG_DIR}/apt_packages"/apptainer_*.deb 2>/dev/null | head -1)
 
 # apptainer 패키지 확인
-if [[ ! -f "$APPTAINER_DEB" ]]; then
-    echo "ERROR: apptainer 패키지를 찾을 수 없습니다: $APPTAINER_DEB"
+if [[ -z "$APPTAINER_DEB" || ! -f "$APPTAINER_DEB" ]]; then
+    echo "ERROR: apptainer 패키지를 찾을 수 없습니다: ${OFFLINE_PKG_DIR}/apt_packages/apptainer_*.deb"
     exit 1
 fi
 
@@ -116,7 +122,7 @@ for node in $VIZ_NODES; do
 
         # apptainer 설치
         echo "    dpkg로 설치 중..."
-        sudo dpkg -i /tmp/apptainer_1.4.5-1~jammy_amd64.deb 2>/dev/null || {
+        sudo dpkg -i /tmp/apptainer_*.deb 2>/dev/null || {
             echo "    의존성 문제 해결 중..."
             sudo apt-get install -f -y -qq
         }
@@ -131,7 +137,7 @@ for node in $VIZ_NODES; do
         fi
 
         # 임시 파일 삭제
-        rm -f /tmp/apptainer_1.4.5-1~jammy_amd64.deb
+        rm -f /tmp/apptainer_*.deb
 EOFREMOTE
 
     if [[ $? -eq 0 ]]; then

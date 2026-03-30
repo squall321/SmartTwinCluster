@@ -57,8 +57,8 @@ echo -e "${CYAN}========================================${NC}"
 echo
 
 # Ubuntu 버전 확인
-if ! grep -q "Ubuntu 22.04" /etc/os-release 2>/dev/null; then
-    echo -e "${YELLOW}⚠${NC} 이 스크립트는 Ubuntu 22.04용으로 작성되었습니다."
+if ! grep -qE "Ubuntu (22\.04|24\.04)" /etc/os-release 2>/dev/null; then
+    echo -e "${YELLOW}⚠${NC} 이 스크립트는 Ubuntu 22.04/24.04용으로 작성되었습니다."
     echo "다른 버전에서는 일부 명령이 작동하지 않을 수 있습니다."
 fi
 

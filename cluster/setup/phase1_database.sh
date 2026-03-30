@@ -53,6 +53,12 @@ else
     DISCOVERY_SCRIPT="${PROJECT_ROOT}/cluster/discovery/auto_discovery.sh"
     GALERA_TEMPLATE="${PROJECT_ROOT}/cluster/config/galera_template.cnf"
 fi
+
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+
 GALERA_CONFIG="/etc/mysql/mariadb.conf.d/60-galera.cnf"
 LOG_FILE="/var/log/cluster_database_setup.log"
 
@@ -349,19 +355,23 @@ detect_os() {
         exit 1
     fi
 
-    # Set Galera provider path based on OS
-    case $OS in
-        ubuntu|debian)
-            WSREP_PROVIDER="/usr/lib/galera/libgalera_smm.so"
-            ;;
-        centos|rhel|rocky|almalinux)
-            WSREP_PROVIDER="/usr/lib64/galera/libgalera_smm.so"
-            ;;
-        *)
-            log ERROR "Unsupported OS: $OS"
-            exit 1
-            ;;
-    esac
+    # Set Galera provider path — 동적 탐색 (22.04: /usr/lib/galera, 24.04: 경로 다를 수 있음)
+    WSREP_PROVIDER=$(find /usr/lib /usr/lib64 -name "libgalera_smm.so" 2>/dev/null | head -1)
+    if [[ -z "$WSREP_PROVIDER" ]]; then
+        # fallback: OS별 기본 경로
+        case $OS in
+            ubuntu|debian)
+                WSREP_PROVIDER="/usr/lib/galera/libgalera_smm.so"
+                ;;
+            centos|rhel|rocky|almalinux)
+                WSREP_PROVIDER="/usr/lib64/galera/libgalera_smm.so"
+                ;;
+            *)
+                log ERROR "Unsupported OS: $OS"
+                exit 1
+                ;;
+        esac
+    fi
 }
 
 check_mariadb_installed() {
@@ -419,7 +429,7 @@ install_mariadb() {
     fi
 
     # Check for offline packages first
-    local offline_pkgs="$PROJECT_ROOT/offline_packages/apt_packages"
+    local offline_pkgs="${OFFLINE_PKG_DIR}/apt_packages"
     local mariadb_deb="$offline_pkgs/mariadb-server-*.deb"
     local repo_list="/etc/apt/sources.list.d/offline-mariadb.list"
 
@@ -864,6 +874,21 @@ bootstrap_cluster() {
     log INFO "Running galera_new_cluster..."
 
     if [[ "$DRY_RUN" == "false" ]]; then
+        # Prevent simultaneous bootstrap from multiple nodes
+        local BOOTSTRAP_LOCK="/var/lib/mysql/.galera_bootstrap.lock"
+        if [[ -f "$BOOTSTRAP_LOCK" ]]; then
+            local lock_age=$(( $(date +%s) - $(stat -c %Y "$BOOTSTRAP_LOCK" 2>/dev/null || echo 0) ))
+            if [[ $lock_age -lt 300 ]]; then
+                log ERROR "Another bootstrap is in progress (lock age: ${lock_age}s). Aborting."
+                log ERROR "If this is stale, remove $BOOTSTRAP_LOCK manually."
+                return 1
+            fi
+            log WARNING "Stale bootstrap lock found (${lock_age}s old), removing..."
+            rm -f "$BOOTSTRAP_LOCK"
+        fi
+        echo "$(hostname) $(date -Iseconds)" > "$BOOTSTRAP_LOCK"
+        trap 'rm -f "$BOOTSTRAP_LOCK"' EXIT
+
         # Run galera_new_cluster and capture output
         local bootstrap_output
         bootstrap_output=$(galera_new_cluster 2>&1) || true

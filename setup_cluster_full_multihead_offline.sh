@@ -61,7 +61,14 @@ DRY_RUN=false
 SKIP_BASE_SETUP=false
 SKIP_MULTIHEAD_SETUP=false
 AUTO_CONFIRM=false
-OFFLINE_PACKAGES_DIR="${SCRIPT_DIR}/offline_packages"
+# OS 감지 기반 오프라인 패키지 디렉토리 자동 선택
+# (22.04→offline_packages, 24.04→offline_packages_2404)
+# --offline-packages 옵션으로 수동 오버라이드 가능
+source "${SCRIPT_DIR}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$SCRIPT_DIR"
+OFFLINE_PACKAGES_DIR="$OFFLINE_PKG_DIR"
+_OFFLINE_PKG_MANUAL=false  # 수동 지정 여부 추적
 USE_APT_MIRROR=false
 INSTALL_APT_PACKAGES=false  # 기본: APT 패키지 설치 안함 (옵션으로 활성화)
 
@@ -72,6 +79,22 @@ RESET_GLUSTER=false
 
 # Phase 시작 옵션 (start_multihead.sh로 전달됨)
 START_PHASE=""
+
+# Phase 완료 상태 추적 (재실행 시 완료된 단계 건너뛰기)
+STATE_DIR="/var/lib/cluster_setup"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+
+mark_step_done() {
+    local step_name="$1"
+    touch "${STATE_DIR}/${step_name}.done" 2>/dev/null || true
+}
+
+is_step_done() {
+    local step_name="$1"
+    [[ -f "${STATE_DIR}/${step_name}.done" ]]
+}
+
+FORCE_RERUN=false
 
 # 로그 파일 (현재 디렉토리의 setup.log + 타임스탬프 백업)
 LOG_FILE="${SCRIPT_DIR}/setup.log"
@@ -107,6 +130,7 @@ usage() {
     --skip-multihead        멀티헤드 서비스 설정 건너뛰기
     --start-phase N         특정 Phase부터 시작 (0-9, 예: --start-phase 6 = 웹 서비스부터)
     --auto-confirm          사용자 확인 없이 자동으로 진행
+    --force                 완료된 단계도 강제 재실행
     --help                  이 도움말 표시
 
   Phase별 Reset 옵션 (비밀번호 충돌 시 사용):
@@ -196,6 +220,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --offline-packages)
             OFFLINE_PACKAGES_DIR="$2"
+            _OFFLINE_PKG_MANUAL=true
             shift 2
             ;;
         --install-apt)
@@ -220,6 +245,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --auto-confirm)
             AUTO_CONFIRM=true
+            shift
+            ;;
+        --force)
+            FORCE_RERUN=true
             shift
             ;;
         --reset-all)
@@ -457,6 +486,9 @@ else
     # 소스 빌드 Slurm을 먼저 배포해야 APT 패키지 설치 시 slurm 관련 패키지를 건너뜀
     ################################################################################
 
+    if is_step_done "base_step2_slurm" && [[ "$FORCE_RERUN" != "true" ]]; then
+        log_info "Step 2/10: Slurm 프리빌드 배포... (이미 완료, 건너뜀)"
+    else
     log_info "Step 2/10: Slurm 프리빌드 배포..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -491,7 +523,9 @@ else
         log_warning "Slurm 프리빌드 패키지를 찾을 수 없습니다"
     fi
     cd "$SCRIPT_DIR"
+    mark_step_done "base_step2_slurm"
     echo ""
+    fi  # end step 2 skip check
 
     ################################################################################
     # Step 3: APT 패키지 설치 (옵션) - Slurm 배포 이후에 실행
@@ -772,6 +806,14 @@ SLURM_PATH_EOF
         log_warning "PATH 적용됨 (Slurm 바이너리 확인 필요)"
     fi
     echo ""
+
+    # Log rotation 설정
+    local LOGROTATE_SRC="${SCRIPT_DIR}/cluster/setup/logrotate_cluster.conf"
+    if [[ -f "$LOGROTATE_SRC" ]]; then
+        cp "$LOGROTATE_SRC" /etc/logrotate.d/cluster-setup 2>/dev/null && \
+            log_success "로그 로테이션 설정 완료" || \
+            log_warning "로그 로테이션 설정 실패 (수동 설치 필요)"
+    fi
 
     log_success "기본 시스템 설정 완료!"
     echo ""

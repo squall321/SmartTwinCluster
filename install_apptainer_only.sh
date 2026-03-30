@@ -47,7 +47,12 @@ echo ""
 # APT 로컬 저장소 경로
 REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OFFLINE_PKG_DIR="${SCRIPT_DIR}/offline_packages/apt_packages"
+
+# OS 감지 및 오프라인 패키지 디렉토리 자동 선택
+source "${SCRIPT_DIR}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$SCRIPT_DIR"
+OFFLINE_PKG_DIR="${OFFLINE_PKG_DIR}/apt_packages"
 
 # 1. apptainer가 이미 설치되어 있는지 확인
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -154,11 +159,7 @@ else
     # Fallback: dpkg 직접 설치
     log_warning "Falling back to dpkg direct installation..."
 
-    APPTAINER_DEB="$OFFLINE_PKG_DIR/apptainer_1.4.5-1~jammy_amd64.deb"
-    if [[ ! -f "$APPTAINER_DEB" ]]; then
-        # 최신 버전 찾기
-        APPTAINER_DEB=$(ls "$OFFLINE_PKG_DIR"/apptainer_*.deb 2>/dev/null | head -1)
-    fi
+    APPTAINER_DEB=$(ls "$OFFLINE_PKG_DIR"/apptainer_*.deb 2>/dev/null | head -1)
 
     if [[ -f "$APPTAINER_DEB" ]]; then
         log_info "Found: $APPTAINER_DEB"

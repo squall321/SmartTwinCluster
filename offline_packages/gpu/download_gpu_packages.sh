@@ -10,8 +10,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NVIDIA_DIR="$SCRIPT_DIR/nvidia"
 ROCM_DIR="$SCRIPT_DIR/rocm"
+
+# OS 감지 (jammy/noble 분기용)
+if [[ -f "${PROJECT_ROOT}/cluster/utils/detect_os.sh" ]]; then
+    source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+    detect_os_version
+else
+    OS_CODENAME=$(lsb_release -cs 2>/dev/null || echo "jammy")
+fi
 
 # 색상 정의
 RED='\033[0;31m'
@@ -34,15 +43,21 @@ download_nvidia() {
     mkdir -p "$NVIDIA_DIR"
     cd "$NVIDIA_DIR"
 
-    # Ubuntu 22.04 용 NVIDIA 드라이버 및 CUDA
+    # NVIDIA 드라이버 및 CUDA
     # 최신 안정 버전 (공식 사이트에서 확인)
     NVIDIA_DRIVER_VERSION="550.127.05"
     CUDA_VERSION="12.4.1"
 
-    log_info "NVIDIA 저장소 키 다운로드..."
+    # CUDA 저장소 OS 분기
+    local cuda_repo="ubuntu2204"
+    if [[ "$OS_CODENAME" == "noble" || "${OS_VERSION:-}" == "24.04" ]]; then
+        cuda_repo="ubuntu2404"
+    fi
+
+    log_info "NVIDIA 저장소 키 다운로드 (${cuda_repo})..."
     # CUDA keyring (저장소 등록용)
     if [ ! -f cuda-keyring_1.1-1_all.deb ]; then
-        wget -q --show-progress https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb || {
+        wget -q --show-progress https://developer.download.nvidia.com/compute/cuda/repos/${cuda_repo}/x86_64/cuda-keyring_1.1-1_all.deb || {
             log_warning "cuda-keyring 다운로드 실패"
         }
     fi
@@ -198,7 +213,7 @@ download_rocm() {
     log_info "ROCm 저장소 설정 패키지 다운로드..."
     # ROCm 저장소 키 및 설정
     if [ ! -f amdgpu-install_6.0.60002-1_all.deb ]; then
-        wget -q --show-progress "https://repo.radeon.com/amdgpu-install/${ROCM_VERSION}/ubuntu/jammy/amdgpu-install_6.0.60002-1_all.deb" || {
+        wget -q --show-progress "https://repo.radeon.com/amdgpu-install/${ROCM_VERSION}/ubuntu/${OS_CODENAME}/amdgpu-install_6.0.60002-1_all.deb" || {
             log_warning "amdgpu-install 다운로드 실패"
         }
     fi

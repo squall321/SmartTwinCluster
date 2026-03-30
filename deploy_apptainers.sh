@@ -2,7 +2,7 @@
 # Apptainer 이미지 배포 스크립트
 # my_cluster.yaml 설정에 따라 각 노드에 로컬 복사
 
-set -e
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/my_multihead_cluster_2.yaml"
@@ -160,8 +160,55 @@ except:
 " 2>/dev/null || echo "koopark")
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+SSH_TIMEOUT="-o ConnectTimeout=10"
 
 echo "SSH 사용자: $SSH_USER"
+
+# 이미지 변경 비교 함수
+# 로컬 vs 원격: 파일 크기 + 수정 시각(mtime) 비교
+# 크기가 다르면 → 전송
+# 크기 같아도 로컬이 더 최신이면 → 전송 (재빌드 감지)
+# 크기 같고 로컬이 더 오래되었으면 → 스킵
+image_needs_update() {
+    local img_path="$1"
+    local remote_ip="$2"
+    local remote_path="$3"
+    local img_name
+    img_name=$(basename "$img_path")
+
+    # 로컬 크기 + mtime (epoch seconds)
+    local local_size
+    local_size=$(stat -c%s "$img_path" 2>/dev/null || echo 0)
+    local local_mtime
+    local_mtime=$(stat -c%Y "$img_path" 2>/dev/null || echo 0)
+
+    # 원격 크기 + mtime (한 번의 SSH로 둘 다 가져옴)
+    local remote_info
+    remote_info=$(ssh $SSH_OPTS $SSH_TIMEOUT ${SSH_USER}@${remote_ip} \
+        "sudo stat -c'%s %Y' '${remote_path}/${img_name}' 2>/dev/null || echo '0 0'" 2>/dev/null || echo "0 0")
+    local remote_size
+    remote_size=$(echo "$remote_info" | awk '{print $1}')
+    local remote_mtime
+    remote_mtime=$(echo "$remote_info" | awk '{print $2}')
+
+    # 원격에 파일 없음 → 전송 필요
+    if [[ "$remote_size" -eq 0 ]]; then
+        return 0
+    fi
+
+    # 크기 다름 → 전송 필요
+    if [[ "$local_size" -ne "$remote_size" ]]; then
+        return 0
+    fi
+
+    # 크기 같지만 로컬이 더 최신 → 전송 필요 (재빌드)
+    if [[ "$local_mtime" -gt "$remote_mtime" ]]; then
+        return 0
+    fi
+
+    # 크기 동일 + 로컬이 같거나 오래됨 → 스킵
+    return 1
+}
 echo ""
 
 # gres.conf 확인 (GPU 노드가 있으면 경고)
@@ -321,13 +368,22 @@ deploy_to_node() {
                 if [ $image_count -gt 0 ]; then
                     echo -e "${YELLOW}[${node}]${NC} ${image_count}개 이미지 전송 중..."
 
-                    # /opt/apptainers로 전송 (sudo 필요)
+                    # /opt/apptainers로 전송 (변경된 이미지만)
+                    local transferred=0
+                    local skipped=0
                     for img in ${COMPUTE_IMAGES_SOURCE}/*.sif; do
                         local img_name=$(basename "$img")
                         local img_size=$(du -h "$img" | cut -f1)
-                        echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size)"
 
-                        # 임시로 홈에 복사 후 sudo로 /opt로 이동
+                        # 변경 비교: 크기 동일하면 스킵
+                        if ! image_needs_update "$img" "$ip" "${NODE_IMAGE_PATH}"; then
+                            echo -e "${GREEN}[${node}]${NC}   = $img_name ($img_size) — 동일, 스킵"
+                            skipped=$((skipped + 1))
+                            continue
+                        fi
+
+                        echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size) — 전송 중..."
+
                         scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:/tmp/ || {
                             echo -e "${RED}[${node}]${NC} ❌ $img_name 전송 실패"
                             continue
@@ -337,9 +393,10 @@ deploy_to_node() {
                             echo -e "${RED}[${node}]${NC} ❌ $img_name 설치 실패"
                             continue
                         }
+                        transferred=$((transferred + 1))
                     done
 
-                    echo -e "${GREEN}[${node}]${NC} ✅ Compute 이미지 배포 완료"
+                    echo -e "${GREEN}[${node}]${NC} ✅ Compute 이미지 완료 (전송: ${transferred}, 스킵: ${skipped})"
                 else
                     echo -e "${YELLOW}[${node}]${NC} ⚠️  Compute 이미지 없음 - 스킵"
                 fi
@@ -366,13 +423,22 @@ deploy_to_node() {
 
             echo -e "${YELLOW}[${node}]${NC} ${image_count}개 VNC 이미지 전송 중..."
 
-            # 모든 .sif 파일 전송
+            # 모든 .sif 파일 전송 (변경된 이미지만)
+            local transferred=0
+            local skipped=0
             for img in ${VIZ_IMAGES_SOURCE}/*.sif; do
                 local img_name=$(basename "$img")
                 local img_size=$(du -h "$img" | cut -f1)
-                echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size)"
 
-                # 임시로 /tmp에 복사 후 sudo로 /opt로 이동
+                # 변경 비교: 크기+날짜 동일하면 스킵
+                if ! image_needs_update "$img" "$ip" "${NODE_IMAGE_PATH}"; then
+                    echo -e "${GREEN}[${node}]${NC}   = $img_name ($img_size) — 동일, 스킵"
+                    skipped=$((skipped + 1))
+                    continue
+                fi
+
+                echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size) — 전송 중..."
+
                 scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:/tmp/ || {
                     echo -e "${RED}[${node}]${NC} ❌ $img_name 전송 실패"
                     continue
@@ -382,9 +448,10 @@ deploy_to_node() {
                     echo -e "${RED}[${node}]${NC} ❌ $img_name 설치 실패"
                     continue
                 }
+                transferred=$((transferred + 1))
             done
 
-            echo -e "${GREEN}[${node}]${NC} ✅ VNC 이미지 배포 완료"
+            echo -e "${GREEN}[${node}]${NC} ✅ VNC 이미지 완료 (전송: ${transferred}, 스킵: ${skipped})"
             echo -e "${YELLOW}[${node}]${NC} 📁 구조:"
             echo -e "${YELLOW}[${node}]${NC}    ${NODE_IMAGE_PATH}/ (VNC 이미지)"
             echo -e "${YELLOW}[${node}]${NC}    ${NODE_SCRATCH_PATH}/vnc_sandboxes/ (샌드박스)"
@@ -473,12 +540,22 @@ if [[ -n "$TARGET_IMAGE" ]]; then
     echo "=========================================="
     echo ""
 
+    IMG_DEPLOY_SUCCESS=0
+    IMG_DEPLOY_FAIL=0
+    IMG_FAILED_NODES=()
+
     # Controller 로컬 배포
     echo -e "${YELLOW}[controller]${NC} ${TARGET_IMAGE} 배포 중..."
-    sudo cp "$IMAGE_FILE" ${NODE_IMAGE_PATH}/
-    sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE}
-    sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}
-    echo -e "${GREEN}[controller]${NC} ✅ 배포 완료"
+    if sudo cp "$IMAGE_FILE" ${NODE_IMAGE_PATH}/ && \
+       sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && \
+       sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}; then
+        echo -e "${GREEN}[controller]${NC} ✅ 배포 완료"
+        IMG_DEPLOY_SUCCESS=$((IMG_DEPLOY_SUCCESS + 1))
+    else
+        echo -e "${RED}[controller]${NC} ❌ 배포 실패"
+        IMG_DEPLOY_FAIL=$((IMG_DEPLOY_FAIL + 1))
+        IMG_FAILED_NODES+=("controller (localhost)")
+    fi
 
     # 모든 노드에 배포
     for node in "${!NODE_IPS[@]}"; do
@@ -491,53 +568,128 @@ if [[ -n "$TARGET_IMAGE" ]]; then
             continue
         fi
 
-        echo -e "${YELLOW}[${node}]${NC} ${TARGET_IMAGE} 배포 중 (${ip})..."
+        echo -e "${YELLOW}[${node}]${NC} ${TARGET_IMAGE} 확인 중 (${ip})..."
 
         # SSH 접속 확인
         if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "exit" 2>/dev/null; then
             echo -e "${RED}[${node}]${NC} ❌ SSH 접속 실패 - 스킵"
+            IMG_DEPLOY_FAIL=$((IMG_DEPLOY_FAIL + 1))
+            IMG_FAILED_NODES+=("${node} (${ip})")
             continue
         fi
 
         # 원격 디렉토리 생성
         ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mkdir -p ${NODE_IMAGE_PATH}" 2>/dev/null
 
-        # SIF 전송
-        scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:/tmp/ || {
-            echo -e "${RED}[${node}]${NC} ❌ 전송 실패"
+        # 변경 비교: 크기+날짜 동일하면 스킵
+        if ! image_needs_update "$IMAGE_FILE" "$ip" "${NODE_IMAGE_PATH}"; then
+            echo -e "${GREEN}[${node}]${NC} = ${TARGET_IMAGE} — 동일, 스킵"
+            IMG_DEPLOY_SUCCESS=$((IMG_DEPLOY_SUCCESS + 1))
             continue
-        }
+        fi
 
-        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}" || {
-            echo -e "${RED}[${node}]${NC} ❌ 설치 실패"
+        echo -e "${YELLOW}[${node}]${NC}   → ${TARGET_IMAGE} 전송 중..."
+
+        # SIF 전송
+        if ! scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:/tmp/; then
+            echo -e "${RED}[${node}]${NC} ❌ 전송 실패"
+            IMG_DEPLOY_FAIL=$((IMG_DEPLOY_FAIL + 1))
+            IMG_FAILED_NODES+=("${node} (${ip})")
             continue
-        }
+        fi
+
+        if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}"; then
+            echo -e "${RED}[${node}]${NC} ❌ 설치 실패"
+            IMG_DEPLOY_FAIL=$((IMG_DEPLOY_FAIL + 1))
+            IMG_FAILED_NODES+=("${node} (${ip})")
+            continue
+        fi
 
         echo -e "${GREEN}[${node}]${NC} ✅ 배포 완료"
+        IMG_DEPLOY_SUCCESS=$((IMG_DEPLOY_SUCCESS + 1))
     done
 
+    IMG_TOTAL=$((IMG_DEPLOY_SUCCESS + IMG_DEPLOY_FAIL))
     echo ""
     echo "=========================================="
-    echo -e "${GREEN}✅ ${TARGET_IMAGE} 배포 완료!${NC}"
+    echo "배포 결과 요약 (${TARGET_IMAGE})"
+    echo "=========================================="
+    echo -e "  전체:  ${IMG_TOTAL} 대"
+    echo -e "  ${GREEN}성공:  ${IMG_DEPLOY_SUCCESS} 대${NC}"
+    if [[ $IMG_DEPLOY_FAIL -gt 0 ]]; then
+        echo -e "  ${RED}실패:  ${IMG_DEPLOY_FAIL} 대${NC}"
+        echo ""
+        echo -e "${RED}실패한 노드:${NC}"
+        for failed in "${IMG_FAILED_NODES[@]}"; do
+            echo -e "  ${RED}  ✗ ${failed}${NC}"
+        done
+    else
+        echo -e "  ${GREEN}실패:  0 대${NC}"
+    fi
     echo "=========================================="
     exit 0
 fi
+
+# 배포 통계 변수
+DEPLOY_SUCCESS=0
+DEPLOY_FAIL=0
+FAILED_NODES=()
 
 # Controller 먼저 배포
 echo ""
 echo "=========================================="
 echo "Controller 로컬 배포"
 echo "=========================================="
-deploy_to_node "controller" "localhost" "controller"
+if deploy_to_node "controller" "localhost" "controller"; then
+    DEPLOY_SUCCESS=$((DEPLOY_SUCCESS + 1))
+else
+    DEPLOY_FAIL=$((DEPLOY_FAIL + 1))
+    FAILED_NODES+=("controller (localhost)")
+fi
 
-# 모든 노드에 배포
+# 모든 노드에 배포 (실패해도 다음 노드로 진행)
 for node in "${!NODE_IPS[@]}"; do
-    deploy_to_node "$node" "${NODE_IPS[$node]}" "${NODE_TYPES[$node]}"
+    if deploy_to_node "$node" "${NODE_IPS[$node]}" "${NODE_TYPES[$node]}"; then
+        DEPLOY_SUCCESS=$((DEPLOY_SUCCESS + 1))
+    else
+        DEPLOY_FAIL=$((DEPLOY_FAIL + 1))
+        FAILED_NODES+=("${node} (${NODE_IPS[$node]})")
+    fi
 done
+
+DEPLOY_TOTAL=$((DEPLOY_SUCCESS + DEPLOY_FAIL))
 
 echo ""
 echo "=========================================="
-echo -e "${GREEN}✅ Apptainer 이미지 배포 완료!${NC}"
+echo "배포 결과 요약"
+echo "=========================================="
+echo ""
+echo -e "  전체:  ${DEPLOY_TOTAL} 대"
+echo -e "  ${GREEN}성공:  ${DEPLOY_SUCCESS} 대${NC}"
+if [[ $DEPLOY_FAIL -gt 0 ]]; then
+    echo -e "  ${RED}실패:  ${DEPLOY_FAIL} 대${NC}"
+    echo ""
+    echo -e "${RED}실패한 노드:${NC}"
+    for failed in "${FAILED_NODES[@]}"; do
+        echo -e "  ${RED}  ✗ ${failed}${NC}"
+    done
+    echo ""
+    echo "실패 노드 재배포:"
+    for failed in "${FAILED_NODES[@]}"; do
+        local_node=$(echo "$failed" | cut -d' ' -f1)
+        echo "  $0 --config $CONFIG_FILE  # ${local_node} 포함 전체 재시도"
+    done
+else
+    echo -e "  ${GREEN}실패:  0 대${NC}"
+fi
+
+echo ""
+echo "=========================================="
+if [[ $DEPLOY_FAIL -eq 0 ]]; then
+    echo -e "${GREEN}✅ Apptainer 이미지 배포 완료! (${DEPLOY_SUCCESS}/${DEPLOY_TOTAL} 성공)${NC}"
+else
+    echo -e "${YELLOW}⚠️  Apptainer 이미지 배포 부분 완료 (${DEPLOY_SUCCESS}/${DEPLOY_TOTAL} 성공, ${DEPLOY_FAIL} 실패)${NC}"
+fi
 echo "=========================================="
 echo ""
 echo "📁 배포 구조:"
@@ -545,10 +697,4 @@ echo "  이미지:     /opt/apptainers/*.sif"
 echo "  샌드박스:   /scratch/vnc_sandboxes/"
 echo "  세션:       /scratch/vnc_sessions/"
 echo "  로그:       /scratch/vnc_logs/"
-echo ""
-echo "확인 명령어:"
-echo "  sudo ls -lh /opt/apptainers/                                    # 로컬"
-echo "  ssh ${SSH_USER}@192.168.122.90 'sudo ls -lh /opt/apptainers/'   # node001"
-echo "  ssh ${SSH_USER}@192.168.122.103 'sudo ls -lh /opt/apptainers/'  # node002"
-echo "  ssh ${SSH_USER}@192.168.122.252 'sudo ls -lh /opt/apptainers/'  # viz-node001"
 echo ""

@@ -229,10 +229,10 @@ try:
     # First check if viz_nodes section exists
     viz_nodes = nodes.get('viz_nodes', [])
 
-    # If not, check compute_nodes for node_type=viz
+    # If not, check compute_nodes for node_type=viz or hybrid
     if not viz_nodes:
         compute_nodes = nodes.get('compute_nodes', [])
-        viz_nodes = [n for n in compute_nodes if n.get('node_type') == 'viz']
+        viz_nodes = [n for n in compute_nodes if n.get('node_type') in ('viz', 'hybrid')]
 
     if not viz_nodes:
         sys.exit(0)
@@ -241,9 +241,10 @@ try:
         hostname = node.get('hostname', '')
         ip = node.get('ip_address', '')
         user = node.get('ssh_user', 'root')
+        node_type = node.get('node_type', 'viz')
 
         if hostname and ip:
-            print(f"{hostname}|{ip}|{user}")
+            print(f"{hostname}|{ip}|{user}|{node_type}")
 
 except Exception as e:
     print(f"Error: {e}", file=sys.stderr)
@@ -264,8 +265,8 @@ try:
     nodes = config.get('nodes', {})
     all_compute_nodes = nodes.get('compute_nodes', [])
 
-    # Filter only compute type nodes (exclude viz nodes)
-    compute_nodes = [n for n in all_compute_nodes if n.get('node_type', 'compute') == 'compute']
+    # Filter compute type nodes: include 'compute' and 'hybrid' (exclude pure viz nodes)
+    compute_nodes = [n for n in all_compute_nodes if n.get('node_type', 'compute') in ('compute', 'hybrid')]
 
     if not compute_nodes:
         sys.exit(0)
@@ -274,9 +275,10 @@ try:
         hostname = node.get('hostname', '')
         ip = node.get('ip_address', '')
         user = node.get('ssh_user', 'root')
+        node_type = node.get('node_type', 'compute')
 
         if hostname and ip:
-            print(f"{hostname}|{ip}|{user}")
+            print(f"{hostname}|{ip}|{user}|{node_type}")
 
 except Exception as e:
     print(f"Error: {e}", file=sys.stderr)
@@ -629,14 +631,17 @@ show_summary() {
     # Viz nodes summary
     local viz_nodes=$(get_viz_nodes)
     if [[ -n "$viz_nodes" ]]; then
-        log_info "Viz Nodes:"
+        log_info "Viz Nodes (viz images):"
         while IFS= read -r node_info; do
             [[ -z "$node_info" ]] && continue
             local hostname=$(echo "$node_info" | cut -d'|' -f1)
             local ip=$(echo "$node_info" | cut -d'|' -f2)
             local user=$(echo "$node_info" | cut -d'|' -f3)
+            local ntype=$(echo "$node_info" | cut -d'|' -f4)
+            local label=""
+            [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
-            echo "  📍 $hostname ($ip):"
+            echo "  📍 $hostname ($ip)$label:"
             if ssh $SSH_OPTS ${user}@${ip} "sudo test -d $VIZ_TARGET_PATH" 2>/dev/null; then
                 ssh $SSH_OPTS ${user}@${ip} "sudo find $VIZ_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
                     awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
@@ -650,14 +655,17 @@ show_summary() {
     # Compute nodes summary
     local compute_nodes=$(get_compute_nodes)
     if [[ -n "$compute_nodes" ]]; then
-        log_info "Compute Nodes:"
+        log_info "Compute Nodes (compute images):"
         while IFS= read -r node_info; do
             [[ -z "$node_info" ]] && continue
             local hostname=$(echo "$node_info" | cut -d'|' -f1)
             local ip=$(echo "$node_info" | cut -d'|' -f2)
             local user=$(echo "$node_info" | cut -d'|' -f3)
+            local ntype=$(echo "$node_info" | cut -d'|' -f4)
+            local label=""
+            [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
-            echo "  📍 $hostname ($ip):"
+            echo "  📍 $hostname ($ip)$label:"
             if ssh $SSH_OPTS ${user}@${ip} "sudo test -d $COMPUTE_TARGET_PATH" 2>/dev/null; then
                 ssh $SSH_OPTS ${user}@${ip} "sudo find $COMPUTE_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
                     awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"

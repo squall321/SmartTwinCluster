@@ -19,7 +19,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DASHBOARD_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_ROOT="$(dirname "$DASHBOARD_DIR")"
-WHEELS_BASE="$PROJECT_ROOT/offline_packages/python_wheels"
+
+# OS 감지 기반 오프라인 패키지 디렉토리 설정
+source "${PROJECT_ROOT}/cluster/utils/detect_os.sh"
+detect_os_version
+set_offline_pkg_dir "$PROJECT_ROOT"
+WHEELS_BASE="${OFFLINE_PKG_DIR}/python_wheels"
 
 # 색상 정의
 RED='\033[0;31m'
@@ -29,10 +34,10 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # python_wheels.tar.gz 자동 압축 해제
-WHEELS_TARBALL="$PROJECT_ROOT/offline_packages/python_wheels.tar.gz"
+WHEELS_TARBALL="${OFFLINE_PKG_DIR}/python_wheels.tar.gz"
 if [ -f "$WHEELS_TARBALL" ] && [ ! -d "$WHEELS_BASE/python3.12" ]; then
     echo -e "${BLUE}[사전준비] python_wheels.tar.gz 압축 해제 중...${NC}"
-    tar -xzf "$WHEELS_TARBALL" -C "$PROJECT_ROOT/offline_packages/"
+    tar -xzf "$WHEELS_TARBALL" -C "${OFFLINE_PKG_DIR}/"
     echo -e "${GREEN}✓ 압축 해제 완료${NC}"
 fi
 
@@ -43,13 +48,18 @@ RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
 # 서비스 정의 (서비스명:디렉토리:Python버전:앱모듈)
 # phase5_web.sh에서 생성하는 실제 서비스 이름과 일치
 # Python 버전:
-#   - auth_portal_4430, websocket_5011: Python 3.10
+#   - auth_portal_4430, websocket_5011: Python 3.10 (22.04) / 3.12 (24.04)
 #   - backend_5010: Python 3.12 (pandas/numpy 최적화)
 #   - kooCAEWebServer_5000, kooCAEWebAutomationServer_5001: Python 3.13
+# 24.04(noble)에서는 Python 3.10이 없으므로 3.12로 통합
+PY_LEGACY="3.10"
+if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
+    PY_LEGACY="3.12"
+fi
 declare -A SERVICES=(
-    ["auth_backend"]="auth_portal_4430:3.10:app:app"
+    ["auth_backend"]="auth_portal_4430:${PY_LEGACY}:app:app"
     ["dashboard_backend"]="backend_5010:3.12:app:app"
-    ["websocket_service"]="websocket_5011:3.10:websocket_server_enhanced:py"
+    ["websocket_service"]="websocket_5011:${PY_LEGACY}:websocket_server_enhanced:py"
     ["cae_backend"]="kooCAEWebServer_5000:3.13:app:create_app()"
     ["cae_automation"]="kooCAEWebAutomationServer_5001:3.13:app:app"
 )

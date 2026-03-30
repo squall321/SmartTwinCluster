@@ -76,8 +76,8 @@ nodes:
       vip_owner: false  # BACKUP 모드로 시작
 
       hardware:
-        cpus: 2
-        memory_mb: 4096
+        cpus: 4
+        memory_mb: 20480
         disk_gb: 1000
 
   # Compute Nodes (기존과 동일)
@@ -118,13 +118,13 @@ nodes:
       ssh_port: 22
       ssh_key_path: ~/.ssh/id_rsa
       os_type: ubuntu22
-      node_type: viz
+      node_type: hybrid  # viz + compute 겸용: viz/compute 이미지 모두 배포됨
       hardware:
-        cpus: 2
-        sockets: 2
-        cores_per_socket: 1
+        cpus: 4
+        sockets: 1
+        cores_per_socket: 4
         threads_per_core: 1
-        memory_mb: 3584
+        memory_mb: 19900  # 실제 OS 인식: ~19997MB, 커널 예약분 제외
         tmp_disk_mb: 1024000
         # GPU 없음 - VNC는 CPU만 사용
         # 실제 GPU가 있는 노드에만 아래 설정 추가:
@@ -138,13 +138,13 @@ nodes:
       ssh_port: 22
       ssh_key_path: ~/.ssh/id_rsa
       os_type: ubuntu22
-      node_type: viz
+      node_type: hybrid  # viz + compute 겸용: viz/compute 이미지 모두 배포됨
       hardware:
-        cpus: 2
-        sockets: 2
-        cores_per_socket: 1
+        cpus: 4
+        sockets: 1
+        cores_per_socket: 4
         threads_per_core: 1
-        memory_mb: 3584
+        memory_mb: 19900  # 실제 OS 인식: ~19997MB, 커널 예약분 제외
         tmp_disk_mb: 1024000
         # GPU 없음 - VNC는 CPU만 사용
 
@@ -372,10 +372,10 @@ slurm_config:
   # Partition 설정 (기존과 동일)
   partitions:
     - name: normal
-      nodes: node[001-002]
+      nodes: node[001-002],viz-node[001-002]
       default: true
       max_time: 7-00:00:00
-      max_nodes: 2
+      max_nodes: 4
       state: UP
 
     - name: viz
