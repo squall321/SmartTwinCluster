@@ -25,6 +25,7 @@
 #   --skip-gpu             GPU 패키지 건너뛰기
 #   --skip-python          Python wheels 건너뛰기
 #   --apt-only             APT 패키지만 수집
+#   --desktop              ubuntu-desktop-minimal 포함 (네트워크/블루투스 제외)
 #   --help                 도움말 표시
 #
 # 작성자: Claude Code
@@ -62,6 +63,7 @@ SKIP_SLURM_BUILD=false
 SKIP_GPU=false
 SKIP_PYTHON=false
 APT_ONLY=false
+INCLUDE_DESKTOP=false
 SLURM_VERSION="23.11.10"
 
 # 통계
@@ -94,6 +96,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --apt-only)
             APT_ONLY=true
+            shift
+            ;;
+        --desktop)
+            INCLUDE_DESKTOP=true
             shift
             ;;
         --help|-h)
@@ -214,8 +220,9 @@ phase_apt_packages() {
         # Nginx
         nginx
 
-        # Apptainer
+        # Apptainer + squashfuse (SIF 이미지 마운트용)
         apptainer
+        squashfuse libsquashfuse0 libfuse2 fuse2fs
 
         # Node.js 빌드 도구
         nodejs npm
@@ -223,12 +230,17 @@ phase_apt_packages() {
 
     # 24.04 특화 패키지명 변환
     if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
-        # libpmix2 → libpmix2t64 on 24.04
         PACKAGES+=("libpmix2t64")
         log_info "OS: Ubuntu 24.04 (${OS_CODENAME}) — using 24.04-specific package names"
     else
         PACKAGES+=("libpmix2")
         log_info "OS: Ubuntu ${OS_VERSION} (${OS_CODENAME})"
+    fi
+
+    # --desktop: ubuntu-desktop-minimal 추가 (네트워크/블루투스 제외)
+    if [[ "$INCLUDE_DESKTOP" == "true" ]]; then
+        PACKAGES+=("ubuntu-desktop-minimal")
+        log_info "Desktop: ubuntu-desktop-minimal 포함 (네트워크/블루투스 제외)"
     fi
 
     apt-get update -qq 2>&1 | grep -v "^W:" || true
@@ -239,6 +251,20 @@ phase_apt_packages() {
     ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
                --no-conflicts --no-breaks --no-replaces --no-enhances \
                "${PACKAGES[@]}" 2>/dev/null | grep "^\w" | sort -u || true)
+
+    # --desktop: 네트워크/블루투스 관련 패키지 필터링
+    if [[ "$INCLUDE_DESKTOP" == "true" ]]; then
+        local before_count
+        before_count=$(echo "$ALL_DEPS" | wc -l)
+
+        ALL_DEPS=$(echo "$ALL_DEPS" | grep -viE \
+            "^network-manager|^wpasupplicant|^modemmanager|^mobile-broadband|^ppp$|^gnome-bluetooth|^libgnome-bluetooth|^libbluetooth|^gir1.2-gnomebluetooth|^gir1.2-nm-|^libndp|^libteamdctl|^libkf5modemmanagerqt|^pulseaudio-module-bluetooth|^libmm-glib|^libnm" \
+            || true)
+
+        local after_count
+        after_count=$(echo "$ALL_DEPS" | wc -l)
+        log_info "Desktop filter: ${before_count} → ${after_count} (제외: $((before_count - after_count)) network/bluetooth packages)"
+    fi
 
     local UNIQUE_DEPS
     readarray -t UNIQUE_DEPS <<< "$ALL_DEPS"
@@ -599,7 +625,11 @@ main() {
     if [[ "$APT_ONLY" == "true" ]]; then
         log_info "Mode: APT packages only"
     else
-        log_info "Mode: Full collection (APT + Slurm + Python + GPU + Monitoring + Munge)"
+        local desktop_label=""
+        if [[ "$INCLUDE_DESKTOP" == "true" ]]; then
+            desktop_label=" + Desktop"
+        fi
+        log_info "Mode: Full collection (APT${desktop_label} + Slurm + Python + GPU + Monitoring + Munge)"
     fi
 
     confirm_proceed

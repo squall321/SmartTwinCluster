@@ -349,8 +349,15 @@ deploy_to_node() {
         return 1
     }
 
-    # /scratch 작업 디렉토리들 (사용자 쓰기 가능)
-    ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mkdir -p ${NODE_SCRATCH_PATH}/{vnc_sandboxes,vnc_sessions,vnc_logs} && sudo chown ${SSH_USER}:${SSH_USER} ${NODE_SCRATCH_PATH}/{vnc_sandboxes,vnc_sessions,vnc_logs}" || {
+    # /scratch 작업 디렉토리들 (모든 사용자 읽기/쓰기 가능)
+    # Slurm 잡은 다양한 사용자로 실행되므로 1777 (sticky bit) 적용
+    ssh $SSH_OPTS ${SSH_USER}@${ip} "
+        sudo mkdir -p ${NODE_SCRATCH_PATH}/{vnc_sandboxes,vnc_sessions,vnc_logs} && \
+        sudo chmod 1777 ${NODE_SCRATCH_PATH} && \
+        sudo chmod 1777 ${NODE_SCRATCH_PATH}/vnc_sandboxes && \
+        sudo chmod 1777 ${NODE_SCRATCH_PATH}/vnc_sessions && \
+        sudo chmod 1777 ${NODE_SCRATCH_PATH}/vnc_logs
+    " || {
         echo -e "${RED}[${node}]${NC} ❌ /scratch 디렉토리 생성 실패"
         return 1
     }

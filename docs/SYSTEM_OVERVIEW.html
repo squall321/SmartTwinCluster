@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KooHPC Dashboard — 시스템 전체 문서</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg2: #1a1d27;
+    --bg3: #22263a;
+    --border: #2e3250;
+    --accent: #6c8ef5;
+    --accent2: #4ade80;
+    --accent3: #f59e0b;
+    --accent4: #f472b6;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --red: #f87171;
+    --cyan: #22d3ee;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; line-height: 1.6; }
+
+  /* Header */
+  .hero { background: linear-gradient(135deg, #1e2a5e 0%, #0f1117 50%, #1a2744 100%);
+    padding: 60px 40px; text-align: center; border-bottom: 1px solid var(--border); }
+  .hero h1 { font-size: 2.8rem; font-weight: 700; background: linear-gradient(90deg, var(--accent), var(--cyan));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 12px; }
+  .hero p { color: var(--text2); font-size: 1.1rem; max-width: 700px; margin: 0 auto; }
+  .badge-row { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+  .badge { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+  .badge-blue { background: #1e3a8a; color: #93c5fd; border: 1px solid #3b82f6; }
+  .badge-green { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
+  .badge-yellow { background: #713f12; color: #fde68a; border: 1px solid #f59e0b; }
+  .badge-pink { background: #831843; color: #fbcfe8; border: 1px solid #ec4899; }
+
+  /* Nav */
+  nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 14px 40px;
+    position: sticky; top: 0; z-index: 100; display: flex; gap: 30px; flex-wrap: wrap; }
+  nav a { color: var(--text2); text-decoration: none; font-size: 0.85rem; font-weight: 500;
+    transition: color 0.2s; }
+  nav a:hover { color: var(--accent); }
+
+  /* Layout */
+  .container { max-width: 1400px; margin: 0 auto; padding: 40px; }
+  section { margin-bottom: 60px; }
+  h2 { font-size: 1.6rem; color: var(--accent); margin-bottom: 24px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  h3 { font-size: 1.1rem; color: var(--text); margin-bottom: 12px; font-weight: 600; }
+  h4 { font-size: 0.95rem; color: var(--text2); margin-bottom: 8px; font-weight: 500; }
+
+  /* Cards */
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .grid-4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+  .card:hover { border-color: var(--accent); transition: border-color 0.2s; }
+  .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .card-icon { font-size: 1.5rem; }
+  .card-title { font-size: 1rem; font-weight: 600; color: var(--text); }
+  .card-subtitle { font-size: 0.75rem; color: var(--accent); font-weight: 500; }
+
+  /* Architecture diagram */
+  .arch { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 30px; }
+  .arch-row { display: flex; gap: 16px; align-items: stretch; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .arch-node { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 18px; text-align: center; min-width: 120px; }
+  .arch-node.highlight { border-color: var(--accent); background: #1e2a5e; }
+  .arch-node .port { font-size: 0.7rem; color: var(--accent); font-weight: 600; margin-top: 4px; }
+  .arch-arrow { display: flex; align-items: center; color: var(--text2); font-size: 1.2rem; }
+  .arch-label { font-size: 0.7rem; color: var(--text2); margin-top: 4px; }
+  .divider-line { border: none; border-top: 1px dashed var(--border); margin: 16px 0; }
+
+  /* API table */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { background: var(--bg3); color: var(--text2); padding: 10px 14px; text-align: left;
+    font-weight: 600; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:hover td { background: var(--bg3); }
+  .method { padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; }
+  .get { background: #1e3a5f; color: #60a5fa; }
+  .post { background: #1a3320; color: #4ade80; }
+  .put { background: #3d2b00; color: #fcd34d; }
+  .delete { background: #3b0f0f; color: #f87171; }
+
+  /* Live data */
+  .live-data { background: var(--bg3); border-left: 3px solid var(--accent2); padding: 16px;
+    border-radius: 0 8px 8px 0; font-family: monospace; font-size: 0.83rem; }
+  .live-label { font-size: 0.7rem; color: var(--accent2); font-weight: 600; text-transform: uppercase;
+    margin-bottom: 8px; }
+
+  /* Status indicators */
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .up { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .down { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+  .mixed { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+
+  /* Port tags */
+  .port-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem;
+    font-weight: 700; background: #1e2a5e; color: var(--accent); border: 1px solid var(--accent); margin: 2px; }
+
+  /* Feature list */
+  .feature-list { list-style: none; }
+  .feature-list li { padding: 5px 0; color: var(--text2); font-size: 0.88rem; }
+  .feature-list li::before { content: "›"; color: var(--accent); margin-right: 8px; font-weight: 700; }
+
+  /* Node card */
+  .node-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .node-name { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; }
+  .node-stat { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text2); padding: 2px 0; }
+  .node-stat span:last-child { color: var(--text); }
+
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 0.72rem; font-weight: 600; margin: 1px; }
+  .tag-blue { background: #1e3a8a22; color: #93c5fd; border: 1px solid #3b82f644; }
+  .tag-green { background: #14532d22; color: #86efac; border: 1px solid #22c55e44; }
+  .tag-orange { background: #92400e22; color: #fcd34d; border: 1px solid #f59e0b44; }
+  .tag-purple { background: #4c1d9522; color: #c4b5fd; border: 1px solid #8b5cf644; }
+
+  footer { background: var(--bg2); border-top: 1px solid var(--border); padding: 30px 40px;
+    text-align: center; color: var(--text2); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>🖥 KooHPC Dashboard</h1>
+  <p>HPC Slurm 클러스터 통합 관리 시스템 — 노드 관리, 작업 제출, 원격 데스크톱, CAE 시뮬레이션, 모니터링을 하나의 대시보드에서</p>
+  <div class="badge-row">
+    <span class="badge badge-blue">Slurm 23.11.10</span>
+    <span class="badge badge-green">Ubuntu 22.04 / 24.04</span>
+    <span class="badge badge-yellow">Apptainer 1.3.3</span>
+    <span class="badge badge-pink">React + Flask</span>
+    <span class="badge badge-blue">오프라인 배포 지원</span>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav>
+  <a href="#architecture">시스템 구조</a>
+  <a href="#cluster">클러스터 현황</a>
+  <a href="#frontend">프론트엔드</a>
+  <a href="#backend">백엔드 API</a>
+  <a href="#services">서비스 포트</a>
+  <a href="#remote">원격 데스크톱</a>
+  <a href="#storage">스토리지</a>
+  <a href="#monitoring">모니터링</a>
+  <a href="#auth">인증 시스템</a>
+  <a href="#agents">커스텀 에이전트</a>
+</nav>
+
+<div class="container">
+
+<!-- ====== ARCHITECTURE ====== -->
+<section id="architecture">
+  <h2>🏗 시스템 아키텍처</h2>
+  <div class="arch">
+    <!-- User layer -->
+    <div class="arch-row">
+      <div class="arch-node highlight">
+        <div>🌐 브라우저</div>
+        <div class="arch-label">사용자</div>
+      </div>
+    </div>
+    <div class="arch-row"><div class="arch-arrow">↓ HTTPS / WebSocket</div></div>
+
+    <!-- Nginx -->
+    <div class="arch-row">
+      <div class="arch-node highlight">
+        <div>🔀 Nginx</div>
+        <div class="port">리버스 프록시</div>
+        <div class="arch-label">SSL 종단 · 라우팅</div>
+      </div>
+    </div>
+    <div class="arch-row"><div class="arch-arrow">↓ 포트별 라우팅</div></div>
+
+    <!-- Frontend tier -->
+    <div class="arch-row">
+      <div class="arch-node">
+        <div>⚛️ 메인 프론트</div>
+        <div class="port">:3010</div>
+      </div>
+      <div class="arch-node">
+        <div>🔐 인증 UI</div>
+        <div class="port">:4431</div>
+      </div>
+      <div class="arch-node">
+        <div>🎨 KooCAE Web</div>
+        <div class="port">:5173</div>
+      </div>
+      <div class="arch-node">
+        <div>📱 App</div>
+        <div class="port">:5174</div>
+      </div>
+    </div>
+    <div class="arch-row"><div class="arch-arrow">↓ REST API / WebSocket</div></div>
+
+    <!-- Backend tier -->
+    <div class="arch-row">
+      <div class="arch-node highlight">
+        <div>🐍 메인 백엔드</div>
+        <div class="port">:5010 Flask/Gunicorn</div>
+      </div>
+      <div class="arch-node">
+        <div>🔑 인증 백엔드</div>
+        <div class="port">:4430 Flask</div>
+      </div>
+      <div class="arch-node">
+        <div>🔌 WebSocket</div>
+        <div class="port">:5011</div>
+      </div>
+      <div class="arch-node">
+        <div>🔒 SAML IdP</div>
+        <div class="port">:7000</div>
+      </div>
+    </div>
+    <div class="arch-row"><div class="arch-arrow">↓ scontrol / squeue / sacct</div></div>
+
+    <!-- Slurm layer -->
+    <div class="arch-row">
+      <div class="arch-node highlight">
+        <div>📡 slurmctld</div>
+        <div class="port">컨트롤러</div>
+      </div>
+      <div class="arch-node">
+        <div>🗄 slurmdbd</div>
+        <div class="port">MariaDB 어카운팅</div>
+      </div>
+      <div class="arch-node">
+        <div>📊 Prometheus</div>
+        <div class="port">:9090</div>
+      </div>
+      <div class="arch-node">
+        <div>📈 Node Exporter</div>
+        <div class="port">:9100</div>
+      </div>
+    </div>
+    <div class="arch-row"><div class="arch-arrow">↓ slurmd (SSH)</div></div>
+
+    <!-- Compute nodes -->
+    <div class="arch-row">
+      <div class="arch-node">
+        <div>💻 node001</div>
+        <div class="port">192.168.122.90</div>
+        <div class="arch-label">2C / 4GB</div>
+      </div>
+      <div class="arch-node">
+        <div>💻 node002</div>
+        <div class="port">192.168.122.103</div>
+        <div class="arch-label">2C / 4GB</div>
+      </div>
+      <div class="arch-node highlight">
+        <div>🖥 viz-node001</div>
+        <div class="port">192.168.122.252</div>
+        <div class="arch-label">4C / 19.9GB GPU</div>
+      </div>
+      <div class="arch-node highlight">
+        <div>🖥 viz-node002</div>
+        <div class="port">192.168.122.223</div>
+        <div class="arch-label">4C / 18.9GB GPU</div>
+      </div>
+    </div>
+    <div class="arch-row"><div class="arch-arrow">↓ Apptainer SIF 컨테이너</div></div>
+
+    <!-- Storage -->
+    <div class="arch-row">
+      <div class="arch-node">
+        <div>🏠 /home</div>
+        <div class="port">2.0TB / 99% 사용</div>
+      </div>
+      <div class="arch-node">
+        <div>⚡ /scratch</div>
+        <div class="port">1.6TB / 22% 사용</div>
+      </div>
+      <div class="arch-node">
+        <div>💾 /data</div>
+        <div class="port">NFS 공유</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== CLUSTER STATUS ====== -->
+<section id="cluster">
+  <h2>📡 클러스터 현황 (Live)</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🖧</span>
+        <div><div class="card-title">노드 현황</div><div class="card-subtitle">sinfo 기준 실시간</div></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="node-card">
+          <div class="node-name"><span class="status-dot down"></span>node001</div>
+          <div class="node-stat"><span>IP</span><span>192.168.122.90</span></div>
+          <div class="node-stat"><span>CPU</span><span>2 core</span></div>
+          <div class="node-stat"><span>메모리</span><span>4 GB</span></div>
+          <div class="node-stat"><span>파티션</span><span>normal</span></div>
+          <div class="node-stat"><span>상태</span><span style="color:var(--red)">down*</span></div>
+        </div>
+        <div class="node-card">
+          <div class="node-name"><span class="status-dot down"></span>node002</div>
+          <div class="node-stat"><span>IP</span><span>192.168.122.103</span></div>
+          <div class="node-stat"><span>CPU</span><span>2 core</span></div>
+          <div class="node-stat"><span>메모리</span><span>4 GB</span></div>
+          <div class="node-stat"><span>파티션</span><span>normal</span></div>
+          <div class="node-stat"><span>상태</span><span style="color:var(--red)">down*</span></div>
+        </div>
+        <div class="node-card">
+          <div class="node-name"><span class="status-dot mixed"></span>viz-node001</div>
+          <div class="node-stat"><span>IP</span><span>192.168.122.252</span></div>
+          <div class="node-stat"><span>CPU</span><span>4 core</span></div>
+          <div class="node-stat"><span>메모리</span><span>19.9 GB</span></div>
+          <div class="node-stat"><span>파티션</span><span>normal, viz</span></div>
+          <div class="node-stat"><span>상태</span><span style="color:var(--accent3)">mixed</span></div>
+        </div>
+        <div class="node-card">
+          <div class="node-name"><span class="status-dot up"></span>viz-node002</div>
+          <div class="node-stat"><span>IP</span><span>192.168.122.223</span></div>
+          <div class="node-stat"><span>CPU</span><span>4 core</span></div>
+          <div class="node-stat"><span>메모리</span><span>18.9 GB</span></div>
+          <div class="node-stat"><span>파티션</span><span>normal, viz</span></div>
+          <div class="node-stat"><span>상태</span><span style="color:var(--accent2)">idle</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📋</span>
+        <div><div class="card-title">최근 완료 작업</div><div class="card-subtitle">sacct 기준</div></div>
+      </div>
+      <div class="live-data">
+        <div class="live-label">💾 실시간 API 데이터</div>
+        <div>Job #3354 &nbsp;<span class="tag tag-green">COMPLETED</span><br>
+          &nbsp; Test_010_Sequential_Quick_RSEQ003<br>
+          &nbsp; 4 CPU · 4G · 17분 13초 · normal</div>
+        <br>
+        <div>Job #3353 &nbsp;<span class="tag tag-green">COMPLETED</span><br>
+          &nbsp; Test_010_Sequential_Quick_RSEQ002<br>
+          &nbsp; 4 CPU · 4G · 20분 38초 · normal</div>
+        <br>
+        <div>Job #3352 &nbsp;<span class="tag tag-green">COMPLETED</span><br>
+          &nbsp; Test_010_Sequential_Quick_RSEQ001<br>
+          &nbsp; 2 CPU · 4G · 14초 · normal</div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="card-header" style="margin-bottom:8px">
+          <span class="card-icon" style="font-size:1rem">⚡</span>
+          <div class="card-title" style="font-size:0.9rem">파티션</div>
+        </div>
+        <div style="font-size:0.85rem; color:var(--text2)">
+          <div>normal &nbsp;<span class="tag tag-blue">4 nodes</span><span class="tag tag-orange">7일 제한</span></div>
+          <div style="margin-top:6px">viz &nbsp;<span class="tag tag-purple">2 nodes</span><span class="tag tag-orange">60일 제한</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== FRONTEND ====== -->
+<section id="frontend">
+  <h2>⚛️ 프론트엔드 구성 (React + Vite + TypeScript)</h2>
+  <div class="grid grid-3">
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📊</span>
+        <div><div class="card-title">메인 대시보드</div><div class="card-subtitle">Dashboard.tsx</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>클러스터 전체 상태 요약 (노드 수, 가용 CPU/메모리)</li>
+        <li>실시간 리소스 사용률 그래프</li>
+        <li>최근 작업 히스토리</li>
+        <li>알림 및 경고 배너</li>
+        <li>빠른 작업 제출 버튼</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🖧</span>
+        <div><div class="card-title">노드 관리</div><div class="card-subtitle">NodeManagement/</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>노드 카드 뷰 (상태, CPU, 메모리)</li>
+        <li>노드 드레인/재개 조작</li>
+        <li>노드 재부팅 요청</li>
+        <li>그룹별 노드 패널 (GroupPanel.tsx)</li>
+        <li>3D 클러스터 시각화 (ClusterVisualization3D.tsx)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">⚙️</span>
+        <div><div class="card-title">작업 관리</div><div class="card-subtitle">JobManagement/</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>실행 중 / 대기 / 완료 작업 목록</li>
+        <li>작업 취소 / 홀드 / 재개</li>
+        <li>작업 로그 실시간 뷰어 (JobLogViewer.tsx)</li>
+        <li>LS-DYNA 전용 작업 제출</li>
+        <li>Apptainer 이미지 선택기 연동</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📁</span>
+        <div><div class="card-title">데이터 관리</div><div class="card-subtitle">DataManagement/</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>파일 브라우저 (FileBrowser.tsx)</li>
+        <li>파일 업로드/다운로드</li>
+        <li>파일 미리보기 (FilePreview.tsx)</li>
+        <li>스크래치 스토리지 뷰 (ScratchStorageView.tsx)</li>
+        <li>멀티노드 파일 전송 (MultiNodeTransfer.tsx)</li>
+        <li>디스크 사용량 경고 (DiskUsageAlerts.tsx)</li>
+        <li>글로벌 검색 (GlobalSearch/)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📜</span>
+        <div><div class="card-title">템플릿 관리</div><div class="card-subtitle">TemplateManagement/</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>작업 템플릿 CRUD (TemplateEditor.tsx)</li>
+        <li>LS-DYNA 전용 템플릿</li>
+        <li>템플릿 카탈로그 (TemplateCatalog.tsx)</li>
+        <li>CommandTemplates 편집기</li>
+        <li>스크립트 에디터 (ScriptEditor/)</li>
+        <li>파티션/QoS 연동 설정</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🖥</span>
+        <div><div class="card-title">VNC / SSH 터미널</div><div class="card-subtitle">VNCSessionManager / SSHTerminal</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>브라우저 내 VNC 세션 관리</li>
+        <li>Slurm 잡으로 VNC 세션 시작</li>
+        <li>SSH 웹 터미널 (SSHTerminal.tsx)</li>
+        <li>SSH 세션 매니저 (SSHSessionManager.tsx)</li>
+        <li>다중 세션 탭 관리</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📦</span>
+        <div><div class="card-title">Apptainer 카탈로그</div><div class="card-subtitle">ApptainerCatalog.tsx</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>배포된 SIF 이미지 목록</li>
+        <li>이미지 선택 → 작업 제출 연동</li>
+        <li>컨테이너별 메타데이터 표시</li>
+        <li>Apptainer 선택기 (ApptainerSelector.tsx)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📈</span>
+        <div><div class="card-title">모니터링</div><div class="card-subtitle">PrometheusMetrics / RealtimeMonitoring</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>Prometheus 메트릭 실시간 차트</li>
+        <li>CPU / 메모리 / 디스크 시계열</li>
+        <li>노드별 리소스 비교</li>
+        <li>RealtimeMonitoring.tsx — WebSocket 연동</li>
+        <li>커스텀 PromQL 쿼리 패널</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📊</span>
+        <div><div class="card-title">리포트 / 커스텀 대시보드</div><div class="card-subtitle">Reports / CustomDashboard</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>작업 히스토리 리포트 내보내기</li>
+        <li>사용자별 / 파티션별 통계</li>
+        <li>드래그앤드롭 위젯 대시보드 (CustomDashboard/)</li>
+        <li>WidgetLibrary — 위젯 추가/제거</li>
+        <li>HealthCheck 패널</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<!-- ====== BACKEND API ====== -->
+<section id="backend">
+  <h2>🐍 백엔드 API (Flask + Gunicorn, :5010)</h2>
+
+  <div class="grid grid-2" style="margin-bottom:24px">
+    <div class="card">
+      <h3>Blueprint 구성 (24개 모듈)</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+        <span class="tag tag-blue">alerts</span>
+        <span class="tag tag-blue">preview</span>
+        <span class="tag tag-blue">search</span>
+        <span class="tag tag-blue">directory</span>
+        <span class="tag tag-blue">notifications</span>
+        <span class="tag tag-green">prometheus</span>
+        <span class="tag tag-green">reports</span>
+        <span class="tag tag-green">dashboard</span>
+        <span class="tag tag-green">health</span>
+        <span class="tag tag-orange">cache</span>
+        <span class="tag tag-orange">upload</span>
+        <span class="tag tag-orange">node</span>
+        <span class="tag tag-orange">groups</span>
+        <span class="tag tag-purple">vnc</span>
+        <span class="tag tag-purple">ssh</span>
+        <span class="tag tag-purple">cluster_config</span>
+        <span class="tag tag-purple">apptainer</span>
+        <span class="tag tag-blue">templates_v2</span>
+        <span class="tag tag-blue">file_upload</span>
+        <span class="tag tag-blue">job_submit</span>
+        <span class="tag tag-blue">template_persistence</span>
+        <span class="tag tag-blue">lsdyna_submit</span>
+        <span class="tag tag-blue">file_listing</span>
+        <span class="tag tag-blue">yaml_loader</span>
+        <span class="tag tag-blue">job_logs</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>인증 미들웨어</h3>
+      <ul class="feature-list" style="margin-top:10px">
+        <li>JWT 토큰 기반 인증 (<code>@jwt_required</code>)</li>
+        <li>선택적 JWT (<code>@optional_jwt</code>)</li>
+        <li>권한 기반 접근 제어 (<code>@permission_required</code>)</li>
+        <li>권한 레벨: dashboard / admin</li>
+        <li>SSO false 모드 (개발용 인증 우회)</li>
+        <li>production / mock 모드 전환 지원</li>
+      </ul>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>메서드</th><th>엔드포인트</th><th>설명</th><th>권한</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="method get">GET</span></td><td>/api/health</td><td>서비스 헬스 체크 (mode, status, timestamp)</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/metrics</td><td>Prometheus 메트릭 스크랩 엔드포인트</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/slurm/status</td><td>파티션 상태 목록</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/slurm/nodes/real</td><td>노드 상세 정보 (IP, cores, mem, state)</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/slurm/nodes/&lt;hostname&gt;</td><td>특정 노드 상세</td><td>공개</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/slurm/sync-nodes</td><td>노드 상태 강제 동기화</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/slurm/jobs</td><td>실행 중 작업 목록</td><td>공개</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/slurm/jobs/submit</td><td>작업 제출</td><td>JWT + dashboard</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/slurm/jobs/&lt;id&gt;/cancel</td><td>작업 취소</td><td>JWT + dashboard</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/slurm/jobs/&lt;id&gt;/hold</td><td>작업 홀드</td><td>JWT + dashboard</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/slurm/jobs/&lt;id&gt;/release</td><td>작업 재개</td><td>JWT + dashboard</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/slurm/apply-config</td><td>Slurm 설정 적용 (scontrol reconfigure)</td><td>JWT + admin</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/slurm/qos</td><td>QoS 목록</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/jobs</td><td>완료 포함 전체 작업 (sacct)</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/storage/usage</td><td>스토리지 사용량 (/home, /scratch, /data)</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/storage/files</td><td>파일 목록</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/storage/data/stats</td><td>데이터 스토리지 통계</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/storage/data/datasets</td><td>데이터셋 목록</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/storage/scratch/nodes</td><td>노드별 스크래치 사용량</td><td>공개</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/storage/scratch/move</td><td>파일 이동</td><td>공개</td></tr>
+      <tr><td><span class="method post">POST</span></td><td>/api/storage/scratch/delete</td><td>파일 삭제</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/storage/search</td><td>파일 검색</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/metrics/realtime</td><td>실시간 메트릭 (WebSocket 피드용)</td><td>공개</td></tr>
+      <tr><td><span class="method get">GET</span></td><td>/api/auth/config</td><td>인증 설정 반환 (SSO 모드 등)</td><td>공개</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ====== SERVICES ====== -->
+<section id="services">
+  <h2>🔌 서비스 포트 맵</h2>
+  <div class="grid grid-3">
+    <div class="card">
+      <h3>🖥 프론트엔드</h3>
+      <table style="margin-top:10px">
+        <tr><td><span class="port-tag">3010</span></td><td>메인 대시보드 (React)</td></tr>
+        <tr><td><span class="port-tag">4431</span></td><td>인증 포털 UI</td></tr>
+        <tr><td><span class="port-tag">5173</span></td><td>KooCAE Web</td></tr>
+        <tr><td><span class="port-tag">5174</span></td><td>App 프론트엔드</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>🐍 백엔드 API</h3>
+      <table style="margin-top:10px">
+        <tr><td><span class="port-tag">5010</span></td><td>메인 Flask 백엔드</td></tr>
+        <tr><td><span class="port-tag">4430</span></td><td>인증 백엔드</td></tr>
+        <tr><td><span class="port-tag">5000</span></td><td>KooCAE 서버</td></tr>
+        <tr><td><span class="port-tag">5001</span></td><td>KooCAE 자동화 서버</td></tr>
+        <tr><td><span class="port-tag">5011</span></td><td>WebSocket 실시간</td></tr>
+        <tr><td><span class="port-tag">8001</span></td><td>CAE 서비스</td></tr>
+        <tr><td><span class="port-tag">7000</span></td><td>SAML IdP</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>🖥 원격 데스크톱 / 모니터링</h3>
+      <table style="margin-top:10px">
+        <tr><td><span class="port-tag">8002</span></td><td>VNC 서비스</td></tr>
+        <tr><td><span class="port-tag">8003</span></td><td>Moonlight Frontend / KasmVNC</td></tr>
+        <tr><td><span class="port-tag">8004</span></td><td>Moonlight/Sunshine 스트리밍</td></tr>
+        <tr><td><span class="port-tag">8005</span></td><td>WebRTC NVENC</td></tr>
+        <tr><td><span class="port-tag">9090</span></td><td>Prometheus ✅ 실행 중</td></tr>
+        <tr><td><span class="port-tag">9100</span></td><td>Node Exporter</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ====== REMOTE DESKTOP ====== -->
+<section id="remote">
+  <h2>🖥 원격 데스크톱 스택</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🌙</span>
+        <div><div class="card-title">Moonlight / Sunshine</div><div class="card-subtitle">:8003 (UI) + :8004 (스트리밍)</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>Sunshine 서버 → NVIDIA NVENC GPU 인코딩</li>
+        <li>Moonlight 클라이언트 웹 UI로 연결</li>
+        <li>Apptainer 컨테이너로 데스크톱 프로비저닝</li>
+        <li>GNOME / XFCE4 / LSPrePost 이미지 지원</li>
+        <li>Ubuntu 22.04 / 24.04 듀얼 .def 파일</li>
+      </ul>
+      <div style="margin-top:12px;font-size:0.8rem;color:var(--text2)">
+        이미지: sunshine_gnome_2404.def · sunshine_xfce4_2404.def · sunshine_gnome_lsprepost_2404.def
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🖼</span>
+        <div><div class="card-title">VNC / KasmVNC WebRTC</div><div class="card-subtitle">:8002 (VNC) + :8003 (WebRTC)</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>Slurm 잡으로 VNC 세션 시작</li>
+        <li>브라우저 내 VNC (KasmVNC WebRTC)</li>
+        <li>/scratch/vnc_sessions/ 세션 저장</li>
+        <li>/scratch/vnc_sandboxes/ 샌드박스</li>
+        <li>/scratch/vnc_logs/ 로그</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">⚡</span>
+        <div><div class="card-title">Custom WebRTC NVENC</div><div class="card-subtitle">:8005</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>NVIDIA NVENC 하드웨어 인코딩</li>
+        <li>저지연 브라우저 스트리밍</li>
+        <li>WebRTC ICE/STUN 시그널링</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📦</span>
+        <div><div class="card-title">Apptainer 배포</div><div class="card-subtitle">deploy_apptainers.sh</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>YAML 노드 목록 기반 자동 배포</li>
+        <li>--image로 특정 SIF만 배포 가능</li>
+        <li>SSH 실패 시 다음 노드로 자동 진행</li>
+        <li>배포 성공/실패 통계 요약</li>
+        <li>squashfuse + libfuse2 설치 포함</li>
+        <li>/opt/apptainers/ 에 이미지 저장</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ====== STORAGE ====== -->
+<section id="storage">
+  <h2>💾 스토리지 현황 (Live)</h2>
+  <div class="grid grid-3">
+    <div class="card">
+      <div class="card-header"><span class="card-icon">🏠</span><div class="card-title">/home</div></div>
+      <div style="font-size:2rem;font-weight:700;color:var(--red)">99%</div>
+      <div style="font-size:0.85rem;color:var(--text2)">1,926 GB / 2,051 GB 사용</div>
+      <div style="background:var(--bg3);height:8px;border-radius:4px;margin-top:12px">
+        <div style="background:var(--red);height:8px;border-radius:4px;width:99%"></div>
+      </div>
+      <div style="font-size:0.75rem;color:var(--text2);margin-top:6px">⚠️ 용량 경고 수준</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-icon">⚡</span><div class="card-title">/scratch</div></div>
+      <div style="font-size:2rem;font-weight:700;color:var(--accent2)">22%</div>
+      <div style="font-size:0.85rem;color:var(--text2)">325 GB / 1,612 GB 사용</div>
+      <div style="background:var(--bg3);height:8px;border-radius:4px;margin-top:12px">
+        <div style="background:var(--accent2);height:8px;border-radius:4px;width:22%"></div>
+      </div>
+      <div style="font-size:0.75rem;color:var(--text2);margin-top:6px">작업 임시 데이터 · 1777 권한</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-icon">💾</span><div class="card-title">/data</div></div>
+      <div style="font-size:0.85rem;color:var(--text2);margin-top:8px">NFS 공유 스토리지</div>
+      <ul class="feature-list" style="margin-top:10px">
+        <li>battery_study / warpage_study</li>
+        <li>cms_study / SmartTwinPreprocessor</li>
+        <li>CAE 시뮬레이션 결과물</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ====== MONITORING ====== -->
+<section id="monitoring">
+  <h2>📈 모니터링 스택</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📊</span>
+        <div><div class="card-title">Prometheus</div><div class="card-subtitle">:9090 ✅ 실행 중</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>스크랩 대상: localhost:9090 (self), localhost:9100 (node), localhost:5010 (dashboard)</li>
+        <li>스크랩 간격: 15초</li>
+        <li>TSDB 로컬 저장 (dashboard/prometheus_9090/data/)</li>
+        <li>대시보드 백엔드 /metrics 엔드포인트 수집</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📡</span>
+        <div><div class="card-title">Node Exporter</div><div class="card-subtitle">:9100</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>CPU / 메모리 / 디스크 메트릭</li>
+        <li>네트워크 인터페이스 통계</li>
+        <li>Prometheus에서 자동 수집</li>
+        <li>프론트엔드 PrometheusMetrics 패널 연동</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ====== AUTH ====== -->
+<section id="auth">
+  <h2>🔐 인증 시스템</h2>
+  <div class="grid grid-3">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🔑</span>
+        <div><div class="card-title">Auth Portal Backend</div><div class="card-subtitle">:4430 Flask</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>JWT 토큰 발급 / 검증</li>
+        <li>SAML SSO 연동 (saml_handler.py)</li>
+        <li>OIDC 지원 (oidc_handler.py)</li>
+        <li>세션 관리 (jwt_handler.py)</li>
+        <li>SSO false 모드 (개발용)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🎨</span>
+        <div><div class="card-title">Auth Portal Frontend</div><div class="card-subtitle">:4431 React</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>로그인 / 로그아웃 UI</li>
+        <li>SSO 리다이렉트 처리</li>
+        <li>JWT 토큰 로컬 관리</li>
+        <li>세션 만료 자동 갱신</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🏛</span>
+        <div><div class="card-title">SAML IdP</div><div class="card-subtitle">:7000</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>자체 SAML Identity Provider</li>
+        <li>SP 메타데이터 관리</li>
+        <li>사용자/그룹 정의 (users.json)</li>
+        <li>Assertion 서명 인증서 관리</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ====== AGENTS ====== -->
+<section id="agents">
+  <h2>🤖 커스텀 Claude Code 에이전트 (.claude/agents/)</h2>
+  <div class="grid grid-3">
+    <div class="card" style="border-color:var(--accent)">
+      <div class="card-header">
+        <span class="card-icon">🏗</span>
+        <div><div class="card-title">cluster-setup</div><div class="card-subtitle">클러스터 설치 오케스트레이터</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>setup_cluster_full_multihead_offline.sh 관리</li>
+        <li>phase0 ~ phase10 설치 흐름</li>
+        <li>YAML 기반 클러스터 설정</li>
+        <li>오프라인 패키지 (22.04 / 24.04)</li>
+      </ul>
+    </div>
+    <div class="card" style="border-color:var(--accent)">
+      <div class="card-header">
+        <span class="card-icon">🔧</span>
+        <div><div class="card-title">slurm-ops</div><div class="card-subtitle">Slurm/Apptainer 유지보수</div></div>
+      </div>
+      <ul class="feature-list">
+        <li>노드 복구 (fix_all_nodes.sh)</li>
+        <li>Munge 키 동기화</li>
+        <li>Apptainer 이미지 배포</li>
+        <li>헬스 체크 / 에러 복구</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">⚙️</span>
+        <div><div class="card-title">Dashboard Agents</div><div class="card-subtitle">14 그룹 × 2 (dev + debug)</div></div>
+      </div>
+      <div style="font-size:0.82rem;color:var(--text2);margin-top:6px">
+        backend-5010 · frontend-3010 · auth-4430/4431 · saml-7000 · vnc-8002 · moonlight-8003/8004 · kasmvnc-8003 · webrtc-8005 · cae-8001 · kooCAE-5000/5001/5173 · app-5174 · websocket-5011 · monitoring-9090/9100
+      </div>
+      <div style="margin-top:10px;font-size:0.8rem;color:var(--accent)">총 30개 에이전트</div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /container -->
+
+<footer>
+  <div>KooHPC Dashboard — HPC Slurm Cluster Management System</div>
+  <div style="margin-top:6px;font-size:0.78rem">
+    Slurm 23.11.10 · Ubuntu 22.04/24.04 · Apptainer 1.3.3 · React + Flask · 오프라인 배포 지원
+  </div>
+  <div style="margin-top:6px;color:#4a5568">생성: 2026-04-06 · Claude Code</div>
+</footer>
+
+</body>
+</html>

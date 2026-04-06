@@ -182,6 +182,8 @@ apt-get install -y --no-install-recommends "${PACKAGES_TO_INSTALL[@]}" 2>&1 || {
 # 핵심 패키지를 개별적으로 apt-get install 시도
 # ============================================================================
 CRITICAL_PACKAGES=(
+    "libpmix2"
+    "libpmix-dev"
     "libhwloc15"
     "hwloc-nox"
     "libhwloc-plugins"
@@ -195,6 +197,10 @@ CRITICAL_PACKAGES=(
     "socat"
     "pv"
     "sshpass"
+    "squashfuse"
+    "libsquashfuse0"
+    "libfuse2"
+    "fuse2fs"
 )
 
 RETRY_COUNT=0
