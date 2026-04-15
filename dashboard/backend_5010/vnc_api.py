@@ -518,8 +518,8 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
 #SBATCH --job-name=vnc-{username}
 #SBATCH --partition=viz
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
 {gpu_line}
 #SBATCH --time={duration_hours}:00:00
 #SBATCH --chdir=/tmp

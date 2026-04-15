@@ -118,6 +118,15 @@
   .tag-orange { background: #92400e22; color: #fcd34d; border: 1px solid #f59e0b44; }
   .tag-purple { background: #4c1d9522; color: #c4b5fd; border: 1px solid #8b5cf644; }
 
+  /* Screenshot gallery */
+  .screenshot-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 24px; }
+  .screenshot-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .screenshot-item:hover { border-color: var(--accent); transition: border-color 0.2s; }
+  .screenshot-item img { width: 100%; display: block; border-bottom: 1px solid var(--border); }
+  .screenshot-caption { padding: 12px 16px; }
+  .screenshot-caption strong { display: block; font-size: 0.9rem; color: var(--text); margin-bottom: 4px; }
+  .screenshot-caption span { font-size: 0.78rem; color: var(--text2); }
+
   footer { background: var(--bg2); border-top: 1px solid var(--border); padding: 30px 40px;
     text-align: center; color: var(--text2); font-size: 0.85rem; }
 </style>
@@ -141,6 +150,7 @@
 <nav>
   <a href="#architecture">시스템 구조</a>
   <a href="#cluster">클러스터 현황</a>
+  <a href="#screenshots">스크린샷</a>
   <a href="#frontend">프론트엔드</a>
   <a href="#backend">백엔드 API</a>
   <a href="#services">서비스 포트</a>
@@ -148,7 +158,6 @@
   <a href="#storage">스토리지</a>
   <a href="#monitoring">모니터링</a>
   <a href="#auth">인증 시스템</a>
-  <a href="#agents">커스텀 에이전트</a>
 </nav>
 
 <div class="container">
@@ -356,6 +365,142 @@
         </div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ====== SCREENSHOTS ====== -->
+<section id="screenshots">
+  <h2>📸 실제 화면 스크린샷</h2>
+  <div class="screenshot-gallery">
+
+    <div class="screenshot-item">
+      <img src="screenshots/01_services_page.png" alt="서비스 선택 화면">
+      <div class="screenshot-caption">
+        <strong>서비스 선택 포털</strong>
+        <span>로그인 후 진입하는 서비스 선택 화면. Smart Twin Flow / Extreme 선택 가능.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/02_dashboard_main.png" alt="메인 대시보드">
+      <div class="screenshot-caption">
+        <strong>메인 대시보드 (Custom Dashboard)</strong>
+        <span>드래그앤드롭 위젯 대시보드. CPU/Memory/GPU 실시간 수치 표시. Production Mode 표시.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/03_cluster_management.png" alt="클러스터 관리">
+      <div class="screenshot-caption">
+        <strong>클러스터 관리</strong>
+        <span>총 4노드 12코어. 리소스 그룹(normal, viz) 드래그앤드롭 구성. Add Group 기능.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/04_job_management.png" alt="작업 관리">
+      <div class="screenshot-caption">
+        <strong>작업 관리 (Job Management)</strong>
+        <span>총 230개 작업 이력. Running/Pending/Completed/Failed 상태별 카운트. 작업 제출 버튼.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/05_job_templates.png" alt="작업 템플릿">
+      <div class="screenshot-caption">
+        <strong>작업 템플릿 (Job Templates)</strong>
+        <span>Template 생성, YAML 업로드, Scan&Sync. Official/Community/Private 분류.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/06_apptainer_images.png" alt="Apptainer 이미지">
+      <div class="screenshot-caption">
+        <strong>Apptainer 이미지 카탈로그</strong>
+        <span>배포된 SIF 이미지 목록. KooSimulationPython313.sif (452MB, Ubuntu 22.04 + Python 3.13).</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/07_node_management.png" alt="노드 관리">
+      <div class="screenshot-caption">
+        <strong>노드 관리 (Node Management)</strong>
+        <span>IDLE/ALLOCATED/DRAINED/DOWN 상태별 카운트. Resume All, Auto Refresh 기능. node001 상태 표시.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/08_vnc_sessions.png" alt="VNC 세션">
+      <div class="screenshot-caption">
+        <strong>VNC 세션 관리</strong>
+        <span>GPU 가속 원격 데스크톱. New Session으로 VNC 세션 생성. Slurm 잡으로 실행.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/09_moonlight_streaming.png" alt="Moonlight Streaming">
+      <div class="screenshot-caption">
+        <strong>Moonlight Streaming</strong>
+        <span>NVIDIA GameStream 기반 초저지연(5-20ms) GPU 원격 스트리밍. Backend:8004, Frontend:8003.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/10_ssh_sessions.png" alt="SSH 세션">
+      <div class="screenshot-caption">
+        <strong>SSH 세션 (웹 터미널)</strong>
+        <span>브라우저에서 직접 클러스터 노드 SSH 접속. 다중 세션 관리.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/11_realtime_monitoring.png" alt="실시간 모니터링">
+      <div class="screenshot-caption">
+        <strong>실시간 모니터링</strong>
+        <span>CPU/Memory/GPU Usage, Active Jobs 실시간 수치 카드. WebSocket 연동.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/12_prometheus_metrics.png" alt="Prometheus 메트릭">
+      <div class="screenshot-caption">
+        <strong>Prometheus 메트릭</strong>
+        <span>PromQL 쿼리 브라우저, 차트 뷰. Connected 상태 표시. Auto Refresh 토글.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/13_health_check.png" alt="시스템 헬스체크">
+      <div class="screenshot-caption">
+        <strong>시스템 헬스체크</strong>
+        <span>Overall Status: Healthy. Backend API (Uptime 5h, 99.9%), Database (7 Tables) 상태 표시.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/14_reports.png" alt="리포트">
+      <div class="screenshot-caption">
+        <strong>리포트</strong>
+        <span>시스템 사용량·비용 분석. Total Users, Active Users, Running Jobs, 일일 비용($47.76) 표시.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/15_data_management.png" alt="데이터 관리">
+      <div class="screenshot-caption">
+        <strong>데이터 관리</strong>
+        <span>Shared Storage(/data), Local Scratch(/scratch) 탭. 파일 브라우저, Cache 통계.</span>
+      </div>
+    </div>
+
+    <div class="screenshot-item">
+      <img src="screenshots/16_file_upload.png" alt="파일 업로드">
+      <div class="screenshot-caption">
+        <strong>파일 업로드 (Phase 3)</strong>
+        <span>드래그앤드롭 대용량 파일 업로드. 최대 20개 파일, 개당 최대 50GB. Upload History 조회.</span>
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -783,47 +928,6 @@
         <li>사용자/그룹 정의 (users.json)</li>
         <li>Assertion 서명 인증서 관리</li>
       </ul>
-    </div>
-  </div>
-</section>
-
-<!-- ====== AGENTS ====== -->
-<section id="agents">
-  <h2>🤖 커스텀 Claude Code 에이전트 (.claude/agents/)</h2>
-  <div class="grid grid-3">
-    <div class="card" style="border-color:var(--accent)">
-      <div class="card-header">
-        <span class="card-icon">🏗</span>
-        <div><div class="card-title">cluster-setup</div><div class="card-subtitle">클러스터 설치 오케스트레이터</div></div>
-      </div>
-      <ul class="feature-list">
-        <li>setup_cluster_full_multihead_offline.sh 관리</li>
-        <li>phase0 ~ phase10 설치 흐름</li>
-        <li>YAML 기반 클러스터 설정</li>
-        <li>오프라인 패키지 (22.04 / 24.04)</li>
-      </ul>
-    </div>
-    <div class="card" style="border-color:var(--accent)">
-      <div class="card-header">
-        <span class="card-icon">🔧</span>
-        <div><div class="card-title">slurm-ops</div><div class="card-subtitle">Slurm/Apptainer 유지보수</div></div>
-      </div>
-      <ul class="feature-list">
-        <li>노드 복구 (fix_all_nodes.sh)</li>
-        <li>Munge 키 동기화</li>
-        <li>Apptainer 이미지 배포</li>
-        <li>헬스 체크 / 에러 복구</li>
-      </ul>
-    </div>
-    <div class="card">
-      <div class="card-header">
-        <span class="card-icon">⚙️</span>
-        <div><div class="card-title">Dashboard Agents</div><div class="card-subtitle">14 그룹 × 2 (dev + debug)</div></div>
-      </div>
-      <div style="font-size:0.82rem;color:var(--text2);margin-top:6px">
-        backend-5010 · frontend-3010 · auth-4430/4431 · saml-7000 · vnc-8002 · moonlight-8003/8004 · kasmvnc-8003 · webrtc-8005 · cae-8001 · kooCAE-5000/5001/5173 · app-5174 · websocket-5011 · monitoring-9090/9100
-      </div>
-      <div style="margin-top:10px;font-size:0.8rem;color:var(--accent)">총 30개 에이전트</div>
     </div>
   </div>
 </section>

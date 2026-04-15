@@ -26,6 +26,7 @@
 #   --skip-python          Python wheels 건너뛰기
 #   --apt-only             APT 패키지만 수집
 #   --desktop              ubuntu-desktop-minimal 포함 (네트워크/블루투스 제외)
+#   --clone-system         현재 시스템에 설치된 모든 패키지 + 의존성 수집
 #   --help                 도움말 표시
 #
 # 작성자: Claude Code
@@ -64,6 +65,7 @@ SKIP_GPU=false
 SKIP_PYTHON=false
 APT_ONLY=false
 INCLUDE_DESKTOP=false
+CLONE_SYSTEM=false
 SLURM_VERSION="23.11.10"
 
 # 통계
@@ -100,6 +102,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --desktop)
             INCLUDE_DESKTOP=true
+            shift
+            ;;
+        --clone-system)
+            CLONE_SYSTEM=true
             shift
             ;;
         --help|-h)
@@ -188,82 +194,132 @@ phase_apt_packages() {
     log_info "Collecting APT packages directly..."
     cd "$apt_dir"
 
-    # 필수 패키지 목록
-    local PACKAGES=(
-        # 빌드 도구
-        build-essential gcc g++ make bzip2 wget curl rsync vim
-
-        # Munge 인증
-        munge libmunge-dev libmunge2
-
-        # Slurm 빌드 의존성
-        libpam0g-dev libreadline-dev libssl-dev libnuma-dev
-        libhwloc-dev libdbus-1-dev libsystemd-dev pkg-config
-
-        # PMIx (Slurm MPI 지원 — 핵심!)
-        libpmix-dev
-
-        # MariaDB (slurmdbd용)
-        mariadb-server mariadb-client libmariadb-dev libmariadb-dev-compat
-
-        # Python
-        python3 python3-pip python3-yaml python3-paramiko python3-venv
-
-        # Redis
-        redis-server redis-tools
-
-        # 네트워크/유틸리티
-        net-tools jq socat pv sshpass autofs ntp ntpdate chrony
-        openssh-server openssh-client
-        hwloc libhwloc15
-
-        # Nginx
-        nginx
-
-        # Apptainer + squashfuse (SIF 이미지 마운트용)
-        apptainer
-        squashfuse libsquashfuse0 libfuse2 fuse2fs
-
-        # Node.js 빌드 도구
-        nodejs npm
-    )
-
-    # 24.04 특화 패키지명 변환
-    if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
-        PACKAGES+=("libpmix2t64")
-        log_info "OS: Ubuntu 24.04 (${OS_CODENAME}) — using 24.04-specific package names"
-    else
-        PACKAGES+=("libpmix2")
-        log_info "OS: Ubuntu ${OS_VERSION} (${OS_CODENAME})"
-    fi
-
-    # --desktop: ubuntu-desktop-minimal 추가 (네트워크/블루투스 제외)
-    if [[ "$INCLUDE_DESKTOP" == "true" ]]; then
-        PACKAGES+=("ubuntu-desktop-minimal")
-        log_info "Desktop: ubuntu-desktop-minimal 포함 (네트워크/블루투스 제외)"
-    fi
-
     apt-get update -qq 2>&1 | grep -v "^W:" || true
 
-    # 의존성 포함 전체 패키지 목록
-    log_info "Resolving dependencies..."
-    local ALL_DEPS
-    ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
-               --no-conflicts --no-breaks --no-replaces --no-enhances \
-               "${PACKAGES[@]}" 2>/dev/null | grep "^\w" | sort -u || true)
+    local ALL_DEPS=""
 
-    # --desktop: 네트워크/블루투스 관련 패키지 필터링
-    if [[ "$INCLUDE_DESKTOP" == "true" ]]; then
-        local before_count
-        before_count=$(echo "$ALL_DEPS" | wc -l)
+    if [[ "$CLONE_SYSTEM" == "true" ]]; then
+        ########################################################################
+        # --clone-system: 현재 시스템 설치 패키지 전체 수집
+        ########################################################################
+        log_info "=== Clone System Mode: 현재 시스템의 전체 설치 패키지 수집 ==="
 
-        ALL_DEPS=$(echo "$ALL_DEPS" | grep -viE \
-            "^network-manager|^wpasupplicant|^modemmanager|^mobile-broadband|^ppp$|^gnome-bluetooth|^libgnome-bluetooth|^libbluetooth|^gir1.2-gnomebluetooth|^gir1.2-nm-|^libndp|^libteamdctl|^libkf5modemmanagerqt|^pulseaudio-module-bluetooth|^libmm-glib|^libnm" \
-            || true)
+        # 1단계: 현재 설치된 모든 패키지 이름 추출 (아키텍처 제거)
+        local installed_packages
+        installed_packages=$(dpkg-query -W -f='${Package}\n' | sort -u)
+        local installed_count
+        installed_count=$(echo "$installed_packages" | wc -l)
+        log_info "현재 시스템 설치 패키지: ${installed_count}개"
 
-        local after_count
-        after_count=$(echo "$ALL_DEPS" | wc -l)
-        log_info "Desktop filter: ${before_count} → ${after_count} (제외: $((before_count - after_count)) network/bluetooth packages)"
+        # 2단계: APT 저장소에 존재하는 패키지만 필터링 (직접 빌드/수동 설치 제외)
+        log_info "APT 저장소 기준 필터링 중..."
+        local apt_available
+        apt_available=$(apt-cache pkgnames 2>/dev/null | sort -u)
+        local downloadable
+        downloadable=$(comm -12 <(echo "$installed_packages") <(echo "$apt_available"))
+        local downloadable_count
+        downloadable_count=$(echo "$downloadable" | wc -l)
+
+        local manual_count=$((installed_count - downloadable_count))
+        if [[ $manual_count -gt 0 ]]; then
+            log_warning "수동 설치/외부 패키지 ${manual_count}개 → APT download 불가 (별도 확인 필요)"
+            # 수동 설치 패키지 목록 기록
+            comm -23 <(echo "$installed_packages") <(echo "$apt_available") > "${apt_dir}/manual_packages.txt"
+            log_info "목록 저장: ${apt_dir}/manual_packages.txt"
+        fi
+
+        # 3단계: 의존성 트리 전체 재귀 해석 (설치된 패키지 + 그 의존성)
+        # 설치된 패키지 자체가 이미 의존성을 만족하지만,
+        # 대상 시스템에서 apt install이 정상 작동하려면 의존성 .deb도 모두 필요
+        log_info "전체 의존성 트리 해석 중... (시간이 걸릴 수 있습니다)"
+        ALL_DEPS=$(echo "$downloadable" | xargs apt-cache depends \
+                   --recurse --no-recommends --no-suggests \
+                   --no-conflicts --no-breaks --no-replaces --no-enhances \
+                   2>/dev/null | grep "^\w" | sort -u || true)
+
+        # 4단계: 다운로드 가능한 것만 최종 필터
+        ALL_DEPS=$(comm -12 <(echo "$ALL_DEPS") <(echo "$apt_available"))
+
+        log_info "Clone System: 설치 ${installed_count}개 → 다운로드 대상 $(echo "$ALL_DEPS" | wc -l)개 (의존성 포함)"
+    else
+        ########################################################################
+        # 기본 모드: 지정 패키지 목록 수집
+        ########################################################################
+
+        # 필수 패키지 목록
+        local PACKAGES=(
+            # 빌드 도구
+            build-essential gcc g++ make bzip2 wget curl rsync vim
+
+            # Munge 인증
+            munge libmunge-dev libmunge2
+
+            # Slurm 빌드 의존성
+            libpam0g-dev libreadline-dev libssl-dev libnuma-dev
+            libhwloc-dev libdbus-1-dev libsystemd-dev pkg-config
+
+            # PMIx (Slurm MPI 지원 — 핵심!)
+            libpmix-dev
+
+            # MariaDB (slurmdbd용)
+            mariadb-server mariadb-client libmariadb-dev libmariadb-dev-compat
+
+            # Python
+            python3 python3-pip python3-yaml python3-paramiko python3-venv
+
+            # Redis
+            redis-server redis-tools
+
+            # 네트워크/유틸리티
+            net-tools jq socat pv sshpass autofs ntp ntpdate chrony
+            openssh-server openssh-client
+            hwloc libhwloc15
+
+            # Nginx
+            nginx
+
+            # Apptainer + squashfuse (SIF 이미지 마운트용)
+            apptainer
+            squashfuse libsquashfuse0 libfuse2 fuse2fs
+
+            # Node.js 빌드 도구
+            nodejs npm
+        )
+
+        # 24.04 특화 패키지명 변환
+        if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
+            PACKAGES+=("libpmix2t64")
+            log_info "OS: Ubuntu 24.04 (${OS_CODENAME}) — using 24.04-specific package names"
+        else
+            PACKAGES+=("libpmix2")
+            log_info "OS: Ubuntu ${OS_VERSION} (${OS_CODENAME})"
+        fi
+
+        # --desktop: ubuntu-desktop-minimal 추가 (네트워크/블루투스 제외)
+        if [[ "$INCLUDE_DESKTOP" == "true" ]]; then
+            PACKAGES+=("ubuntu-desktop-minimal")
+            log_info "Desktop: ubuntu-desktop-minimal 포함 (네트워크/블루투스 제외)"
+        fi
+
+        # 의존성 포함 전체 패키지 목록
+        log_info "Resolving dependencies..."
+        ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
+                   --no-conflicts --no-breaks --no-replaces --no-enhances \
+                   "${PACKAGES[@]}" 2>/dev/null | grep "^\w" | sort -u || true)
+
+        # --desktop: 네트워크/블루투스 관련 패키지 필터링
+        if [[ "$INCLUDE_DESKTOP" == "true" ]]; then
+            local before_count
+            before_count=$(echo "$ALL_DEPS" | wc -l)
+
+            ALL_DEPS=$(echo "$ALL_DEPS" | grep -viE \
+                "^network-manager|^wpasupplicant|^modemmanager|^mobile-broadband|^ppp$|^gnome-bluetooth|^libgnome-bluetooth|^libbluetooth|^gir1.2-gnomebluetooth|^gir1.2-nm-|^libndp|^libteamdctl|^libkf5modemmanagerqt|^pulseaudio-module-bluetooth|^libmm-glib|^libnm" \
+                || true)
+
+            local after_count
+            after_count=$(echo "$ALL_DEPS" | wc -l)
+            log_info "Desktop filter: ${before_count} → ${after_count} (제외: $((before_count - after_count)) network/bluetooth packages)"
+        fi
     fi
 
     local UNIQUE_DEPS
@@ -622,7 +678,11 @@ main() {
     log_info "Slurm Version:    ${SLURM_VERSION}"
     echo ""
 
-    if [[ "$APT_ONLY" == "true" ]]; then
+    if [[ "$CLONE_SYSTEM" == "true" ]]; then
+        local sys_pkg_count
+        sys_pkg_count=$(dpkg-query -W -f='${Package}\n' | wc -l)
+        log_info "Mode: Clone System (현재 시스템 ${sys_pkg_count}개 패키지 전체 수집)"
+    elif [[ "$APT_ONLY" == "true" ]]; then
         log_info "Mode: APT packages only"
     else
         local desktop_label=""
