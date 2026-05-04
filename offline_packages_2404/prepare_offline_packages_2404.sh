@@ -331,6 +331,8 @@ packages:
 
 # SSH 서비스 자동 시작
 runcmd:
+  # APT 미러를 카카오로 변경 (한국 → archive.ubuntu.com 느림 회피)
+  - sed -i 's|^URIs: http://archive.ubuntu.com/ubuntu\$|URIs: http://mirror.kakao.com/ubuntu|; s|^URIs: http://security.ubuntu.com/ubuntu\$|URIs: http://mirror.kakao.com/ubuntu|' /etc/apt/sources.list.d/ubuntu.sources
   - systemctl enable ssh
   - systemctl start ssh
   - echo "cloud-init provisioning complete" > /tmp/cloud-init-done

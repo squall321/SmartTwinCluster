@@ -808,7 +808,7 @@ SLURM_PATH_EOF
     echo ""
 
     # Log rotation 설정
-    local LOGROTATE_SRC="${SCRIPT_DIR}/cluster/setup/logrotate_cluster.conf"
+    LOGROTATE_SRC="${SCRIPT_DIR}/cluster/setup/logrotate_cluster.conf"
     if [[ -f "$LOGROTATE_SRC" ]]; then
         cp "$LOGROTATE_SRC" /etc/logrotate.d/cluster-setup 2>/dev/null && \
             log_success "로그 로테이션 설정 완료" || \
