@@ -1409,16 +1409,9 @@ setup_munge() {
             local ssh_test_exit=$?
 
             if [[ $ssh_test_exit -ne 0 ]]; then
-                log ERROR "  ❌ Cannot SSH to primary controller ($first_controller_ip)"
-                log ERROR "  SSH error: $ssh_test_output"
-                log ERROR ""
-                log ERROR "  Possible causes:"
-                log ERROR "  - SSH key not configured"
-                log ERROR "  - Primary controller not reachable"
-                log ERROR "  - Firewall blocking SSH"
-                log ERROR ""
-                log ERROR "  Manual check: ssh $first_controller_user@$first_controller_ip"
-                log ERROR ""
+                log WARNING "  ⚠️  Primary controller ($first_controller_ip) 도달 불가 — 로컬 fallback 사용"
+                log WARNING "  진단: ssh $first_controller_user@$first_controller_ip"
+                log WARNING ""
 
                 # Generate local key as fallback
                 if [[ ! -f /etc/munge/munge.key ]]; then
@@ -1562,9 +1555,7 @@ setup_munge() {
             local ssh_test_exit=$?
 
             if [[ $ssh_test_exit -ne 0 ]]; then
-                log ERROR "      ❌ Cannot SSH to $ctrl_hostname ($ctrl_ip)"
-                log ERROR "      SSH error: $ssh_test_output"
-                log ERROR "      Manual check: ssh $ctrl_user@$ctrl_ip"
+                log WARNING "      ⚠️  $ctrl_hostname ($ctrl_ip) 도달 불가 — 스킵"
                 fail_count=$((fail_count + 1))
                 failed_controllers+=("$ctrl_hostname")
                 continue
@@ -1748,16 +1739,14 @@ setup_munge() {
             log SUCCESS "  ✅ Successfully synced: $sync_count controller(s)"
         fi
         if [[ $fail_count -gt 0 ]]; then
-            log ERROR "  ❌ Failed: $fail_count controller(s)"
-            log ERROR "  Failed controllers: ${failed_controllers[*]}"
-            log ERROR ""
-            log ERROR "  ⚠️  IMPORTANT: Munge key must be identical on all controllers!"
-            log ERROR "  Without matching keys, slurmctld will fail to start."
-            log ERROR ""
-            log ERROR "  Manual fix options:"
-            log ERROR "  1. Copy key manually: scp /etc/munge/munge.key user@host:/etc/munge/"
-            log ERROR "  2. Fix SSH access and re-run this script"
-            log ERROR ""
+            log WARNING "  ⚠️  Failed (도달 불가): $fail_count controller(s)"
+            log WARNING "  Failed controllers: ${failed_controllers[*]}"
+            log WARNING ""
+            log WARNING "  💡 도달 가능한 노드들은 정상 동기화됨"
+            log WARNING "  도달 불가 노드 살아나면 phase3만 재실행:"
+            log WARNING "    sudo bash cluster/setup/phase3_slurm.sh --config <YAML>"
+            log WARNING "  또는 수동: scp /etc/munge/munge.key user@host:/etc/munge/"
+            log WARNING ""
         fi
         if [[ $total_other_controllers -eq 0 ]]; then
             log INFO "  (No other controllers to sync - single controller setup)"

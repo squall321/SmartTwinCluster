@@ -840,22 +840,27 @@ handle_error() {
     local phase=$1
     local error_code=$2
 
-    log_error "Phase $phase failed with exit code $error_code"
+    log_warning "Phase $phase failed with exit code $error_code"
+    log_warning "(주로 도달 불가 노드 또는 일부 노드 동기화 실패가 원인)"
 
+    # AUTO_CONFIRM 모드: 단일 phase 실패로 전체 중단하지 않음
+    # 도달 불가 노드는 후속 phase에서 자동 skip되며,
+    # 헤드노드 + 살아있는 노드의 셋업은 끝까지 완료해야 함
     if [[ "$AUTO_CONFIRM" == true ]]; then
-        log_error "Auto-confirm mode: stopping execution"
-        exit "$error_code"
+        log_warning "Auto-confirm 모드: Phase $phase 에러 무시하고 다음 phase 진행"
+        log_warning "(나중에 도달 불가 노드 살아나면 해당 phase만 재실행)"
+        return 0
     fi
 
-    echo -ne "${YELLOW}Continue with next phase anyway? (yes/no): ${NC}"
+    echo -ne "${YELLOW}Phase $phase 실패. 다음 phase 진행? (yes/no): ${NC}"
     read -r response
 
     if [[ "$response" != "yes" && "$response" != "y" ]]; then
-        log_info "Execution stopped by user"
+        log_info "사용자 중단"
         exit "$error_code"
     fi
 
-    log_warning "Continuing despite error..."
+    log_warning "에러 무시하고 진행..."
 }
 
 # Function to run cleanup phase (Phase -1)
