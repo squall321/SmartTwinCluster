@@ -544,33 +544,32 @@ EOPY
     log_info "Passwordless sudo setup summary:"
     log_info "  - Successful: $success_count nodes"
     if [[ $failed_count -gt 0 ]]; then
-        log_error "  - Failed: $failed_count nodes"
-        log_error ""
-        log_error "=== CRITICAL: SSH CONNECTION FAILURES ==="
-        log_error "Some nodes are not reachable via SSH."
-        log_error "This will cause phase deployments to fail."
-        log_error ""
-        log_error "Troubleshooting steps:"
-        log_error "  1. Verify network connectivity: ping <node_ip>"
-        log_error "  2. Check SSH key setup: ssh-copy-id user@<node_ip>"
-        log_error "  3. Verify sshd is running on target nodes"
-        log_error "  4. Check firewall rules (port 22)"
-        log_error ""
+        log_warning "  - Failed: $failed_count nodes (꺼져있거나 도달 불가)"
+        log_warning ""
+        log_warning "=== SSH 도달 불가 노드 발견 ==="
+        log_warning "일부 노드가 꺼져있거나 SSH 접속 불가합니다."
+        log_warning "해당 노드는 이번 배포에서 제외됩니다."
+        log_warning "(나중에 살아나면 phase10만 다시 실행하면 자동 동기화됨)"
+        log_warning ""
+        log_warning "도달 불가 노드 진단:"
+        log_warning "  1. ping <node_ip>"
+        log_warning "  2. ssh-copy-id user@<node_ip>"
+        log_warning "  3. systemctl status ssh (대상 노드에서)"
+        log_warning ""
 
+        # AUTO_CONFIRM 모드: 살아있는 노드만으로 진행 (abort 안 함)
         if [[ "$AUTO_CONFIRM" == true ]]; then
-            log_error "Auto-confirm mode: aborting due to SSH failures"
-            log_error "All nodes must be reachable for reliable cluster setup"
-            exit 1
+            log_warning "Auto-confirm 모드: 도달 가능한 ${success_count}개 노드로 진행합니다"
+            log_warning "도달 불가 노드는 추후 phase10 재실행으로 동기화 가능"
+        else
+            echo -ne "${YELLOW}도달 불가 노드 무시하고 ${success_count}개 노드로 진행? (yes/no): ${NC}"
+            read -r response
+            if [[ "$response" != "yes" && "$response" != "y" ]]; then
+                log_info "사용자 중단"
+                exit 1
+            fi
+            log_warning "도달 불가 노드 무시하고 진행..."
         fi
-
-        echo -ne "${YELLOW}Continue despite SSH failures? (not recommended) (yes/no): ${NC}"
-        read -r response
-        if [[ "$response" != "yes" && "$response" != "y" ]]; then
-            log_info "Execution stopped due to SSH failures"
-            log_info "Please fix SSH connectivity and re-run the setup"
-            exit 1
-        fi
-        log_warning "Continuing despite SSH failures (user override)..."
     fi
 
     # Re-enable exit on error
