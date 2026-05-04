@@ -1,0 +1,9 @@
+cssnano-cli
+@google/gemini-cli
+pnpm
+terser
+ts-node
+typescript
+vite
+@vitejs/plugin-react
+@vscode/vsce

@@ -499,7 +499,7 @@ def _detect_gpu_type():
     return None
 
 
-def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0):
+def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0, partition='viz'):
     """VNC 세션용 Slurm Job 스크립트 생성"""
 
     display_num = vnc_port - 5900
@@ -516,7 +516,7 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
 
     script = f"""#!/bin/bash
 #SBATCH --job-name=vnc-{username}
-#SBATCH --partition=viz
+#SBATCH --partition={partition}
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
@@ -648,7 +648,7 @@ echo "VNC Session Terminated (Sandbox preserved for reuse)"
     return script
 
 
-def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0):
+def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0, partition='viz'):
     """Slurm Job 제출. Returns (job_id, warning_message)"""
 
     if MOCK_MODE:
@@ -660,7 +660,7 @@ def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duratio
 
     # 실제 Slurm Job 제출
     job_script = generate_vnc_job_script(
-        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count
+        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count, partition
     )
 
     # 임시 파일에 스크립트 저장
@@ -862,6 +862,7 @@ def create_vnc_session():
     geometry = data.get('geometry', '1920x1080')
     duration_hours = int(data.get('duration_hours', 4))
     gpu_count = int(data.get('gpu_count', 0))  # 기본값 0: GPU 없이 VNC 세션 시작
+    partition = data.get('partition', 'viz')  # 파티션 선택 (viz, gpu 등)
 
     # 시스템 사용자 (YAML의 ssh_user) - VNC 세션 실행용
     # 웹 로그인 사용자(admin 등)가 아닌 실제 시스템 사용자 사용
@@ -907,7 +908,8 @@ def create_vnc_session():
             image_config['start_script'],
             image_config['desktop_env'],
             image_id,
-            gpu_count
+            gpu_count,
+            partition
         )
     except Exception as e:
         return jsonify({'error': f'Job submission failed: {str(e)}'}), 500

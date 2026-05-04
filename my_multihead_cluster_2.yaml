@@ -51,9 +51,15 @@ nodes:
       vip_owner: true         # true: MASTER, false: BACKUP
 
       hardware:
-        cpus: 16
-        memory_mb: 65536
-        disk_gb: 1000
+        cpus: 8              # Slurm 잡 할당용 (실제 32코어 중 8만 허용 — 나머지는 시스템/VM 예약)
+        sockets: 1
+        cores_per_socket: 4
+        threads_per_core: 2
+        memory_mb: 32000     # Slurm 잡 할당용 (실제 126GB 중 32GB만 허용)
+        disk_gb: 2000
+        gpus: 1
+        gpu_type: nvidia     # RTX 5070 Ti 16GB
+        gres: gpu:nvidia:1
 
     # Controller 2
     - hostname: viz-node001

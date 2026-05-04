@@ -35,7 +35,8 @@ function App() {
   const [sessions, setSessions] = useState<VNCSession[]>([])
   const [images, setImages] = useState<VNCImage[]>([])
   const [selectedImageId, setSelectedImageId] = useState<string>('xfce4')
-  const [gpuCount, setGpuCount] = useState<number>(1)  // GPU 개수 선택
+  const [gpuCount, setGpuCount] = useState<number>(0)  // GPU 개수 선택 (기본 0: CPU only)
+  const [partition, setPartition] = useState<string>('viz')  // 파티션 선택
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [resetDialogSession, setResetDialogSession] = useState<string | null>(null)
@@ -208,7 +209,8 @@ function App() {
           image_id: selectedImageId,
           geometry: '1920x1080',
           duration_hours: 4,
-          gpu_count: gpuCount
+          gpu_count: gpuCount,
+          partition: partition
         })
       })
 
@@ -378,6 +380,19 @@ function App() {
                   {image.icon} {image.name}
                 </option>
               ))}
+            </select>
+          </div>
+          <div className="gpu-selector">
+            <label htmlFor="partition-select">파티션:</label>
+            <select
+              id="partition-select"
+              value={partition}
+              onChange={(e) => setPartition(e.target.value)}
+              className="gpu-select"
+            >
+              <option value="viz">viz (VNC 전용)</option>
+              <option value="gpu">gpu (GPU 가속)</option>
+              <option value="normal">normal (일반)</option>
             </select>
           </div>
           <div className="gpu-selector">

@@ -22,8 +22,51 @@ offline_packages/**/*.tar.gz
 offline_packages/**/*.tar.bz2
 offline_packages/**/*.whl
 offline_packages/**/*.rpm
+offline_packages/**/*.run
+offline_packages/**/*.iso
+offline_packages/**/*.img
+offline_packages/**/*.qcow2
+offline_packages/**/*.sif
 offline_packages/**/Packages
 offline_packages/**/Packages.gz
+offline_packages/**/Release
+
+# offline_packages_2404/ — 동일 정책 (Ubuntu 24.04용)
+offline_packages_2404/**/*.deb
+offline_packages_2404/**/*.tar.gz
+offline_packages_2404/**/*.tar.bz2
+offline_packages_2404/**/*.whl
+offline_packages_2404/**/*.rpm
+offline_packages_2404/**/*.run
+offline_packages_2404/**/*.iso
+offline_packages_2404/**/*.img
+offline_packages_2404/**/*.qcow2
+offline_packages_2404/**/*.sif
+offline_packages_2404/**/Packages
+offline_packages_2404/**/Packages.gz
+offline_packages_2404/**/Release
+offline_packages_2404/**/checksums.md5
+offline_packages_2404/**/package_list.txt
+offline_packages_2404/**/*.md5
+# 22.04 gpu/로의 심볼릭 링크 — 추적 안 함
+offline_packages_2404/gpu
+
+# Slurm prebuilt — 풀린 바이너리 디렉토리 (수십 MB, OS별로 빌드됨)
+offline_packages/slurm/opt/
+offline_packages_2404/slurm/opt/
+
+# 기타 백업/로그
+**/*.backup_2025*
+**/*.backup_2026*
+**/*.log.bak
+offline_deploy/*.log*
+offline_deploy/*.bak
+Untitled
+
+# 자동 생성/IDE 상태
+.bkit/
+.claude/
+.playwright-mcp/
 
 # Dashboard offline packages (전체 제외)
 dashboard/offline_packages/
