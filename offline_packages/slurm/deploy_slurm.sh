@@ -52,21 +52,38 @@ for service in slurmctld slurmd slurmdbd; do
 done
 
 # 프로세스가 완전히 종료될 때까지 대기 (Text file busy 에러 방지)
+# slurmstepd는 잡 실행 시 slurmd가 fork하므로 반드시 같이 종료해야 함
 log_info "Waiting for Slurm processes to terminate..."
-for proc in slurmctld slurmd slurmdbd; do
+for proc in slurmctld slurmd slurmdbd slurmstepd sackd; do
     # pkill로 남아있는 프로세스 강제 종료
     pkill -9 "$proc" 2>/dev/null || true
 done
 sleep 2  # 프로세스 완전 종료 대기
 
 # 프로세스가 여전히 실행 중인지 확인
-for proc in slurmctld slurmd slurmdbd; do
+for proc in slurmctld slurmd slurmdbd slurmstepd sackd; do
     if pgrep -x "$proc" >/dev/null 2>&1; then
         log_warning "$proc is still running, forcing termination..."
         pkill -9 "$proc" 2>/dev/null || true
         sleep 1
     fi
 done
+
+# 기존 /opt/slurm 바이너리를 inode 분리(rename)로 안전하게 비움
+# Text file busy 회피: 실행 중인 파일을 mv하면 inode가 분리되어 새 cp가 가능
+if [[ -d "$INSTALL_PREFIX" ]]; then
+    log_info "Renaming existing $INSTALL_PREFIX to *.old (Text file busy 회피)..."
+    OLD_BACKUP="${INSTALL_PREFIX}.old.$(date +%s)"
+    if mv "$INSTALL_PREFIX" "$OLD_BACKUP" 2>/dev/null; then
+        log_info "기존 설치를 ${OLD_BACKUP}로 이동 (재부팅 후 수동 삭제 가능)"
+    else
+        log_warning "기존 디렉토리 이동 실패 — 개별 파일 rename 시도"
+        # 실행 중인 .so/.bin 파일들을 .old로 rename (inode 분리)
+        find "$INSTALL_PREFIX" -type f \( -name "slurm*" -o -name "*.so*" \) 2>/dev/null | while read f; do
+            mv "$f" "${f}.old.$(date +%s)" 2>/dev/null || true
+        done
+    fi
+fi
 
 # apt Slurm 바이너리 존재 확인 및 경고
 if [[ -f /usr/bin/sinfo ]]; then
