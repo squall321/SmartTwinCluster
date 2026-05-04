@@ -50,6 +50,8 @@ DOWNLOAD_NVIDIA=false
 DOWNLOAD_CUDA=false
 DOWNLOAD_SUNSHINE=false
 DOWNLOAD_CUDA_KEYRING=false
+DOWNLOAD_CHROME=false
+DOWNLOAD_VSCODE=false
 SKIP_EXISTING=false
 
 SUNSHINE_VERSION="0.23.1"
@@ -62,7 +64,9 @@ while [[ $# -gt 0 ]]; do
         --cuda)    DOWNLOAD_CUDA=true; CUDA_VERSION="${2:-$CUDA_VERSION}"; shift 2 ;;
         --sunshine) DOWNLOAD_SUNSHINE=true; shift ;;
         --cuda-keyring) DOWNLOAD_CUDA_KEYRING=true; shift ;;
-        --all)     DOWNLOAD_GRAFANA=true; DOWNLOAD_NVIDIA=true; DOWNLOAD_CUDA=true; DOWNLOAD_SUNSHINE=true; DOWNLOAD_CUDA_KEYRING=true; shift ;;
+        --chrome) DOWNLOAD_CHROME=true; shift ;;
+        --vscode) DOWNLOAD_VSCODE=true; shift ;;
+        --all)     DOWNLOAD_GRAFANA=true; DOWNLOAD_NVIDIA=true; DOWNLOAD_CUDA=true; DOWNLOAD_SUNSHINE=true; DOWNLOAD_CUDA_KEYRING=true; DOWNLOAD_CHROME=true; DOWNLOAD_VSCODE=true; shift ;;
         --skip-existing) SKIP_EXISTING=true; shift ;;
         --help|-h)
             head -30 "$0" | grep "^#" | sed 's/^# \?//'
@@ -164,6 +168,26 @@ if [[ "$DOWNLOAD_CUDA_KEYRING" == "true" ]]; then
     download_file \
         "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb" \
         "${APT_DIR}/cuda-keyring_1.1-1_all.deb"
+fi
+
+############################
+# Google Chrome (.deb)
+############################
+if [[ "$DOWNLOAD_CHROME" == "true" ]]; then
+    log_info "=== Google Chrome (stable) ==="
+    download_file \
+        "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
+        "${APT_DIR}/google-chrome-stable_current_amd64.deb"
+fi
+
+############################
+# Visual Studio Code (.deb)
+############################
+if [[ "$DOWNLOAD_VSCODE" == "true" ]]; then
+    log_info "=== Visual Studio Code (stable, x64) ==="
+    download_file \
+        "https://update.code.visualstudio.com/latest/linux-deb-x64/stable" \
+        "${APT_DIR}/code_latest_amd64.deb"
 fi
 
 ############################

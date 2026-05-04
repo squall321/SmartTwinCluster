@@ -117,3 +117,6 @@ backups/
 KooSlurmInstallAutomationRefactory/
 KooSlurmInstallAutomationRefactory_V8.4.0/
 dashboard/prometheus_9090/data/
+
+# prepare 스크립트가 매 실행마다 자동 생성
+offline_packages_2404/host_packages.txt

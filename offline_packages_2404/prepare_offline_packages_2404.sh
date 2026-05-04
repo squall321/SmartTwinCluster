@@ -42,9 +42,9 @@ set -euo pipefail
 
 # VM 설정
 VM_NAME="noble-pkg-collector"
-VM_VCPUS=4
-VM_RAM_MB=8192
-VM_DISK_GB=50
+VM_VCPUS=8
+VM_RAM_MB=16384
+VM_DISK_GB=120
 VM_USER="ubuntu"
 
 # 클라우드 이미지
@@ -657,18 +657,33 @@ run_collection_in_vm() {
     local remote_dir="/home/${VM_USER}/collect"
 
     # ───────────────────────────────────────────────────────────
-    # 6a. APT 패키지 수집
+    # 6a. 호스트 패키지 목록 생성 + VM 전송 (--clone-host-list용)
+    # ───────────────────────────────────────────────────────────
+    local host_pkg_list="${SCRIPT_DIR}/host_packages.txt"
+    log_info "호스트 22.04 설치 패키지 목록 생성 중..."
+    dpkg-query -W -f='${Package}\n' 2>/dev/null | sort -u > "$host_pkg_list"
+    local host_count=$(wc -l < "$host_pkg_list")
+    log_success "호스트 패키지 ${host_count}개 → ${host_pkg_list}"
+
+    # VM으로 전송
+    scp $SSH_OPTS -i "$SSH_PRIVATE_KEY" "$host_pkg_list" \
+        "${VM_USER}@${VM_IP}:${remote_dir}/host_packages.txt" &>/dev/null
+    log_info "호스트 패키지 목록 VM 전송 완료"
+
+    # ───────────────────────────────────────────────────────────
+    # 6b. APT 패키지 수집 (호스트 목록 + 27 카테고리 + Ubuntu Desktop 메타패키지)
     # ───────────────────────────────────────────────────────────
     if ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${VM_USER}@${VM_IP}" \
         "test -f ${remote_dir}/collect_apt_packages_2404.sh" &>/dev/null; then
 
-        log_info "─── 6a. APT 패키지 수집 시작 ───"
-        log_info "이 작업은 30분 이상 소요될 수 있습니다..."
+        log_info "─── 6b. APT 패키지 수집 시작 (Clone-Host-List 모드) ───"
+        log_info "이 작업은 1~3시간 소요될 수 있습니다 (호스트 ${host_count}개 + Ubuntu Desktop 메타패키지)..."
 
         if ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${VM_USER}@${VM_IP}" \
             "sudo bash ${remote_dir}/collect_apt_packages_2404.sh \
                 --output-dir ${remote_dir}/apt_packages \
                 --service all \
+                --clone-host-list ${remote_dir}/host_packages.txt \
                 --yes" \
             2>&1 | tee "${SCRIPT_DIR}/collect_apt_2404.log"; then
             log_success "APT 패키지 수집 완료"

@@ -74,6 +74,8 @@ show_help() {
 }
 
 # Argument parsing
+CLONE_HOST_LIST=""
+
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -83,6 +85,10 @@ parse_args() {
                 ;;
             --service)
                 SERVICE="$2"
+                shift 2
+                ;;
+            --clone-host-list)
+                CLONE_HOST_LIST="$2"
                 shift 2
                 ;;
             --dry-run)
@@ -137,6 +143,37 @@ check_os_version() {
     else
         log_warning "Cannot detect OS version (/etc/os-release not found)"
     fi
+}
+
+# unattended-upgrades / cloud-init 등 백그라운드 apt 프로세스 정리
+# (apt lock 충돌 방지)
+disable_background_apt() {
+    log_info "백그라운드 APT 프로세스 정리 중..."
+
+    # 자동 업데이트 서비스 정지
+    systemctl stop unattended-upgrades 2>/dev/null || true
+    systemctl disable unattended-upgrades 2>/dev/null || true
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+    systemctl disable apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+
+    # 실행 중인 apt 프로세스 종료
+    killall apt apt-get unattended-upgr 2>/dev/null || true
+    sleep 2
+
+    # lock 파일 강제 해제 (마지막 수단)
+    rm -f /var/lib/apt/lists/lock 2>/dev/null || true
+    rm -f /var/lib/dpkg/lock 2>/dev/null || true
+    rm -f /var/lib/dpkg/lock-frontend 2>/dev/null || true
+    rm -f /var/cache/apt/archives/lock 2>/dev/null || true
+
+    # cloud-init가 끝날 때까지 대기 (최대 60초)
+    local wait_count=0
+    while pgrep -f "cloud-init|unattended-upgrade" >/dev/null && [[ $wait_count -lt 60 ]]; do
+        sleep 1
+        wait_count=$((wait_count + 1))
+    done
+
+    log_success "백그라운드 APT 프로세스 정리 완료"
 }
 
 # Package list definitions
@@ -313,9 +350,13 @@ define_package_lists() {
         dbus-x11
     )
 
-    # Ubuntu Desktop (전체) — VNC 컨테이너 빌드 + 헤드노드 그래픽 환경
+    # Ubuntu Desktop (전체 메타패키지 — 의존성 자동 재귀 수집)
+    # ubuntu-desktop은 메타패키지로 ~수백개 의존성을 끌고 옴 (apt-rdepends가 모두 수집)
     UBUNTU_DESKTOP_PACKAGES=(
-        ubuntu-desktop-minimal
+        ubuntu-desktop                # 풀 데스크톱 (메타패키지)
+        ubuntu-desktop-minimal        # 최소 데스크톱 (메타패키지)
+        ubuntu-standard               # 표준 도구 메타패키지
+        ubuntu-server                 # 서버 메타패키지 (NFS, SSH 등 포함)
         gdm3
         gnome-session
         gnome-terminal
@@ -333,6 +374,16 @@ define_package_lists() {
         fonts-noto
         fonts-noto-cjk
         fonts-liberation
+        # 한국어 입력기/언어팩
+        ibus
+        ibus-hangul
+        language-pack-ko
+        language-pack-gnome-ko
+        gnome-user-docs-ko
+        # 데스크톱 앱
+        thunderbird
+        libreoffice
+        gimp
     )
 
     # XFCE4 데스크톱 (경량 — Apptainer SIF 빌드용)
@@ -382,6 +433,29 @@ define_package_lists() {
         ipset
         iptables
         ufw
+    )
+
+    # 운영 서버 커널 (Ubuntu 24.04 / 6.8.0-107-generic)
+    # 정확한 버전 + 메타패키지 둘 다 포함 (Ubuntu 표준 커널 관리 방식)
+    KERNEL_PACKAGES=(
+        # 정확한 버전 (운영 서버 매칭 보장)
+        linux-image-6.8.0-107-generic
+        linux-headers-6.8.0-107-generic
+        linux-headers-6.8.0-107
+        linux-modules-6.8.0-107-generic
+        linux-modules-extra-6.8.0-107-generic
+        linux-tools-6.8.0-107-generic
+        linux-tools-6.8.0-107
+        # libc kernel headers
+        linux-libc-dev
+        # 메타패키지 (Ubuntu 커널 자동 관리 — 최신 LTS 커널도 같이 받음)
+        linux-image-generic
+        linux-headers-generic
+        linux-tools-generic
+        # 부팅/펌웨어
+        linux-firmware
+        intel-microcode
+        amd64-microcode
     )
 
     # 추가 빌드 의존성 (소스 빌드 시 필요)
@@ -598,7 +672,11 @@ select_packages() {
                 "${CAE_DEPS[@]}"
                 "${CRITICAL_24_PACKAGES[@]}"
                 "${SECURITY_TZ_PACKAGES[@]}"
+                "${KERNEL_PACKAGES[@]}"
             )
+            ;;
+        kernel)
+            packages+=("${KERNEL_PACKAGES[@]}")
             ;;
         media)
             packages+=("${MEDIA_PACKAGES[@]}")
@@ -660,13 +738,28 @@ select_packages() {
             ;;
         *)
             log_error "Unknown service: $SERVICE"
-            log_info "Valid services: all, slurm, glusterfs, mariadb, redis, keepalived, web, hpc, desktop, vnc, nfs, monitoring, media, x11, critical, cae"
+            log_info "Valid services: all, slurm, glusterfs, mariadb, redis, keepalived, web, hpc, desktop, vnc, nfs, monitoring, media, x11, critical, cae, kernel"
             exit 1
             ;;
     esac
 
+    # --clone-host-list: 외부 패키지 목록 추가 (호스트 22.04에서 수집)
+    if [[ -n "$CLONE_HOST_LIST" ]] && [[ -f "$CLONE_HOST_LIST" ]]; then
+        log_info "외부 패키지 목록 로드: $CLONE_HOST_LIST"
+        local before_count=${#packages[@]}
+        while IFS= read -r line; do
+            # 빈 줄 / 주석 / 아키텍처 접미사(:amd64 등) 제거
+            line=$(echo "$line" | sed 's/:.*$//' | xargs)
+            [[ -z "$line" || "$line" =~ ^# ]] && continue
+            packages+=("$line")
+        done < "$CLONE_HOST_LIST"
+        local added=$((${#packages[@]} - before_count))
+        log_success "호스트 패키지 ${added}개 추가됨"
+    fi
+
     # Remove duplicates
     SELECTED_PACKAGES=($(printf '%s\n' "${packages[@]}" | sort -u))
+    log_info "최종 패키지 수: ${#SELECTED_PACKAGES[@]}개 (의존성 포함 시 더 많아짐)"
 }
 
 # External repository setup (PPA, NodeSource, etc.)
@@ -1131,6 +1224,7 @@ main() {
 
     check_root
     check_os_version
+    disable_background_apt
     define_package_lists
     select_packages
 
