@@ -586,6 +586,7 @@ define_package_lists() {
         # Fortran 런타임 (LS-DYNA)
         libgfortran5
         libquadmath0
+        gfortran
         # 수치 라이브러리
         libnuma1
         libcap2
@@ -594,6 +595,110 @@ define_package_lists() {
         tk
         # 기타 GUI 라이브러리
         libxcb-cursor0
+    )
+
+    # 과학계산 라이브러리 (수치해석, 선형대수, 메시)
+    SCIENTIFIC_PACKAGES=(
+        # 선형대수 (BLAS/LAPACK)
+        libblas-dev
+        libblas3
+        liblapack-dev
+        liblapack3
+        libopenblas-dev
+        libopenblas0
+        # GNU Scientific Library
+        libgsl-dev
+        libgsl27
+        # 희소 행렬 해결 (LS-DYNA, FEM)
+        libmumps-dev
+        libmumps-5.6
+        libscalapack-mpi-dev
+        libscalapack-openmpi-dev
+        # 그래프 분할 (메시 분할)
+        libmetis-dev
+        libmetis5
+        libparmetis-dev
+        libparmetis4.0
+        # FFT
+        libfftw3-dev
+        libfftw3-mpi-dev
+        # 희소행렬 (Lis, SuperLU)
+        libsuperlu-dev
+        libsuperlu6
+        libsuitesparse-dev
+        # CGAL (계산기하)
+        libcgal-dev
+        libcgal-qt5-dev
+        # Eigen (선형대수, 헤더 전용)
+        libeigen3-dev
+        # ARPACK (고유값)
+        libarpack2-dev
+        libarpack2t64
+        # Boost MPI
+        libboost-mpi-dev
+        libboost-mpi-python-dev
+        libboost-iostreams-dev
+        libboost-serialization-dev
+        # HDF5/NetCDF (CAE 데이터 형식 — 이미 일부 있음)
+        hdf5-tools
+        hdf5-helpers
+        netcdf-bin
+    )
+
+    # 시각화 / GUI 프레임워크
+    VISUALIZATION_PACKAGES=(
+        # VTK 9 (3D 시각화)
+        libvtk9-dev
+        libvtk9.1
+        python3-vtk9
+        vtk9
+        # GMSH (메시 생성)
+        gmsh
+        libgmsh-dev
+        libgmsh4.11
+        # ParaView 클라이언트 (선택)
+        # paraview                  # 너무 큼 (~500MB)
+        # Qt5 (호환용)
+        qtbase5-dev
+        libqt5core5t64
+        libqt5gui5t64
+        libqt5widgets5t64
+        libqt5opengl5t64
+        # Qt6 (KooAutomatedModeller, 최신 GUI)
+        qt6-base-dev
+        libqt6core6t64
+        libqt6gui6
+        libqt6widgets6
+        libqt6opengl6
+        libqt6openglwidgets6
+        qt6-tools-dev
+        qt6-tools-dev-tools
+        # OpenGL 추가
+        libglfw3-dev
+        libglfw3
+        libglew-dev
+        # PyQt5/6 (Python GUI)
+        python3-pyqt5
+        python3-pyqt6
+        # gnuplot (플롯)
+        gnuplot
+        gnuplot-x11
+    )
+
+    # OpenCASCADE 7.7.0은 별도 빌드 (apt 7.6.3과 ABI 다름)
+    # offline_packages_2404/opencascade/opencascade-7.7.0-noble-prebuilt.tar.gz
+    # → /opt/opencascade-7.7.0/ 에 압축해제 후 ldconfig
+    OCCT_BUILD_DEPS=(
+        # OCCT 7.7.0 빌드용 (build_opencascade_2404.sh가 사용)
+        libfreetype-dev
+        libfreeimage-dev
+        libtcl8.6
+        tcl8.6-dev
+        libtk8.6
+        tk8.6-dev
+        rapidjson-dev
+        libxmu-dev
+        libxi-dev
     )
 
     # CRITICAL 패키지 (22.04 install 스크립트의 필수 항목 — 24.04 명명 반영)
@@ -673,7 +778,16 @@ select_packages() {
                 "${CRITICAL_24_PACKAGES[@]}"
                 "${SECURITY_TZ_PACKAGES[@]}"
                 "${KERNEL_PACKAGES[@]}"
+                "${SCIENTIFIC_PACKAGES[@]}"
+                "${VISUALIZATION_PACKAGES[@]}"
+                "${OCCT_BUILD_DEPS[@]}"
             )
+            ;;
+        scientific)
+            packages+=("${SCIENTIFIC_PACKAGES[@]}")
+            ;;
+        viz)
+            packages+=("${VISUALIZATION_PACKAGES[@]}")
             ;;
         kernel)
             packages+=("${KERNEL_PACKAGES[@]}")
@@ -738,7 +852,7 @@ select_packages() {
             ;;
         *)
             log_error "Unknown service: $SERVICE"
-            log_info "Valid services: all, slurm, glusterfs, mariadb, redis, keepalived, web, hpc, desktop, vnc, nfs, monitoring, media, x11, critical, cae, kernel"
+            log_info "Valid services: all, slurm, glusterfs, mariadb, redis, keepalived, web, hpc, desktop, vnc, nfs, monitoring, media, x11, critical, cae, kernel, scientific, viz"
             exit 1
             ;;
     esac
