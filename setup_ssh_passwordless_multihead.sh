@@ -18,19 +18,32 @@ echo "🔑 SSH 키 기반 인증 자동 설정 (멀티헤드)"
 echo "================================================================================"
 echo ""
 
-# sudo로 실행 시 실제 사용자의 홈 디렉토리 사용
-if [[ -n "${SUDO_USER:-}" ]]; then
+# YAML에서 ssh_user 추출 (없으면 SUDO_USER → whoami 순서로 fallback)
+YAML_SSH_USER=$(python3 -c "
+import yaml, sys
+with open('$YAML_FILE') as f:
+    cfg = yaml.safe_load(f)
+# controllers의 첫 번째 ssh_user 사용
+ctrls = cfg.get('nodes', {}).get('controllers', [])
+u = ctrls[0].get('ssh_user', '') if ctrls else ''
+if not u:
+    u = cfg.get('cluster_info', {}).get('ssh_user', '')
+print(u)
+" 2>/dev/null || echo "")
+
+if [[ -n "$YAML_SSH_USER" ]] && id "$YAML_SSH_USER" &>/dev/null; then
+    REAL_USER="$YAML_SSH_USER"
+elif [[ -n "${SUDO_USER:-}" ]]; then
     REAL_USER="$SUDO_USER"
-    REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 else
     REAL_USER="$(whoami)"
-    REAL_HOME="$HOME"
 fi
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
 SSH_DIR="${REAL_HOME}/.ssh"
 SSH_KEY="${SSH_DIR}/id_rsa"
 
-echo "👤 SSH 키 사용자: $REAL_USER"
+echo "👤 SSH 키 사용자: $REAL_USER (홈: $REAL_HOME)"
 echo "📁 SSH 디렉토리: $SSH_DIR"
 echo ""
 
@@ -39,18 +52,12 @@ mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 chown "$REAL_USER:$REAL_USER" "$SSH_DIR" 2>/dev/null || true
 
-# SSH 키 생성 (없으면) - 실제 사용자로 실행
+# SSH 키 생성 (없으면)
 if [ ! -f "$SSH_KEY" ]; then
     echo "🔑 SSH 키 생성 중..."
-    # sudo 환경에서는 실제 사용자로 키 생성
-    if [[ -n "${SUDO_USER:-}" ]]; then
-        sudo -u "$REAL_USER" ssh-keygen -t rsa -b 4096 -N "" -f "$SSH_KEY" -q
-    else
-        ssh-keygen -t rsa -b 4096 -N "" -f "$SSH_KEY" -q
-    fi
+    sudo -u "$REAL_USER" ssh-keygen -t rsa -b 4096 -N "" -f "$SSH_KEY" -q
     echo "✅ SSH 키 생성 완료: $SSH_KEY"
 else
-    # 기존 키 권한 확인 및 수정
     if [[ "$(stat -c '%U' "$SSH_KEY" 2>/dev/null)" != "$REAL_USER" ]]; then
         echo "⚠️  SSH 키 소유자 수정 중..."
         chown "$REAL_USER:$REAL_USER" "$SSH_KEY" "$SSH_KEY.pub" 2>/dev/null || true
@@ -59,10 +66,8 @@ else
     echo "✅ 기존 SSH 키 사용: $SSH_KEY"
 fi
 
-# ssh-copy-id가 올바른 키를 사용하도록 환경변수 설정
 export SSH_KEY_FILE="$SSH_KEY"
 export SSH_REAL_USER="$REAL_USER"
-export SSH_USE_SUDO="${SUDO_USER:+yes}"  # SUDO_USER가 있으면 "yes"
 
 echo ""
 echo "📤 공개키 복사 중..."
@@ -136,17 +141,14 @@ for node in nodes:
 
     print(f"  📤 {hostname} ({node['ip']})... ", end='', flush=True)
 
-    # SSH_KEY_FILE 환경변수에서 키 파일 경로 가져오기
     ssh_key_file = os.environ.get('SSH_KEY_FILE', os.path.expanduser('~/.ssh/id_rsa'))
     real_user = os.environ.get('SSH_REAL_USER', '')
-    use_sudo = os.environ.get('SSH_USE_SUDO', '')
 
     # 이미 키 인증 가능한지 먼저 확인 → 되면 스킵
-    check_cmd = ['ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no',
+    check_cmd = ['sudo', '-u', real_user,
+                 'ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no',
                  '-o', 'ConnectTimeout=5', '-i', ssh_key_file,
                  target, 'true']
-    if use_sudo and real_user:
-        check_cmd = ['sudo', '-u', real_user] + check_cmd
     check = subprocess.run(check_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if check.returncode == 0:
         print("✅ (이미 키 인증 OK)")
@@ -154,19 +156,13 @@ for node in nodes:
         continue
 
     # ssh-copy-id 명령어 구성
-    ssh_copy_cmd = ['ssh-copy-id', '-i', ssh_key_file,
+    ssh_copy_cmd = ['sudo', '-u', real_user,
+                    'ssh-copy-id', '-i', ssh_key_file,
                     '-o', 'StrictHostKeyChecking=no',
                     '-o', 'ConnectTimeout=5', target]
 
-    # Try to copy SSH key using sshpass if password is available
     if ssh_password:
-        # sshpass + ssh-copy-id
         cmd = ['sshpass', '-p', ssh_password] + ssh_copy_cmd
-
-        # sudo 환경에서는 실제 사용자로 실행
-        if use_sudo and real_user:
-            cmd = ['sudo', '-u', real_user] + cmd
-
         result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         if result.returncode == 0:
