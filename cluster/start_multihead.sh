@@ -606,18 +606,8 @@ execute_phase_0() {
         return 1
     fi
 
-    # Setup SSH passwordless authentication for all nodes
-    log_info "Setting up SSH passwordless authentication..."
-    local ssh_setup_script="$PROJECT_ROOT/setup_ssh_passwordless_multihead.sh"
-    if [[ -x "$ssh_setup_script" ]]; then
-        if bash "$ssh_setup_script" "$CONFIG_PATH"; then
-            log_success "SSH passwordless authentication configured"
-        else
-            log_warning "SSH passwordless setup encountered issues (continuing)"
-        fi
-    else
-        log_warning "SSH passwordless setup script not found: $ssh_setup_script"
-    fi
+    # SSH 키 배포는 setup_cluster_full_multihead_offline.sh Step 7에서 이미 수행됨 — 스킵
+    log_info "SSH passwordless: setup_cluster_full_multihead_offline.sh에서 이미 완료 — 스킵"
 
     # Setup passwordless sudo on remote nodes
     log_info "Setting up passwordless sudo on all nodes..."
