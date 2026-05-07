@@ -3,9 +3,10 @@
 ################################################################################
 # Phase 8: Container Images Deployment Script
 #
-# This script deploys Apptainer .sif images to cluster nodes:
+# This script deploys Apptainer binary + .sif images to cluster nodes:
 # - viz-node-images/*.sif → viz nodes at /opt/apptainers/
 # - compute-node-images/*.sif → compute nodes at /opt/apptainers/
+# - /scratch/{vnc_sandboxes,vnc_sessions,vnc_logs} 디렉토리 생성
 #
 # Note: Both viz and compute nodes use /opt/apptainers/ directly
 #       to maintain compatibility with backend expectations.
@@ -18,6 +19,9 @@
 #   --dry-run           Preview actions without executing
 #   --force             Deprecated: Use --mode overwrite instead
 #   --mode MODE         SIF deployment mode: skip | overwrite | update (overrides YAML setting)
+#   --skip-install      Apptainer 바이너리 설치 스킵 (이미지만 배포)
+#   --image FILE        특정 SIF 이미지만 모든 노드에 배포
+#   --parallel N        병렬 처리 노드 수 (기본: 8)
 #   --help              Show this help message
 #
 # Deployment Modes (from YAML container_support.apptainer.sif_deployment_mode):
@@ -29,6 +33,9 @@
 #   sudo ./phase8_containers.sh --config ../my_multihead_cluster.yaml
 #   sudo ./phase8_containers.sh --dry-run
 #   sudo ./phase8_containers.sh --mode overwrite
+#   sudo ./phase8_containers.sh --skip-install
+#   sudo ./phase8_containers.sh --image vnc_gnome.sif
+#   sudo ./phase8_containers.sh --parallel 16
 ################################################################################
 
 set -euo pipefail
@@ -50,6 +57,9 @@ CONFIG_PATH="$PROJECT_ROOT/my_multihead_cluster.yaml"
 DRY_RUN=false
 FORCE=false
 SIF_DEPLOYMENT_MODE=""  # Will be read from YAML (skip | overwrite | update)
+SKIP_INSTALL=false
+TARGET_IMAGE=""
+PARALLEL=8
 LOG_FILE="/var/log/cluster_containers_deployment.log"
 
 # Container images paths
@@ -127,6 +137,19 @@ parse_args() {
                     log_error "Invalid mode: $SIF_DEPLOYMENT_MODE (must be skip, overwrite, or update)"
                     exit 1
                 fi
+                shift 2
+                ;;
+            --skip-install)
+                SKIP_INSTALL=true
+                shift
+                ;;
+            --image)
+                TARGET_IMAGE="$2"
+                SKIP_INSTALL=true
+                shift 2
+                ;;
+            --parallel)
+                PARALLEL="$2"
                 shift 2
                 ;;
             --help)
@@ -307,6 +330,81 @@ except Exception as e:
 EOPY
 }
 
+# Apptainer 바이너리 설치 (없을 때만, 누락 파일 자동 복구)
+install_apptainer_on_node() {
+    local hostname=$1
+    local ip=$2
+    local user=$3
+
+    local binary_tar="$PROJECT_ROOT/apptainer/apptainer-binary-1.3.3.tar.gz"
+    if [[ ! -f "$binary_tar" ]]; then
+        log_warning "[$hostname] apptainer-binary-1.3.3.tar.gz 없음 — 설치 스킵"
+        return 0
+    fi
+
+    local needs_install=false
+    if ! ssh $SSH_OPTS ${user}@${ip} "command -v apptainer" &>/dev/null; then
+        needs_install=true
+    else
+        # 누락 파일 체크
+        for check_path in \
+            "/usr/local/etc/apptainer/apptainer.conf" \
+            "/usr/local/libexec/apptainer/bin/starter" \
+            "/usr/local/etc/apptainer/capability.json" \
+            "/usr/local/var/apptainer/mnt/session"; do
+            if ! ssh $SSH_OPTS ${user}@${ip} "sudo test -e $check_path" &>/dev/null; then
+                log_info "[$hostname] 누락 감지: $check_path"
+                needs_install=true
+                break
+            fi
+        done
+        if ! ssh $SSH_OPTS ${user}@${ip} "command -v squashfuse_ll" &>/dev/null; then
+            needs_install=true
+        fi
+    fi
+
+    if [[ "$needs_install" == "false" ]]; then
+        log_success "[$hostname] Apptainer 이미 설치됨"
+        return 0
+    fi
+
+    log_info "[$hostname] Apptainer 설치 중..."
+    if ! timeout 120 scp $SCP_OPTS "$binary_tar" ${user}@${ip}:/tmp/; then
+        log_error "[$hostname] Apptainer 바이너리 복사 실패"
+        return 1
+    fi
+
+    ssh $SSH_OPTS ${user}@${ip} "
+        cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz &&
+        sudo install -m 755 apptainer /usr/local/bin/ &&
+        sudo install -m 755 squashfuse_ll /usr/local/bin/ &&
+        sudo cp -a lib/libfuse.so* /lib/x86_64-linux-gnu/ 2>/dev/null; sudo ldconfig &&
+        sudo mkdir -p /usr/local/etc && sudo cp -r etc/apptainer /usr/local/etc/ &&
+        sudo mkdir -p /usr/local/libexec && sudo cp -r libexec/apptainer /usr/local/libexec/ &&
+        sudo chmod 755 /usr/local/libexec/apptainer/bin/starter &&
+        sudo mkdir -p /usr/local/var && sudo cp -r var/apptainer /usr/local/var/ &&
+        rm -rf apptainer squashfuse_ll lib etc libexec var apptainer-binary-1.3.3.tar.gz &&
+        apptainer --version
+    " && log_success "[$hostname] Apptainer 설치 완료" || log_warning "[$hostname] Apptainer 설치 실패 — 계속 진행"
+}
+
+# /scratch 및 /opt/apptainers 디렉토리 생성 (이미 있으면 그냥 넘어감)
+setup_node_dirs() {
+    local hostname=$1
+    local ip=$2
+    local user=$3
+    local target_path=$4
+
+    ssh $SSH_OPTS ${user}@${ip} "
+        sudo mkdir -p ${target_path} && sudo chown root:root ${target_path} &&
+        sudo mkdir -p /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs &&
+        sudo chmod 1777 /scratch /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs
+    " 2>/dev/null && log_success "[$hostname] 디렉토리 준비 완료" || {
+        log_warning "[$hostname] 디렉토리 생성 실패"
+        return 1
+    }
+}
+
 # Function to deploy images to a single node
 deploy_to_node() {
     local hostname=$1
@@ -345,6 +443,9 @@ deploy_to_node() {
     log_success "SSH connection successful"
 
     if [[ "$DRY_RUN" == "true" ]]; then
+        if [[ "$SKIP_INSTALL" != "true" ]]; then
+            log_warning "DRY-RUN: Would install Apptainer binary"
+        fi
         log_warning "DRY-RUN: Would deploy the following images:"
         for sif in $sif_files; do
             local size=$(du -h "$sif" | cut -f1)
@@ -353,12 +454,13 @@ deploy_to_node() {
         return 0
     fi
 
-    # Create target directory on remote node
-    log_info "Creating target directory: $target_path"
-    if ! timeout 30 ssh $SSH_OPTS ${user}@${ip} "sudo mkdir -p $target_path" 2>/dev/null; then
-        log_error "Failed to create directory on $hostname (timeout or permission denied)"
-        return 1
+    # Apptainer 바이너리 설치
+    if [[ "$SKIP_INSTALL" != "true" ]]; then
+        install_apptainer_on_node "$hostname" "$ip" "$user"
     fi
+
+    # 디렉토리 생성 (/opt/apptainers + /scratch)
+    setup_node_dirs "$hostname" "$ip" "$user" "$target_path" || return 1
 
     # Deploy each .sif file
     local success_count=0
@@ -526,24 +628,51 @@ deploy_viz_images() {
     done <<< "$viz_nodes"
     echo ""
 
-    # Deploy to each viz node
+    # 병렬 배포
     local total_success=0
     local total_fail=0
+    local pids=()
+    local results_dir
+    results_dir=$(mktemp -d)
 
+    local node_index=0
     while IFS= read -r node_info; do
         [[ -z "$node_info" ]] && continue
         local hostname=$(echo "$node_info" | cut -d'|' -f1)
         local ip=$(echo "$node_info" | cut -d'|' -f2)
         local user=$(echo "$node_info" | cut -d'|' -f3)
+        node_index=$((node_index + 1))
 
-        if deploy_to_node "$hostname" "$ip" "$user" "$VIZ_IMAGES_SOURCE" "$VIZ_TARGET_PATH" "viz"; then
+        # 병렬 실행
+        (
+            if deploy_to_node "$hostname" "$ip" "$user" "$VIZ_IMAGES_SOURCE" "$VIZ_TARGET_PATH" "viz"; then
+                echo "ok" > "$results_dir/$hostname"
+            else
+                echo "fail" > "$results_dir/$hostname"
+            fi
+        ) &
+        pids+=($!)
+
+        # PARALLEL 수 도달 시 대기
+        if [[ ${#pids[@]} -ge $PARALLEL ]]; then
+            for pid in "${pids[@]}"; do wait "$pid" || true; done
+            pids=()
+        fi
+    done <<< "$viz_nodes"
+
+    # 나머지 대기
+    for pid in "${pids[@]}"; do wait "$pid" || true; done
+
+    # 결과 집계
+    for result_file in "$results_dir"/*; do
+        [[ -f "$result_file" ]] || continue
+        if [[ "$(cat "$result_file")" == "ok" ]]; then
             ((total_success++))
         else
             ((total_fail++))
         fi
-
-        echo ""
-    done <<< "$viz_nodes"
+    done
+    rm -rf "$results_dir"
 
     if [[ $total_fail -gt 0 ]]; then
         log_warning "Viz-node image deployment completed with failures (Success: $total_success nodes, Failed: $total_fail nodes)"
@@ -592,9 +721,12 @@ deploy_compute_images() {
     done <<< "$compute_nodes"
     echo ""
 
-    # Deploy to each compute node
+    # 병렬 배포
     local total_success=0
     local total_fail=0
+    local pids=()
+    local results_dir
+    results_dir=$(mktemp -d)
 
     while IFS= read -r node_info; do
         [[ -z "$node_info" ]] && continue
@@ -602,14 +734,32 @@ deploy_compute_images() {
         local ip=$(echo "$node_info" | cut -d'|' -f2)
         local user=$(echo "$node_info" | cut -d'|' -f3)
 
-        if deploy_to_node "$hostname" "$ip" "$user" "$COMPUTE_IMAGES_SOURCE" "$COMPUTE_TARGET_PATH" "compute"; then
+        (
+            if deploy_to_node "$hostname" "$ip" "$user" "$COMPUTE_IMAGES_SOURCE" "$COMPUTE_TARGET_PATH" "compute"; then
+                echo "ok" > "$results_dir/$hostname"
+            else
+                echo "fail" > "$results_dir/$hostname"
+            fi
+        ) &
+        pids+=($!)
+
+        if [[ ${#pids[@]} -ge $PARALLEL ]]; then
+            for pid in "${pids[@]}"; do wait "$pid" || true; done
+            pids=()
+        fi
+    done <<< "$compute_nodes"
+
+    for pid in "${pids[@]}"; do wait "$pid" || true; done
+
+    for result_file in "$results_dir"/*; do
+        [[ -f "$result_file" ]] || continue
+        if [[ "$(cat "$result_file")" == "ok" ]]; then
             ((total_success++))
         else
             ((total_fail++))
         fi
-
-        echo ""
-    done <<< "$compute_nodes"
+    done
+    rm -rf "$results_dir"
 
     if [[ $total_fail -gt 0 ]]; then
         log_warning "Compute-node image deployment completed with failures (Success: $total_success nodes, Failed: $total_fail nodes)"
@@ -812,6 +962,9 @@ main() {
 
     log_info "Config: $CONFIG_PATH"
     log_info "Dry-run: $DRY_RUN"
+    log_info "Skip Apptainer install: $SKIP_INSTALL"
+    log_info "Parallel: $PARALLEL"
+    [[ -n "$TARGET_IMAGE" ]] && log_info "Target image: $TARGET_IMAGE"
     echo ""
 
     # Validate config
@@ -822,6 +975,79 @@ main() {
     load_sif_deployment_mode
     log_info "SIF Deployment Mode: $SIF_DEPLOYMENT_MODE"
     echo ""
+
+    # --image 단일 이미지 배포 모드
+    if [[ -n "$TARGET_IMAGE" ]]; then
+        log_phase "=== 단일 이미지 배포 모드: $TARGET_IMAGE ==="
+        local image_file=""
+        for search_dir in "$COMPUTE_IMAGES_SOURCE" "$VIZ_IMAGES_SOURCE"; do
+            if [[ -f "${search_dir}/${TARGET_IMAGE}" ]]; then
+                image_file="${search_dir}/${TARGET_IMAGE}"
+                break
+            fi
+        done
+        if [[ -z "$image_file" ]]; then
+            log_error "이미지 파일을 찾을 수 없음: $TARGET_IMAGE"
+            log_info "검색 경로: $COMPUTE_IMAGES_SOURCE, $VIZ_IMAGES_SOURCE"
+            exit 1
+        fi
+        log_info "이미지 경로: $image_file ($(du -h "$image_file" | cut -f1))"
+
+        local all_nodes
+        all_nodes=$(python3 << EOPY
+import yaml
+with open('$CONFIG_PATH') as f:
+    cfg = yaml.safe_load(f)
+nodes = cfg.get('nodes', {})
+for n in nodes.get('compute_nodes', []) + nodes.get('viz_nodes', []):
+    print(f"{n['hostname']}|{n['ip_address']}|{n.get('ssh_user','root')}")
+EOPY
+)
+        local pids=() results_dir
+        results_dir=$(mktemp -d)
+        while IFS= read -r node_info; do
+            [[ -z "$node_info" ]] && continue
+            local hostname=$(echo "$node_info" | cut -d'|' -f1)
+            local ip=$(echo "$node_info" | cut -d'|' -f2)
+            local user=$(echo "$node_info" | cut -d'|' -f3)
+            (
+                if ! ssh $SSH_OPTS ${user}@${ip} "exit" &>/dev/null; then
+                    log_warning "[$hostname] SSH 실패 — 스킵"
+                    echo "fail" > "$results_dir/$hostname"; exit
+                fi
+                local img_name=$(basename "$image_file")
+                local remote_path="/opt/apptainers/$img_name"
+                ssh $SSH_OPTS ${user}@${ip} "sudo mkdir -p /opt/apptainers" 2>/dev/null
+                local local_size=$(stat -c%s "$image_file")
+                local remote_size=$(ssh $SSH_OPTS ${user}@${ip} "sudo stat -c%s $remote_path 2>/dev/null || echo 0" 2>/dev/null)
+                if [[ "$local_size" == "$remote_size" ]]; then
+                    log_info "[$hostname] $img_name — 동일, 스킵"
+                    echo "ok" > "$results_dir/$hostname"; exit
+                fi
+                if timeout 600 scp $SCP_OPTS "$image_file" ${user}@${ip}:/tmp/ && \
+                   ssh $SSH_OPTS ${user}@${ip} "sudo mv /tmp/$img_name $remote_path && sudo chown root:root $remote_path && sudo chmod 755 $remote_path"; then
+                    log_success "[$hostname] ✅ $img_name 배포 완료"
+                    echo "ok" > "$results_dir/$hostname"
+                else
+                    log_error "[$hostname] ❌ 배포 실패"
+                    echo "fail" > "$results_dir/$hostname"
+                fi
+            ) &
+            pids+=($!)
+            if [[ ${#pids[@]} -ge $PARALLEL ]]; then
+                for pid in "${pids[@]}"; do wait "$pid" || true; done
+                pids=()
+            fi
+        done <<< "$all_nodes"
+        for pid in "${pids[@]}"; do wait "$pid" || true; done
+        local ok=0 fail=0
+        for f in "$results_dir"/*; do
+            [[ "$(cat "$f" 2>/dev/null)" == "ok" ]] && ((ok++)) || ((fail++))
+        done
+        rm -rf "$results_dir"
+        log_success "단일 이미지 배포 완료: 성공 ${ok}, 실패 ${fail}"
+        exit 0
+    fi
 
     # Deploy viz-node images
     local viz_result=0
