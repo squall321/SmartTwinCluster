@@ -606,12 +606,9 @@ execute_phase_0() {
         return 1
     fi
 
-    # SSH 키 배포는 setup_cluster_full_multihead_offline.sh Step 7에서 이미 수행됨 — 스킵
-    log_info "SSH passwordless: setup_cluster_full_multihead_offline.sh에서 이미 완료 — 스킵"
-
-    # Setup passwordless sudo on remote nodes
-    log_info "Setting up passwordless sudo on all nodes..."
-    setup_remote_passwordless_sudo
+    # SSH 키 배포 + passwordless sudo 설정은
+    # bootstrap_spc_oneshot.sh + setup_cluster_full_multihead_offline.sh Step 7에서 이미 완료 — 스킵
+    log_info "SSH passwordless + sudo: 사전 부트스트랩에서 이미 완료 — 스킵"
 
     log_success "Phase 0 completed: Basic infrastructure ready"
     return 0
