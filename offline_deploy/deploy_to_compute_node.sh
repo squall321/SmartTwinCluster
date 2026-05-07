@@ -328,13 +328,22 @@ deploy_to_node() {
     # SSH 옵션: -n으로 stdin을 /dev/null로 리다이렉트 (백그라운드 실행 시 stdin 충돌 방지)
     # 단, heredoc을 사용하는 SSH 호출은 -n 없이 별도 변수 사용
     local ssh_cmd="ssh -n -o StrictHostKeyChecking=no"
-    local ssh_cmd_stdin="ssh -o StrictHostKeyChecking=no"  # heredoc용 (stdin 필요)
+    local ssh_cmd_stdin="ssh -o StrictHostKeyChecking=no"
     local scp_cmd="scp -o StrictHostKeyChecking=no"
-    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+
+    # 키 인증 먼저 시도 → 실패 시 sshpass fallback
+    if ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+           "$node_user@$node_ip" "echo OK" &>/dev/null; then
+        log_info "[$node_hostname] 키 인증 OK"
+    elif [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        log_info "[$node_hostname] 키 인증 실패 → sshpass 사용"
         export SSHPASS="$SSH_PASSWORD"
         ssh_cmd="sshpass -e ssh -n -o StrictHostKeyChecking=no"
         ssh_cmd_stdin="sshpass -e ssh -o StrictHostKeyChecking=no"
         scp_cmd="sshpass -e scp -o StrictHostKeyChecking=no"
+    else
+        log_error "[$node_hostname] SSH 연결 실패 (키 인증 불가, sshpass 없음)"
+        return 1
     fi
 
     if ! ssh_with_retry $ssh_cmd -o ConnectTimeout=5 "$node_user@$node_ip" "echo OK" &>/dev/null; then
