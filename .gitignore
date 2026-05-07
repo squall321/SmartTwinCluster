@@ -120,3 +120,6 @@ dashboard/prometheus_9090/data/
 
 # prepare 스크립트가 매 실행마다 자동 생성
 offline_packages_2404/host_packages.txt
+
+# 클러스터 설정 파일 (노드 IP/비밀번호 포함 — git 제외)
+my_*.yaml
