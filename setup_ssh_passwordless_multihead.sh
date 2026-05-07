@@ -141,6 +141,18 @@ for node in nodes:
     real_user = os.environ.get('SSH_REAL_USER', '')
     use_sudo = os.environ.get('SSH_USE_SUDO', '')
 
+    # 이미 키 인증 가능한지 먼저 확인 → 되면 스킵
+    check_cmd = ['ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no',
+                 '-o', 'ConnectTimeout=5', '-i', ssh_key_file,
+                 target, 'true']
+    if use_sudo and real_user:
+        check_cmd = ['sudo', '-u', real_user] + check_cmd
+    check = subprocess.run(check_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if check.returncode == 0:
+        print("✅ (이미 키 인증 OK)")
+        success += 1
+        continue
+
     # ssh-copy-id 명령어 구성
     ssh_copy_cmd = ['ssh-copy-id', '-i', ssh_key_file,
                     '-o', 'StrictHostKeyChecking=no',
@@ -164,21 +176,8 @@ for node in nodes:
             print("❌ (sshpass 실패)")
             failed.append(hostname)
     else:
-        # No password in YAML, use interactive mode
-        print("비밀번호 입력: ", end='', flush=True)
-
-        cmd = ssh_copy_cmd
-        if use_sudo and real_user:
-            cmd = ['sudo', '-u', real_user] + cmd
-
-        result = subprocess.run(cmd)
-
-        if result.returncode == 0:
-            print(f"    ✅ {hostname} 완료")
-            success += 1
-        else:
-            print(f"    ❌ {hostname} 실패")
-            failed.append(hostname)
+        print("❌ (비밀번호 없음 — bootstrap_spc_oneshot.sh 먼저 실행 필요)")
+        failed.append(hostname)
 
 print(f"\n✅ 성공: {success}개 노드")
 if failed:
