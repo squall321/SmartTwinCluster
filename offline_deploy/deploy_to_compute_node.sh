@@ -355,7 +355,14 @@ deploy_to_node() {
 
     # scp로 패키지 전송 (rsync 권한 문제 회피)
     # 홈 디렉토리 사용 - 사용자 권한으로 접근 가능
-    local REMOTE_PKG_DIR="~/offline_packages"
+    # 원격 홈 절대경로를 SSH로 가져옴 (scp는 ~ 확장이 보장 안 됨)
+    local REMOTE_HOME
+    REMOTE_HOME=$($ssh_cmd "$node_user@$node_ip" 'echo $HOME' 2>/dev/null | tr -d '\r')
+    if [[ -z "$REMOTE_HOME" ]]; then
+        log_error "[$node_hostname] Failed to resolve remote \$HOME"
+        return 1
+    fi
+    local REMOTE_PKG_DIR="$REMOTE_HOME/offline_packages"
     log_info "[$node_hostname] Transferring packages to $REMOTE_PKG_DIR (this may take 5-10 minutes)..."
 
     # 기존 디렉토리 삭제 후 재생성 (완전히 새로운 패키지로 배포)
@@ -447,7 +454,7 @@ deploy_to_node() {
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if /usr/bin/sudo test -f "$MUNGE_KEY_LOCAL"; then
         # 원격에서 $HOME 환경변수를 사용하여 경로 확장 (~ 대신 $HOME 사용)
-        $ssh_cmd "$node_user@$node_ip" 'mkdir -p $HOME/offline_packages/munge' || {
+        $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/munge" || {
             log_error "[$node_hostname] Failed to create munge directory"
             return 1
         }
@@ -457,26 +464,25 @@ deploy_to_node() {
         # 원격에서 run_sudo 사용 - 디렉토리 소유권을 현재 사용자로 변경 후 파일 삭제
         # ssh_cmd_stdin 사용 (heredoc이므로 stdin 필요)
         # SSH_PASSWORD를 인자로 전달, heredoc은 큰따옴표로 원격 변수 확장 허용
-        $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$SSH_PASSWORD" <<EOFCLEAN
-SUDO_PASS="\$1"
-# 디렉토리가 존재하면 소유권을 현재 사용자로 변경
-if [[ -d \$HOME/offline_packages/munge ]]; then
-    if [[ -n "\$SUDO_PASS" ]]; then
-        echo "\$SUDO_PASS" | sudo -S chown -R \$(whoami):\$(whoami) \$HOME/offline_packages/munge 2>/dev/null || true
+        $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$SSH_PASSWORD" "$REMOTE_PKG_DIR" <<'EOFCLEAN'
+SUDO_PASS="$1"
+PKG_DIR="$2"
+if [[ -d "$PKG_DIR/munge" ]]; then
+    if [[ -n "$SUDO_PASS" ]]; then
+        echo "$SUDO_PASS" | sudo -S chown -R $(whoami):$(whoami) "$PKG_DIR/munge" 2>/dev/null || true
     else
-        sudo chown -R \$(whoami):\$(whoami) \$HOME/offline_packages/munge 2>/dev/null || true
+        sudo chown -R $(whoami):$(whoami) "$PKG_DIR/munge" 2>/dev/null || true
     fi
 fi
-# 이제 일반 사용자 권한으로 파일 삭제 가능
-rm -f \$HOME/offline_packages/munge/munge.key 2>/dev/null || true
+rm -f "$PKG_DIR/munge/munge.key" 2>/dev/null || true
 EOFCLEAN
 
         # sudo cat 사용 (munge.key는 400 권한이라 일반 사용자가 읽을 수 없음)
         # 원격 셸에서 $HOME이 확장되도록 작은따옴표 사용
-        if /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" 'cat > $HOME/offline_packages/munge/munge.key'; then
+        if /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" "cat > $REMOTE_PKG_DIR/munge/munge.key"; then
             # 전송 확인 (파일 크기 비교)
             local local_size=$(/usr/bin/sudo stat -c%s "$MUNGE_KEY_LOCAL" 2>/dev/null || echo "0")
-            local remote_size=$($ssh_cmd "$node_user@$node_ip" 'stat -c%s $HOME/offline_packages/munge/munge.key 2>/dev/null || echo "0"')
+            local remote_size=$($ssh_cmd "$node_user@$node_ip" "stat -c%s $REMOTE_PKG_DIR/munge/munge.key 2>/dev/null || echo 0")
 
             if [[ "$local_size" -eq "$remote_size" ]] && [[ "$local_size" -gt 0 ]]; then
                 log_success "[$node_hostname] munge.key transferred and verified ($local_size bytes)"
