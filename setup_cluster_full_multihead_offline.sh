@@ -664,22 +664,8 @@ else
     if [ -f "setup_ssh_passwordless_multihead.sh" ]; then
         log_info "SSH 키 자동 배포 중..."
         chmod +x setup_ssh_passwordless_multihead.sh
-        if ./setup_ssh_passwordless_multihead.sh "$CONFIG_FILE"; then
-            log_success "SSH 키 배포 완료"
-        else
-            log_warning "SSH 키 자동 배포 실패"
-            echo ""
-            echo "⚠️  일부 노드는 비밀번호 입력이 필요할 수 있습니다."
-            echo "   설치를 계속하시려면 각 노드에 접속할 때 비밀번호를 입력하세요."
-            echo ""
-            if [ "$AUTO_CONFIRM" = false ]; then
-                read -p "계속하시겠습니까? (Y/n): " -n 1 -r
-                echo
-                if [[ $REPLY =~ ^[Nn]$ ]]; then
-                    exit 1
-                fi
-            fi
-        fi
+        ./setup_ssh_passwordless_multihead.sh "$CONFIG_FILE" || true
+        log_success "SSH 키 배포 단계 완료 (실패 노드는 위 로그 참조)"
     else
         log_warning "setup_ssh_passwordless_multihead.sh가 없습니다"
         echo "⚠️  SSH 키 설정을 수동으로 해야 할 수 있습니다"

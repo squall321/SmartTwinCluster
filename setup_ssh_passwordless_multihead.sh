@@ -177,8 +177,9 @@ for node in nodes:
 
 print(f"\n✅ 성공: {success}개 노드")
 if failed:
-    print(f"❌ 실패: {', '.join(failed)}")
-    sys.exit(1)
+    print(f"⚠️  스킵 (연결 불가 또는 인증 실패): {', '.join(failed)}")
+    print("   → 해당 노드는 나중에 수동으로 키 등록 필요")
+    print("   → 셋업은 계속 진행됩니다")
 
 EOFPY
 
