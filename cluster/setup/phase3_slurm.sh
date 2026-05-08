@@ -972,12 +972,37 @@ install_slurm() {
                 vim-tiny vim-common
                 less htop net-tools dnsutils
             )
+            # 실제로 hold된 패키지만 추적해서 unhold 시 정확하게 복원
+            # (이미 다른 곳에서 hold된 패키지는 건드리지 않기 위함)
+            local _held_by_us=()
             log INFO "보호 패키지 hold 적용 (autoremove 영향 차단)..."
             for pkg in "${protected_packages[@]}"; do
                 if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-                    apt-mark hold "$pkg" 2>/dev/null && log INFO "  hold: $pkg" || true
+                    # 이미 hold면 건너뜀
+                    if apt-mark showhold 2>/dev/null | grep -qx "$pkg"; then
+                        continue
+                    fi
+                    if apt-mark hold "$pkg" 2>/dev/null; then
+                        _held_by_us+=("$pkg")
+                        log INFO "  hold: $pkg"
+                    fi
                 fi
             done
+
+            # 종료 시(정상/실패/시그널) 우리가 hold한 것만 unhold
+            # 스크립트 중단으로 hold가 영구히 남아 다음 apt 작업에서
+            # "pkgProblemResolver::Resolve generated breaks" 발생 방지
+            _unhold_our_packages() {
+                local rc=$?
+                if (( ${#_held_by_us[@]} > 0 )); then
+                    log INFO "보호 패키지 hold 해제 중..."
+                    for pkg in "${_held_by_us[@]}"; do
+                        apt-mark unhold "$pkg" 2>/dev/null || true
+                    done
+                fi
+                return $rc
+            }
+            trap _unhold_our_packages RETURN
 
             # apt slurm 패키지 제거
             DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge \
@@ -989,11 +1014,10 @@ install_slurm() {
             # autoremove로 슬럼 의존성 정리 — hold된 패키지는 자동 스킵됨
             apt-get autoremove -y 2>/dev/null || true
 
-            # hold 해제 (운영 시 정상 업데이트 가능하도록 복원)
-            log INFO "보호 패키지 hold 해제..."
-            for pkg in "${protected_packages[@]}"; do
-                apt-mark unhold "$pkg" 2>/dev/null || true
-            done
+            # 정상 경로: trap이 호출되어 unhold 처리됨
+            # 명시적으로 한 번 더 호출 (RETURN trap이 함수 단위에서만 동작하므로)
+            _unhold_our_packages
+            trap - RETURN
 
             log SUCCESS "apt Slurm 패키지 제거 완료 (NetworkManager 등 보호됨)"
         fi
