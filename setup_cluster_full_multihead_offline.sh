@@ -336,7 +336,6 @@ _wheel_count=$(find "$OFFLINE_PACKAGES_DIR/python_wheels" -name "*.whl" 2>/dev/n
 [[ ! -f "$OFFLINE_PACKAGES_DIR/slurm/slurm-23.11.10-prebuilt.tar.gz" ]] && \
     _pkg_missing+=("slurm/slurm-23.11.10-prebuilt.tar.gz 없음")
 
-[[ ! -f "$OFFLINE_PACKAGES_DIR/apt_packages/munge_"*.deb ]] 2>/dev/null
 ls "$OFFLINE_PACKAGES_DIR/apt_packages"/munge_*.deb &>/dev/null || _pkg_missing+=("munge .deb 없음")
 
 if [[ ${#_pkg_missing[@]} -gt 0 ]]; then
