@@ -945,10 +945,32 @@ install_slurm() {
             # 운영팀 정책: 시스템 필수/네트워킹 패키지 보호
             # apt-mark hold는 install/remove/autoremove 모두 차단함
             local protected_packages=(
+                # 네트워킹 (라우팅/본딩/VLAN 등 운영팀 표준 구성)
                 network-manager network-manager-config-connectivity-ubuntu
-                netplan.io systemd-networkd
-                openssh-server openssh-client
-                ifupdown bridge-utils vlan
+                netplan.io systemd-networkd systemd-resolved
+                ifupdown bridge-utils vlan iproute2 iputils-ping
+                resolvconf isc-dhcp-client
+
+                # SSH (원격 관리 필수)
+                openssh-server openssh-client openssh-sftp-server
+
+                # Ansible 의존성 (운영팀 자동화 도구)
+                python3 python3-minimal python3-apt python3-yaml
+                python3-jinja2 python3-paramiko python3-pip
+                python3-cryptography python3-six
+                sudo
+
+                # 시스템 코어 (절대 건드리면 안 되는)
+                systemd systemd-sysv init udev dbus
+                ca-certificates gnupg
+                grub-pc grub-common grub2-common
+                linux-image-generic linux-headers-generic
+                cron rsyslog logrotate
+
+                # 운영팀 모니터링/관리 (있을 가능성)
+                rsync curl wget unzip tar
+                vim-tiny vim-common
+                less htop net-tools dnsutils
             )
             log INFO "보호 패키지 hold 적용 (autoremove 영향 차단)..."
             for pkg in "${protected_packages[@]}"; do
