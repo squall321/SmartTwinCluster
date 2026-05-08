@@ -80,6 +80,10 @@ RESET_GLUSTER=false
 # Phase 시작 옵션 (start_multihead.sh로 전달됨)
 START_PHASE=""
 
+# Phase 스킵 옵션 (start_multihead.sh로 전달됨, 다중 사용 가능)
+# 예: --skip-phase 4 --skip-phase 7
+SKIP_PHASES=()
+
 # Phase 완료 상태 추적 (재실행 시 완료된 단계 건너뛰기)
 STATE_DIR="/var/lib/cluster_setup"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
@@ -129,6 +133,8 @@ usage() {
     --skip-base             기본 시스템 설정 건너뛰기 (Slurm/Munge 설치 스킵)
     --skip-multihead        멀티헤드 서비스 설정 건너뛰기
     --start-phase N         특정 Phase부터 시작 (0-9, 예: --start-phase 6 = 웹 서비스부터)
+    --skip-phase N          특정 Phase 스킵 (반복 사용 가능, 예: --skip-phase 4 --skip-phase 7)
+    --no-keepalived         keepalived(phase 4) 비활성화 (--skip-phase 4 alias)
     --auto-confirm          사용자 확인 없이 자동으로 진행
     --force                 완료된 단계도 강제 재실행
     --help                  이 도움말 표시
@@ -273,6 +279,15 @@ while [[ $# -gt 0 ]]; do
             START_PHASE="$2"
             SKIP_BASE_SETUP=true  # Phase 지정 시 기본 설정도 스킵
             shift 2
+            ;;
+        --skip-phase)
+            SKIP_PHASES+=("$2")
+            shift 2
+            ;;
+        --no-keepalived)
+            # 편의 alias: keepalived(phase 4) 비활성화
+            SKIP_PHASES+=("4")
+            shift
             ;;
         --help)
             usage
@@ -888,6 +903,12 @@ if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
             MULTIHEAD_OPTS="$MULTIHEAD_OPTS --phase $START_PHASE"
             log_info "📌 Phase $START_PHASE 부터 시작합니다"
         fi
+
+        # Phase 스킵 옵션 전달
+        for skip_p in "${SKIP_PHASES[@]}"; do
+            MULTIHEAD_OPTS="$MULTIHEAD_OPTS --skip-phase $skip_p"
+            log_info "⏭️  Phase $skip_p 스킵"
+        done
 
         echo "🚀 실행 명령: bash $MULTIHEAD_SCRIPT $MULTIHEAD_OPTS"
         echo ""
