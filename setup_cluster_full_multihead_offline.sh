@@ -324,6 +324,32 @@ fi
 
 log_success "오프라인 패키지 디렉토리: $OFFLINE_PACKAGES_DIR"
 
+# 필수 패키지 사전 검증 (빈 디렉토리/누락 감지)
+log_info "오프라인 패키지 콘텐츠 검증 중..."
+_pkg_missing=()
+_apt_count=$(ls "$OFFLINE_PACKAGES_DIR/apt_packages"/*.deb 2>/dev/null | wc -l)
+[[ $_apt_count -lt 50 ]] && _pkg_missing+=("apt_packages: ${_apt_count}개 .deb (50개 미만)")
+
+_wheel_count=$(find "$OFFLINE_PACKAGES_DIR/python_wheels" -name "*.whl" 2>/dev/null | wc -l)
+[[ $_wheel_count -lt 10 ]] && _pkg_missing+=("python_wheels: ${_wheel_count}개 .whl (10개 미만)")
+
+[[ ! -f "$OFFLINE_PACKAGES_DIR/slurm/slurm-23.11.10-prebuilt.tar.gz" ]] && \
+    _pkg_missing+=("slurm/slurm-23.11.10-prebuilt.tar.gz 없음")
+
+[[ ! -f "$OFFLINE_PACKAGES_DIR/apt_packages/munge_"*.deb ]] 2>/dev/null
+ls "$OFFLINE_PACKAGES_DIR/apt_packages"/munge_*.deb &>/dev/null || _pkg_missing+=("munge .deb 없음")
+
+if [[ ${#_pkg_missing[@]} -gt 0 ]]; then
+    log_error "오프라인 패키지 누락 감지:"
+    for m in "${_pkg_missing[@]}"; do log_error "  - $m"; done
+    log_error ""
+    log_error "→ 인터넷 환경에서 다음 실행 후 다시 시도:"
+    log_error "   sudo bash $OFFLINE_PACKAGES_DIR/prepare_offline_packages_2404.sh --yes"
+    log_error "   sudo bash $OFFLINE_PACKAGES_DIR/restore_all.sh --yes"
+    exit 1
+fi
+log_success "오프라인 패키지 검증 완료 (apt: ${_apt_count}, wheels: ${_wheel_count})"
+
 # YAML에서 환경변수 로드 (멀티헤드 설정 시에만 필요)
 if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
     log_info "YAML에서 환경변수 로드 중..."

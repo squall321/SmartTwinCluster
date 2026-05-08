@@ -20,12 +20,6 @@
 #   - 여러 번 source해도 안전 (idempotent)
 ################################################################################
 
-# 이미 감지된 경우 중복 실행 방지
-if [[ -n "${_DETECT_OS_LOADED:-}" ]]; then
-    return 0 2>/dev/null || true
-fi
-_DETECT_OS_LOADED=1
-
 detect_os_version() {
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
@@ -57,3 +51,13 @@ set_offline_pkg_dir() {
     fi
     export OFFLINE_PKG_DIR
 }
+
+# source 시 자동 호출: OFFLINE_PKG_DIR이 비어있을 때만 자동 감지 수행
+# (sudo -E 등으로 환경변수가 부분 상속되어 함수 정의가 누락되는 케이스 방어)
+if [[ -z "${OFFLINE_PKG_DIR:-}" ]]; then
+    detect_os_version
+    # 호출자의 PROJECT_ROOT 사용, 없으면 source 한 스크립트의 상위로 추정
+    _detect_root="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+    set_offline_pkg_dir "$_detect_root"
+    unset _detect_root
+fi
