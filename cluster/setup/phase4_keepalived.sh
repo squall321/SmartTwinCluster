@@ -165,11 +165,11 @@ load_config() {
     CURRENT_PRIORITY=$(echo "$CURRENT_CONTROLLER" | jq -r '.priority // 100')
     IS_VIP_OWNER=$(echo "$CURRENT_CONTROLLER" | jq -r '.vip_owner // false')
 
-    # Check if Keepalived service is enabled
+    # Check if Keepalived service is enabled for this controller
     KEEPALIVED_ENABLED=$(echo "$CURRENT_CONTROLLER" | jq -r '.services.keepalived // false')
     if [[ "$KEEPALIVED_ENABLED" != "true" ]]; then
-        log ERROR "Keepalived service is not enabled for this controller in the config"
-        exit 1
+        log INFO "Keepalived 이 컨트롤러에서 비활성화 (services.keepalived: false) → Phase 4 스킵"
+        exit 0
     fi
 
     log INFO "Current controller: $CURRENT_HOSTNAME ($CURRENT_IP)"
@@ -646,6 +646,23 @@ show_vip_status() {
 main() {
     log INFO "=== Phase 4: Keepalived VIP Management Setup ==="
     log INFO "Starting at $(date)"
+
+    # 전역 비활성화 체크: YAML high_availability.keepalived.enabled: false 면 깨끗하게 스킵
+    local HA_ENABLED
+    HA_ENABLED=$(python3 -c "
+import yaml
+try:
+    with open('$CONFIG_FILE') as f:
+        cfg = yaml.safe_load(f)
+    print(cfg.get('high_availability', {}).get('keepalived', {}).get('enabled', True))
+except Exception:
+    print('True')
+" 2>/dev/null)
+    if [[ "$HA_ENABLED" == "False" ]]; then
+        log INFO "high_availability.keepalived.enabled: false → Phase 4 스킵"
+        log SUCCESS "Phase 4 (Keepalived) 비활성화됨 — 정상 종료"
+        exit 0
+    fi
 
     # Step 0: Check root privileges
     log INFO "[Step 0/11] Checking root privileges..."
