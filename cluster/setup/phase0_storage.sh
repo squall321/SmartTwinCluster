@@ -221,6 +221,14 @@ if [[ "$BRICK_PATH" == /data/* ]]; then
     exit 1
 fi
 
+# /scratch 사용 시 경고 (사용자 작업과 IO 경합 가능)
+if [[ "$BRICK_PATH" == /scratch/* ]]; then
+    log "WARNING" "Brick path '$BRICK_PATH' is under /scratch — 사용자 작업과 IO 경합 위험"
+    log "WARNING" "권장: /var/lib/glusterfs/brick 또는 /srv/glusterfs/brick"
+    log "WARNING" "5초 후 진행합니다..."
+    sleep 5
+fi
+
 # Check if brick path is on a mounted filesystem (potential conflict)
 if mountpoint -q "$(dirname "$BRICK_PATH")" 2>/dev/null; then
     PARENT_MOUNT=$(df "$(dirname "$BRICK_PATH")" 2>/dev/null | tail -1 | awk '{print $1}')
@@ -238,9 +246,22 @@ TOTAL_GLUSTERFS_NODES=$(echo "$GLUSTERFS_CONTROLLERS" | jq '. | length')
 log "INFO" "Total GlusterFS nodes in config: $TOTAL_GLUSTERFS_NODES"
 
 # Auto-calculate replica count
+# 안전 정책: replica는 3 이하로 cap (HA 충분 + 쓰기 증폭 최소화)
+# replica가 너무 크면 모든 write가 N번 복제되어 헤드노드 NIC 포화 → ansible/SSH 끊김
+GLUSTER_MAX_REPLICA=3
 if [[ "$REPLICA_COUNT" == "auto" ]]; then
-    REPLICA_COUNT=$TOTAL_GLUSTERFS_NODES
-    log "INFO" "Auto replica count: $REPLICA_COUNT"
+    if (( TOTAL_GLUSTERFS_NODES >= 3 )); then
+        REPLICA_COUNT=3
+    elif (( TOTAL_GLUSTERFS_NODES == 2 )); then
+        REPLICA_COUNT=2
+    else
+        REPLICA_COUNT=1
+    fi
+    log "INFO" "Auto replica count: $REPLICA_COUNT (cap=$GLUSTER_MAX_REPLICA, 노드=$TOTAL_GLUSTERFS_NODES)"
+elif (( REPLICA_COUNT > GLUSTER_MAX_REPLICA )); then
+    log "WARNING" "지정된 replica_count=$REPLICA_COUNT 가 $GLUSTER_MAX_REPLICA 보다 큼 → 쓰기 증폭/네트워크 부하 위험"
+    log "WARNING" "replica를 $GLUSTER_MAX_REPLICA 로 제한합니다"
+    REPLICA_COUNT=$GLUSTER_MAX_REPLICA
 fi
 
 echo ""
@@ -626,14 +647,23 @@ else
                 gluster volume create "$VOLUME_NAME" replica $REPLICA_COUNT "$CURRENT_IP:$BRICK_PATH" force
             fi
 
-            # Set volume options
+            # Set volume options (대규모 클러스터 안정성 우선)
             gluster volume set "$VOLUME_NAME" performance.cache-size 256MB
-            gluster volume set "$VOLUME_NAME" network.ping-timeout 10
+            # ping-timeout: 10초는 너무 짧아 일시적 네트워크 지연 시 마운트 hang 유발
+            # 대규모 + bond 환경에서는 30초가 안전 (LACP/MTU 변동 흡수)
+            gluster volume set "$VOLUME_NAME" network.ping-timeout 30
+            # 클라이언트 IO 분산 (대량 동시 클라이언트 부하 분산)
+            gluster volume set "$VOLUME_NAME" performance.client-io-threads on || true
+            gluster volume set "$VOLUME_NAME" performance.io-thread-count 16 || true
+            # 프레임 타임아웃 (기본 1800 → 60, hang 회피)
+            gluster volume set "$VOLUME_NAME" network.frame-timeout 60 || true
 
             # Only set self-heal for replicated volumes (replica count > 1)
             if [[ "$REPLICA_COUNT" -gt 1 ]]; then
                 gluster volume set "$VOLUME_NAME" cluster.self-heal-daemon on
-                log "INFO" "Enabled self-heal daemon (replicated volume)"
+                # self-heal 윈도우 제한: 동시 self-heal 작업 수 제한 (네트워크 보호)
+                gluster volume set "$VOLUME_NAME" cluster.background-self-heal-count 8 || true
+                log "INFO" "Enabled self-heal daemon (replicated volume, throttled)"
             else
                 log "INFO" "Skipping self-heal daemon (non-replicated volume)"
             fi

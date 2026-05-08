@@ -59,7 +59,8 @@ FORCE=false
 SIF_DEPLOYMENT_MODE=""  # Will be read from YAML (skip | overwrite | update)
 SKIP_INSTALL=false
 TARGET_IMAGE=""
-PARALLEL=8
+# 병렬 수: 환경변수 PHASE8_PARALLEL > CLI > 기본값 4 (대역폭 보호)
+PARALLEL="${PHASE8_PARALLEL:-4}"
 LOG_FILE="/var/log/cluster_containers_deployment.log"
 
 # Container images paths
