@@ -942,17 +942,35 @@ install_slurm() {
             log WARNING "(소스 빌드 Slurm 23.x와 충돌 방지)"
             log WARNING "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-            # apt slurm 패키지 제거
+            # 운영팀 정책: 시스템 필수/네트워킹 패키지 보호
+            # autoremove가 NetworkManager 등 운영팀이 설치한 패키지를 끌어가는 사고 방지
+            local protected_packages=(
+                network-manager network-manager-config-connectivity-ubuntu
+                netplan.io systemd-networkd
+                openssh-server openssh-client
+                ifupdown bridge-utils vlan
+            )
+            for pkg in "${protected_packages[@]}"; do
+                apt-mark hold "$pkg" 2>/dev/null || true
+            done
+
+            # apt slurm 패키지만 명시적으로 제거 (--purge 유지하되 autoremove는 제한)
             DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge \
                 slurm-wlm slurm-wlm-basic-plugins slurm-client \
                 slurmctld slurmd slurmdbd \
                 libslurm37 libslurm-dev libslurmdb37 \
                 libpmi0 libpmi2-0 2>/dev/null || true
 
-            # autoremove로 관련 의존성 정리
-            apt-get autoremove -y 2>/dev/null || true
+            # autoremove는 위험 — Slurm 직접 의존성만 정리 (NetworkManager 보호)
+            # apt-get autoremove -y 호출 안 함 (운영팀 정책 준수)
+            log INFO "autoremove 생략 — 시스템 패키지 보호 (수동 정리 필요시 운영팀과 협의)"
 
-            log SUCCESS "apt Slurm 패키지 제거 완료"
+            # hold 해제 (다른 setup 단계에서 정상 업데이트 가능하도록)
+            for pkg in "${protected_packages[@]}"; do
+                apt-mark unhold "$pkg" 2>/dev/null || true
+            done
+
+            log SUCCESS "apt Slurm 패키지 제거 완료 (시스템 패키지 보호)"
         fi
 
         # apt 패키지의 플러그인 디렉토리 제거 (소스빌드 23.x와 충돌 방지)

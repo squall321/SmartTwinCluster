@@ -363,6 +363,17 @@ deploy_to_node() {
         return 1
     fi
     local REMOTE_PKG_DIR="$REMOTE_HOME/offline_packages"
+
+    # / 파티션 여유 공간 사전 검증 (운영팀 정책: 디스크 100% 방지)
+    local remote_avail_gb
+    remote_avail_gb=$($ssh_cmd "$node_user@$node_ip" "df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9'" 2>/dev/null)
+    if [[ -n "$remote_avail_gb" ]] && [[ "$remote_avail_gb" -lt 15 ]]; then
+        log_error "[$node_hostname] / 파티션 여유 공간 부족: ${remote_avail_gb}GB (최소 15GB 필요)"
+        log_error "[$node_hostname] 운영팀과 협의 후 디스크 정리 필요"
+        return 1
+    fi
+    log_info "[$node_hostname] / 파티션 여유: ${remote_avail_gb}GB (OK)"
+
     log_info "[$node_hostname] Transferring packages to $REMOTE_PKG_DIR (this may take 5-10 minutes)..."
 
     # 기존 디렉토리 삭제 후 재생성 (완전히 새로운 패키지로 배포)
@@ -1293,6 +1304,28 @@ echo "  - Timeout: 300s (unmount after 5min idle)"
 echo ""
 echo "Test with: ls $GLUSTER_MOUNT"
 echo "═══════════════════════════════════════════════════════════"
+
+# 운영팀 정책: 디스크 100% 방지 — 설치 완료 후 정리
+echo ""
+echo "Step 9: Cleaning up to prevent disk full..."
+# /var/cache/apt 정리 (오프라인 .deb 캐시)
+run_sudo apt-get clean 2>/dev/null || true
+# 전송된 패키지 디렉토리 압축/제거 (재배포 안 할 거면 삭제 권장)
+if [[ -d "$PKG_DIR" ]]; then
+    PKG_SIZE=$(du -sh "$PKG_DIR" 2>/dev/null | cut -f1)
+    echo "  $PKG_DIR 크기: $PKG_SIZE"
+    # munge.key는 /etc/munge로 이미 복사됨, slurm.conf도 /etc/slurm으로 이미 복사됨
+    # 큰 .deb/.tar.gz만 삭제 (스크립트는 보존)
+    find "$PKG_DIR" -type f \( -name "*.deb" -o -name "*.whl" -o -name "*.tar.gz" -o -name "*.run" \) -delete 2>/dev/null || true
+    AFTER_SIZE=$(du -sh "$PKG_DIR" 2>/dev/null | cut -f1)
+    echo "  정리 후: $AFTER_SIZE"
+fi
+# / 여유 공간 확인
+DISK_USE=$(df / --output=pcent 2>/dev/null | tail -1 | tr -dc '0-9')
+echo "  / 사용률: ${DISK_USE}%"
+if [[ -n "$DISK_USE" ]] && [[ "$DISK_USE" -ge 90 ]]; then
+    echo "  ⚠️  / 사용률 ${DISK_USE}% — 운영팀 협의 필요"
+fi
 
 # slurmd 실패 시 비정상 종료 코드 반환
 exit $DEPLOY_STATUS
