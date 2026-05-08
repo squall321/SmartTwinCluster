@@ -81,23 +81,56 @@ fi
 echo ""
 log_info "Step 1: Setting up local APT repository..."
 
-# Backup existing sources.list
+# Backup existing sources.list (한 번만)
 if [[ -f /etc/apt/sources.list ]]; then
     if [[ ! -f /etc/apt/sources.list.backup-offline ]]; then
         cp /etc/apt/sources.list /etc/apt/sources.list.backup-offline
-        log_info "  Backed up /etc/apt/sources.list"
+        log_info "  Backed up /etc/apt/sources.list → /etc/apt/sources.list.backup-offline"
     fi
 fi
+
+# 외부 저장소(인터넷/사내 미러) 일시 비활성화
+# 도달 불가한 미러(예: 10.228.193.5)가 sources.list에 있으면 apt update/install이 hang/실패
+# → 설치 동안 모두 비활성화 후, 끝나면 원복
+if [[ -s /etc/apt/sources.list ]]; then
+    : > /etc/apt/sources.list
+    log_info "  /etc/apt/sources.list 임시 비움 (백업 보존)"
+fi
+shopt -s nullglob
+for f in /etc/apt/sources.list.d/*.list; do
+    [[ "$f" == "$REPO_LIST" ]] && continue
+    if [[ ! -f "${f}.disabled-offline" ]]; then
+        mv "$f" "${f}.disabled-offline"
+        log_info "  비활성화: $(basename "$f") → .disabled-offline"
+    fi
+done
+shopt -u nullglob
+
+# 종료 시(정상/비정상) 외부 저장소 원복
+restore_sources() {
+    local rc=$?
+    log_info "외부 저장소 원복 중..."
+    if [[ -f /etc/apt/sources.list.backup-offline ]] && [[ ! -s /etc/apt/sources.list ]]; then
+        cp /etc/apt/sources.list.backup-offline /etc/apt/sources.list 2>/dev/null || true
+    fi
+    shopt -s nullglob
+    for f in /etc/apt/sources.list.d/*.disabled-offline; do
+        local orig="${f%.disabled-offline}"
+        mv "$f" "$orig" 2>/dev/null || true
+    done
+    shopt -u nullglob
+    log_info "외부 저장소 원복 완료"
+    exit $rc
+}
+trap restore_sources EXIT INT TERM
 
 # Add local repository
 echo "deb [trusted=yes] file://$SCRIPT_DIR ./" > "$REPO_LIST"
 log_success "  Local repository configured: $REPO_LIST"
 
 echo ""
-log_info "Step 2: Updating APT cache..."
-apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" \
-               -o Dir::Etc::sourceparts="-" \
-               -o APT::Get::List-Cleanup="0" 2>/dev/null || apt-get update
+log_info "Step 2: Updating APT cache (로컬 저장소만)..."
+apt-get update 2>&1 | tail -5
 
 log_success "  APT cache updated"
 
