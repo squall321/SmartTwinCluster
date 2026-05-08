@@ -435,10 +435,12 @@ define_package_lists() {
         ufw
     )
 
-    # 운영 서버 커널 (Ubuntu 24.04 / 6.8.0-107-generic)
+    # 운영 서버 커널 (Ubuntu 24.04)
+    # 운영팀 보안 업데이트로 커널 버전이 변동될 수 있으므로 다중 버전 수집
+    # 6.8.0-107: 초기 수집 시점, 6.8.0-110: 보안 업데이트 후 시점
     # 정확한 버전 + 메타패키지 둘 다 포함 (Ubuntu 표준 커널 관리 방식)
     KERNEL_PACKAGES=(
-        # 정확한 버전 (운영 서버 매칭 보장)
+        # 6.8.0-107 (초기 수집)
         linux-image-6.8.0-107-generic
         linux-headers-6.8.0-107-generic
         linux-headers-6.8.0-107
@@ -446,6 +448,16 @@ define_package_lists() {
         linux-modules-extra-6.8.0-107-generic
         linux-tools-6.8.0-107-generic
         linux-tools-6.8.0-107
+
+        # 6.8.0-110 (보안 업데이트 후 시점)
+        linux-image-6.8.0-110-generic
+        linux-headers-6.8.0-110-generic
+        linux-headers-6.8.0-110
+        linux-modules-6.8.0-110-generic
+        linux-modules-extra-6.8.0-110-generic
+        linux-tools-6.8.0-110-generic
+        linux-tools-6.8.0-110
+
         # libc kernel headers
         linux-libc-dev
         # 메타패키지 (Ubuntu 커널 자동 관리 — 최신 LTS 커널도 같이 받음)
