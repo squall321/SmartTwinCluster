@@ -296,8 +296,14 @@ deploy_to_node() {
     fi
     log_success "[$node_hostname] SSH connection OK"
 
-    # Remote package directory
-    local REMOTE_PKG_DIR="\$HOME/offline_packages"
+    # 원격 $HOME 절대경로 조회 (scp는 ~/$HOME 확장 보장 안 됨)
+    local REMOTE_HOME
+    REMOTE_HOME=$($ssh_cmd "$node_user@$node_ip" 'echo $HOME' 2>/dev/null | tr -d '\r')
+    if [[ -z "$REMOTE_HOME" ]]; then
+        log_error "[$node_hostname] Failed to resolve remote \$HOME"
+        return 1
+    fi
+    local REMOTE_PKG_DIR="$REMOTE_HOME/offline_packages"
 
     # Create remote directory
     $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR" || true
