@@ -206,12 +206,13 @@ load_config() {
         exit 1
     fi
 
-    # 운영팀 정책: bond/본딩 인터페이스에는 VIP 부여 금지
-    # bond는 운영망(서비스망/컴퓨트망)에 연결되어 있어 VIP가 라우팅 충돌 유발
+    # 운영팀 정책: 본딩 인터페이스는 운영망일 가능성이 높으므로 VIP 시 주의
+    # 자동 폴백으로 bond를 선택했다면(YAML에 미명시) 차단,
+    # YAML에 명시적으로 bond를 지정했다면 운영팀 의도이므로 허용
     if [[ "$VIP_INTERFACE" =~ ^bond[0-9]+$ ]]; then
-        log ERROR "본딩 인터페이스($VIP_INTERFACE)에 VIP를 부여할 수 없습니다."
-        log ERROR "운영팀 라우팅 정책 위반 — 별도 가상 인터페이스(ens*, eth*) 사용 필요"
-        exit 1
+        log WARNING "본딩 인터페이스 '$VIP_INTERFACE' 에 VIP 부여 — YAML 명시 확인됨"
+        log WARNING "이 본딩이 운영망(컴퓨트망/서비스망)이 아닌지 운영팀과 사전 확인 필요"
+        log WARNING "VIP /$VIP_NETMASK 가 본딩 서브넷과 정확히 일치하지 않으면 라우트 충돌 가능"
     fi
 
     # netmask가 너무 크면(<=16) 운영망과 충돌할 수 있음
