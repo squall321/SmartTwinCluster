@@ -39,16 +39,41 @@ detect_os_version() {
 # 오프라인 패키지 디렉토리 설정
 # 인자: $1 = 프로젝트 루트 경로
 # 결과: OFFLINE_PKG_DIR 환경변수 설정
+#
+# 결정 우선순위:
+#  1) OS_VERSION 명시: 24.04/noble → _2404, 22.04/jammy → offline_packages
+#  2) OS 감지 실패 + 디렉토리만 단일 존재 → 그 디렉토리 사용
+#  3) 둘 다 모호 → 에러 (잘못된 OS 패키지 설치 방지)
 set_offline_pkg_dir() {
     local project_root="${1:-.}"
+    local dir_2404="${project_root}/offline_packages_2404"
+    local dir_2204="${project_root}/offline_packages"
 
-    # 24.04(noble)인 경우 _2404 디렉토리 사용
-    if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
-        OFFLINE_PKG_DIR="${project_root}/offline_packages_2404"
-    else
-        # 22.04 및 기타 모든 버전: 기존 디렉토리 유지
-        OFFLINE_PKG_DIR="${project_root}/offline_packages"
-    fi
+    case "${OS_VERSION:-unknown}|${OS_CODENAME:-unknown}" in
+        24.04*|*noble*)
+            OFFLINE_PKG_DIR="$dir_2404"
+            ;;
+        22.04*|*jammy*)
+            OFFLINE_PKG_DIR="$dir_2204"
+            ;;
+        *)
+            # OS 감지 실패 또는 미지원 버전 → 디렉토리 존재 여부로 안전 결정
+            if [[ -d "$dir_2404" && ! -d "$dir_2204" ]]; then
+                OFFLINE_PKG_DIR="$dir_2404"
+                echo "[detect_os] OS 감지 실패 → 24.04 디렉토리 사용 (단일 존재)" >&2
+            elif [[ -d "$dir_2204" && ! -d "$dir_2404" ]]; then
+                OFFLINE_PKG_DIR="$dir_2204"
+                echo "[detect_os] OS 감지 실패 → 22.04 디렉토리 사용 (단일 존재)" >&2
+            else
+                # 둘 다 있거나 둘 다 없음 → 명확하지 않으므로 에러
+                echo "[detect_os] ERROR: OS 감지 실패 (OS_VERSION=$OS_VERSION, CODENAME=$OS_CODENAME)" >&2
+                echo "[detect_os] 두 패키지 디렉토리 모두 존재하여 자동 결정 불가" >&2
+                echo "[detect_os] OFFLINE_PKG_DIR 환경변수로 명시 지정 필요" >&2
+                OFFLINE_PKG_DIR=""
+                return 1
+            fi
+            ;;
+    esac
     export OFFLINE_PKG_DIR
 }
 

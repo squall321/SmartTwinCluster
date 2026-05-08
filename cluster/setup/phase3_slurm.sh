@@ -942,84 +942,18 @@ install_slurm() {
             log WARNING "(소스 빌드 Slurm 23.x와 충돌 방지)"
             log WARNING "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-            # 운영팀 정책: 시스템 필수/네트워킹 패키지 보호
-            # apt-mark hold는 install/remove/autoremove 모두 차단함
-            local protected_packages=(
-                # 네트워킹 (라우팅/본딩/VLAN 등 운영팀 표준 구성)
-                network-manager network-manager-config-connectivity-ubuntu
-                netplan.io systemd-networkd systemd-resolved
-                ifupdown bridge-utils vlan iproute2 iputils-ping
-                resolvconf isc-dhcp-client
-
-                # SSH (원격 관리 필수)
-                openssh-server openssh-client openssh-sftp-server
-
-                # Ansible 의존성 (운영팀 자동화 도구)
-                python3 python3-minimal python3-apt python3-yaml
-                python3-jinja2 python3-paramiko python3-pip
-                python3-cryptography python3-six
-                sudo
-
-                # 시스템 코어 (절대 건드리면 안 되는)
-                systemd systemd-sysv init udev dbus
-                ca-certificates gnupg
-                grub-pc grub-common grub2-common
-                linux-image-generic linux-headers-generic
-                cron rsyslog logrotate
-
-                # 운영팀 모니터링/관리 (있을 가능성)
-                rsync curl wget unzip tar
-                vim-tiny vim-common
-                less htop net-tools dnsutils
-            )
-            # 실제로 hold된 패키지만 추적해서 unhold 시 정확하게 복원
-            # (이미 다른 곳에서 hold된 패키지는 건드리지 않기 위함)
-            local _held_by_us=()
-            log INFO "보호 패키지 hold 적용 (autoremove 영향 차단)..."
-            for pkg in "${protected_packages[@]}"; do
-                if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-                    # 이미 hold면 건너뜀
-                    if apt-mark showhold 2>/dev/null | grep -qx "$pkg"; then
-                        continue
-                    fi
-                    if apt-mark hold "$pkg" 2>/dev/null; then
-                        _held_by_us+=("$pkg")
-                        log INFO "  hold: $pkg"
-                    fi
-                fi
-            done
-
-            # 종료 시(정상/실패/시그널) 우리가 hold한 것만 unhold
-            # 스크립트 중단으로 hold가 영구히 남아 다음 apt 작업에서
-            # "pkgProblemResolver::Resolve generated breaks" 발생 방지
-            _unhold_our_packages() {
-                local rc=$?
-                if (( ${#_held_by_us[@]} > 0 )); then
-                    log INFO "보호 패키지 hold 해제 중..."
-                    for pkg in "${_held_by_us[@]}"; do
-                        apt-mark unhold "$pkg" 2>/dev/null || true
-                    done
-                fi
-                return $rc
-            }
-            trap _unhold_our_packages RETURN
-
-            # apt slurm 패키지 제거
+            # apt slurm 패키지만 명시 제거 (autoremove/hold 미사용)
+            # 사유: autoremove + apt-mark hold 조합이 실패 시 hold 누수로
+            # "pkgProblemResolver::Resolve generated breaks" 유발
+            # 소스 빌드 slurm은 /usr/local에 설치되므로 /usr/lib의 잔여 라이브러리는
+            # 충돌하지 않음 → autoremove 불필요
             DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge \
                 slurm-wlm slurm-wlm-basic-plugins slurm-client \
                 slurmctld slurmd slurmdbd \
                 libslurm37 libslurm-dev libslurmdb37 \
                 libpmi0 libpmi2-0 2>/dev/null || true
 
-            # autoremove로 슬럼 의존성 정리 — hold된 패키지는 자동 스킵됨
-            apt-get autoremove -y 2>/dev/null || true
-
-            # 정상 경로: trap이 호출되어 unhold 처리됨
-            # 명시적으로 한 번 더 호출 (RETURN trap이 함수 단위에서만 동작하므로)
-            _unhold_our_packages
-            trap - RETURN
-
-            log SUCCESS "apt Slurm 패키지 제거 완료 (NetworkManager 등 보호됨)"
+            log SUCCESS "apt Slurm 패키지 제거 완료 (autoremove 미실행 — 시스템 패키지 보호)"
         fi
 
         # apt 패키지의 플러그인 디렉토리 제거 (소스빌드 23.x와 충돌 방지)
