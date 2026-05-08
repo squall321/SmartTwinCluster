@@ -297,10 +297,16 @@ install_nvidia_driver() {
                 fi
 
                 apt-get update
-                DEBIAN_FRONTEND=noninteractive apt-get install -y nvidia-driver-550 || {
+                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nvidia-driver-550 || {
                     echo 'NVIDIA 드라이버 설치 실패'
                     exit 1
                 }
+                # NetworkManager 자동 활성화 방지 (netplan 정책 유지)
+                if systemctl is-active --quiet NetworkManager 2>/dev/null && ls /etc/netplan/*.yaml &>/dev/null; then
+                    echo '[정책 보호] NetworkManager 비활성화 (netplan 유지)'
+                    systemctl disable --now NetworkManager 2>/dev/null || true
+                    systemctl mask NetworkManager 2>/dev/null || true
+                fi
             "
             local exit_code=$?
             if [[ $exit_code -eq 100 ]]; then
@@ -355,11 +361,20 @@ install_nvidia_driver() {
             sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nvidia-local.list -o Dir::Etc::sourceparts='-' -o APT::Get::List-Cleanup='0' 2>/dev/null
 
             echo '=== NVIDIA 드라이버 설치 ==='
-            DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --allow-unauthenticated nvidia-driver-550 || {
+            # 운영팀 정책 준수: --no-install-recommends 로 NetworkManager 등 부가 의존성 차단
+            DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --allow-unauthenticated --no-install-recommends nvidia-driver-550 || {
                 echo 'WARNING: apt install 실패, dpkg fallback 시도'
                 sudo dpkg -i $remote_repo_dir/*.deb 2>/dev/null || true
-                sudo apt-get -f install -y 2>/dev/null || true
+                sudo apt-get -f install --no-install-recommends -y 2>/dev/null || true
             }
+
+            # NVIDIA 설치 후 NetworkManager가 자동 활성화되었으면 원복 (netplan 정책 유지)
+            if systemctl is-active --quiet NetworkManager 2>/dev/null && \
+               ls /etc/netplan/*.yaml &>/dev/null; then
+                echo '[정책 보호] NetworkManager 자동 활성화 감지 → 비활성화 (netplan 유지)'
+                sudo systemctl disable --now NetworkManager 2>/dev/null || true
+                sudo systemctl mask NetworkManager 2>/dev/null || true
+            fi
         "
 
         local exit_code=$?

@@ -188,41 +188,36 @@ load_config() {
         exit 1
     fi
 
-    # Check if interface exists, auto-detect if not
-    if [[ -n "$VIP_INTERFACE" ]]; then
-        # Interface specified in YAML, check if it exists
-        if ! ip link show "$VIP_INTERFACE" &>/dev/null; then
-            log WARNING "Interface '$VIP_INTERFACE' from YAML doesn't exist, auto-detecting..."
-            VIP_INTERFACE=""
-        fi
-    fi
-
+    # 운영팀 정책: VIP 인터페이스는 YAML에 명시된 것만 사용
+    # 자동 변경 시 bond0(운영망) 같은 잘못된 인터페이스가 선택되어
+    # 라우팅 정책 위반 사고 발생함 (10.228.0.0/16 dev bond0 사례)
     if [[ -z "$VIP_INTERFACE" ]]; then
-        # Use default route interface (most reliable)
-        VIP_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -1)
-        log INFO "DEBUG: After default route: VIP_INTERFACE='$VIP_INTERFACE'"
-
-        # If no default route, find any non-loopback interface
-        if [[ -z "$VIP_INTERFACE" ]]; then
-            VIP_INTERFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v -E '^(lo|docker|virbr|veth|cali)' | head -1)
-            log INFO "DEBUG: After interface list: VIP_INTERFACE='$VIP_INTERFACE'"
-        fi
-
-        # If still empty, error out
-        if [[ -z "$VIP_INTERFACE" ]]; then
-            log ERROR "Could not auto-detect a valid network interface"
-            log ERROR "Available interfaces: $(ip -o link show | awk -F': ' '{print $2}' | tr '\n' ' ')"
-            exit 1
-        fi
-
-        log INFO "Auto-detected interface: $VIP_INTERFACE"
-    fi
-
-    # Verify the selected interface exists
-    if ! ip link show "$VIP_INTERFACE" &>/dev/null; then
-        log ERROR "Selected interface '$VIP_INTERFACE' does not exist"
+        log ERROR "VIP interface가 YAML에 명시되지 않았습니다."
+        log ERROR "운영망 라우팅 사고 방지를 위해 자동 감지를 중단합니다."
+        log ERROR "→ YAML의 high_availability.vip.interface 에 명시적 지정 필요"
         log ERROR "Available interfaces: $(ip -o link show | awk -F': ' '{print $2}' | tr '\n' ' ')"
         exit 1
+    fi
+
+    if ! ip link show "$VIP_INTERFACE" &>/dev/null; then
+        log ERROR "YAML 명시된 인터페이스 '$VIP_INTERFACE'가 이 노드에 없습니다."
+        log ERROR "운영팀과 협의 후 YAML 수정 필요 (자동 fallback 금지)."
+        log ERROR "Available interfaces: $(ip -o link show | awk -F': ' '{print $2}' | tr '\n' ' ')"
+        exit 1
+    fi
+
+    # 운영팀 정책: bond/본딩 인터페이스에는 VIP 부여 금지
+    # bond는 운영망(서비스망/컴퓨트망)에 연결되어 있어 VIP가 라우팅 충돌 유발
+    if [[ "$VIP_INTERFACE" =~ ^bond[0-9]+$ ]]; then
+        log ERROR "본딩 인터페이스($VIP_INTERFACE)에 VIP를 부여할 수 없습니다."
+        log ERROR "운영팀 라우팅 정책 위반 — 별도 가상 인터페이스(ens*, eth*) 사용 필요"
+        exit 1
+    fi
+
+    # netmask가 너무 크면(<=16) 운영망과 충돌할 수 있음
+    if [[ "$VIP_NETMASK" -le 16 ]]; then
+        log WARNING "VIP netmask /$VIP_NETMASK 가 너무 큼 — 운영망과 라우팅 충돌 가능"
+        log WARNING "운영팀과 협의 후 적절한 서브넷(/24 권장)으로 좁힐 것"
     fi
 
     # Get authentication password
