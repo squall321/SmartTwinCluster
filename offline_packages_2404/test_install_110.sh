@@ -44,11 +44,10 @@ fi
 [[ ! -d "$HOST_PKG_DIR" ]] && { err "패키지 디렉토리 없음: $HOST_PKG_DIR"; exit 1; }
 virsh dominfo "$VM_NAME" &>/dev/null && { warn "VM '$VM_NAME' 이미 존재. --cleanup 후 재실행"; exit 1; }
 
-# 디스크 준비
+# 디스크 준비 (검증된 prepare 스크립트와 동일하게 backing file 방식)
 mkdir -p "$VM_DIR"
-log "디스크 이미지 복사..."
-cp --reflink=auto "$CLOUD_IMG" "$VM_DIR/disk.qcow2"
-qemu-img resize "$VM_DIR/disk.qcow2" 30G >/dev/null
+log "디스크 이미지 생성 (backing file 방식)..."
+qemu-img create -f qcow2 -b "$CLOUD_IMG" -F qcow2 "$VM_DIR/disk.qcow2" 30G >/dev/null
 ok "디스크 준비 완료"
 
 # cloud-init: 검증된 prepare 패턴 그대로 (kernel 110은 부팅 후 별도 설치)
@@ -77,10 +76,10 @@ packages:
   - rsync
 
 runcmd:
-  - sed -i 's|^URIs: http://archive.ubuntu.com/ubuntu\$|URIs: http://kr.archive.ubuntu.com/ubuntu|' /etc/apt/sources.list.d/ubuntu.sources
+  - "sed -i 's|^URIs: http://archive.ubuntu.com/ubuntu\$|URIs: http://kr.archive.ubuntu.com/ubuntu|' /etc/apt/sources.list.d/ubuntu.sources"
   - systemctl enable ssh
   - systemctl start ssh
-  - echo "cloud-init done" > /tmp/cloud-init-done
+  - "echo cloud-init-done > /tmp/cloud-init-done"
 
 final_message: "Cloud-init complete after \$UPTIME seconds"
 USERDATA_EOF
@@ -94,19 +93,21 @@ genisoimage -output "$VM_DIR/cloud-init.iso" -volid cidata -joliet -rock \
     "$VM_DIR/cloud-init/user-data" "$VM_DIR/cloud-init/meta-data" 2>/dev/null
 ok "cloud-init ISO 생성"
 
-# VM 생성 + 호스트 apt_packages 9p 공유
-log "VM 생성 (4 vCPU, 4GB, 9p 공유)..."
+# VM 생성 (검증된 prepare 패턴 + 9p 공유 추가)
+log "VM 생성 (4 vCPU, 4GB)..."
 virt-install \
     --name "$VM_NAME" \
-    --memory 4096 \
     --vcpus 4 \
-    --disk path="$VM_DIR/disk.qcow2",bus=virtio \
-    --disk path="$VM_DIR/cloud-init.iso",device=cdrom \
+    --memory 4096 \
+    --disk "path=$VM_DIR/disk.qcow2,format=qcow2" \
+    --disk "path=$VM_DIR/cloud-init.iso,device=cdrom" \
     --os-variant ubuntu24.04 \
-    --network network=default,model=virtio \
+    --network network=default \
     --graphics none \
+    --console pty,target_type=serial \
     --import \
     --noautoconsole \
+    --wait 0 \
     --filesystem source="$HOST_PKG_DIR",target=hostpkgs,accessmode=passthrough \
     >/dev/null 2>&1 || { err "VM 생성 실패"; exit 1; }
 ok "VM 생성 완료"
