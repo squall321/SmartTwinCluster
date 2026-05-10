@@ -333,7 +333,8 @@ packages:
 runcmd:
   # APT 미러를 kr.archive.ubuntu.com 으로 변경 (한국 공식 미러, archive와 동기화 보장)
   # 주의: mirror.kakao.com 은 동기화 지연으로 최신 커널(6.8.0-110+) 누락 사례 있음
-  - sed -i 's|^URIs: http://archive.ubuntu.com/ubuntu\$|URIs: http://kr.archive.ubuntu.com/ubuntu|' /etc/apt/sources.list.d/ubuntu.sources
+  # YAML: 콜론 포함 명령은 인용 (cloud-init user-data 파싱 에러 방지)
+  - "sed -i 's|^URIs: http://archive.ubuntu.com/ubuntu\$|URIs: http://kr.archive.ubuntu.com/ubuntu|' /etc/apt/sources.list.d/ubuntu.sources"
   - systemctl enable ssh
   - systemctl start ssh
   - echo "cloud-init provisioning complete" > /tmp/cloud-init-done
