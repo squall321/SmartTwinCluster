@@ -7,14 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Deploying Munge..."
 
-# munge 패키지 설치
-if ! dpkg -s munge &>/dev/null; then
-    echo "  Installing munge package..."
-    apt-get install -y munge libmunge2 libmunge-dev
-else
-    echo "  munge already installed"
-fi
-
 # Munge 사용자 생성
 if ! id munge &>/dev/null; then
     groupadd -g 1002 munge 2>/dev/null || groupadd munge 2>/dev/null || true
