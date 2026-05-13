@@ -121,6 +121,7 @@ nodes = cfg.get('nodes', {})
 ips = set()
 for c in nodes.get('controllers', []): ips.add(c['ip_address'])
 for n in nodes.get('compute_nodes', []): ips.add(n['ip_address'])
+for n in nodes.get('viz_nodes', []): ips.add(n['ip_address'])
 for ip in sorted(ips): print(ip)
 ")
 
