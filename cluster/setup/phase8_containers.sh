@@ -107,21 +107,40 @@ export HAS_SSHPASS=false
 
 # Set SSH_CMD/SCP_CMD for a specific node: key auth first, sshpass fallback
 # Same pattern as deploy_to_compute_node.sh
+# Key priority: ssh_user's own key → ORIGINAL_USER's key → sshpass fallback
 setup_node_ssh() {
     local user="$1" ip="$2"
-    if ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-           "${user}@${ip}" "echo OK" &>/dev/null; then
-        SSH_CMD="ssh $SSH_BASE"
-        SCP_CMD="scp $SCP_BASE"
-        return 0
-    elif [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+
+    # Find the best key for this ssh_user
+    # If deploying as stcx, use stcx's key (bootstrap registered stcx's key on remote nodes)
+    local user_home
+    user_home=$(getent passwd "$user" | cut -d: -f6 2>/dev/null || echo "")
+    local try_keys=()
+    [[ -n "$user_home" ]] && {
+        try_keys+=("${user_home}/.ssh/id_rsa" "${user_home}/.ssh/id_ed25519")
+    }
+    # Also try ORIGINAL_USER's key as fallback
+    [[ -n "$SSH_KEY_FILE" ]] && try_keys+=("$SSH_KEY_FILE")
+
+    for _key in "${try_keys[@]}"; do
+        [[ -f "$_key" ]] || continue
+        if ssh -n -i "$_key" -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+               "${user}@${ip}" "echo OK" &>/dev/null; then
+            SSH_CMD="ssh -i $_key $SSH_BASE"
+            SCP_CMD="scp -i $_key $SCP_BASE"
+            return 0
+        fi
+    done
+
+    # Key auth failed — try sshpass
+    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
         export SSHPASS="$SSH_PASSWORD"
         SSH_CMD="sshpass -e ssh $SSH_BASE"
         SCP_CMD="sshpass -e scp $SCP_BASE"
         return 0
-    else
-        return 1
     fi
+
+    return 1
 }
 
 # Function to print colored output
