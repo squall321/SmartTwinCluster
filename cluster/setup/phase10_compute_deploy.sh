@@ -654,7 +654,7 @@ compute_nodes = config.get('nodes', {}).get('compute_nodes', [])
 for node in compute_nodes:
     hostname = node.get('hostname', '')
     ip = node.get('ip_address', '')
-    user = node.get('ssh_user', 'koopark')
+    user = node.get('ssh_user', 'stcx')
     if hostname and ip:
         print(f"{hostname}|{ip}|{user}")
 
@@ -663,7 +663,7 @@ viz_nodes = config.get('nodes', {}).get('viz_nodes', [])
 for node in viz_nodes:
     hostname = node.get('hostname', '')
     ip = node.get('ip_address', '')
-    user = node.get('ssh_user', 'koopark')
+    user = node.get('ssh_user', 'stcx')
     if hostname and ip:
         print(f"{hostname}|{ip}|{user}")
 EOPY

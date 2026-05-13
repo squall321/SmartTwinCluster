@@ -42,7 +42,7 @@ CONFIG_FILE="${PROJECT_ROOT}/my_multihead_cluster.yaml"
 SPECIFIC_NODE=""
 DRY_RUN=false
 PARALLEL=5
-SSH_USER="${SSH_USER:-koopark}"
+SSH_USER="${SSH_USER:-stcx}"
 
 # Slurm 경로 설정
 SLURM_PREFIX="/usr/local/slurm"

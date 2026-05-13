@@ -26,7 +26,7 @@ sudo mkdir -p "${SCRIPTS_DIR}"
 
 # 2. 소유권 설정
 echo "2. 소유권 설정 중..."
-sudo chown -R koopark:koopark "${REGISTRY_BASE}"
+sudo chown -R "${SUDO_USER:-$(logname 2>/dev/null || echo root)}:${SUDO_USER:-$(logname 2>/dev/null || echo root)}" "${REGISTRY_BASE}"
 sudo chmod -R 755 "${REGISTRY_BASE}"
 
 # 3. 메타데이터 디렉토리에 README 생성

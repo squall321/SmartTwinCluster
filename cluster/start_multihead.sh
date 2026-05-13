@@ -424,7 +424,7 @@ for ctrl in config.get('nodes', {}).get('controllers', []):
     nodes.append({
         'hostname': ctrl['hostname'],
         'ip': ctrl['ip_address'],
-        'user': ctrl.get('ssh_user', 'koopark')
+        'user': ctrl.get('ssh_user', 'stcx')
     })
 
 # Compute nodes
@@ -432,7 +432,7 @@ for node in config.get('nodes', {}).get('compute_nodes', []):
     nodes.append({
         'hostname': node['hostname'],
         'ip': node['ip_address'],
-        'user': node.get('ssh_user', 'koopark')
+        'user': node.get('ssh_user', 'stcx')
     })
 
 print(json.dumps(nodes))

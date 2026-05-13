@@ -111,7 +111,7 @@ ssh_user = ""
 for c in nodes.get('controllers', []):
     all_ips.add(c['ip_address'])
     if not ssh_user:
-        ssh_user = c.get('ssh_user', 'koopark')
+        ssh_user = c.get('ssh_user', 'stcx')
 # compute_nodes
 for n in nodes.get('compute_nodes', []):
     all_ips.add(n['ip_address'])
