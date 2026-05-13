@@ -1853,8 +1853,15 @@ generate_node_definitions() {
 
     local node_defs=""
 
-    # Get compute nodes from YAML
-    local compute_nodes=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get nodes.compute_nodes 2>/dev/null || echo "[]")
+    # Get compute + viz nodes from YAML (both run slurmd)
+    local compute_nodes=$(python3 -c "
+import yaml, json
+with open('$CONFIG_FILE') as f:
+    cfg = yaml.safe_load(f)
+nodes = cfg.get('nodes', {})
+all_nodes = nodes.get('compute_nodes', []) + nodes.get('viz_nodes', [])
+print(json.dumps(all_nodes))
+" 2>/dev/null || echo "[]")
 
     # Generate NodeName entries
     while IFS= read -r node; do
@@ -2835,13 +2842,14 @@ EOPY
 setup_remote_compute_nodes() {
     log INFO "=== Setting up Slurm on remote compute nodes ==="
 
-    # Get compute nodes from YAML using direct Python
+    # Get compute + viz nodes from YAML (both need slurmd)
     local compute_nodes=$(python3 << EOPY
 import yaml, json
 with open('$CONFIG_FILE', 'r') as f:
     config = yaml.safe_load(f)
-    nodes = config.get('nodes', {}).get('compute_nodes', [])
-    print(json.dumps(nodes))
+    nodes = config.get('nodes', {})
+    all_nodes = nodes.get('compute_nodes', []) + nodes.get('viz_nodes', [])
+    print(json.dumps(all_nodes))
 EOPY
 )
 

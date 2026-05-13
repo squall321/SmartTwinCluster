@@ -55,19 +55,42 @@ APPTAINER_ONLY=false
 MPI_TYPE="openmpi"  # openmpi or mpich
 LOG_FILE="/var/log/cluster_software_setup.log"
 
-# SSH options (includes GSSAPIAuthentication=no to prevent Kerberos delays)
-#
-# IMPORTANT: When running with sudo, we need to use the original user's SSH key
+# SSH: per-node key discovery + sshpass fallback (same pattern as phase8)
 ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
 ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
-SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
+SSH_KEY_FILE=""
+for _key in "${ORIGINAL_HOME}/.ssh/id_rsa" "${ORIGINAL_HOME}/.ssh/id_ed25519"; do
+    [[ -f "$_key" ]] && { SSH_KEY_FILE="$_key"; break; }
+done
+SSH_BASE="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
+SSH_OPTS="ssh $SSH_BASE"
+SSH_PASSWORD=""
+HAS_SSHPASS=false
 
-# -n: Don't read from stdin (critical for while read loops!)
-if [[ -f "$SSH_KEY_FILE" ]]; then
-    SSH_OPTS="-n -i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-else
-    SSH_OPTS="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-fi
+setup_node_ssh() {
+    local user="$1" ip="$2"
+    local user_home; user_home=$(getent passwd "$user" | cut -d: -f6 2>/dev/null || echo "")
+    local try_keys=()
+    [[ -n "$user_home" ]] && try_keys+=("${user_home}/.ssh/id_rsa" "${user_home}/.ssh/id_ed25519")
+    [[ -n "$SSH_KEY_FILE" ]] && try_keys+=("$SSH_KEY_FILE")
+    for _key in "${try_keys[@]}"; do
+        [[ -f "$_key" ]] || continue
+        if ssh -n -i "$_key" -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+               "${user}@${ip}" "echo OK" &>/dev/null; then
+            SSH_OPTS="ssh -i $_key $SSH_BASE"
+            return 0
+        fi
+    done
+    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        export SSHPASS="$SSH_PASSWORD"
+        if SSHPASS="$SSH_PASSWORD" sshpass -e ssh -n -o StrictHostKeyChecking=no \
+               -o ConnectTimeout=5 "${user}@${ip}" "echo OK" &>/dev/null; then
+            SSH_OPTS="sshpass -e ssh $SSH_BASE"
+            return 0
+        fi
+    fi
+    return 1
+}
 
 ################################################################################
 # Logging Functions
@@ -129,7 +152,8 @@ run_remote() {
     fi
 
     log INFO "Running on ${user}@${ip}: $description"
-    if ssh -n $SSH_OPTS "${user}@${ip}" "$cmd" 2>/dev/null; then
+    setup_node_ssh "$user" "$ip" &>/dev/null
+    if $SSH_OPTS "${user}@${ip}" "$cmd" 2>/dev/null; then
         return 0
     else
         log WARNING "Remote command failed on ${ip}: $cmd"
@@ -184,18 +208,12 @@ get_all_nodes() {
     COMPUTE_NODES=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_PATH" --get "nodes.compute_nodes" 2>/dev/null | \
         python3 -c "import sys, json; data=json.load(sys.stdin); print('\n'.join([f\"{c['ssh_user']}@{c['ip_address']}\" for c in data]))" 2>/dev/null || echo "")
 
-    # Combine all nodes
-    ALL_NODES=""
-    if [[ -n "$CONTROLLERS" ]]; then
-        ALL_NODES="$CONTROLLERS"
-    fi
-    if [[ -n "$COMPUTE_NODES" ]]; then
-        if [[ -n "$ALL_NODES" ]]; then
-            ALL_NODES="$ALL_NODES"$'\n'"$COMPUTE_NODES"
-        else
-            ALL_NODES="$COMPUTE_NODES"
-        fi
-    fi
+    # Get viz nodes
+    VIZ_NODES=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_PATH" --get "nodes.viz_nodes" 2>/dev/null | \
+        python3 -c "import sys, json; data=json.load(sys.stdin); print('\n'.join([f\"{c['ssh_user']}@{c['ip_address']}\" for c in data]))" 2>/dev/null || echo "")
+
+    # Combine all nodes (deduplicate)
+    ALL_NODES=$(printf '%s\n%s\n%s' "$CONTROLLERS" "$COMPUTE_NODES" "$VIZ_NODES" | grep -v '^$' | sort -u)
 
     NODE_COUNT=$(echo "$ALL_NODES" | grep -c . || echo "0")
     log INFO "Found $NODE_COUNT nodes to configure"
@@ -296,9 +314,10 @@ install_mpi_remote() {
     local ip=${user_ip#*@}
 
     log INFO "Installing MPI on $ip..."
+    setup_node_ssh "$user" "$ip" &>/dev/null
 
     # Detect remote OS
-    local remote_os=$(ssh -n $SSH_OPTS "${user}@${ip}" "cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'" 2>/dev/null || echo "unknown")
+    local remote_os=$($SSH_OPTS "${user}@${ip}" "cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'" 2>/dev/null || echo "unknown")
 
     case $remote_os in
         ubuntu|debian)
@@ -460,9 +479,10 @@ install_apptainer_remote() {
     local ip=${user_ip#*@}
 
     log INFO "Installing Apptainer on $ip..."
+    setup_node_ssh "$user" "$ip" &>/dev/null
 
     # Detect remote OS
-    local remote_os=$(ssh -n $SSH_OPTS "${user}@${ip}" "cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'" 2>/dev/null || echo "unknown")
+    local remote_os=$($SSH_OPTS "${user}@${ip}" "cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'" 2>/dev/null || echo "unknown")
 
     case $remote_os in
         ubuntu|debian)
@@ -568,6 +588,22 @@ main() {
 
     # Parse configuration
     parse_config
+
+    # Load ssh_password from YAML for sshpass fallback
+    SSH_PASSWORD=$(python3 -c "
+import yaml
+with open('$CONFIG_PATH') as f:
+    cfg = yaml.safe_load(f)
+print(cfg.get('cluster_info', {}).get('ssh_password', '') or cfg.get('nodes', {}).get('ssh_password', ''))
+" 2>/dev/null || true)
+    export SSH_PASSWORD
+    if [[ -n "$SSH_PASSWORD" ]]; then
+        export SSHPASS="$SSH_PASSWORD"
+        command -v sshpass &>/dev/null && HAS_SSHPASS=true || {
+            apt-get install -y sshpass &>/dev/null && HAS_SSHPASS=true || true
+        }
+    fi
+    export HAS_SSHPASS
 
     # Get all nodes
     get_all_nodes
