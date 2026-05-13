@@ -105,6 +105,37 @@ else
     SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
 fi
 
+# Read ssh_password from YAML for sshpass fallback (set after CONFIG_PATH is parsed)
+SSH_PASSWORD=""
+SSHPASS_SSH_OPTS="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
+SSHPASS_SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
+
+# Helper: ssh with key fallback to sshpass
+ssh_with_fallback() {
+    # First arg is target (user@ip), rest is command
+    local target="$1"; shift
+    if ssh $SSH_OPTS "$target" "$@" 2>/dev/null; then
+        return 0
+    fi
+    if [[ -n "$SSH_PASSWORD" ]] && command -v sshpass &>/dev/null; then
+        SSHPASS="$SSH_PASSWORD" sshpass -e ssh $SSHPASS_SSH_OPTS "$target" "$@"
+    else
+        return 1
+    fi
+}
+
+scp_with_fallback() {
+    local src="$1" dst="$2"
+    if scp $SCP_OPTS "$src" "$dst" 2>/dev/null; then
+        return 0
+    fi
+    if [[ -n "$SSH_PASSWORD" ]] && command -v sshpass &>/dev/null; then
+        SSHPASS="$SSH_PASSWORD" sshpass -e scp $SSHPASS_SCP_OPTS "$src" "$dst"
+    else
+        return 1
+    fi
+}
+
 # Function to print colored output
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1" | tee -a "$LOG_FILE"
@@ -454,11 +485,10 @@ deploy_to_node() {
 
     # Test SSH connection
     log_info "Testing SSH connection to $hostname..."
-    log_info "  SSH key: ${SSH_KEY_FILE:-none}"
-    log_info "  SSH user: ${user}"
-    local ssh_err
-    ssh_err=$(ssh $SSH_OPTS ${user}@${ip} "exit" 2>&1)
-    if [[ $? -ne 0 ]]; then
+    log_info "  SSH key: ${SSH_KEY_FILE:-none}, user: ${user}"
+    if ! ssh_with_fallback "${user}@${ip}" "exit"; then
+        local ssh_err
+        ssh_err=$(ssh $SSH_OPTS "${user}@${ip}" "exit" 2>&1 || true)
         log_error "Cannot connect to $hostname ($ip) via SSH"
         log_error "  SSH error: $ssh_err"
         return 1
@@ -993,6 +1023,19 @@ main() {
     # Validate config
     validate_config
     echo ""
+
+    # Read ssh_password from YAML for sshpass fallback
+    SSH_PASSWORD=$(python3 -c "
+import yaml, sys
+try:
+    with open('$CONFIG_PATH') as f:
+        cfg = yaml.safe_load(f)
+    print(cfg.get('nodes', {}).get('ssh_password', '') or cfg.get('ssh_password', ''))
+except: pass
+" 2>/dev/null || true)
+    if [[ -n "$SSH_PASSWORD" ]]; then
+        log_info "ssh_password loaded from YAML (sshpass fallback enabled)"
+    fi
 
     # Load SIF deployment mode from YAML (or use CLI override)
     load_sif_deployment_mode
