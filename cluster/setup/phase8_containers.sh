@@ -95,42 +95,30 @@ if [[ -z "$SSH_KEY_FILE" && "$(whoami)" == "root" ]]; then
     done
 fi
 
-# SSH options: -n prevents reading from stdin (critical for while read loops!)
-# SCP options: -n is NOT supported by scp, so we need separate options
-if [[ -n "$SSH_KEY_FILE" ]]; then
-    SSH_OPTS="-n -i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-    SCP_OPTS="-i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-else
-    SSH_OPTS="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-    SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-fi
+# Base SSH/SCP options (no auth method specified — determined per-node at runtime)
+SSH_BASE="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
+SCP_BASE="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
 
-# Read ssh_password from YAML for sshpass fallback (set after CONFIG_PATH is parsed)
+# Per-node SSH command variables (set by setup_node_ssh before each deployment)
+SSH_CMD="ssh $SSH_BASE"
+SCP_CMD="scp $SCP_BASE"
 SSH_PASSWORD=""
-SSHPASS_SSH_OPTS="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
-SSHPASS_SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
+export HAS_SSHPASS=false
 
-# Helper: ssh with key fallback to sshpass
-ssh_with_fallback() {
-    # First arg is target (user@ip), rest is command
-    local target="$1"; shift
-    if ssh $SSH_OPTS "$target" "$@" 2>/dev/null; then
+# Set SSH_CMD/SCP_CMD for a specific node: key auth first, sshpass fallback
+# Same pattern as deploy_to_compute_node.sh
+setup_node_ssh() {
+    local user="$1" ip="$2"
+    if ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+           "${user}@${ip}" "echo OK" &>/dev/null; then
+        SSH_CMD="ssh $SSH_BASE"
+        SCP_CMD="scp $SCP_BASE"
         return 0
-    fi
-    if [[ -n "$SSH_PASSWORD" ]] && command -v sshpass &>/dev/null; then
-        SSHPASS="$SSH_PASSWORD" sshpass -e ssh $SSHPASS_SSH_OPTS "$target" "$@"
-    else
-        return 1
-    fi
-}
-
-scp_with_fallback() {
-    local src="$1" dst="$2"
-    if scp $SCP_OPTS "$src" "$dst" 2>/dev/null; then
+    elif [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        export SSHPASS="$SSH_PASSWORD"
+        SSH_CMD="sshpass -e ssh $SSH_BASE"
+        SCP_CMD="sshpass -e scp $SCP_BASE"
         return 0
-    fi
-    if [[ -n "$SSH_PASSWORD" ]] && command -v sshpass &>/dev/null; then
-        SSHPASS="$SSH_PASSWORD" sshpass -e scp $SSHPASS_SCP_OPTS "$src" "$dst"
     else
         return 1
     fi
@@ -392,7 +380,7 @@ install_apptainer_on_node() {
     fi
 
     local needs_install=false
-    if ! ssh $SSH_OPTS ${user}@${ip} "command -v apptainer" &>/dev/null; then
+    if ! $SSH_CMD ${user}@${ip} "command -v apptainer" &>/dev/null; then
         needs_install=true
     else
         # 누락 파일 체크
@@ -401,13 +389,13 @@ install_apptainer_on_node() {
             "/usr/local/libexec/apptainer/bin/starter" \
             "/usr/local/etc/apptainer/capability.json" \
             "/usr/local/var/apptainer/mnt/session"; do
-            if ! ssh $SSH_OPTS ${user}@${ip} "sudo test -e $check_path" &>/dev/null; then
+            if ! $SSH_CMD ${user}@${ip} "sudo test -e $check_path" &>/dev/null; then
                 log_info "[$hostname] 누락 감지: $check_path"
                 needs_install=true
                 break
             fi
         done
-        if ! ssh $SSH_OPTS ${user}@${ip} "command -v squashfuse_ll" &>/dev/null; then
+        if ! $SSH_CMD ${user}@${ip} "command -v squashfuse_ll" &>/dev/null; then
             needs_install=true
         fi
     fi
@@ -418,12 +406,12 @@ install_apptainer_on_node() {
     fi
 
     log_info "[$hostname] Apptainer 설치 중..."
-    if ! timeout 120 scp $SCP_OPTS "$binary_tar" ${user}@${ip}:/tmp/; then
+    if ! timeout 120 $SCP_CMD "$binary_tar" ${user}@${ip}:/tmp/; then
         log_error "[$hostname] Apptainer 바이너리 복사 실패"
         return 1
     fi
 
-    ssh $SSH_OPTS ${user}@${ip} "
+    $SSH_CMD ${user}@${ip} "
         cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz &&
         sudo install -m 755 apptainer /usr/local/bin/ &&
         sudo install -m 755 squashfuse_ll /usr/local/bin/ &&
@@ -444,7 +432,7 @@ setup_node_dirs() {
     local user=$3
     local target_path=$4
 
-    ssh $SSH_OPTS ${user}@${ip} "
+    $SSH_CMD ${user}@${ip} "
         sudo mkdir -p ${target_path} && sudo chown root:root ${target_path} &&
         sudo mkdir -p /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs &&
         sudo chmod 1777 /scratch /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs
@@ -483,14 +471,11 @@ deploy_to_node() {
 
     log_info "Found $(echo "$sif_files" | wc -l) .sif file(s)"
 
-    # Test SSH connection
+    # Test SSH connection (key auth first, sshpass fallback — same as deploy_to_compute_node.sh)
     log_info "Testing SSH connection to $hostname..."
-    log_info "  SSH key: ${SSH_KEY_FILE:-none}, user: ${user}"
-    if ! ssh_with_fallback "${user}@${ip}" "exit"; then
-        local ssh_err
-        ssh_err=$(ssh $SSH_OPTS "${user}@${ip}" "exit" 2>&1 || true)
+    if ! setup_node_ssh "$user" "$ip"; then
         log_error "Cannot connect to $hostname ($ip) via SSH"
-        log_error "  SSH error: $ssh_err"
+        log_error "  Tried key auth and sshpass fallback. Check ssh_password in YAML."
         return 1
     fi
     log_success "SSH connection successful"
@@ -537,7 +522,7 @@ deploy_to_node() {
         case "$SIF_DEPLOYMENT_MODE" in
             skip)
                 # Skip if file already exists
-                if timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
+                if timeout 10 $SSH_CMD ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
                     log_warning "  Already exists, skipping (mode: skip)"
                     ((success_count++))
                     should_deploy=false
@@ -545,17 +530,17 @@ deploy_to_node() {
                 ;;
             overwrite)
                 # Always deploy, even if file exists
-                if timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
+                if timeout 10 $SSH_CMD ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
                     log_info "  File exists, will overwrite (mode: overwrite)"
                 fi
                 ;;
             update)
                 # Compare size and mtime, only deploy if different
-                if timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
+                if timeout 10 $SSH_CMD ${user}@${ip} "sudo test -f $remote_path" 2>/dev/null; then
                     local local_size=$(stat -c%s "$sif" 2>/dev/null || echo "0")
                     local local_mtime=$(stat -c%Y "$sif" 2>/dev/null || echo "0")
 
-                    local remote_info=$(ssh $SSH_OPTS ${user}@${ip} "sudo stat -c'%s %Y' $remote_path" 2>/dev/null || echo "0 0")
+                    local remote_info=$($SSH_CMD ${user}@${ip} "sudo stat -c'%s %Y' $remote_path" 2>/dev/null || echo "0 0")
                     local remote_size=$(echo "$remote_info" | awk '{print $1}')
                     local remote_mtime=$(echo "$remote_info" | awk '{print $2}')
 
@@ -579,7 +564,7 @@ deploy_to_node() {
 
         # Determine staging directory (/scratch preferred for large files, /tmp as fallback)
         local staging_dir
-        if timeout 5 ssh $SSH_OPTS ${user}@${ip} "test -d /scratch && test -w /scratch" 2>/dev/null; then
+        if timeout 5 $SSH_CMD ${user}@${ip} "test -d /scratch && test -w /scratch" 2>/dev/null; then
             staging_dir="/scratch"
         else
             staging_dir="/tmp"
@@ -594,7 +579,7 @@ deploy_to_node() {
         if ! timeout 600 scp -C $SCP_OPTS "$sif" ${user}@${ip}:${staging_dir}/${sif_name}; then
             log_error "  Failed to copy $sif_name (check disk space on target ${staging_dir})"
             # Check target disk space
-            ssh $SSH_OPTS ${user}@${ip} "df -h ${staging_dir} /opt 2>/dev/null" || true
+            $SSH_CMD ${user}@${ip} "df -h ${staging_dir} /opt 2>/dev/null" || true
             ((fail_count++))
             continue
         fi
@@ -602,13 +587,13 @@ deploy_to_node() {
         # Copy metadata JSON if it exists
         if [[ -f "$json_file" ]]; then
             log_info "  Copying metadata JSON to ${staging_dir}..."
-            scp $SCP_OPTS "$json_file" ${user}@${ip}:${staging_dir}/${json_name} 2>/dev/null || \
+            $SCP_CMD "$json_file" ${user}@${ip}:${staging_dir}/${json_name} 2>/dev/null || \
                 log_warning "  Failed to copy metadata $json_name"
         fi
 
         # Move to target with sudo
         log_info "  Moving to $target_path..."
-        if timeout 30 ssh $SSH_OPTS ${user}@${ip} "sudo mv ${staging_dir}/${sif_name} $remote_path && \
+        if timeout 30 $SSH_CMD ${user}@${ip} "sudo mv ${staging_dir}/${sif_name} $remote_path && \
             sudo chown root:root $remote_path && \
             sudo chmod 755 $remote_path" 2>/dev/null; then
             log_success "  ✅ $sif_name deployed successfully"
@@ -616,7 +601,7 @@ deploy_to_node() {
 
             # Move metadata JSON if it was copied
             if [[ -f "$json_file" ]]; then
-                ssh $SSH_OPTS ${user}@${ip} "sudo test -f ${staging_dir}/${json_name} && \
+                $SSH_CMD ${user}@${ip} "sudo test -f ${staging_dir}/${json_name} && \
                     sudo mv ${staging_dir}/${json_name} $json_remote_path && \
                     sudo chown root:root $json_remote_path && \
                     sudo chmod 644 $json_remote_path" 2>/dev/null || \
@@ -625,14 +610,14 @@ deploy_to_node() {
         else
             log_error "  Failed to move $sif_name to target (timeout or permission denied)"
             # Clean up temp files if move failed
-            ssh $SSH_OPTS ${user}@${ip} "rm -f ${staging_dir}/${sif_name} ${staging_dir}/${json_name}" 2>/dev/null || true
+            $SSH_CMD ${user}@${ip} "rm -f ${staging_dir}/${sif_name} ${staging_dir}/${json_name}" 2>/dev/null || true
             ((fail_count++))
         fi
     done
 
     # Verification
     log_info "Verifying deployment..."
-    local deployed_files=$(timeout 10 ssh $SSH_OPTS ${user}@${ip} "sudo ls -lh $target_path/*.sif 2>/dev/null | wc -l" 2>/dev/null || echo "0")
+    local deployed_files=$(timeout 10 $SSH_CMD ${user}@${ip} "sudo ls -lh $target_path/*.sif 2>/dev/null | wc -l" 2>/dev/null || echo "0")
     log_info "Deployed files on $hostname: $deployed_files"
 
     if [[ $fail_count -gt 0 ]]; then
@@ -845,8 +830,8 @@ show_summary() {
             [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
             echo "  📍 $hostname ($ip)$label:"
-            if ssh $SSH_OPTS ${user}@${ip} "sudo test -d $VIZ_TARGET_PATH" 2>/dev/null; then
-                ssh $SSH_OPTS ${user}@${ip} "sudo find $VIZ_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
+            if $SSH_CMD ${user}@${ip} "sudo test -d $VIZ_TARGET_PATH" 2>/dev/null; then
+                $SSH_CMD ${user}@${ip} "sudo find $VIZ_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
                     awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
             else
                 echo "     ❌ Directory not accessible"
@@ -869,8 +854,8 @@ show_summary() {
             [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
             echo "  📍 $hostname ($ip)$label:"
-            if ssh $SSH_OPTS ${user}@${ip} "sudo test -d $COMPUTE_TARGET_PATH" 2>/dev/null; then
-                ssh $SSH_OPTS ${user}@${ip} "sudo find $COMPUTE_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
+            if $SSH_CMD ${user}@${ip} "sudo test -d $COMPUTE_TARGET_PATH" 2>/dev/null; then
+                $SSH_CMD ${user}@${ip} "sudo find $COMPUTE_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
                     awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
             else
                 echo "     ❌ Directory not accessible"
@@ -1024,18 +1009,26 @@ main() {
     validate_config
     echo ""
 
-    # Read ssh_password from YAML for sshpass fallback
+    # Read ssh_password from YAML (same as deploy_to_compute_node.sh)
     SSH_PASSWORD=$(python3 -c "
-import yaml, sys
-try:
-    with open('$CONFIG_PATH') as f:
-        cfg = yaml.safe_load(f)
-    print(cfg.get('nodes', {}).get('ssh_password', '') or cfg.get('ssh_password', ''))
-except: pass
+import yaml
+with open('$CONFIG_PATH') as f:
+    cfg = yaml.safe_load(f)
+print(cfg.get('cluster_info', {}).get('ssh_password', '') or cfg.get('nodes', {}).get('ssh_password', ''))
 " 2>/dev/null || true)
+    export SSH_PASSWORD
     if [[ -n "$SSH_PASSWORD" ]]; then
-        log_info "ssh_password loaded from YAML (sshpass fallback enabled)"
+        export SSHPASS="$SSH_PASSWORD"
+        if command -v sshpass &>/dev/null; then
+            HAS_SSHPASS=true
+            log_info "ssh_password loaded + sshpass available (fallback enabled)"
+        else
+            log_warning "ssh_password set but sshpass not installed — installing..."
+            apt-get install -y sshpass &>/dev/null || true
+            command -v sshpass &>/dev/null && HAS_SSHPASS=true
+        fi
     fi
+    export HAS_SSHPASS
 
     # Load SIF deployment mode from YAML (or use CLI override)
     load_sif_deployment_mode
@@ -1077,21 +1070,21 @@ EOPY
             local ip=$(echo "$node_info" | cut -d'|' -f2)
             local user=$(echo "$node_info" | cut -d'|' -f3)
             (
-                if ! ssh $SSH_OPTS ${user}@${ip} "exit" &>/dev/null; then
+                if ! $SSH_CMD ${user}@${ip} "exit" &>/dev/null; then
                     log_warning "[$hostname] SSH 실패 — 스킵"
                     echo "fail" > "$results_dir/$hostname"; exit
                 fi
                 local img_name=$(basename "$image_file")
                 local remote_path="/opt/apptainers/$img_name"
-                ssh $SSH_OPTS ${user}@${ip} "sudo mkdir -p /opt/apptainers" 2>/dev/null
+                $SSH_CMD ${user}@${ip} "sudo mkdir -p /opt/apptainers" 2>/dev/null
                 local local_size=$(stat -c%s "$image_file")
-                local remote_size=$(ssh $SSH_OPTS ${user}@${ip} "sudo stat -c%s $remote_path 2>/dev/null || echo 0" 2>/dev/null)
+                local remote_size=$($SSH_CMD ${user}@${ip} "sudo stat -c%s $remote_path 2>/dev/null || echo 0" 2>/dev/null)
                 if [[ "$local_size" == "$remote_size" ]]; then
                     log_info "[$hostname] $img_name — 동일, 스킵"
                     echo "ok" > "$results_dir/$hostname"; exit
                 fi
-                if timeout 600 scp $SCP_OPTS "$image_file" ${user}@${ip}:/tmp/ && \
-                   ssh $SSH_OPTS ${user}@${ip} "sudo mv /tmp/$img_name $remote_path && sudo chown root:root $remote_path && sudo chmod 755 $remote_path"; then
+                if timeout 600 $SCP_CMD "$image_file" ${user}@${ip}:/tmp/ && \
+                   $SSH_CMD ${user}@${ip} "sudo mv /tmp/$img_name $remote_path && sudo chown root:root $remote_path && sudo chmod 755 $remote_path"; then
                     log_success "[$hostname] ✅ $img_name 배포 완료"
                     echo "ok" > "$results_dir/$hostname"
                 else
