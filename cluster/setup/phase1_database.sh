@@ -684,6 +684,13 @@ generate_galera_config() {
         echo "$config_content" > "$GALERA_CONFIG"
         chmod 644 "$GALERA_CONFIG"
         log SUCCESS "Galera configuration written to $GALERA_CONFIG"
+
+        # Ensure /var/log/mysql exists and is owned by mysql (required for log_bin and error.log)
+        if [[ ! -d /var/log/mysql ]]; then
+            mkdir -p /var/log/mysql
+        fi
+        chown -R mysql:mysql /var/log/mysql
+        chmod 750 /var/log/mysql
     fi
 }
 

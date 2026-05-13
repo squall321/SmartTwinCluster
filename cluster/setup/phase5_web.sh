@@ -175,23 +175,24 @@ check_prerequisites() {
             for dep in "${missing_deps[@]}"; do
                 case "$dep" in
                     node|npm)
-                        # Install Node.js from NodeSource
-                        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-                        apt-get install -y nodejs
-
-                        # Install essential npm global packages for frontend builds
-                        log_info "Installing npm global packages (typescript, vite, pnpm, terser, ts-node)..."
-                        npm install -g typescript ts-node pnpm terser vite 2>/dev/null || {
-                            log_warning "Some npm global packages failed to install"
-                        }
-
-                        # Verify installations
-                        log_info "Installed npm global packages:"
-                        echo "  typescript: $(tsc -v 2>/dev/null || echo 'not installed')"
-                        echo "  ts-node: $(ts-node -v 2>/dev/null || echo 'not installed')"
-                        echo "  pnpm: $(pnpm -v 2>/dev/null || echo 'not installed')"
-                        echo "  terser: $(terser --version 2>/dev/null || echo 'not installed')"
-                        echo "  vite: $(vite --version 2>/dev/null || echo 'not installed')"
+                        # Install Node.js from offline packages (nodesource.com not available offline)
+                        local apt_pkg_dir="${OFFLINE_PKG_DIR}/apt_packages"
+                        if [[ -d "$apt_pkg_dir" ]]; then
+                            log_info "Installing nodejs from offline packages..."
+                            # Fix Packages file permissions (apt needs read access)
+                            chmod 644 "$apt_pkg_dir/Packages" 2>/dev/null || true
+                            # Use dpkg directly to install nodejs .deb from offline dir
+                            local node_deb
+                            node_deb=$(ls "$apt_pkg_dir"/nodejs_*.deb 2>/dev/null | head -1)
+                            if [[ -n "$node_deb" ]]; then
+                                dpkg -i "$node_deb" || apt-get install -f -y
+                            else
+                                apt-get install -y nodejs npm || log_warning "nodejs not found in offline packages"
+                            fi
+                        else
+                            log_warning "Offline package dir not found: $apt_pkg_dir"
+                            apt-get install -y nodejs npm || true
+                        fi
                         ;;
                     certbot)
                         # Only install certbot if letsencrypt mode is selected

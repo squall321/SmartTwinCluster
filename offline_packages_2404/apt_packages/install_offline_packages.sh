@@ -71,9 +71,12 @@ if [[ ! -f "$SCRIPT_DIR/Packages.gz" ]] || [[ ! -f "$SCRIPT_DIR/Packages" ]]; th
     cd "$SCRIPT_DIR"
     dpkg-scanpackages . /dev/null > Packages
     gzip -k -f Packages
+    chmod 644 Packages Packages.gz
     cd - > /dev/null
     log_success "Repository index created"
 else
+    # Ensure Packages files are readable by apt (root may have created them with 600)
+    chmod 644 "$SCRIPT_DIR/Packages" "$SCRIPT_DIR/Packages.gz" 2>/dev/null || true
     log_success "Using pre-built repository index (Packages.gz)"
 fi
 
