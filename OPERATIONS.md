@@ -3,7 +3,7 @@
 ## 포트 맵
 
 | 서비스 | 포트 | 설명 |
-|--------|------|------|
+| ------ | ---- | ---- |
 | frontend_3010 | 3010 | 메인 대시보드 UI |
 | auth_portal_4430 | 4430 | 인증 백엔드 API |
 | auth_portal_4431 | 4431 | 로그인 UI |
@@ -195,7 +195,7 @@ tail -f /var/log/nginx/access.log
 ## 로그 위치
 
 | 서비스 | 로그 경로 |
-|--------|-----------|
+| ------ | --------- |
 | auth_portal_4430 | `dashboard/auth_portal_4430/logs/` |
 | backend_5010 | `dashboard/backend_5010/backend.log` |
 | websocket_5011 | `dashboard/websocket_5011/logs/` |
