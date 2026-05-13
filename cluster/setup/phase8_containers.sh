@@ -425,6 +425,8 @@ install_apptainer_on_node() {
     fi
 
     log_info "[$hostname] Apptainer 설치 중..."
+    log_info "[$hostname] SCP_CMD: $SCP_CMD"
+    log_info "[$hostname] SSH_PASSWORD set: $([[ -n "$SSH_PASSWORD" ]] && echo yes || echo no), SSHPASS set: $([[ -n "$SSHPASS" ]] && echo yes || echo no)"
     if ! timeout 120 $SCP_CMD "$binary_tar" "${user}@${ip}:/tmp/"; then
         log_error "[$hostname] Apptainer 바이너리 복사 실패"
         return 1
