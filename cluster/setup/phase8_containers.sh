@@ -96,8 +96,11 @@ if [[ -z "$SSH_KEY_FILE" && "$(whoami)" == "root" ]]; then
 fi
 
 # Base SSH/SCP options (no auth method specified — determined per-node at runtime)
-SSH_BASE="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
-SCP_BASE="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no"
+SSH_BASE="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no -o BatchMode=yes"
+SCP_BASE="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no -o BatchMode=yes"
+# sshpass용: BatchMode=no 로 비밀번호 채널 허용 (sshpass가 stdin 제공)
+SSH_BASE_PASS="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no -o BatchMode=no"
+SCP_BASE_PASS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o GSSAPIAuthentication=no -o BatchMode=no"
 
 # Per-node SSH command variables (set by setup_node_ssh before each deployment)
 SSH_CMD="ssh $SSH_BASE"
@@ -138,8 +141,8 @@ setup_node_ssh() {
         if SSHPASS="$SSH_PASSWORD" sshpass -e ssh -n -o StrictHostKeyChecking=no \
                -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
                "${user}@${ip}" "echo OK" &>/dev/null; then
-            SSH_CMD="sshpass -e ssh $SSH_BASE"
-            SCP_CMD="sshpass -e scp $SCP_BASE"
+            SSH_CMD="sshpass -e ssh $SSH_BASE_PASS"
+            SCP_CMD="sshpass -e scp $SCP_BASE_PASS"
             return 0
         else
             log_warning "  sshpass auth also failed for ${user}@${ip} — wrong password or PasswordAuthentication disabled"
