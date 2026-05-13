@@ -541,7 +541,8 @@ echo "Step 5: Starting slurmd service..."
 SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
 SLURMD_NEEDS_UPDATE=false
 
-# 서비스 파일이 없거나, /usr/sbin 경로 사용하거나, Type=forking이면 재생성
+# 서비스 파일이 없거나, /usr/sbin 경로, Type=forking,
+# LimitSTACK/TasksMax/Delegate(systemd 신버전 호환성 문제) 가 있으면 재생성
 if [[ ! -f "$SLURMD_SERVICE" ]]; then
     SLURMD_NEEDS_UPDATE=true
 elif grep -q "/usr/sbin/slurmd" "$SLURMD_SERVICE" 2>/dev/null; then
@@ -550,6 +551,16 @@ elif grep -q "/usr/sbin/slurmd" "$SLURMD_SERVICE" 2>/dev/null; then
 elif grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
     echo "  ℹ slurmd.service has Type=forking, recreating..."
     SLURMD_NEEDS_UPDATE=true
+elif grep -qE "LimitSTACK|TasksMax=infinity|^Delegate" "$SLURMD_SERVICE" 2>/dev/null; then
+    echo "  ℹ slurmd.service has deprecated settings (LimitSTACK/TasksMax/Delegate), recreating..."
+    SLURMD_NEEDS_UPDATE=true
+fi
+
+# 강제로 깨끗하게: 기존 service 파일 백업 후 제거 (bad unit file 잔재 방지)
+if [[ "$SLURMD_NEEDS_UPDATE" == "true" ]] && [[ -f "$SLURMD_SERVICE" ]]; then
+    run_sudo cp "$SLURMD_SERVICE" "${SLURMD_SERVICE}.backup.$(date +%s)" 2>/dev/null || true
+    run_sudo rm -f "$SLURMD_SERVICE"
+    run_sudo systemctl daemon-reload 2>/dev/null || true
 fi
 
 if [[ "$SLURMD_NEEDS_UPDATE" == "true" ]]; then
@@ -570,7 +581,6 @@ ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=infinity
-LimitSTACK=infinity
 Restart=on-failure
 RestartSec=5
 
