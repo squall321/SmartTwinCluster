@@ -406,21 +406,30 @@ install_apptainer_on_node() {
     fi
 
     log_info "[$hostname] Apptainer 설치 중..."
-    if ! timeout 120 $SCP_CMD "$binary_tar" ${user}@${ip}:/tmp/; then
+    if ! timeout 120 $SCP_CMD "$binary_tar" "${user}@${ip}:/tmp/"; then
         log_error "[$hostname] Apptainer 바이너리 복사 실패"
         return 1
     fi
 
-    $SSH_CMD ${user}@${ip} "
-        cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz &&
-        sudo install -m 755 apptainer /usr/local/bin/ &&
-        sudo install -m 755 squashfuse_ll /usr/local/bin/ &&
-        sudo cp -a lib/libfuse.so* /lib/x86_64-linux-gnu/ 2>/dev/null; sudo ldconfig &&
-        sudo mkdir -p /usr/local/etc && sudo cp -r etc/apptainer /usr/local/etc/ &&
-        sudo mkdir -p /usr/local/libexec && sudo cp -r libexec/apptainer /usr/local/libexec/ &&
-        sudo chmod 755 /usr/local/libexec/apptainer/bin/starter &&
-        sudo mkdir -p /usr/local/var && sudo cp -r var/apptainer /usr/local/var/ &&
-        rm -rf apptainer squashfuse_ll lib etc libexec var apptainer-binary-1.3.3.tar.gz &&
+    # sudo -S reads password from stdin; pass SSH_PASSWORD if set (for nodes without NOPASSWD)
+    local sudo_cmd="sudo"
+    local sudo_prefix=""
+    if [[ -n "$SSH_PASSWORD" ]]; then
+        sudo_prefix="echo '$SSH_PASSWORD' | sudo -S"
+        sudo_cmd="echo '$SSH_PASSWORD' | sudo -S"
+    fi
+
+    $SSH_CMD "${user}@${ip}" "
+        set -e
+        cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz
+        $sudo_cmd install -m 755 apptainer /usr/local/bin/
+        $sudo_cmd install -m 755 squashfuse_ll /usr/local/bin/
+        $sudo_cmd sh -c 'cp -a lib/libfuse.so* /lib/x86_64-linux-gnu/ 2>/dev/null; ldconfig'
+        $sudo_cmd mkdir -p /usr/local/etc && $sudo_cmd cp -r etc/apptainer /usr/local/etc/
+        $sudo_cmd mkdir -p /usr/local/libexec && $sudo_cmd cp -r libexec/apptainer /usr/local/libexec/
+        $sudo_cmd chmod 755 /usr/local/libexec/apptainer/bin/starter
+        $sudo_cmd mkdir -p /usr/local/var && $sudo_cmd cp -r var/apptainer /usr/local/var/
+        rm -rf apptainer squashfuse_ll lib etc libexec var apptainer-binary-1.3.3.tar.gz
         apptainer --version
     " && log_success "[$hostname] Apptainer 설치 완료" || log_warning "[$hostname] Apptainer 설치 실패 — 계속 진행"
 }
@@ -432,10 +441,12 @@ setup_node_dirs() {
     local user=$3
     local target_path=$4
 
-    $SSH_CMD ${user}@${ip} "
-        sudo mkdir -p ${target_path} && sudo chown root:root ${target_path} &&
-        sudo mkdir -p /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs &&
-        sudo chmod 1777 /scratch /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs
+    local _sudo="sudo"
+    [[ -n "$SSH_PASSWORD" ]] && _sudo="echo '$SSH_PASSWORD' | sudo -S"
+    $SSH_CMD "${user}@${ip}" "
+        $_sudo mkdir -p ${target_path} && $_sudo chown root:root ${target_path} &&
+        $_sudo mkdir -p /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs &&
+        $_sudo chmod 1777 /scratch /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs
     " 2>/dev/null && log_success "[$hostname] 디렉토리 준비 완료" || {
         log_warning "[$hostname] 디렉토리 생성 실패"
         return 1
