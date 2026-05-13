@@ -454,8 +454,13 @@ deploy_to_node() {
 
     # Test SSH connection
     log_info "Testing SSH connection to $hostname..."
-    if ! ssh $SSH_OPTS ${user}@${ip} "exit" 2>/dev/null; then
+    log_info "  SSH key: ${SSH_KEY_FILE:-none}"
+    log_info "  SSH user: ${user}"
+    local ssh_err
+    ssh_err=$(ssh $SSH_OPTS ${user}@${ip} "exit" 2>&1)
+    if [[ $? -ne 0 ]]; then
         log_error "Cannot connect to $hostname ($ip) via SSH"
+        log_error "  SSH error: $ssh_err"
         return 1
     fi
     log_success "SSH connection successful"
