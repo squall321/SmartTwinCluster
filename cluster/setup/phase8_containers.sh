@@ -1110,6 +1110,7 @@ EOPY
             local ip=$(echo "$node_info" | cut -d'|' -f2)
             local user=$(echo "$node_info" | cut -d'|' -f3)
             (
+                setup_node_ssh "$user" "$ip" &>/dev/null
                 if ! $SSH_CMD ${user}@${ip} "exit" &>/dev/null; then
                     log_warning "[$hostname] SSH 실패 — 스킵"
                     echo "fail" > "$results_dir/$hostname"; exit
