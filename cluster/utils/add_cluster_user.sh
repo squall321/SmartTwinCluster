@@ -115,6 +115,9 @@ for c in nodes.get('controllers', []):
 # compute_nodes
 for n in nodes.get('compute_nodes', []):
     all_ips.add(n['ip_address'])
+# viz_nodes
+for n in nodes.get('viz_nodes', []):
+    all_ips.add(n['ip_address'])
 print(ssh_user)
 for ip in sorted(all_ips):
     print(ip)
