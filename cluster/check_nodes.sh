@@ -108,6 +108,8 @@ echo "$all_nodes_json" | jq -c '.[]' 2>/dev/null | while IFS= read -r node; do
     hostname=$(echo "$node" | jq -r '.hostname' 2>/dev/null || echo "unknown")
     ip=$(echo "$node" | jq -r '.ip_address' 2>/dev/null || echo "0.0.0.0")
     role=$(echo "$node" | jq -r '.node_role' 2>/dev/null || echo "unknown")
+    # YAML의 ssh_user 사용 (없으면 stcx 기본값)
+    node_user=$(echo "$node" | jq -r '.ssh_user // "stcx"' 2>/dev/null || echo "stcx")
 
     # Get services - different for controllers vs compute nodes
     if [[ "$role" == "controller" ]]; then
@@ -124,7 +126,7 @@ echo "$all_nodes_json" | jq -c '.[]' 2>/dev/null | while IFS= read -r node; do
     # Try to ping the node (1 second timeout)
     if ping -c 1 -W 1 "$ip" &>/dev/null; then
         # Try SSH connection (3 second timeout)
-        if timeout 3 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o BatchMode=yes "$ip" "echo 2>&1" &>/dev/null 2>&1; then
+        if timeout 3 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o BatchMode=yes "${node_user}@${ip}" "echo 2>&1" &>/dev/null 2>&1; then
             status="✅ UP (SSH OK)"
             status_color="${GREEN}"
             is_alive=1
