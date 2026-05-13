@@ -868,12 +868,15 @@ show_summary() {
             [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
             echo "  📍 $hostname ($ip)$label:"
-            setup_node_ssh "$user" "$ip" &>/dev/null
-            if $SSH_CMD ${user}@${ip} "sudo test -d $VIZ_TARGET_PATH" 2>/dev/null; then
-                $SSH_CMD ${user}@${ip} "sudo find $VIZ_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
-                    awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
+            if setup_node_ssh "$user" "$ip" &>/dev/null; then
+                if $SSH_CMD ${user}@${ip} "sudo test -d $VIZ_TARGET_PATH" 2>/dev/null; then
+                    $SSH_CMD ${user}@${ip} "sudo find $VIZ_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
+                        awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
+                else
+                    echo "     ❌ Directory not accessible"
+                fi
             else
-                echo "     ❌ Directory not accessible"
+                echo "     ⚠️  SSH unreachable — skipping"
             fi
         done <<< "$viz_nodes"
         echo ""
@@ -893,12 +896,15 @@ show_summary() {
             [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
             echo "  📍 $hostname ($ip)$label:"
-            setup_node_ssh "$user" "$ip" &>/dev/null
-            if $SSH_CMD ${user}@${ip} "sudo test -d $COMPUTE_TARGET_PATH" 2>/dev/null; then
-                $SSH_CMD ${user}@${ip} "sudo find $COMPUTE_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
-                    awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
+            if setup_node_ssh "$user" "$ip" &>/dev/null; then
+                if $SSH_CMD ${user}@${ip} "sudo test -d $COMPUTE_TARGET_PATH" 2>/dev/null; then
+                    $SSH_CMD ${user}@${ip} "sudo find $COMPUTE_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
+                        awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
+                else
+                    echo "     ❌ Directory not accessible"
+                fi
             else
-                echo "     ❌ Directory not accessible"
+                echo "     ⚠️  SSH unreachable — skipping"
             fi
         done <<< "$compute_nodes"
         echo ""
