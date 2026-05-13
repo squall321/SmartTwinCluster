@@ -868,6 +868,7 @@ show_summary() {
             [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
             echo "  📍 $hostname ($ip)$label:"
+            setup_node_ssh "$user" "$ip" &>/dev/null
             if $SSH_CMD ${user}@${ip} "sudo test -d $VIZ_TARGET_PATH" 2>/dev/null; then
                 $SSH_CMD ${user}@${ip} "sudo find $VIZ_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
                     awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
@@ -892,6 +893,7 @@ show_summary() {
             [[ "$ntype" == "hybrid" ]] && label=" [hybrid]"
 
             echo "  📍 $hostname ($ip)$label:"
+            setup_node_ssh "$user" "$ip" &>/dev/null
             if $SSH_CMD ${user}@${ip} "sudo test -d $COMPUTE_TARGET_PATH" 2>/dev/null; then
                 $SSH_CMD ${user}@${ip} "sudo find $COMPUTE_TARGET_PATH -name '*.sif' -exec du -h {} \;" 2>/dev/null | \
                     awk '{print "     - " $2 " (" $1 ")"}' || echo "     ⚠️  Error reading files"
