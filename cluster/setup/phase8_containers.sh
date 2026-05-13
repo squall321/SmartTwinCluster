@@ -76,11 +76,28 @@ COMPUTE_TARGET_PATH="/opt/apptainers"
 # IMPORTANT: When running with sudo, we need to use the original user's SSH key
 ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
 ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
-SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
+
+# Find SSH key: try id_rsa, id_ed25519, id_ecdsa in order
+SSH_KEY_FILE=""
+for _key in "${ORIGINAL_HOME}/.ssh/id_rsa" "${ORIGINAL_HOME}/.ssh/id_ed25519" "${ORIGINAL_HOME}/.ssh/id_ecdsa"; do
+    if [[ -f "$_key" ]]; then
+        SSH_KEY_FILE="$_key"
+        break
+    fi
+done
+# Also try stcx user's key if running as root and no key found yet
+if [[ -z "$SSH_KEY_FILE" && "$(whoami)" == "root" ]]; then
+    for _key in /home/stcx/.ssh/id_rsa /home/stcx/.ssh/id_ed25519; do
+        if [[ -f "$_key" ]]; then
+            SSH_KEY_FILE="$_key"
+            break
+        fi
+    done
+fi
 
 # SSH options: -n prevents reading from stdin (critical for while read loops!)
 # SCP options: -n is NOT supported by scp, so we need separate options
-if [[ -f "$SSH_KEY_FILE" ]]; then
+if [[ -n "$SSH_KEY_FILE" ]]; then
     SSH_OPTS="-n -i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
     SCP_OPTS="-i $SSH_KEY_FILE -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR -o BatchMode=yes -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
 else
