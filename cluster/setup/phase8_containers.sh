@@ -135,9 +135,15 @@ setup_node_ssh() {
     # Key auth failed — try sshpass
     if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
         export SSHPASS="$SSH_PASSWORD"
-        SSH_CMD="sshpass -e ssh $SSH_BASE"
-        SCP_CMD="sshpass -e scp $SCP_BASE"
-        return 0
+        if SSHPASS="$SSH_PASSWORD" sshpass -e ssh -n -o StrictHostKeyChecking=no \
+               -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+               "${user}@${ip}" "echo OK" &>/dev/null; then
+            SSH_CMD="sshpass -e ssh $SSH_BASE"
+            SCP_CMD="sshpass -e scp $SCP_BASE"
+            return 0
+        else
+            log_warning "  sshpass auth also failed for ${user}@${ip} — wrong password or PasswordAuthentication disabled"
+        fi
     fi
 
     return 1
