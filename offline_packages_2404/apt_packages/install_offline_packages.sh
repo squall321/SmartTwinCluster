@@ -15,6 +15,8 @@
 
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_NAME="offline-local"
 REPO_LIST="/etc/apt/sources.list.d/${REPO_NAME}.list"

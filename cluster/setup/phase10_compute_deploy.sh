@@ -580,7 +580,7 @@ ExecStart=/usr/local/slurm/sbin/slurmd -D $SLURMD_OPTIONS
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
 LimitNOFILE=131072
-LimitMEMLOCK=infinity
+LimitMEMLOCK=unlimited
 Restart=on-failure
 RestartSec=5
 
