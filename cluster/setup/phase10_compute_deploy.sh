@@ -378,30 +378,26 @@ deploy_to_node() {
         log_warning "[$node_hostname] Controller slurm.conf not found"
     fi
 
-    # Transfer munge.key from controller (보안: /tmp 대신 직접 /etc/munge로 전송)
+    # Transfer munge.key from controller via tmp file + scp (stdin 파이프 hang 방지)
     log_info "[$node_hostname] Transferring munge.key from controller..."
     local MUNGE_KEY_LOCAL="/etc/munge/munge.key"
     if /usr/bin/sudo test -f "$MUNGE_KEY_LOCAL"; then
-        $ssh_cmd "$node_user@$node_ip" 'sudo mkdir -p /etc/munge && sudo chmod 700 /etc/munge' || true
-        # munge 유저가 없으면 패키지가 아직 설치 안 된 상태 → root:root로 임시 저장
-        # 나중에 install_offline_packages.sh가 munge 설치 후 deploy_munge.sh가 정상 chown
-        local _munge_chown_cmd
-        if $ssh_cmd "$node_user@$node_ip" 'id munge' &>/dev/null; then
-            _munge_chown_cmd='sudo chown munge:munge /etc/munge/munge.key'
-        else
-            log_info "[$node_hostname] munge 유저 미존재 — 패키지 설치 후 chown 예정"
-            _munge_chown_cmd='sudo chown root:root /etc/munge/munge.key'
-        fi
-        /usr/bin/sudo cat "$MUNGE_KEY_LOCAL" | $ssh_cmd_stdin "$node_user@$node_ip" \
-            "sudo tee /etc/munge/munge.key > /dev/null && $_munge_chown_cmd && sudo chmod 400 /etc/munge/munge.key" || {
-            log_warning "[$node_hostname] Failed to transfer munge.key"
-        }
-        # deploy 스크립트용 백업 복사 (원격 \$HOME 절대경로 사용)
-        local _remote_home
-        _remote_home=$($ssh_cmd "$node_user@$node_ip" 'echo $HOME' 2>/dev/null | tr -d '\r')
-        if [[ -n "$_remote_home" ]]; then
-            $ssh_cmd "$node_user@$node_ip" "mkdir -p $_remote_home/offline_packages/munge" || true
-            $ssh_cmd "$node_user@$node_ip" "sudo cp /etc/munge/munge.key $_remote_home/offline_packages/munge/munge.key 2>/dev/null" || true
+        local _tmp_munge="/tmp/munge.key.phase10.$$"
+        /usr/bin/sudo cp "$MUNGE_KEY_LOCAL" "$_tmp_munge" && \
+        /usr/bin/sudo chmod 644 "$_tmp_munge" || true
+
+        if [[ -f "$_tmp_munge" ]]; then
+            timeout 30 $scp_cmd "$_tmp_munge" "$node_user@$node_ip:/tmp/munge.key.tmp" && \
+            $ssh_cmd "$node_user@$node_ip" \
+                'sudo mkdir -p /etc/munge && sudo chmod 700 /etc/munge && \
+                 sudo mv /tmp/munge.key.tmp /etc/munge/munge.key && \
+                 sudo chmod 400 /etc/munge/munge.key && \
+                 (id munge &>/dev/null && sudo chown munge:munge /etc/munge/munge.key || true) && \
+                 sudo mkdir -p $HOME/offline_packages/munge && \
+                 sudo cp /etc/munge/munge.key $HOME/offline_packages/munge/munge.key 2>/dev/null || true' || {
+                log_warning "[$node_hostname] Failed to transfer munge.key"
+            }
+            rm -f "$_tmp_munge"
         fi
     else
         log_warning "[$node_hostname] Controller munge.key not found"
@@ -446,14 +442,20 @@ echo "  Offline Package Installation (Phase 10: Compute Node)"
 echo "  Package directory: $PKG_DIR"
 echo "═══════════════════════════════════════════════════════════"
 
-# 1. APT packages
+# 1. APT packages — 이미 설치된 경우(sshpass 존재 확인) 스킵
+echo ""
+echo "Step 1: Checking APT packages..."
 if [[ -f "$PKG_DIR/apt_packages/install_offline_packages.sh" ]]; then
-    echo ""
-    echo "Step 1: Installing APT packages..."
-    cd "$PKG_DIR/apt_packages"
-    run_sudo env DEBIAN_FRONTEND=noninteractive bash install_offline_packages.sh
+    # 핵심 패키지가 이미 설치돼 있으면 재설치 스킵 (apt lock / 느린 재실행 방지)
+    if dpkg -l munge sshpass squashfuse 2>/dev/null | grep -q "^ii" ; then
+        echo "  ✓ Core packages already installed — skipping APT reinstall"
+    else
+        echo "  Installing APT packages..."
+        cd "$PKG_DIR/apt_packages"
+        run_sudo env DEBIAN_FRONTEND=noninteractive bash install_offline_packages.sh
+    fi
 else
-    echo "WARNING: APT packages not found"
+    echo "  WARNING: APT packages not found"
 fi
 
 # 2. Slurm deployment
