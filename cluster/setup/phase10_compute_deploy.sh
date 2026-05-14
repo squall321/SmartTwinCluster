@@ -277,22 +277,39 @@ deploy_to_node() {
         return 0
     fi
 
-    # SSH command construction
-    local _ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o BatchMode=yes"
-    local _scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
-    local ssh_cmd="ssh -n $_ssh_opts"
-    local ssh_cmd_stdin="ssh $_ssh_opts"
-    local scp_cmd="scp $_scp_opts"
+    # SSH command construction — phase8과 동일한 패턴: 키 인증 우선, sshpass fallback
+    local _key_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o BatchMode=yes -o LogLevel=ERROR"
+    local _pass_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o BatchMode=no  -o LogLevel=ERROR"
+    local ssh_cmd="" ssh_cmd_stdin="" scp_cmd=""
 
-    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+    # 1) 키 인증 시도: node_user의 키 탐색
+    local _user_home
+    _user_home=$(getent passwd "$node_user" 2>/dev/null | cut -d: -f6 || echo "")
+    local _key_file=""
+    for _k in "${_user_home}/.ssh/id_ed25519" "${_user_home}/.ssh/id_rsa"; do
+        if [[ -f "$_k" ]]; then
+            if ssh -n -i "$_k" $_key_opts "${node_user}@${node_ip}" "exit" &>/dev/null; then
+                _key_file="$_k"
+                break
+            fi
+        fi
+    done
+
+    if [[ -n "$_key_file" ]]; then
+        ssh_cmd="ssh -n -i $_key_file $_key_opts"
+        ssh_cmd_stdin="ssh -i $_key_file $_key_opts"
+        scp_cmd="scp -i $_key_file -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+    elif [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        # 2) sshpass fallback — BatchMode=no 필수
         export SSHPASS="$SSH_PASSWORD"
-        ssh_cmd="sshpass -e ssh -n $_ssh_opts"
-        ssh_cmd_stdin="sshpass -e ssh $_ssh_opts"
-        scp_cmd="sshpass -e scp $_scp_opts"
+        if SSHPASS="$SSH_PASSWORD" sshpass -e ssh -n $_pass_opts "${node_user}@${node_ip}" "exit" &>/dev/null; then
+            ssh_cmd="sshpass -e ssh -n $_pass_opts"
+            ssh_cmd_stdin="sshpass -e ssh $_pass_opts"
+            scp_cmd="sshpass -e scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+        fi
     fi
 
-    # Test SSH connection with retry
-    if ! ssh_with_retry $ssh_cmd "$node_user@$node_ip" "echo OK" &>/dev/null; then
+    if [[ -z "$ssh_cmd" ]]; then
         log_error "[$node_hostname] SSH connection failed after retries"
         return 1
     fi
