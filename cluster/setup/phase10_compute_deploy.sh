@@ -556,11 +556,10 @@ ConditionPathExists=/etc/slurm/slurm.conf
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/default/slurmd
 ExecStartPre=/bin/mkdir -p /run/slurm
 ExecStartPre=/bin/chown slurm:slurm /run/slurm
-ExecStart=/usr/local/slurm/sbin/slurmd -D $SLURMD_OPTIONS
-ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/usr/local/slurm/sbin/slurmd -D
+ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=unlimited
