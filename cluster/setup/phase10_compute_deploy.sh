@@ -278,15 +278,17 @@ deploy_to_node() {
     fi
 
     # SSH command construction
-    local ssh_cmd="ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-    local ssh_cmd_stdin="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-    local scp_cmd="scp -o StrictHostKeyChecking=no"
+    local _ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o BatchMode=yes"
+    local _scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+    local ssh_cmd="ssh -n $_ssh_opts"
+    local ssh_cmd_stdin="ssh $_ssh_opts"
+    local scp_cmd="scp $_scp_opts"
 
     if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
         export SSHPASS="$SSH_PASSWORD"
-        ssh_cmd="sshpass -e ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-        ssh_cmd_stdin="sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-        scp_cmd="sshpass -e scp -o StrictHostKeyChecking=no"
+        ssh_cmd="sshpass -e ssh -n $_ssh_opts"
+        ssh_cmd_stdin="sshpass -e ssh $_ssh_opts"
+        scp_cmd="sshpass -e scp $_scp_opts"
     fi
 
     # Test SSH connection with retry
@@ -327,7 +329,7 @@ deploy_to_node() {
         if [[ "$name" == "slurm" ]]; then
             $ssh_cmd "$node_user@$node_ip" "mkdir -p $REMOTE_PKG_DIR/slurm" || true
             for tarfile in "$subdir"/*.tar.gz; do
-                [[ -f "$tarfile" ]] && $scp_cmd "$tarfile" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm/" || true
+                [[ -f "$tarfile" ]] && timeout 120 $scp_cmd "$tarfile" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm/" || true
             done
             for shfile in "$subdir"/*.sh; do
                 [[ -f "$shfile" ]] && $scp_cmd "$shfile" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm/" || true
@@ -343,8 +345,8 @@ deploy_to_node() {
             fi
         fi
 
-        $scp_cmd -r "$subdir" "$node_user@$node_ip:$REMOTE_PKG_DIR/" 2>/dev/null || {
-            log_warning "[$node_hostname] Failed to transfer $name"
+        timeout 300 $scp_cmd -r "$subdir" "$node_user@$node_ip:$REMOTE_PKG_DIR/" 2>/dev/null || {
+            log_warning "[$node_hostname] Failed to transfer $name (timeout or error)"
         }
     done
 
@@ -352,7 +354,7 @@ deploy_to_node() {
     log_info "[$node_hostname] Transferring slurm.conf from controller..."
     local SLURM_CONF_LOCAL="/etc/slurm/slurm.conf"
     if [[ -f "$SLURM_CONF_LOCAL" ]]; then
-        $scp_cmd "$SLURM_CONF_LOCAL" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm.conf" || {
+        timeout 30 $scp_cmd "$SLURM_CONF_LOCAL" "$node_user@$node_ip:$REMOTE_PKG_DIR/slurm.conf" || {
             log_warning "[$node_hostname] Failed to transfer slurm.conf"
         }
     else
