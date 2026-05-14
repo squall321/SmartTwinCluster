@@ -127,6 +127,56 @@ parse_args() {
 }
 
 # ============================================================================
+# per-node SSH 인증 설정 (phase8 setup_node_ssh 동일 패턴)
+# 호출 후 SSH_CMD / SCP_CMD 전역변수가 세팅됨
+# ============================================================================
+ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
+ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6 2>/dev/null || echo "")
+SSH_PASSWORD=""
+HAS_SSHPASS=false
+
+_SSH_BASE="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o LogLevel=ERROR"
+_SSH_BASE_PASS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o LogLevel=ERROR -o BatchMode=no"
+
+SSH_CMD="ssh -n $_SSH_BASE"
+SCP_CMD="scp $_SSH_BASE"
+
+load_ssh_auth() {
+    SSH_PASSWORD=$(python3 -c "
+import yaml
+with open('$CONFIG_PATH') as f:
+    c = yaml.safe_load(f)
+print(c.get('cluster_info', {}).get('ssh_password', ''))
+" 2>/dev/null || echo "")
+    command -v sshpass &>/dev/null && HAS_SSHPASS=true || true
+}
+
+setup_node_ssh() {
+    local user="$1" ip="$2"
+    local user_home
+    user_home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || echo "")
+    for _k in "${user_home}/.ssh/id_ed25519" "${user_home}/.ssh/id_rsa" \
+              "${ORIGINAL_HOME}/.ssh/id_ed25519" "${ORIGINAL_HOME}/.ssh/id_rsa"; do
+        [[ -f "$_k" ]] || continue
+        if ssh -n -i "$_k" -o BatchMode=yes -o ConnectTimeout=5 \
+               -o StrictHostKeyChecking=no "$user@$ip" "exit" &>/dev/null; then
+            SSH_CMD="ssh -n -i $_k -o BatchMode=yes $_SSH_BASE"
+            SCP_CMD="scp -i $_k $_SSH_BASE"
+            return 0
+        fi
+    done
+    if [[ -n "$SSH_PASSWORD" && "$HAS_SSHPASS" == "true" ]]; then
+        export SSHPASS="$SSH_PASSWORD"
+        if sshpass -e ssh -n $_SSH_BASE_PASS "$user@$ip" "exit" &>/dev/null; then
+            SSH_CMD="sshpass -e ssh -n $_SSH_BASE_PASS"
+            SCP_CMD="sshpass -e scp $_SSH_BASE_PASS"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# ============================================================================
 # GPU가 있는 노드 목록 가져오기
 # ============================================================================
 get_gpu_nodes() {
@@ -173,7 +223,7 @@ check_gpu_hardware() {
     local expected_type="$3"
 
     local result
-    result=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" "
+    result=$($SSH_CMD "$user@$ip" "
         # NVIDIA GPU 확인
         nvidia_count=\$(lspci | grep -ci 'nvidia' 2>/dev/null || echo 0)
 
@@ -197,7 +247,7 @@ check_nvidia_installed() {
     local user="$2"
 
     # nvidia-smi가 정상 동작하면 설치됨
-    ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" "nvidia-smi &>/dev/null && echo 'installed'" 2>/dev/null | grep -q "installed"
+    $SSH_CMD "$user@$ip" "nvidia-smi &>/dev/null && echo 'installed'" 2>/dev/null | grep -q "installed"
 }
 
 check_rocm_installed() {
@@ -205,7 +255,7 @@ check_rocm_installed() {
     local user="$2"
 
     # rocm-smi가 정상 동작하면 설치됨
-    ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$user@$ip" "rocm-smi &>/dev/null && echo 'installed'" 2>/dev/null | grep -q "installed"
+    $SSH_CMD "$user@$ip" "rocm-smi &>/dev/null && echo 'installed'" 2>/dev/null | grep -q "installed"
 }
 
 # ============================================================================
@@ -258,7 +308,7 @@ install_nvidia_driver() {
                 fi
 
                 # .run 파일 전송 및 설치
-                scp -o ConnectTimeout=60 "$run_file" "$user@$ip:/tmp/" || {
+                $SCP_CMD -o ConnectTimeout=60 "$run_file" "$user@$ip:/tmp/" || {
                     log_error "[$hostname] .run 파일 전송 실패"
                     return 1
                 }
@@ -286,7 +336,7 @@ install_nvidia_driver() {
         if [[ "$DRY_RUN" == "true" ]]; then
             log_info "[DRY-RUN] ssh $user@$ip 'apt install -y nvidia-driver-550'"
         else
-            ssh -o ConnectTimeout=30 "$user@$ip" "
+            $SSH_CMD "$user@$ip" "
                 # Nouveau 비활성화
                 if lsmod | grep -q nouveau; then
                     echo 'blacklist nouveau' > /etc/modprobe.d/blacklist-nouveau.conf
@@ -332,7 +382,7 @@ install_nvidia_driver() {
         local nouveau_active
         nouveau_active=$(ssh -o ConnectTimeout=10 "$user@$ip" "lsmod | grep -c nouveau 2>/dev/null || echo 0")
         if [[ "$nouveau_active" -gt 0 ]]; then
-            ssh "$user@$ip" "
+            $SSH_CMD "$user@$ip" "
                 echo 'blacklist nouveau' > /etc/modprobe.d/blacklist-nouveau.conf
                 echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nouveau.conf
                 update-initramfs -u
@@ -343,15 +393,15 @@ install_nvidia_driver() {
 
         # deb 패키지를 로컬 APT 저장소 디렉토리로 전송
         local remote_repo_dir="/opt/offline_packages/gpu/nvidia"
-        ssh "$user@$ip" "sudo mkdir -p $remote_repo_dir"
-        scp -o ConnectTimeout=60 "$gpu_pkg_dir"/*.deb "$user@$ip:/tmp/" || {
+        $SSH_CMD "$user@$ip" "sudo mkdir -p $remote_repo_dir"
+        $SCP_CMD -o ConnectTimeout=60 "$gpu_pkg_dir"/*.deb "$user@$ip:/tmp/" || {
             log_error "[$hostname] 파일 전송 실패"
             return 1
         }
-        ssh "$user@$ip" "sudo mv /tmp/*.deb $remote_repo_dir/ 2>/dev/null || true"
+        $SSH_CMD "$user@$ip" "sudo mv /tmp/*.deb $remote_repo_dir/ 2>/dev/null || true"
 
         # 로컬 APT 저장소 등록 및 설치
-        ssh -o ConnectTimeout=120 "$user@$ip" "
+        $SSH_CMD "$user@$ip" "
             cd $remote_repo_dir
             sudo dpkg-scanpackages . /dev/null 2>/dev/null | gzip -9c > Packages.gz
 
@@ -418,7 +468,7 @@ install_rocm_driver() {
         if [[ "$DRY_RUN" == "true" ]]; then
             log_info "[DRY-RUN] ssh $user@$ip 'amdgpu-install --usecase=rocm'"
         else
-            ssh -o ConnectTimeout=30 "$user@$ip" "
+            $SSH_CMD "$user@$ip" "
                 # ROCm 저장소 추가 및 설치
                 wget -q https://repo.radeon.com/amdgpu-install/6.0.2/ubuntu/${OS_CODENAME}/amdgpu-install_6.0.60002-1_all.deb -O /tmp/amdgpu-install.deb
                 dpkg -i /tmp/amdgpu-install.deb
@@ -439,13 +489,13 @@ install_rocm_driver() {
         log_info "[DRY-RUN] scp $gpu_pkg_dir/*.deb $user@$ip:/tmp/rocm/"
         log_info "[DRY-RUN] ssh $user@$ip 'dpkg -i /tmp/rocm/*.deb'"
     else
-        ssh "$user@$ip" "mkdir -p /tmp/rocm"
-        scp -o ConnectTimeout=30 "$gpu_pkg_dir"/*.deb "$user@$ip:/tmp/rocm/" || {
+        $SSH_CMD "$user@$ip" "mkdir -p /tmp/rocm"
+        $SCP_CMD -o ConnectTimeout=30 "$gpu_pkg_dir"/*.deb "$user@$ip:/tmp/rocm/" || {
             log_error "[$hostname] 파일 전송 실패"
             return 1
         }
 
-        ssh -o ConnectTimeout=30 "$user@$ip" "
+        $SSH_CMD "$user@$ip" "
             cd /tmp/rocm
             dpkg -i amdgpu-install_*.deb 2>/dev/null || apt-get -f install -y
             dpkg -i *.deb 2>/dev/null || apt-get -f install -y
@@ -523,6 +573,7 @@ main() {
 
     log_info "Config: $CONFIG_PATH"
     log_info "Dry-run: $DRY_RUN"
+    load_ssh_auth
     echo ""
 
     # GPU 노드 목록 가져오기
@@ -568,8 +619,8 @@ main() {
             continue
         fi
 
-        # SSH 연결 확인
-        if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$user@$ip" "echo ok" &>/dev/null; then
+        # SSH 연결 확인 (phase8 패턴: 키 우선, sshpass fallback)
+        if ! setup_node_ssh "$user" "$ip"; then
             log_error "[$hostname] SSH 연결 실패"
             ((fail_count++))
             continue
