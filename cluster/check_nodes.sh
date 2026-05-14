@@ -123,10 +123,22 @@ echo "$all_nodes_json" | jq -c '.[]' 2>/dev/null | while IFS= read -r node; do
     status_color="${RED}"
     is_alive=0
 
+    # node_user의 키 파일 탐색 (없으면 ssh 기본 키 사용)
+    _ssh_key_opt=""
+    _user_home=$(getent passwd "$node_user" 2>/dev/null | cut -d: -f6 || echo "")
+    for _k in "${_user_home}/.ssh/id_ed25519" "${_user_home}/.ssh/id_rsa"; do
+        if [[ -f "$_k" ]]; then
+            _ssh_key_opt="-i $_k"
+            break
+        fi
+    done
+
+    _ssh_base="-o ConnectTimeout=2 -o StrictHostKeyChecking=no -o BatchMode=yes -o LogLevel=ERROR"
+
     # Try to ping the node (1 second timeout)
     if ping -c 1 -W 1 "$ip" &>/dev/null; then
         # Try SSH connection (3 second timeout)
-        if timeout 3 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o BatchMode=yes "${node_user}@${ip}" "echo 2>&1" &>/dev/null 2>&1; then
+        if timeout 3 ssh $_ssh_key_opt $_ssh_base "${node_user}@${ip}" "exit" &>/dev/null 2>&1; then
             status="✅ UP (SSH OK)"
             status_color="${GREEN}"
             is_alive=1
