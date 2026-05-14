@@ -25,6 +25,7 @@
 # Options:
 #   --config PATH       Path to my_multihead_cluster.yaml (default: ../my_multihead_cluster.yaml)
 #   --phase PHASE       Run specific phase only (0-10, or phase name)
+#   --from-phase PHASE  Start from this phase and run all subsequent phases
 #   --skip-phase PHASE  Skip specific phase
 #   --dry-run           Preview actions without executing
 #   --force             Force setup even if already configured
@@ -66,6 +67,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Default values
 CONFIG_PATH="$PROJECT_ROOT/my_multihead_cluster.yaml"
 SPECIFIC_PHASE=""
+FROM_PHASE=""
 SKIP_PHASES=()
 DRY_RUN=false
 FORCE=false
@@ -157,6 +159,10 @@ parse_args() {
                 ;;
             --phase)
                 SPECIFIC_PHASE="$2"
+                shift 2
+                ;;
+            --from-phase)
+                FROM_PHASE="$2"
                 shift 2
                 ;;
             --skip-phase)
@@ -251,6 +257,15 @@ normalize_phase() {
 # Function to check if phase should be skipped
 should_skip_phase() {
     local phase=$1
+
+    # --from-phase: 지정 phase 번호 미만은 스킵
+    if [[ -n "$FROM_PHASE" ]]; then
+        local from_num
+        from_num=$(normalize_phase "$FROM_PHASE")
+        if [[ "$phase" -lt "$from_num" ]]; then
+            return 0
+        fi
+    fi
 
     # Check if SKIP_PHASES array is empty
     if [[ ${#SKIP_PHASES[@]} -eq 0 ]]; then
