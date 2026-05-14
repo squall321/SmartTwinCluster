@@ -537,33 +537,16 @@ fi
 echo ""
 echo "Step 5: Starting slurmd service..."
 
-# slurmd.service 생성/재생성 (잘못된 경로나 Type=forking 문제 방지)
+# slurmd.service 항상 재생성 (이전 잔재 파일로 인한 bad unit file 방지)
 SLURMD_SERVICE="/etc/systemd/system/slurmd.service"
-SLURMD_NEEDS_UPDATE=false
 
-# 서비스 파일이 없거나, /usr/sbin 경로, Type=forking,
-# LimitSTACK/TasksMax/Delegate(systemd 신버전 호환성 문제) 가 있으면 재생성
-if [[ ! -f "$SLURMD_SERVICE" ]]; then
-    SLURMD_NEEDS_UPDATE=true
-elif grep -q "/usr/sbin/slurmd" "$SLURMD_SERVICE" 2>/dev/null; then
-    echo "  ℹ slurmd.service uses /usr/sbin path, recreating..."
-    SLURMD_NEEDS_UPDATE=true
-elif grep -q "Type=forking" "$SLURMD_SERVICE" 2>/dev/null; then
-    echo "  ℹ slurmd.service has Type=forking, recreating..."
-    SLURMD_NEEDS_UPDATE=true
-elif grep -qE "LimitSTACK|TasksMax=infinity|^Delegate" "$SLURMD_SERVICE" 2>/dev/null; then
-    echo "  ℹ slurmd.service has deprecated settings (LimitSTACK/TasksMax/Delegate), recreating..."
-    SLURMD_NEEDS_UPDATE=true
-fi
-
-# 강제로 깨끗하게: 기존 service 파일 백업 후 제거 (bad unit file 잔재 방지)
-if [[ "$SLURMD_NEEDS_UPDATE" == "true" ]] && [[ -f "$SLURMD_SERVICE" ]]; then
+if [[ -f "$SLURMD_SERVICE" ]]; then
     run_sudo cp "$SLURMD_SERVICE" "${SLURMD_SERVICE}.backup.$(date +%s)" 2>/dev/null || true
     run_sudo rm -f "$SLURMD_SERVICE"
     run_sudo systemctl daemon-reload 2>/dev/null || true
 fi
 
-if [[ "$SLURMD_NEEDS_UPDATE" == "true" ]]; then
+if true; then
     run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
