@@ -417,7 +417,7 @@ deploy_to_node() {
         encoded_pass=$(echo -n "$SSH_PASSWORD" | base64)
     fi
 
-    $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" << 'EOFREMOTE'
+    timeout 600 $ssh_cmd_stdin "$node_user@$node_ip" bash -s "$gluster_server" "$gluster_volume" "$gluster_mount" "$encoded_pass" << 'EOFREMOTE'
 set -e
 
 GLUSTER_SERVER="$1"
@@ -451,7 +451,7 @@ if [[ -f "$PKG_DIR/apt_packages/install_offline_packages.sh" ]]; then
     echo ""
     echo "Step 1: Installing APT packages..."
     cd "$PKG_DIR/apt_packages"
-    run_sudo bash install_offline_packages.sh
+    run_sudo env DEBIAN_FRONTEND=noninteractive bash install_offline_packages.sh
 else
     echo "WARNING: APT packages not found"
 fi
