@@ -900,7 +900,7 @@ if [ "$SKIP_MULTIHEAD_SETUP" = false ]; then
 
         # Phase 시작 옵션 전달
         if [ -n "$START_PHASE" ]; then
-            MULTIHEAD_OPTS="$MULTIHEAD_OPTS --phase $START_PHASE"
+            MULTIHEAD_OPTS="$MULTIHEAD_OPTS --from-phase $START_PHASE"
             log_info "📌 Phase $START_PHASE 부터 시작합니다"
         fi
 
