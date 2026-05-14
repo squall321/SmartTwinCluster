@@ -74,15 +74,46 @@ ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
 ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
 SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
 
+_SSH_BASE_OPTS="-o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+
 if [[ -f "$SSH_KEY_FILE" ]]; then
-    # -n: Don't read from stdin (critical for while read loops!)
-    SSH_OPTS="-n -i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-    SCP_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
+    SSH_OPTS="-n -i $SSH_KEY_FILE -o BatchMode=yes $_SSH_BASE_OPTS -o PreferredAuthentications=publickey"
+    SCP_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes $_SSH_BASE_OPTS"
 else
-    # -n: Don't read from stdin (critical for while read loops!)
-    SSH_OPTS="-n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
-    SCP_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no"
+    SSH_OPTS="-n -o BatchMode=yes $_SSH_BASE_OPTS -o PreferredAuthentications=publickey"
+    SCP_OPTS="-o BatchMode=yes $_SSH_BASE_OPTS"
 fi
+
+# per-node SSH 명령 결정: 대상 user의 키 우선, fallback sshpass
+# 전역 SSH_OPTS/SCP_OPTS를 node별로 오버라이드
+setup_node_ssh_opts() {
+    local user="$1" ip="$2"
+    local user_home
+    user_home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || echo "")
+    for _k in "${user_home}/.ssh/id_ed25519" "${user_home}/.ssh/id_rsa" "$SSH_KEY_FILE"; do
+        [[ -f "$_k" ]] || continue
+        if ssh -n -i "$_k" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+               "$user@$ip" "exit" &>/dev/null; then
+            SSH_OPTS="-n -i $_k -o BatchMode=yes $_SSH_BASE_OPTS"
+            SCP_OPTS="-i $_k -o BatchMode=yes $_SSH_BASE_OPTS"
+            return 0
+        fi
+    done
+    # sshpass fallback
+    local _pass
+    _pass=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('cluster_info',{}).get('ssh_password',''))" 2>/dev/null || echo "")
+    if [[ -n "$_pass" ]] && command -v sshpass &>/dev/null; then
+        if SSHPASS="$_pass" sshpass -e ssh -n -o BatchMode=no -o ConnectTimeout=5 \
+               -o StrictHostKeyChecking=no "$user@$ip" "exit" &>/dev/null; then
+            export SSHPASS="$_pass"
+            SSH_OPTS="-n -o BatchMode=no $_SSH_BASE_OPTS"
+            SCP_OPTS="-o BatchMode=no $_SSH_BASE_OPTS"
+            # sshpass는 별도로 앞에 붙여야 함 — 호출부에서 처리
+            return 0
+        fi
+    fi
+    return 1
+}
 
 # Color codes
 RED='\033[0;31m'
@@ -2889,6 +2920,13 @@ EOPY
         # Check if node is reachable
         if ! ping -c 1 -W 2 "$ip_address" &>/dev/null; then
             log WARNING "Node $hostname ($ip_address) is not reachable, skipping"
+            failed_count=$((failed_count + 1))
+            continue
+        fi
+
+        # per-node SSH 인증 설정 (키 우선, sshpass fallback)
+        if ! setup_node_ssh_opts "$ssh_user" "$ip_address"; then
+            log WARNING "Node $hostname ($ip_address) SSH auth failed, skipping"
             failed_count=$((failed_count + 1))
             continue
         fi

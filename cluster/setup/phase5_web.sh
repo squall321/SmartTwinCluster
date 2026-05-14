@@ -61,11 +61,39 @@ ORIGINAL_USER="${SUDO_USER:-$(whoami)}"
 ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
 SSH_KEY_FILE="${ORIGINAL_HOME}/.ssh/id_rsa"
 
+_SSH_BASE_OPTS="-o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+
 if [[ -f "$SSH_KEY_FILE" ]]; then
-    SSH_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SSH_OPTS="-i $SSH_KEY_FILE -o BatchMode=yes $_SSH_BASE_OPTS -o PreferredAuthentications=publickey"
 else
-    SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o PreferredAuthentications=publickey"
+    SSH_OPTS="-o BatchMode=yes $_SSH_BASE_OPTS -o PreferredAuthentications=publickey"
 fi
+
+# per-node SSH 인증: 대상 user 키 우선, sshpass fallback
+setup_node_ssh_opts() {
+    local user="$1" ip="$2"
+    local user_home
+    user_home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || echo "")
+    for _k in "${user_home}/.ssh/id_ed25519" "${user_home}/.ssh/id_rsa" "$SSH_KEY_FILE"; do
+        [[ -f "$_k" ]] || continue
+        if ssh -n -i "$_k" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+               "$user@$ip" "exit" &>/dev/null; then
+            SSH_OPTS="-i $_k -o BatchMode=yes $_SSH_BASE_OPTS"
+            return 0
+        fi
+    done
+    local _pass
+    _pass=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('cluster_info',{}).get('ssh_password',''))" 2>/dev/null || echo "")
+    if [[ -n "$_pass" ]] && command -v sshpass &>/dev/null; then
+        if SSHPASS="$_pass" sshpass -e ssh -n -o BatchMode=no -o ConnectTimeout=5 \
+               -o StrictHostKeyChecking=no "$user@$ip" "exit" &>/dev/null; then
+            export SSHPASS="$_pass"
+            SSH_OPTS="-o BatchMode=no $_SSH_BASE_OPTS"
+            return 0
+        fi
+    fi
+    return 1
+}
 
 # Web services configuration
 WEB_SERVICES_DIR="/opt/web_services"
@@ -3600,6 +3628,10 @@ EOFPY
         log_info "Deploying VNC script to $node ($node_ip) as $ssh_user..."
 
         if [[ "$DRY_RUN" == false ]]; then
+            setup_node_ssh_opts "$ssh_user" "$node_ip" || {
+                log_warning "SSH auth failed for $node ($node_ip), skipping"
+                continue
+            }
             # Create /opt/scripts directory on viz node
             ssh $SSH_OPTS "$ssh_user@$node_ip" "sudo mkdir -p /opt/scripts" || {
                 log_warning "Failed to create /opt/scripts on $node"
