@@ -335,6 +335,14 @@ deploy_to_node() {
             continue
         fi
 
+        # apt_packages는 크기가 크므로 이미 존재하면 스킵 (--force 시 재전송)
+        if [[ "$name" == "apt_packages" ]] && [[ "$FORCE" != "true" ]]; then
+            if $ssh_cmd "$node_user@$node_ip" "test -d $REMOTE_PKG_DIR/apt_packages" &>/dev/null; then
+                log_info "[$node_hostname] apt_packages already exists on node — skipping transfer"
+                continue
+            fi
+        fi
+
         $scp_cmd -r "$subdir" "$node_user@$node_ip:$REMOTE_PKG_DIR/" 2>/dev/null || {
             log_warning "[$node_hostname] Failed to transfer $name"
         }
