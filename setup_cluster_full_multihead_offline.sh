@@ -496,6 +496,19 @@ fi
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║  Pre-flight: 이전 설치 잔여 프로세스 정리                     ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
+echo ""
+
+KILL_STALE_SCRIPT="$SCRIPT_DIR/cluster/utils/kill_stale_setup.sh"
+if [[ -f "$KILL_STALE_SCRIPT" ]]; then
+    bash "$KILL_STALE_SCRIPT" --config "$CONFIG_FILE" || true
+else
+    log_warning "kill_stale_setup.sh 없음 — 잔여 프로세스 정리 스킵"
+fi
+echo ""
+
+echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║  Part 1: 기본 시스템 설정 (오프라인)                          ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
