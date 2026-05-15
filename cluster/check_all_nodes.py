@@ -70,11 +70,13 @@ def check_node_status(ip, ssh_user=None):
     ssh_cmd.append(ssh_target)
     ssh_cmd.append('exit')
 
-    ssh_result = subprocess.run(ssh_cmd, capture_output=True, timeout=5)
-
-    if ssh_result.returncode == 0:
-        return "UP (SSH OK)", GREEN
-    else:
+    try:
+        ssh_result = subprocess.run(ssh_cmd, capture_output=True, timeout=5)
+        if ssh_result.returncode == 0:
+            return "UP (SSH OK)", GREEN
+        else:
+            return "PING OK, SSH FAILED", YELLOW
+    except (subprocess.TimeoutExpired, Exception):
         return "PING OK, SSH FAILED", YELLOW
 
 def main():
