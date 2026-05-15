@@ -38,9 +38,12 @@ ensure_venv() {
     if ! /usr/bin/python3 -c "import ensurepip" 2>/dev/null; then
         echo -e "\033[1;33m   • python${sys_py_ver}-venv 미설치 → offline dpkg 설치\033[0m"
         if [ -d "$apt_dir" ]; then
-            sudo dpkg -i $(ls "$apt_dir"/python3-pip-whl_*.deb 2>/dev/null | tail -1) \
-                        $(ls "$apt_dir"/python${sys_py_ver}-venv_*.deb 2>/dev/null | tail -1) \
-                        $(ls "$apt_dir"/python3-venv_*.deb 2>/dev/null | tail -1) 2>/dev/null || true
+            local debs=()
+            for pat in "python3-pip-whl_*.deb" "python${sys_py_ver}-venv_*.deb" "python3-venv_*.deb"; do
+                local f=$(ls "$apt_dir"/$pat 2>/dev/null | tail -1)
+                [ -n "$f" ] && debs+=("$f")
+            done
+            [ ${#debs[@]} -gt 0 ] && sudo apt install -y "${debs[@]}" || true
         fi
     fi
 

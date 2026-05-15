@@ -63,11 +63,16 @@ if ! /usr/bin/python3 -c "import ensurepip" 2>/dev/null; then
     APT_DIR="${REPO_ROOT}/offline_packages_2404/apt_packages"
     [ ! -d "$APT_DIR" ] && APT_DIR="${REPO_ROOT}/offline_packages/apt_packages"
     if [ -d "$APT_DIR" ]; then
-        sudo dpkg -i $(ls "$APT_DIR"/python3-pip-whl_*.deb 2>/dev/null | tail -1) \
-                    $(ls "$APT_DIR"/python${SYS_PY}-venv_*.deb 2>/dev/null | tail -1) \
-                    $(ls "$APT_DIR"/python3-venv_*.deb 2>/dev/null | tail -1) 2>/dev/null \
-            && echo -e "\033[0;32m   ✓ venv 패키지 설치 완료\033[0m" \
-            || echo -e "\033[0;31m   ⚠️ venv 패키지 설치 실패 — apt install python${SYS_PY}-venv 수동 시도\033[0m"
+        VENV_DEBS=()
+        for pat in "python3-pip-whl_*.deb" "python${SYS_PY}-venv_*.deb" "python3-venv_*.deb"; do
+            f=$(ls "$APT_DIR"/$pat 2>/dev/null | tail -1)
+            [ -n "$f" ] && VENV_DEBS+=("$f")
+        done
+        if [ ${#VENV_DEBS[@]} -gt 0 ]; then
+            sudo apt install -y "${VENV_DEBS[@]}" \
+                && echo -e "\033[0;32m   ✓ venv 패키지 설치 완료${NC}\033[0m" \
+                || echo -e "\033[0;31m   ⚠️ venv 패키지 설치 실패\033[0m"
+        fi
     fi
 fi
 
@@ -141,13 +146,13 @@ if ! command -v nginx >/dev/null 2>&1; then
     echo -e "${YELLOW}   • nginx 미설치 → apt 설치 시도${NC}"
     for d in "${REPO_ROOT}/offline_packages_2404/apt_packages" "${REPO_ROOT}/offline_packages/apt_packages"; do
         if [ -d "$d" ]; then
-            sudo apt-get install -y --no-download --ignore-missing nginx 2>/dev/null \
-                || sudo dpkg -i "$d"/nginx*.deb "$d"/libnginx*.deb 2>/dev/null || true
+            NGINX_DEBS=( $(ls "$d"/nginx_*.deb "$d"/nginx-common_*.deb "$d"/nginx-core_*.deb "$d"/libnginx-*.deb 2>/dev/null) )
+            [ ${#NGINX_DEBS[@]} -gt 0 ] && sudo apt install -y "${NGINX_DEBS[@]}"
             command -v nginx >/dev/null && break
         fi
     done
     if ! command -v nginx >/dev/null 2>&1; then
-        sudo apt-get install -y nginx 2>/dev/null || echo -e "${RED}   ⚠️ nginx 설치 실패 (offline pkg 또는 네트워크 확인)${NC}"
+        sudo apt install -y nginx 2>/dev/null || echo -e "${RED}   ⚠️ nginx 설치 실패${NC}"
     fi
 fi
 sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/snippets
