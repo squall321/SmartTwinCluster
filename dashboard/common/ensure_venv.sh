@@ -13,14 +13,26 @@ ensure_venv() {
     if [ -f "$venv_dir/bin/activate" ]; then
         source "$venv_dir/bin/activate" 2>/dev/null || true
     fi
-    local missing=()
+    # 인자: "module" 또는 "module:pip-name" 형식 (pip 이름이 다를 때)
+    local missing=()         # pip install용 (pkg 이름)
+    local missing_imports=() # 표시용 (import 이름)
     if [ -f "$venv_dir/bin/python3" ]; then
-        for mod in "$@"; do
-            "$venv_dir/bin/python3" -c "import ${mod//-/_}" 2>/dev/null || missing+=("$mod")
+        for arg in "$@"; do
+            local imp_name="${arg%%:*}"
+            local pip_name="${arg##*:}"
+            [ "$imp_name" = "$pip_name" ] && pip_name="$imp_name"
+            "$venv_dir/bin/python3" -c "import ${imp_name//-/_}" 2>/dev/null || {
+                missing+=("$pip_name")
+                missing_imports+=("$imp_name")
+            }
         done
     else
-        # venv 자체가 없으면 전부 누락 취급
-        missing=("$@")
+        for arg in "$@"; do
+            local pip_name="${arg##*:}"
+            [ -z "$pip_name" ] && pip_name="$arg"
+            missing+=("$pip_name")
+        done
+        missing_imports=("${missing[@]}")
     fi
     [ ${#missing[@]} -eq 0 ] && return 0
 
@@ -76,15 +88,22 @@ ensure_venv() {
     fi
 
     local py_ver=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-    local wheels="$pkg_dir/python_wheels/python${py_ver}"
-    [ ! -d "$wheels" ] && wheels="$pkg_dir/python_wheels"
+    local wheels1="$pkg_dir/python_wheels/python${py_ver}"
+    local wheels2="$pkg_dir/python_wheels"
+    [ ! -d "$wheels1" ] && wheels1="$wheels2"
 
     # venv 내부의 pip 사용 (시스템 PEP 668 회피)
     local PIP="$venv_dir/bin/python3 -m pip"
+    # 부모/버전별 wheels 둘 다 --find-links로 (중복 OK)
+    local FL="--find-links=$wheels1 --find-links=$wheels2"
+
+    # 1) requirements.txt 그대로 (핀 일치 시)
     if [ -f requirements.txt ]; then
-        $PIP install --no-index --find-links="$wheels" -r requirements.txt && return 0
-        $PIP install --find-links="$wheels" -r requirements.txt && return 0
+        $PIP install --no-index $FL -r requirements.txt && return 0
+        echo -e "\033[1;33m   • requirements 핀 불일치 → 누락 모듈만 설치 시도\033[0m"
     fi
-    $PIP install --no-index --find-links="$wheels" "${missing[@]}" && return 0
-    $PIP install --find-links="$wheels" "${missing[@]}"
+    # 2) 핀 무시하고 누락 모듈만 (오프라인)
+    $PIP install --no-index $FL "${missing[@]}" && return 0
+    # 3) 마지막 시도: 온라인 fallback
+    $PIP install $FL "${missing[@]}"
 }

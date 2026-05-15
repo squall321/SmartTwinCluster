@@ -28,7 +28,7 @@ fi
 # venv 없거나 깨졌으면 ensure_venv가 재생성
 source "$SCRIPT_DIR/../common/ensure_venv.sh" 2>/dev/null
 [ -f "venv/bin/activate" ] && source venv/bin/activate
-ensure_venv flask flask_cors
+ensure_venv flask flask_cors dotenv:python-dotenv
 [ -f "venv/bin/activate" ] && source venv/bin/activate
 
 export FLASK_APP=app.py FLASK_ENV=production
