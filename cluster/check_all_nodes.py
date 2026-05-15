@@ -57,27 +57,52 @@ def check_node_status(ip, ssh_user=None):
 
     # Try SSH — node_user 키 우선 탐색
     ssh_target = f"{ssh_user}@{ip}" if ssh_user else ip
-    ssh_cmd = ['timeout', '3', 'ssh',
-               '-o', 'ConnectTimeout=2',
-               '-o', 'StrictHostKeyChecking=no',
-               '-o', 'BatchMode=yes',
-               '-o', 'LogLevel=ERROR']
+    ssh_base = ['-o', 'ConnectTimeout=5',
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'LogLevel=ERROR']
 
     key = find_ssh_key(ssh_user) if ssh_user else None
-    if key:
-        ssh_cmd += ['-i', key]
 
-    ssh_cmd.append(ssh_target)
-    ssh_cmd.append('exit')
-
+    # 1) 키 인증
     try:
-        ssh_result = subprocess.run(ssh_cmd, capture_output=True, timeout=5)
-        if ssh_result.returncode == 0:
+        key_cmd = ['timeout', '8', 'ssh'] + ssh_base + ['-o', 'BatchMode=yes']
+        if key:
+            key_cmd += ['-i', key]
+        key_cmd += [ssh_target, 'exit']
+        result = subprocess.run(key_cmd, capture_output=True, timeout=10)
+        if result.returncode == 0:
             return "UP (SSH OK)", GREEN
-        else:
-            return "PING OK, SSH FAILED", YELLOW
     except (subprocess.TimeoutExpired, Exception):
-        return "PING OK, SSH FAILED", YELLOW
+        pass
+
+    # 2) sshpass fallback
+    ssh_password = os.environ.get('CLUSTER_SSH_PASSWORD', '')
+    if not ssh_password:
+        try:
+            import yaml
+            cfg_path = os.environ.get('CLUSTER_CONFIG', '')
+            if cfg_path and os.path.exists(cfg_path):
+                with open(cfg_path) as f:
+                    cfg = yaml.safe_load(f)
+                ssh_password = cfg.get('cluster_info', {}).get('ssh_password', '')
+        except Exception:
+            pass
+
+    if ssh_password:
+        try:
+            import shutil
+            if shutil.which('sshpass'):
+                pass_cmd = ['timeout', '8', 'sshpass', '-e', 'ssh'] + ssh_base + \
+                           ['-o', 'BatchMode=no', ssh_target, 'exit']
+                env = os.environ.copy()
+                env['SSHPASS'] = ssh_password
+                result = subprocess.run(pass_cmd, capture_output=True, timeout=10, env=env)
+                if result.returncode == 0:
+                    return "UP (SSH OK)", GREEN
+        except (subprocess.TimeoutExpired, Exception):
+            pass
+
+    return "PING OK, SSH FAILED", YELLOW
 
 def main():
     parser = argparse.ArgumentParser(description='Check cluster nodes status')

@@ -793,7 +793,7 @@ verify_phase() {
 check_cluster_nodes_status() {
     # Use the dedicated Python script that shows all nodes (controllers + compute)
     if [[ -f "$SCRIPT_DIR/check_all_nodes.py" ]]; then
-        python3 "$SCRIPT_DIR/check_all_nodes.py" --config "$CONFIG_PATH" || {
+        CLUSTER_CONFIG="$CONFIG_PATH" python3 "$SCRIPT_DIR/check_all_nodes.py" --config "$CONFIG_PATH" || {
             log_warning "Failed to run node status checker"
             return 1
         }
