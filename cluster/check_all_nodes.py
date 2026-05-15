@@ -10,6 +10,8 @@ import json
 import subprocess
 import sys
 import argparse
+import os
+import pwd
 from pathlib import Path
 
 # ANSI colors
@@ -18,6 +20,28 @@ GREEN = '\033[0;32m'
 YELLOW = '\033[1;33m'
 BLUE = '\033[0;34m'
 NC = '\033[0m'  # No Color
+
+def find_ssh_key(ssh_user):
+    """node ssh_user의 키 파일 탐색, 없으면 실행 사용자 키"""
+    candidates = []
+    # ssh_user 홈 디렉토리 키
+    try:
+        user_home = pwd.getpwnam(ssh_user).pw_dir
+        candidates += [f"{user_home}/.ssh/id_ed25519", f"{user_home}/.ssh/id_rsa"]
+    except KeyError:
+        pass
+    # 실행 사용자(SUDO_USER) 키
+    sudo_user = os.environ.get("SUDO_USER", "")
+    if sudo_user:
+        try:
+            sudo_home = pwd.getpwnam(sudo_user).pw_dir
+            candidates += [f"{sudo_home}/.ssh/id_ed25519", f"{sudo_home}/.ssh/id_rsa"]
+        except KeyError:
+            pass
+    for key in candidates:
+        if Path(key).exists():
+            return key
+    return None
 
 def check_node_status(ip, ssh_user=None):
     """Check if node is reachable via ping and SSH"""
@@ -31,15 +55,22 @@ def check_node_status(ip, ssh_user=None):
     if ping_result.returncode != 0:
         return "DOWN", RED
 
-    # Try SSH
+    # Try SSH — node_user 키 우선 탐색
     ssh_target = f"{ssh_user}@{ip}" if ssh_user else ip
-    ssh_result = subprocess.run(
-        ['timeout', '3', 'ssh', '-o', 'ConnectTimeout=2',
-         '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes',
-         ssh_target, 'echo'],
-        capture_output=True,
-        timeout=5
-    )
+    ssh_cmd = ['timeout', '3', 'ssh',
+               '-o', 'ConnectTimeout=2',
+               '-o', 'StrictHostKeyChecking=no',
+               '-o', 'BatchMode=yes',
+               '-o', 'LogLevel=ERROR']
+
+    key = find_ssh_key(ssh_user) if ssh_user else None
+    if key:
+        ssh_cmd += ['-i', key]
+
+    ssh_cmd.append(ssh_target)
+    ssh_cmd.append('exit')
+
+    ssh_result = subprocess.run(ssh_cmd, capture_output=True, timeout=5)
 
     if ssh_result.returncode == 0:
         return "UP (SSH OK)", GREEN
