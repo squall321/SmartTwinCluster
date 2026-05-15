@@ -1526,13 +1526,19 @@ setup_python_venvs() {
                 log_info "  Installing requirements (wheels: python${actual_version})..."
 
                 if [[ -d "$wheels_dir" ]]; then
-                    if pip install --no-index --find-links="$wheels_dir" -r requirements.txt --quiet 2>/dev/null; then
+                    local pip_log="/tmp/pip_${service}_$$.log"
+                    if pip install --no-index --find-links="$wheels_dir" -r requirements.txt >"$pip_log" 2>&1; then
                         log_success "  Requirements installed from offline wheels"
+                        rm -f "$pip_log"
                     else
-                        log_warning "  Offline install failed, trying with dependencies..."
-                        if ! pip install --find-links="$wheels_dir" -r requirements.txt --quiet 2>/dev/null; then
+                        log_warning "  Offline install failed, retrying with deps..."
+                        if pip install --find-links="$wheels_dir" -r requirements.txt >>"$pip_log" 2>&1; then
+                            log_success "  Requirements installed (with online deps)"
+                            rm -f "$pip_log"
+                        else
                             log_error "  Failed to install requirements for $service"
-                            log_error "  Try: pip install -r requirements.txt (online)"
+                            log_error "  pip log: $pip_log"
+                            tail -20 "$pip_log" >&2
                         fi
                     fi
                 else

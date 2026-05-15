@@ -28,6 +28,10 @@ fi
 [ ! -f "venv/bin/activate" ] && echo -e "${RED}❌ venv 없음. ./setup.sh 실행${NC}" && exit 1
 
 source venv/bin/activate
+
+# 누락 모듈 자동 복구 (오프라인 휠)
+source "$SCRIPT_DIR/../common/ensure_venv.sh" 2>/dev/null && ensure_venv flask flask_cors
+
 export FLASK_APP=app.py FLASK_ENV=production
 
 # MOCK_MODE 환경변수 설정
