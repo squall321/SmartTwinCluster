@@ -19,6 +19,20 @@ if [[ $EUID -ne 0 ]]; then
     echo -e "${RED}❌ sudo로 실행하세요: sudo $0${NC}"; exit 1
 fi
 
+# --incremental: 이번 실행에서 새로 받은/갱신된 파일만 tar
+MODE="full"
+for a in "$@"; do
+    case "$a" in
+        --incremental|-i) MODE="incremental" ;;
+        --help|-h) echo "Usage: sudo $0 [--incremental]"; exit 0 ;;
+    esac
+done
+echo -e "${BLUE}모드: $MODE${NC}"
+
+# 시작 시점 마커 (mtime 비교 기준)
+MARKER="${SCRIPT_DIR}/.update_start_$(date +%s)"
+touch "$MARKER"
+
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo -e "${BLUE} 1단계: VM 기반 패키지 재수집 (1~3시간)${NC}"
 echo -e "${BLUE}════════════════════════════════════════${NC}"
@@ -52,10 +66,27 @@ done
 echo "포함 디렉토리: ${INCLUDE_DIRS[*]}"
 echo "출력 prefix:  $PREFIX"
 
-# tar → gzip → split (스트리밍, 임시 파일 X)
-tar -C "$SCRIPT_DIR" -cf - "${INCLUDE_DIRS[@]}" \
-    | gzip -1 \
-    | split --bytes=1G --numeric-suffixes=0 --suffix-length=3 - "$PREFIX"
+if [ "$MODE" = "incremental" ]; then
+    # 마커보다 새로운 파일 목록 생성
+    FILELIST="${OUT_DIR}/filelist_${TIMESTAMP}.txt"
+    ( cd "$SCRIPT_DIR" && find "${INCLUDE_DIRS[@]}" -type f -newer "$MARKER" ) > "$FILELIST"
+    NEW_COUNT=$(wc -l < "$FILELIST")
+    echo -e "${YELLOW}🆕 신규/갱신 파일: ${NEW_COUNT}개${NC}"
+    if [ "$NEW_COUNT" -eq 0 ]; then
+        echo -e "${YELLOW}변경 없음. 압축 생략.${NC}"
+        rm -f "$MARKER"
+        exit 0
+    fi
+    tar -C "$SCRIPT_DIR" -cf - -T "$FILELIST" \
+        | gzip -1 \
+        | split --bytes=1G --numeric-suffixes=0 --suffix-length=3 - "$PREFIX"
+else
+    tar -C "$SCRIPT_DIR" -cf - "${INCLUDE_DIRS[@]}" \
+        | gzip -1 \
+        | split --bytes=1G --numeric-suffixes=0 --suffix-length=3 - "$PREFIX"
+fi
+
+rm -f "$MARKER"
 
 # 체크섬
 ( cd "$OUT_DIR" && sha256sum offline_packages_2404_${TIMESTAMP}.tar.gz.part-* > "offline_packages_2404_${TIMESTAMP}.sha256" )
