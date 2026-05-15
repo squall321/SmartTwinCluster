@@ -41,6 +41,21 @@ export CLUSTER_YAML_PATH="$CLUSTER_YAML"
 export CLUSTER_CONFIG_PATH="$CLUSTER_YAML"
 echo -e "\033[0;34m📄 Cluster YAML: $CLUSTER_YAML\033[0m"
 
+# 외부 접속 IP: YAML public_url 우선, 없으면 hostname -I
+HOST_IP=""
+if command -v python3 >/dev/null 2>&1; then
+    HOST_IP=$(python3 -c "
+import yaml
+try:
+    with open('$CLUSTER_YAML') as f: c = yaml.safe_load(f)
+    print(c.get('access', {}).get('public_url') or c.get('public_url') or '', end='')
+except Exception: pass
+" 2>/dev/null)
+fi
+[ -z "$HOST_IP" ] && HOST_IP="$(hostname -I | awk '{print $1}')"
+[ -z "$HOST_IP" ] && HOST_IP="localhost"
+echo -e "\033[0;34m🌐 외부 접속 IP: $HOST_IP\033[0m"
+
 echo "=========================================="
 echo "🚀 모든 서버 시작 (Production Mode)"
 echo "=========================================="
@@ -105,6 +120,22 @@ fi
 
 # ── Nginx 443 보장 (sites-enabled 심볼릭 + SSL 인증서 + 시작/리로드) ────
 echo -e "${BLUE}🔧 Nginx 443 상태 확인...${NC}"
+
+# nginx 패키지 자체 설치 확인
+if ! command -v nginx >/dev/null 2>&1; then
+    echo -e "${YELLOW}   • nginx 미설치 → apt 설치 시도${NC}"
+    for d in "${REPO_ROOT}/offline_packages_2404/apt_packages" "${REPO_ROOT}/offline_packages/apt_packages"; do
+        if [ -d "$d" ]; then
+            sudo apt-get install -y --no-download --ignore-missing nginx 2>/dev/null \
+                || sudo dpkg -i "$d"/nginx*.deb "$d"/libnginx*.deb 2>/dev/null || true
+            command -v nginx >/dev/null && break
+        fi
+    done
+    if ! command -v nginx >/dev/null 2>&1; then
+        sudo apt-get install -y nginx 2>/dev/null || echo -e "${RED}   ⚠️ nginx 설치 실패 (offline pkg 또는 네트워크 확인)${NC}"
+    fi
+fi
+sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/snippets
 NGINX_CONF_SRC="${SCRIPT_DIR}/nginx/hpc-portal.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/hpc-portal.conf"
 SELF_SIGNED_SNIPPET="/etc/nginx/snippets/self-signed.conf"
@@ -335,19 +366,6 @@ echo "=========================================="
 echo "✅ 모든 서버 시작 완료!"
 echo "=========================================="
 echo ""
-# 외부 접속 IP: YAML public_url 우선, 없으면 hostname -I
-HOST_IP=""
-if command -v python3 >/dev/null 2>&1; then
-    HOST_IP=$(python3 -c "
-import yaml
-try:
-    with open('$CLUSTER_YAML') as f: c = yaml.safe_load(f)
-    print(c.get('access', {}).get('public_url') or c.get('public_url') or '', end='')
-except Exception: pass
-" 2>/dev/null)
-fi
-[ -z "$HOST_IP" ] && HOST_IP="$(hostname -I | awk '{print $1}')"
-[ -z "$HOST_IP" ] && HOST_IP="localhost"
 echo "🔗 접속 정보 (외부 접속용):"
 echo "  메인(SSO):   https://${HOST_IP}/        (→ /auth_portal/ 자동 진입)"
 echo "  Dashboard:  https://${HOST_IP}/dashboard/"

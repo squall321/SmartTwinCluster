@@ -15,6 +15,22 @@ ensure_venv() {
 
     echo -e "\033[1;33m⚠️  누락된 모듈: ${missing[*]} → 오프라인 휠로 설치 시도\033[0m"
 
+    # pip 자체가 깨져 있으면 ensurepip / get-pip / venv 재생성
+    if ! python3 -m pip --version >/dev/null 2>&1; then
+        echo -e "\033[1;33m   • pip 깨짐 → ensurepip로 복구\033[0m"
+        if ! python3 -m ensurepip --upgrade >/dev/null 2>&1; then
+            echo -e "\033[1;33m   • ensurepip 실패 → venv 재생성\033[0m"
+            local venv_dir="$(dirname "$(dirname "$(command -v python3)")")"
+            # venv_dir가 ./venv를 가리키는지 검증
+            if [[ "$venv_dir" == *"/venv" ]]; then
+                deactivate 2>/dev/null || true
+                rm -rf "$venv_dir"
+                python3 -m venv "$venv_dir" || /usr/bin/python3 -m venv "$venv_dir"
+                source "$venv_dir/bin/activate"
+            fi
+        fi
+    fi
+
     # OFFLINE_PKG_DIR 또는 자동 탐색
     local pkg_dir="${OFFLINE_PKG_DIR:-}"
     if [ -z "$pkg_dir" ]; then
@@ -35,10 +51,12 @@ ensure_venv() {
     local wheels="$pkg_dir/python_wheels/python${py_ver}"
     [ ! -d "$wheels" ] && wheels="$pkg_dir/python_wheels"
 
+    # pip 명령 대신 python3 -m pip 사용 (pip 스크립트가 깨져도 동작)
+    local PIP="python3 -m pip"
     if [ -f requirements.txt ]; then
-        pip install --no-index --find-links="$wheels" -r requirements.txt && return 0
-        pip install --find-links="$wheels" -r requirements.txt && return 0
+        $PIP install --no-index --find-links="$wheels" -r requirements.txt && return 0
+        $PIP install --find-links="$wheels" -r requirements.txt && return 0
     fi
-    pip install --no-index --find-links="$wheels" "${missing[@]}" && return 0
-    pip install --find-links="$wheels" "${missing[@]}"
+    $PIP install --no-index --find-links="$wheels" "${missing[@]}" && return 0
+    $PIP install --find-links="$wheels" "${missing[@]}"
 }
