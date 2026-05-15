@@ -47,16 +47,29 @@ echo "=========================================="
 echo ""
 
 # ── 프론트엔드 빌드 변경 감지 ──────────────────────────────────────
-# 비교 대상: dist/index.html mtime vs src/, package.json, vite.config.* 최신
+# 비교 대상: src/, package.json, vite/tsconfig vs dist/index.html AND nginx 배포본
+declare -A NGINX_PATHS=(
+    ["auth_portal_4431"]="/var/www/html/auth_portal"
+    ["frontend_3010"]="/var/www/html/dashboard"
+    ["vnc_service_8002"]="/var/www/html/vnc_service_8002"
+    ["moonlight_frontend_8003"]="/var/www/html/moonlight"
+    ["kooCAEWeb_5173"]="/var/www/html/cae"
+    ["app_5174"]="/var/www/html/app_5174"
+)
+
 needs_rebuild() {
-    local dir="$1"
-    [ ! -d "$dir/dist" ] && return 0
+    local fe="$1"
+    local dir="${SCRIPT_DIR}/${fe}"
+    local nginx_idx="${NGINX_PATHS[$fe]}/index.html"
+    # dist 또는 nginx 배포본이 없으면 빌드
     [ ! -f "$dir/dist/index.html" ] && return 0
-    local dist_ts; dist_ts=$(stat -c %Y "$dir/dist/index.html" 2>/dev/null || echo 0)
-    local newest_src; newest_src=$(find "$dir/src" "$dir/index.html" "$dir/package.json" \
+    [ ! -f "$nginx_idx" ] && return 0
+    # src/config가 dist보다 최신이면 빌드
+    find "$dir/src" "$dir/index.html" "$dir/package.json" \
         "$dir/vite.config.ts" "$dir/vite.config.js" "$dir/tailwind.config.js" "$dir/tsconfig.json" \
-        -type f -newer "$dir/dist/index.html" -print -quit 2>/dev/null)
-    [ -n "$newest_src" ] && return 0
+        -type f -newer "$dir/dist/index.html" -print -quit 2>/dev/null | grep -q . && return 0
+    # dist가 nginx 배포본보다 최신이면 빌드(배포 누락)
+    [ "$dir/dist/index.html" -nt "$nginx_idx" ] && return 0
     return 1
 }
 
@@ -70,7 +83,7 @@ if [ "$BUILD_MODE" != "skip" ]; then
         echo -e "${BLUE}🔍 프론트엔드 빌드 변경 감지 중...${NC}"
         for fe in "${FRONTENDS[@]}"; do
             [ ! -d "${SCRIPT_DIR}/${fe}" ] && continue
-            if needs_rebuild "${SCRIPT_DIR}/${fe}"; then
+            if needs_rebuild "$fe"; then
                 TO_BUILD+=("$fe")
                 echo -e "${YELLOW}   • ${fe}: 변경 감지${NC}"
             else
