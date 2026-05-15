@@ -22,12 +22,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG_FILE="my_multihead_cluster_2.yaml"
 REMOTE=false
+REMOTE_ALL=false
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --config)   CONFIG_FILE="$2"; shift 2 ;;
-        --remote)   REMOTE=true; shift ;;
+        --remote)      REMOTE=true; shift ;;
+        --remote-all)  REMOTE=true; REMOTE_ALL=true; shift ;;
         --dry-run)  DRY_RUN=true; shift ;;
         *) shift ;;
     esac
@@ -113,12 +115,14 @@ fi
 # ── 4. 원격 노드 정리 (--remote 옵션) ────────────────────────────────────────
 if [[ "$REMOTE" == "true" ]]; then
     echo ""
-    log_info "[원격] 노드 apt/dpkg/bash 설치 프로세스 정리..."
 
     CONFIG_PATH="$PROJECT_ROOT/$CONFIG_FILE"
-    [[ ! -f "$CONFIG_PATH" ]] && { log_warn "YAML 없음: $CONFIG_PATH"; exit 0; }
 
-    NODE_IPS=$(python3 -c "
+    if [[ "$REMOTE_ALL" == "true" ]]; then
+        # --remote-all: YAML의 모든 노드 대상
+        log_info "[원격] 전체 노드 apt/dpkg/bash 설치 프로세스 정리..."
+        [[ ! -f "$CONFIG_PATH" ]] && { log_warn "YAML 없음: $CONFIG_PATH"; exit 0; }
+        NODE_IPS=$(python3 -c "
 import yaml
 with open('$CONFIG_PATH') as f:
     c = yaml.safe_load(f)
@@ -128,6 +132,35 @@ for n in nodes.get('compute_nodes', []): ips.add((n['ip_address'], n.get('ssh_us
 for n in nodes.get('viz_nodes', []):     ips.add((n['ip_address'], n.get('ssh_user','stcx')))
 for ip, user in sorted(ips): print(f'{user}@{ip}')
 " 2>/dev/null)
+    else
+        # --remote 기본: 현재 로컬에 SSH 세션이 열려있는 노드만 (설치 중이던 노드)
+        log_info "[원격] 설치 세션이 열렸던 노드 정리 (현재 ssh 프로세스 기준)..."
+        NODE_IPS=$(ss -tnp 2>/dev/null | grep -E "ESTAB.*ssh" | \
+            awk '{print $5}' | sed 's/:.*//' | sort -u | while read -r ip; do
+                # YAML에서 해당 IP의 ssh_user 찾기
+                user="stcx"
+                if [[ -f "$CONFIG_PATH" ]]; then
+                    u=$(python3 -c "
+import yaml
+with open('$CONFIG_PATH') as f:
+    c = yaml.safe_load(f)
+nodes = c.get('nodes', {})
+for section in ['compute_nodes','viz_nodes']:
+    for n in nodes.get(section,[]):
+        if n.get('ip_address') == '$ip':
+            print(n.get('ssh_user','stcx'))
+            exit()
+" 2>/dev/null)
+                    [[ -n "$u" ]] && user="$u"
+                fi
+                echo "${user}@${ip}"
+            done)
+        if [[ -z "$NODE_IPS" ]]; then
+            log_info "현재 열린 SSH 세션 없음 — 원격 정리 스킵"
+            log_info "(전체 노드 정리하려면 --remote-all 사용)"
+            exit 0
+        fi
+    fi
 
     SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR"
 
