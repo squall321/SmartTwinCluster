@@ -31,7 +31,7 @@ source venv/bin/activate
 # MOCK_MODE 환경변수 상속 (start_all.sh에서 설정됨)
 export MOCK_MODE=${MOCK_MODE:-false}
 
-nohup python3 websocket_server_enhanced.py > websocket.log 2>&1 &
+nohup "$SCRIPT_DIR/venv/bin/python3" websocket_server_enhanced.py > websocket.log 2>&1 &
 echo $! > .websocket.pid
 sleep 2
 
