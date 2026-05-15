@@ -99,11 +99,12 @@ ensure_venv() {
 
     # 1) requirements.txt 그대로 (핀 일치 시)
     if [ -f requirements.txt ]; then
-        $PIP install --no-index $FL -r requirements.txt && return 0
-        echo -e "\033[1;33m   • requirements 핀 불일치 → 누락 모듈만 설치 시도\033[0m"
+        $PIP install --no-index $FL -r requirements.txt 2>&1 | tail -5
+        echo -e "\033[1;33m   • requirements 결과와 무관하게 요청 모듈 강제 설치 (venv 정상화)\033[0m"
     fi
-    # 2) 핀 무시하고 누락 모듈만 (오프라인)
-    $PIP install --no-index $FL "${missing[@]}" && return 0
-    # 3) 마지막 시도: 온라인 fallback
-    $PIP install $FL "${missing[@]}"
+    # 2) 요청된 모듈은 항상 venv에 강제 설치 (check를 통과했더라도 시스템 패키지 잡혔을 수 있음)
+    $PIP install --no-index --upgrade $FL "${missing[@]}" 2>&1 | tail -5
+    # 3) 못 받은 모듈 마지막 시도: 온라인 fallback
+    $PIP install --upgrade $FL "${missing[@]}" 2>&1 | tail -5
+    return 0
 }
