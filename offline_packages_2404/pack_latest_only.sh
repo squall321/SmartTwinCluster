@@ -72,6 +72,41 @@ TOTAL=$(du -cb $(sed 's|^|'"$SCRIPT_DIR"/'|' "$FILELIST" 2>/dev/null) 2>/dev/nul
 echo -e "${YELLOW}  → 최종 ${COUNT}개, $(numfmt --to=iec ${TOTAL:-0})${NC}"
 [ "$COUNT" -eq 0 ] && { echo "대상 없음"; exit 0; }
 
+# 패치 적용 스크립트(tar에 포함될 것) 생성
+PATCH_SH="${SCRIPT_DIR}/apt_packages/apply_patch.sh"
+cat > "$PATCH_SH" <<'PATCHEOF'
+#!/bin/bash
+# 패치 tar 풀고 난 뒤 실행: 로컬 APT 저장소 인덱스 재생성 + apt update
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+[[ $EUID -ne 0 ]] && { echo "❌ sudo 필요: sudo $0"; exit 1; }
+echo "📂 위치: $SCRIPT_DIR"
+echo "🔧 dpkg-dev 확인..."
+command -v dpkg-scanpackages >/dev/null || apt-get install -y --no-download --ignore-missing dpkg-dev 2>/dev/null \
+    || dpkg -i $(ls /var/cache/apt/archives/dpkg-dev*.deb 2>/dev/null | tail -1) 2>/dev/null || true
+echo "📦 Packages 인덱스 재생성..."
+dpkg-scanpackages . /dev/null > Packages
+gzip -9c Packages > Packages.gz
+chmod 644 Packages Packages.gz
+echo "🔄 apt-get update..."
+REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
+if [ ! -f "$REPO_LIST" ]; then
+    echo "deb [trusted=yes] file://$SCRIPT_DIR ./" | tee "$REPO_LIST" >/dev/null
+fi
+apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" \
+    -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" 2>/dev/null \
+    || apt-get update
+echo "✅ 패치 적용 완료. 이제 apt install <pkg> 시 최신 버전 .deb 사용 가능"
+echo ""
+echo "예시 검증:"
+echo "  apt-cache policy libcurl4t64 libc6 python3.12 | grep -A1 ^[a-z]"
+PATCHEOF
+chmod +x "$PATCH_SH"
+
+# 파일 목록에 패치 스크립트 추가
+echo "apt_packages/apply_patch.sh" >> "$FILELIST"
+
 PREFIX="${OUT_DIR}/offline_2404_latest_${TS}.tar.gz.part-"
 echo -e "${BLUE}📦 압축 → ${PREFIX}*${NC}"
 tar -C "$SCRIPT_DIR" -cf - -T "$FILELIST" \
@@ -91,6 +126,6 @@ cat <<INFO
 🔗 오프라인 서버에서:
    cd offline_packages_2404
    cat dist/offline_2404_latest_${TS}.tar.gz.part-* | tar -xzf -
-   # 기존 apt_packages 위에 풀려서 최신 버전 .deb 추가됨
-   # 구버전 .deb는 그대로 남지만 install_offline_packages.sh가 최신 선택
+   sudo ./apt_packages/apply_patch.sh    # Packages.gz 재생성 + apt update
+   # 이후 sudo apt install <pkg> 가 최신 .deb 자동 사용
 INFO
