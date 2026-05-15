@@ -103,6 +103,14 @@ parse_args() {
                 SKIP_CONFIRM=true
                 shift
                 ;;
+            --start-from)
+                RESOLVE_START_FROM="$2"
+                shift 2
+                ;;
+            --jobs|-j)
+                RESOLVE_JOBS="$2"
+                shift 2
+                ;;
             --help)
                 show_help
                 ;;
@@ -1010,23 +1018,48 @@ download_packages() {
         apt-get install -y apt-rdepends
     fi
 
-    for package in "${SELECTED_PACKAGES[@]}"; do
-        # Skip failed packages
-        if [[ " ${failed_packages[@]} " =~ " ${package} " ]]; then
-            continue
-        fi
+    # 병렬 의존성 해석 + 다운로드 (xargs -P)
+    local par_jobs="${RESOLVE_JOBS:-8}"
+    log_info "  의존성 해석 병렬 실행: ${par_jobs} 스레드"
 
-        log_info "  Resolving dependencies for: $package"
+    # 실패 패키지 제외 후 stdin으로 전달
+    local pkg_in
+    pkg_in=$(printf '%s\n' "${SELECTED_PACKAGES[@]}" \
+        | grep -vxF -f <(printf '%s\n' "${failed_packages[@]}") 2>/dev/null \
+        || printf '%s\n' "${SELECTED_PACKAGES[@]}")
 
-        # Get all dependencies
-        local deps=$(apt-rdepends "$package" 2>/dev/null | grep -v "^ " | grep -v "^$package$" || true)
+    # 알파벳 시작점 필터 (RESOLVE_START_FROM=n 이면 n* 이후만, 'mq'면 그 이후)
+    if [[ -n "${RESOLVE_START_FROM:-}" ]]; then
+        log_info "  시작점 필터: '${RESOLVE_START_FROM}' 이후 패키지만 처리"
+        pkg_in=$(printf '%s\n' "$pkg_in" | awk -v cut="$RESOLVE_START_FROM" '$0 >= cut')
+        log_info "  필터 후 패키지 수: $(echo "$pkg_in" | grep -c .)"
+    fi
 
+    # 워커: 단일 패키지의 의존성 해석 + 다운로드
+    resolve_and_download() {
+        local pkg="$1"
+        local out_dir="$2"
+        cd "$out_dir" || return 1
+        local deps
+        deps=$(apt-rdepends "$pkg" 2>/dev/null | grep -v "^ " | grep -v "^$pkg$" || true)
         for dep in $deps; do
-            if [[ ! -f "${dep}_"*.deb ]]; then
-                apt-get download "$dep" 2>/dev/null || true
-            fi
+            # 이미 받은 파일 있으면 스킵 (race-safe: 중복 download는 무해)
+            compgen -G "${dep}_*.deb" >/dev/null 2>&1 && continue
+            apt-get download "$dep" 2>/dev/null || true
         done
-    done
+        echo "  ✓ $pkg"
+    }
+    export -f resolve_and_download
+    export OUTPUT_DIR
+
+    # GNU parallel이 있으면 그쪽, 없으면 xargs -P
+    if command -v parallel >/dev/null 2>&1; then
+        echo "$pkg_in" | parallel -j "$par_jobs" --no-notice \
+            "resolve_and_download {} '$OUTPUT_DIR'"
+    else
+        echo "$pkg_in" | xargs -n1 -P "$par_jobs" -I{} \
+            bash -c 'resolve_and_download "$1" "$2"' _ {} "$OUTPUT_DIR"
+    fi
 
     cd - > /dev/null
 
