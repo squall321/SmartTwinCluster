@@ -56,6 +56,21 @@ fi
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 echo -e "\033[0;34m🌐 외부 접속 IP: $HOST_IP\033[0m"
 
+# 시스템 python venv 패키지 보장 (24.04에서 venv 재생성 가능하게)
+if ! /usr/bin/python3 -c "import ensurepip" 2>/dev/null; then
+    SYS_PY=$(/usr/bin/python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    echo -e "\033[1;33m🔧 python${SYS_PY}-venv 미설치 → offline dpkg 설치\033[0m"
+    APT_DIR="${REPO_ROOT}/offline_packages_2404/apt_packages"
+    [ ! -d "$APT_DIR" ] && APT_DIR="${REPO_ROOT}/offline_packages/apt_packages"
+    if [ -d "$APT_DIR" ]; then
+        sudo dpkg -i $(ls "$APT_DIR"/python3-pip-whl_*.deb 2>/dev/null | tail -1) \
+                    $(ls "$APT_DIR"/python${SYS_PY}-venv_*.deb 2>/dev/null | tail -1) \
+                    $(ls "$APT_DIR"/python3-venv_*.deb 2>/dev/null | tail -1) 2>/dev/null \
+            && echo -e "\033[0;32m   ✓ venv 패키지 설치 완료\033[0m" \
+            || echo -e "\033[0;31m   ⚠️ venv 패키지 설치 실패 — apt install python${SYS_PY}-venv 수동 시도\033[0m"
+    fi
+fi
+
 echo "=========================================="
 echo "🚀 모든 서버 시작 (Production Mode)"
 echo "=========================================="

@@ -15,23 +15,7 @@ ensure_venv() {
 
     echo -e "\033[1;33m⚠️  누락된 모듈: ${missing[*]} → 오프라인 휠로 설치 시도\033[0m"
 
-    # pip 자체가 깨져 있으면 ensurepip / get-pip / venv 재생성
-    if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo -e "\033[1;33m   • pip 깨짐 → ensurepip로 복구\033[0m"
-        if ! python3 -m ensurepip --upgrade >/dev/null 2>&1; then
-            echo -e "\033[1;33m   • ensurepip 실패 → venv 재생성\033[0m"
-            local venv_dir="$(dirname "$(dirname "$(command -v python3)")")"
-            # venv_dir가 ./venv를 가리키는지 검증
-            if [[ "$venv_dir" == *"/venv" ]]; then
-                deactivate 2>/dev/null || true
-                rm -rf "$venv_dir"
-                python3 -m venv "$venv_dir" || /usr/bin/python3 -m venv "$venv_dir"
-                source "$venv_dir/bin/activate"
-            fi
-        fi
-    fi
-
-    # OFFLINE_PKG_DIR 또는 자동 탐색
+    # offline_packages 자동 탐색
     local pkg_dir="${OFFLINE_PKG_DIR:-}"
     if [ -z "$pkg_dir" ]; then
         for candidate in \
@@ -47,12 +31,39 @@ ensure_venv() {
         return 1
     fi
 
+    local apt_dir="$pkg_dir/apt_packages"
+    local sys_py_ver=$(/usr/bin/python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+
+    # 시스템 python3-venv / pip-whl 보장 (ensurepip 동작에 필수)
+    if ! /usr/bin/python3 -c "import ensurepip" 2>/dev/null; then
+        echo -e "\033[1;33m   • python${sys_py_ver}-venv 미설치 → offline dpkg 설치\033[0m"
+        if [ -d "$apt_dir" ]; then
+            sudo dpkg -i $(ls "$apt_dir"/python3-pip-whl_*.deb 2>/dev/null | tail -1) \
+                        $(ls "$apt_dir"/python${sys_py_ver}-venv_*.deb 2>/dev/null | tail -1) \
+                        $(ls "$apt_dir"/python3-venv_*.deb 2>/dev/null | tail -1) 2>/dev/null || true
+        fi
+    fi
+
+    # venv 깨짐(activate/pip 없음) 감지 → 재생성
+    local venv_dir="$(cd "$(dirname "${BASH_SOURCE[1]:-$0}")" && pwd)/venv"
+    [ ! -d "$venv_dir" ] && venv_dir="$(pwd)/venv"
+    if [ ! -f "$venv_dir/bin/activate" ] || ! "$venv_dir/bin/python3" -m pip --version >/dev/null 2>&1; then
+        echo -e "\033[1;33m   • venv 깨짐 → 재생성: $venv_dir\033[0m"
+        deactivate 2>/dev/null || true
+        sudo rm -rf "$venv_dir"
+        /usr/bin/python3 -m venv "$venv_dir" || { echo -e "\033[0;31m❌ venv 생성 실패\033[0m"; return 1; }
+        # 소유자 원복 (sudo 실행이었을 경우)
+        local owner="${SUDO_USER:-$(whoami)}"
+        sudo chown -R "$owner":"$owner" "$venv_dir" 2>/dev/null || true
+        source "$venv_dir/bin/activate"
+    fi
+
     local py_ver=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')")
     local wheels="$pkg_dir/python_wheels/python${py_ver}"
     [ ! -d "$wheels" ] && wheels="$pkg_dir/python_wheels"
 
-    # pip 명령 대신 python3 -m pip 사용 (pip 스크립트가 깨져도 동작)
-    local PIP="python3 -m pip"
+    # venv 내부의 pip 사용 (시스템 PEP 668 회피)
+    local PIP="$venv_dir/bin/python3 -m pip"
     if [ -f requirements.txt ]; then
         $PIP install --no-index --find-links="$wheels" -r requirements.txt && return 0
         $PIP install --find-links="$wheels" -r requirements.txt && return 0
