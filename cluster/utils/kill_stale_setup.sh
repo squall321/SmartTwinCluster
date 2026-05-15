@@ -50,16 +50,39 @@ echo " 클러스터 설치 잔여 프로세스 정리"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# 현재 프로세스의 조상 PID 목록 수집 (자기 자신 + 모든 부모)
+get_ancestor_pids() {
+    local pid=$$
+    local ancestors="$pid"
+    while true; do
+        local ppid
+        ppid=$(awk '{print $4}' /proc/$pid/stat 2>/dev/null || echo 1)
+        [[ "$ppid" -le 1 ]] && break
+        ancestors="$ancestors $ppid"
+        pid=$ppid
+    done
+    echo "$ancestors"
+}
+ANCESTOR_PIDS=$(get_ancestor_pids)
+
+safe_to_kill() {
+    local pid="$1"
+    for ancestor in $ANCESTOR_PIDS; do
+        [[ "$pid" == "$ancestor" ]] && return 1
+    done
+    return 0
+}
+
 # ── 1. 로컬: phase*.sh 백그라운드 프로세스 ────────────────────────────────────
 log_info "[로컬] phase 설치 스크립트 프로세스..."
 killed=0
 while IFS= read -r line; do
     pid=$(echo "$line" | awk '{print $1}')
     cmd=$(echo "$line" | awk '{$1=""; print $0}' | xargs)
-    [[ "$pid" == "$$" || "$pid" == "$PPID" ]] && continue
+    safe_to_kill "$pid" || continue
     do_kill "$pid" "$cmd"
     killed=$((killed+1))
-done < <(pgrep -af "phase[0-9].*\.sh|setup_cluster_full|start_multihead" 2>/dev/null | grep -v "$$\|kill_stale" || true)
+done < <(pgrep -af "phase[0-9].*\.sh|setup_cluster_full|start_multihead" 2>/dev/null | grep -v "kill_stale" || true)
 [[ $killed -eq 0 ]] && log_success "없음"
 
 # ── 2. 로컬: sshpass / ssh to cluster nodes ────────────────────────────────────
