@@ -1,11 +1,48 @@
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+# --config <yaml> 옵션 (기본: my_multihead_cluster.yaml)
+CLUSTER_YAML="${REPO_ROOT}/my_multihead_cluster.yaml"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config)
+            CLUSTER_YAML="$2"
+            shift 2
+            ;;
+        --config=*)
+            CLUSTER_YAML="${1#*=}"
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--config <cluster.yaml>]"
+            echo "  --config <path>   클러스터 YAML 경로 (기본: my_multihead_cluster.yaml)"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# 상대경로면 절대경로 변환
+[[ "$CLUSTER_YAML" != /* ]] && CLUSTER_YAML="$(cd "$(dirname "$CLUSTER_YAML")" && pwd)/$(basename "$CLUSTER_YAML")"
+
+if [ ! -f "$CLUSTER_YAML" ]; then
+    echo -e "\033[0;31m❌ 클러스터 YAML을 찾을 수 없음: $CLUSTER_YAML\033[0m"
+    exit 1
+fi
+
+export CLUSTER_YAML_PATH="$CLUSTER_YAML"
+export CLUSTER_CONFIG_PATH="$CLUSTER_YAML"
+echo -e "\033[0;34m📄 Cluster YAML: $CLUSTER_YAML\033[0m"
 
 echo "=========================================="
 echo "🚀 모든 서버 시작 (Production Mode)"
@@ -182,12 +219,17 @@ echo "=========================================="
 echo "✅ 모든 서버 시작 완료!"
 echo "=========================================="
 echo ""
-echo "🔗 접속 정보:"
-echo "  Frontend:  http://localhost:3010"
-echo "  Backend:   http://localhost:5010"
-echo "  WebSocket: ws://localhost:5011/ws"
-echo "  Node Exporter: http://localhost:9100/metrics"
-echo "  Prometheus: http://localhost:9090"
+HOST_IP="$(hostname -I | awk '{print $1}')"
+[ -z "$HOST_IP" ] && HOST_IP="localhost"
+echo "🔗 접속 정보 (외부 접속용):"
+echo "  Frontend:  http://${HOST_IP}:3010"
+echo "  Backend:   http://${HOST_IP}:5010"
+echo "  WebSocket: ws://${HOST_IP}:5011/ws"
+echo "  Node Exporter: http://${HOST_IP}:9100/metrics"
+echo "  Prometheus: http://${HOST_IP}:9090"
+echo ""
+echo "💡 외부 접속이 안 되면 방화벽 확인:"
+echo "   sudo ufw allow 3010,5010,5011,9090,9100/tcp"
 echo ""
 echo "🎯 모드: 🚀 Production (MOCK_MODE=false)"
 echo "   - 실제 Slurm 명령 실행"

@@ -132,9 +132,12 @@ def get_partition_nodes_from_yaml():
     """YAML 설정에서 파티션별 대표 노드 가져오기"""
     partition_nodes = {'compute': None, 'viz': None}
     yaml_paths = [
+        os.getenv('CLUSTER_YAML_PATH', ''),
+        os.getenv('CLUSTER_CONFIG_PATH', ''),
         os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
         '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
     ]
+    yaml_paths = [p for p in yaml_paths if p]
     for yaml_path in yaml_paths:
         if os.path.exists(yaml_path):
             try:
