@@ -56,6 +56,23 @@ fi
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 echo -e "\033[0;34m🌐 외부 접속 IP: $HOST_IP\033[0m"
 
+# 오프라인 APT 저장소 보장 (의존성 해결용)
+ensure_offline_apt_repo() {
+    local repo_list="/etc/apt/sources.list.d/offline-local.list"
+    [ -f "$repo_list" ] && return 0
+    local apt_dir=""
+    for d in "${REPO_ROOT}/offline_packages_2404/apt_packages" "${REPO_ROOT}/offline_packages/apt_packages"; do
+        [ -f "$d/Packages.gz" ] && apt_dir="$d" && break
+    done
+    [ -z "$apt_dir" ] && { echo -e "\033[1;33m⚠️ 오프라인 apt 저장소 디렉토리 없음 (Packages.gz)\033[0m"; return 1; }
+    echo -e "\033[0;34m📦 오프라인 APT 저장소 등록: $apt_dir\033[0m"
+    echo "deb [trusted=yes] file://$apt_dir ./" | sudo tee "$repo_list" >/dev/null
+    sudo apt-get update -o Dir::Etc::sourcelist="$repo_list" \
+        -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" 2>/dev/null \
+        || sudo apt-get update 2>/dev/null || true
+}
+ensure_offline_apt_repo
+
 # 시스템 python venv 패키지 보장 (24.04에서 venv 재생성 가능하게)
 if ! /usr/bin/python3 -c "import ensurepip" 2>/dev/null; then
     SYS_PY=$(/usr/bin/python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')")
