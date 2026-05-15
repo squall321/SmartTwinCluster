@@ -27,7 +27,7 @@ fi
 # venv 없거나 깨졌으면 ensure_venv가 재생성
 source "$SCRIPT_DIR/../common/ensure_venv.sh" 2>/dev/null
 [ -f "venv/bin/activate" ] && source venv/bin/activate
-ensure_venv aiohttp aiohttp_cors
+ensure_venv aiohttp aiohttp_cors flask jwt:PyJWT prometheus_client yaml:PyYAML
 [ -f "venv/bin/activate" ] && source venv/bin/activate
 
 # MOCK_MODE 환경변수 상속 (start_all.sh에서 설정됨)
