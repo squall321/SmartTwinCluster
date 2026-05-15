@@ -273,7 +273,18 @@ echo "=========================================="
 echo "✅ 모든 서버 시작 완료!"
 echo "=========================================="
 echo ""
-HOST_IP="$(hostname -I | awk '{print $1}')"
+# 외부 접속 IP: YAML public_url 우선, 없으면 hostname -I
+HOST_IP=""
+if command -v python3 >/dev/null 2>&1; then
+    HOST_IP=$(python3 -c "
+import yaml
+try:
+    with open('$CLUSTER_YAML') as f: c = yaml.safe_load(f)
+    print(c.get('access', {}).get('public_url') or c.get('public_url') or '', end='')
+except Exception: pass
+" 2>/dev/null)
+fi
+[ -z "$HOST_IP" ] && HOST_IP="$(hostname -I | awk '{print $1}')"
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 echo "🔗 접속 정보 (외부 접속용):"
 echo "  Frontend:  http://${HOST_IP}:3010"
