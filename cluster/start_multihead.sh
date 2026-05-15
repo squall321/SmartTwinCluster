@@ -945,7 +945,7 @@ main() {
     local kill_stale="$SCRIPT_DIR/utils/kill_stale_setup.sh"
     if [[ -f "$kill_stale" ]]; then
         log_info "이전 설치 잔여 프로세스 정리 중..."
-        bash "$kill_stale" --config "$(basename "$CONFIG_PATH")" 2>/dev/null || true
+        bash "$kill_stale" --config "$(basename "$CONFIG_PATH")" --remote 2>/dev/null || true
         echo ""
     fi
 

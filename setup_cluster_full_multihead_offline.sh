@@ -502,7 +502,7 @@ echo ""
 
 KILL_STALE_SCRIPT="$SCRIPT_DIR/cluster/utils/kill_stale_setup.sh"
 if [[ -f "$KILL_STALE_SCRIPT" ]]; then
-    bash "$KILL_STALE_SCRIPT" --config "$CONFIG_FILE" || true
+    bash "$KILL_STALE_SCRIPT" --config "$CONFIG_FILE" --remote || true
 else
     log_warning "kill_stale_setup.sh 없음 — 잔여 프로세스 정리 스킵"
 fi
