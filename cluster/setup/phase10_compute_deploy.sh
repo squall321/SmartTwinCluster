@@ -576,7 +576,10 @@ if [[ -f "$SLURMD_SERVICE" ]]; then
 fi
 
 if true; then
-    run_sudo tee "$SLURMD_SERVICE" > /dev/null << 'EOFSVC'
+    # run_sudo tee << heredoc 패턴은 echo "$SUDO_PASS" | pipe가 heredoc stdin을 가로채서
+    # 비밀번호가 파일에 쓰이는 버그 발생 → /tmp 임시파일로 먼저 쓰고 sudo mv
+    _svc_tmp="/tmp/slurmd.service.tmp.$$"
+    cat > "$_svc_tmp" << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
 After=network-online.target munge.service
@@ -588,7 +591,7 @@ Type=simple
 ExecStartPre=/bin/mkdir -p /run/slurm
 ExecStartPre=/bin/chown slurm:slurm /run/slurm
 ExecStart=/usr/local/slurm/sbin/slurmd -D
-ExecReload=/bin/kill -HUP \$MAINPID
+ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
 LimitNOFILE=131072
 LimitMEMLOCK=unlimited
@@ -598,6 +601,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOFSVC
+    run_sudo mv "$_svc_tmp" "$SLURMD_SERVICE"
+    run_sudo chmod 644 "$SLURMD_SERVICE"
     run_sudo systemctl daemon-reload
     echo "  ✓ slurmd.service created/updated"
 fi
