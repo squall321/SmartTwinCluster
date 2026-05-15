@@ -8,27 +8,24 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# --config <yaml> 옵션 (기본: my_multihead_cluster.yaml)
+# 옵션 파싱
 CLUSTER_YAML="${REPO_ROOT}/my_multihead_cluster.yaml"
+BUILD_MODE="auto"   # auto | force | skip
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --config)
-            CLUSTER_YAML="$2"
-            shift 2
-            ;;
-        --config=*)
-            CLUSTER_YAML="${1#*=}"
-            shift
-            ;;
+        --config)        CLUSTER_YAML="$2"; shift 2 ;;
+        --config=*)      CLUSTER_YAML="${1#*=}"; shift ;;
+        --force-build)   BUILD_MODE="force"; shift ;;
+        --skip-build)    BUILD_MODE="skip"; shift ;;
         -h|--help)
-            echo "Usage: $0 [--config <cluster.yaml>]"
-            echo "  --config <path>   클러스터 YAML 경로 (기본: my_multihead_cluster.yaml)"
+            echo "Usage: $0 [--config <cluster.yaml>] [--force-build|--skip-build]"
+            echo "  --config <path>   클러스터 YAML (기본: my_multihead_cluster.yaml)"
+            echo "  --force-build     변경 여부와 무관하게 모든 프론트엔드 빌드"
+            echo "  --skip-build      빌드 감지 스킵 (기존 dist 사용)"
+            echo "  (기본) auto       src 변경 감지 시 자동 빌드"
             exit 0
             ;;
-        *)
-            echo "Unknown option: $1" >&2
-            exit 1
-            ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
 
@@ -48,6 +45,50 @@ echo "=========================================="
 echo "🚀 모든 서버 시작 (Production Mode)"
 echo "=========================================="
 echo ""
+
+# ── 프론트엔드 빌드 변경 감지 ──────────────────────────────────────
+# 비교 대상: dist/index.html mtime vs src/, package.json, vite.config.* 최신
+needs_rebuild() {
+    local dir="$1"
+    [ ! -d "$dir/dist" ] && return 0
+    [ ! -f "$dir/dist/index.html" ] && return 0
+    local dist_ts; dist_ts=$(stat -c %Y "$dir/dist/index.html" 2>/dev/null || echo 0)
+    local newest_src; newest_src=$(find "$dir/src" "$dir/index.html" "$dir/package.json" \
+        "$dir/vite.config.ts" "$dir/vite.config.js" "$dir/tailwind.config.js" "$dir/tsconfig.json" \
+        -type f -newer "$dir/dist/index.html" -print -quit 2>/dev/null)
+    [ -n "$newest_src" ] && return 0
+    return 1
+}
+
+if [ "$BUILD_MODE" != "skip" ]; then
+    FRONTENDS=("auth_portal_4431" "frontend_3010" "vnc_service_8002" "moonlight_frontend_8003" "kooCAEWeb_5173" "app_5174")
+    TO_BUILD=()
+    if [ "$BUILD_MODE" = "force" ]; then
+        TO_BUILD=("${FRONTENDS[@]}")
+        echo -e "${YELLOW}🔨 --force-build: 모든 프론트엔드 빌드 강제${NC}"
+    else
+        echo -e "${BLUE}🔍 프론트엔드 빌드 변경 감지 중...${NC}"
+        for fe in "${FRONTENDS[@]}"; do
+            [ ! -d "${SCRIPT_DIR}/${fe}" ] && continue
+            if needs_rebuild "${SCRIPT_DIR}/${fe}"; then
+                TO_BUILD+=("$fe")
+                echo -e "${YELLOW}   • ${fe}: 변경 감지${NC}"
+            else
+                echo -e "${GREEN}   • ${fe}: 최신${NC}"
+            fi
+        done
+    fi
+    if [ ${#TO_BUILD[@]} -gt 0 ]; then
+        echo -e "${BLUE}🔨 빌드 실행: ${TO_BUILD[*]}${NC}"
+        for fe in "${TO_BUILD[@]}"; do
+            "${SCRIPT_DIR}/build_all_frontends.sh" --frontend "$fe" || {
+                echo -e "${RED}❌ ${fe} 빌드 실패${NC}"; exit 1; }
+        done
+        echo -e "${GREEN}✅ 빌드 완료${NC}"
+    fi
+    echo ""
+fi
+# ────────────────────────────────────────────────────────────────
 echo "🎯 모드: Production (실제 Slurm 명령 실행)"
 echo "   - Backend: MOCK_MODE=false"
 echo "   - WebSocket: MOCK_MODE=false"
