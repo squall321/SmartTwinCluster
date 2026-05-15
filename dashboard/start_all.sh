@@ -103,10 +103,46 @@ if [ "$BUILD_MODE" != "skip" ]; then
 fi
 # ────────────────────────────────────────────────────────────────
 
-# ── Nginx 443 보장 (sites-enabled 심볼릭 + 시작/리로드) ────────────
+# ── Nginx 443 보장 (sites-enabled 심볼릭 + SSL 인증서 + 시작/리로드) ────
 echo -e "${BLUE}🔧 Nginx 443 상태 확인...${NC}"
 NGINX_CONF_SRC="${SCRIPT_DIR}/nginx/hpc-portal.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/hpc-portal.conf"
+SELF_SIGNED_SNIPPET="/etc/nginx/snippets/self-signed.conf"
+SSL_PARAMS_SNIPPET="/etc/nginx/snippets/ssl-params.conf"
+SS_CRT="/etc/ssl/certs/nginx-selfsigned.crt"
+SS_KEY="/etc/ssl/private/nginx-selfsigned.key"
+SS_DH="/etc/nginx/dhparam.pem"
+
+# 자체서명 인증서 + 스니펫 자동 생성
+if [ ! -f "$SS_CRT" ] || [ ! -f "$SS_KEY" ]; then
+    echo -e "${YELLOW}   • 자체서명 인증서 생성 (${HOST_IP})...${NC}"
+    sudo mkdir -p /etc/ssl/private /etc/nginx/snippets
+    sudo openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
+        -keyout "$SS_KEY" -out "$SS_CRT" \
+        -subj "/C=KR/ST=Local/L=Local/O=HPC/CN=${HOST_IP}" \
+        -addext "subjectAltName=IP:${HOST_IP},DNS:localhost" 2>/dev/null \
+        && echo -e "${GREEN}   ✓ 인증서 생성: $SS_CRT${NC}"
+fi
+if [ ! -f "$SELF_SIGNED_SNIPPET" ]; then
+    echo -e "${YELLOW}   • self-signed.conf 스니펫 생성${NC}"
+    sudo tee "$SELF_SIGNED_SNIPPET" >/dev/null <<EOF
+ssl_certificate $SS_CRT;
+ssl_certificate_key $SS_KEY;
+EOF
+fi
+if [ ! -f "$SSL_PARAMS_SNIPPET" ]; then
+    echo -e "${YELLOW}   • ssl-params.conf 스니펫 생성${NC}"
+    sudo tee "$SSL_PARAMS_SNIPPET" >/dev/null <<'EOF'
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers on;
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+ssl_ecdh_curve secp384r1;
+ssl_session_timeout 10m;
+ssl_session_cache shared:SSL:10m;
+ssl_session_tickets off;
+EOF
+fi
+
 if [ ! -L "$NGINX_ENABLED" ] && [ ! -f "$NGINX_ENABLED" ]; then
     echo -e "${YELLOW}   • sites-enabled 미연결 → setup_nginx_symlink.sh 실행${NC}"
     sudo "${SCRIPT_DIR}/setup_nginx_symlink.sh" || echo -e "${RED}   ⚠️ nginx symlink 설정 실패${NC}"
