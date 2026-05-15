@@ -13,8 +13,12 @@ JOBS="${2:-8}"
 
 VM_USER="ubuntu"
 VM_NAME="noble-pkg-collector"
-SSH_PRIVATE_KEY="${HOME}/.ssh/vm-pkg-collector"
-[ -n "$SUDO_USER" ] && SSH_PRIVATE_KEY="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.ssh/vm-pkg-collector"
+# prepare 스크립트와 동일한 키 사용 (~/.ssh/id_rsa)
+REAL_HOME="${HOME}"
+[ -n "$SUDO_USER" ] && REAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-${REAL_HOME}/.ssh/id_rsa}"
+[ ! -f "$SSH_PRIVATE_KEY" ] && { echo "SSH 키 없음: $SSH_PRIVATE_KEY"; exit 1; }
+echo "SSH key: $SSH_PRIVATE_KEY"
 
 [[ $EUID -ne 0 ]] && { echo "sudo 필요"; exit 1; }
 
