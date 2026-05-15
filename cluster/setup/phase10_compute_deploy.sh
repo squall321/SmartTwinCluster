@@ -405,6 +405,11 @@ deploy_to_node() {
 
     log_success "[$node_hostname] Packages transferred"
 
+    # 오염된 slurmd.service 사전 삭제 (비밀번호가 들어간 이전 파일 제거)
+    $ssh_cmd "$node_user@$node_ip" \
+        "sudo rm -f /etc/systemd/system/slurmd.service && sudo systemctl daemon-reload 2>/dev/null" \
+        2>/dev/null || true
+
     # Remote installation
     log_info "[$node_hostname] Installing packages..."
 
