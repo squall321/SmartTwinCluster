@@ -7,10 +7,21 @@
 # 가정: 호출 직전에 cd "$SCRIPT_DIR" + source venv/bin/activate 완료 상태
 
 ensure_venv() {
+    local script_dir="$(pwd)"
+    local venv_dir="$script_dir/venv"
+    # venv 있으면 활성화 후 모듈 검사
+    if [ -f "$venv_dir/bin/activate" ]; then
+        source "$venv_dir/bin/activate" 2>/dev/null || true
+    fi
     local missing=()
-    for mod in "$@"; do
-        python3 -c "import ${mod//-/_}" 2>/dev/null || missing+=("$mod")
-    done
+    if [ -f "$venv_dir/bin/python3" ]; then
+        for mod in "$@"; do
+            "$venv_dir/bin/python3" -c "import ${mod//-/_}" 2>/dev/null || missing+=("$mod")
+        done
+    else
+        # venv 자체가 없으면 전부 누락 취급
+        missing=("$@")
+    fi
     [ ${#missing[@]} -eq 0 ] && return 0
 
     echo -e "\033[1;33m⚠️  누락된 모듈: ${missing[*]} → 오프라인 휠로 설치 시도\033[0m"
@@ -43,7 +54,10 @@ ensure_venv() {
                 local f=$(ls "$apt_dir"/$pat 2>/dev/null | tail -1)
                 [ -n "$f" ] && debs+=("$f")
             done
-            [ ${#debs[@]} -gt 0 ] && sudo apt install -y "${debs[@]}" || true
+            if [ ${#debs[@]} -gt 0 ]; then
+                sudo apt install -y "${debs[@]}" 2>/dev/null \
+                    || sudo dpkg -i --force-depends "${debs[@]}" 2>/dev/null || true
+            fi
         fi
     fi
 

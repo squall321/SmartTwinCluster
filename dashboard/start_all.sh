@@ -86,9 +86,13 @@ if ! /usr/bin/python3 -c "import ensurepip" 2>/dev/null; then
             [ -n "$f" ] && VENV_DEBS+=("$f")
         done
         if [ ${#VENV_DEBS[@]} -gt 0 ]; then
-            sudo apt install -y "${VENV_DEBS[@]}" \
-                && echo -e "\033[0;32m   ✓ venv 패키지 설치 완료${NC}\033[0m" \
-                || echo -e "\033[0;31m   ⚠️ venv 패키지 설치 실패\033[0m"
+            if sudo apt install -y "${VENV_DEBS[@]}" 2>/dev/null; then
+                echo -e "\033[0;32m   ✓ venv 패키지 설치 완료 (apt)\033[0m"
+            elif sudo dpkg -i --force-depends "${VENV_DEBS[@]}" 2>/dev/null; then
+                echo -e "\033[0;32m   ✓ venv 패키지 설치 완료 (dpkg --force-depends)\033[0m"
+            else
+                echo -e "\033[0;31m   ⚠️ venv 패키지 설치 실패\033[0m"
+            fi
         fi
     fi
 fi
