@@ -1043,8 +1043,14 @@ download_packages() {
         local deps
         deps=$(apt-rdepends "$pkg" 2>/dev/null | grep -v "^ " | grep -v "^$pkg$" || true)
         for dep in $deps; do
-            # 이미 받은 파일 있으면 스킵 (race-safe: 중복 download는 무해)
-            compgen -G "${dep}_*.deb" >/dev/null 2>&1 && continue
+            # 후보 버전 조회 → 동일 버전 파일 있으면 스킵, 없으면 다운로드
+            local cand
+            cand=$(apt-cache policy "$dep" 2>/dev/null | awk '/Candidate:/{print $2}')
+            if [ -n "$cand" ] && [ "$cand" != "(none)" ]; then
+                # 파일명의 : → %3a, 기타 안전 변환
+                local ver_safe="${cand//:/%3a}"
+                compgen -G "${dep}_${ver_safe}_*.deb" >/dev/null 2>&1 && continue
+            fi
             apt-get download "$dep" 2>/dev/null || true
         done
         echo "  ✓ $pkg"
