@@ -102,6 +102,32 @@ if [ "$BUILD_MODE" != "skip" ]; then
     echo ""
 fi
 # ────────────────────────────────────────────────────────────────
+
+# ── Nginx 443 보장 (sites-enabled 심볼릭 + 시작/리로드) ────────────
+echo -e "${BLUE}🔧 Nginx 443 상태 확인...${NC}"
+NGINX_CONF_SRC="${SCRIPT_DIR}/nginx/hpc-portal.conf"
+NGINX_ENABLED="/etc/nginx/sites-enabled/hpc-portal.conf"
+if [ ! -L "$NGINX_ENABLED" ] && [ ! -f "$NGINX_ENABLED" ]; then
+    echo -e "${YELLOW}   • sites-enabled 미연결 → setup_nginx_symlink.sh 실행${NC}"
+    sudo "${SCRIPT_DIR}/setup_nginx_symlink.sh" || echo -e "${RED}   ⚠️ nginx symlink 설정 실패${NC}"
+fi
+if ! sudo systemctl is-active --quiet nginx; then
+    echo -e "${YELLOW}   • nginx 미실행 → 시작${NC}"
+    sudo systemctl enable --now nginx 2>/dev/null || sudo systemctl start nginx
+fi
+if sudo nginx -t 2>/dev/null; then
+    sudo systemctl reload nginx && echo -e "${GREEN}   ✓ nginx reload 완료${NC}"
+else
+    echo -e "${RED}   ⚠️ nginx 설정 오류 — sudo nginx -t 로 확인${NC}"
+fi
+if ss -tln 2>/dev/null | grep -qE ":443\s"; then
+    echo -e "${GREEN}   ✓ 443 LISTEN${NC}"
+else
+    echo -e "${RED}   ✗ 443 미점유 — 인증서/설정 확인 필요${NC}"
+fi
+echo ""
+# ────────────────────────────────────────────────────────────────
+
 echo "🎯 모드: Production (실제 Slurm 명령 실행)"
 echo "   - Backend: MOCK_MODE=false"
 echo "   - WebSocket: MOCK_MODE=false"
@@ -287,14 +313,12 @@ fi
 [ -z "$HOST_IP" ] && HOST_IP="$(hostname -I | awk '{print $1}')"
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 echo "🔗 접속 정보 (외부 접속용):"
-echo "  Frontend:  http://${HOST_IP}:3010"
-echo "  Backend:   http://${HOST_IP}:5010"
-echo "  WebSocket: ws://${HOST_IP}:5011/ws"
-echo "  Node Exporter: http://${HOST_IP}:9100/metrics"
-echo "  Prometheus: http://${HOST_IP}:9090"
+echo "  메인(SSO):   https://${HOST_IP}/        (→ /auth_portal/ 자동 진입)"
+echo "  Dashboard:  https://${HOST_IP}/dashboard/"
+echo "  (직접 포트) Frontend http://${HOST_IP}:3010 / Backend http://${HOST_IP}:5010"
 echo ""
 echo "💡 외부 접속이 안 되면 방화벽 확인:"
-echo "   sudo ufw allow 3010,5010,5011,9090,9100/tcp"
+echo "   sudo ufw allow 80,443,3010,5010,5011,9090,9100/tcp"
 echo ""
 echo "🎯 모드: 🚀 Production (MOCK_MODE=false)"
 echo "   - 실제 Slurm 명령 실행"
