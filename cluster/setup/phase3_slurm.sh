@@ -1818,6 +1818,9 @@ create_shared_directories() {
         run_command "mkdir -p $state_dir $log_dir $spool_dir"
         run_command "chown -R slurm:slurm $GLUSTER_MOUNT/slurm"
         run_command "chmod 755 $state_dir $log_dir $spool_dir"
+        # GlusterFS 마운트 타이밍으로 권한이 root로 돌아올 수 있어 재보정
+        chown -R slurm:slurm "$GLUSTER_MOUNT/slurm" 2>/dev/null || true
+        chmod 755 "$state_dir" "$log_dir" "$spool_dir" 2>/dev/null || true
 
         # Set paths for slurm.conf
         SLURM_STATE_DIR="$state_dir"
