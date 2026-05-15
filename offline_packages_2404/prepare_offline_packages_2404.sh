@@ -680,6 +680,14 @@ run_collection_in_vm() {
     if ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${VM_USER}@${VM_IP}" \
         "test -f ${remote_dir}/collect_apt_packages_2404.sh" &>/dev/null; then
 
+        # VM의 apt 인덱스 + 시스템을 최신으로 동기화 (production 시스템 버전과 매칭 위해)
+        log_info "VM apt 인덱스 갱신 및 시스템 업그레이드 (최신 archive 동기화)..."
+        ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "${VM_USER}@${VM_IP}" \
+            "sudo apt-get update -qq && \
+             sudo DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::='--force-confold' dist-upgrade" \
+            2>&1 | tail -10 || log_warning "VM dist-upgrade 일부 실패 (계속 진행)"
+        log_success "VM 시스템 업그레이드 완료"
+
         log_info "─── 6b. APT 패키지 수집 시작 (Clone-Host-List 모드) ───"
         log_info "이 작업은 1~3시간 소요될 수 있습니다 (호스트 ${host_count}개 + Ubuntu Desktop 메타패키지)..."
 
