@@ -5,6 +5,7 @@
 # 사용:
 #   sudo ./pack_latest_only.sh                 # apt_packages 전체에서 최신만
 #   sudo ./pack_latest_only.sh --updated-only  # 같은 패키지에 2개 이상 버전 있는 것만
+#   sudo ./pack_latest_only.sh --vs-packages   # Packages 파일 기준 더 신버전인 것만 (진짜 delta)
 ################################################################################
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,8 +14,9 @@ cd "$SCRIPT_DIR"
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; RED='\033[0;31m'; NC='\033[0m'
 [[ $EUID -ne 0 ]] && { echo -e "${RED}sudo 필요${NC}"; exit 1; }
 
-UPDATED_ONLY=false
-[[ "$1" == "--updated-only" ]] && UPDATED_ONLY=true
+MODE="all"   # all | updated-only | vs-packages
+[[ "$1" == "--updated-only" ]] && MODE="updated-only"
+[[ "$1" == "--vs-packages" ]] && MODE="vs-packages"
 
 APT_DIR="${SCRIPT_DIR}/apt_packages"
 [ ! -d "$APT_DIR" ] && { echo -e "${RED}apt_packages 없음${NC}"; exit 1; }
@@ -27,44 +29,62 @@ FILELIST="${OUT_DIR}/latest_only_${TS}.txt"
 # 각 .deb 파일명 → "패키지명_아키" 그룹화, 그룹 내 최신 버전(dpkg --compare-versions)만 선택
 echo -e "${BLUE}🔍 패키지별 최신 버전 선별 중 (총 $(ls "$APT_DIR"/*.deb 2>/dev/null | wc -l)개)...${NC}"
 
-python3 - "$APT_DIR" "$FILELIST" "$UPDATED_ONLY" <<'PYEOF'
+python3 - "$APT_DIR" "$FILELIST" "$MODE" <<'PYEOF'
 import os, sys, subprocess, re
 from collections import defaultdict
 
-apt_dir, out_file, updated_only_str = sys.argv[1], sys.argv[2], sys.argv[3]
-updated_only = updated_only_str == "true"
+apt_dir, out_file, mode = sys.argv[1], sys.argv[2], sys.argv[3]
 
-# 패턴: <pkg>_<version>_<arch>.deb
 pat = re.compile(r'^(.+?)_([^_]+)_([^_]+)\.deb$')
-groups = defaultdict(list)  # (pkg, arch) -> [(version, fname), ...]
-
+groups = defaultdict(list)
 for f in os.listdir(apt_dir):
     m = pat.match(f)
     if not m: continue
     pkg, ver, arch = m.group(1), m.group(2), m.group(3)
-    ver = ver.replace('%3a', ':')  # URL-encoded epoch
+    ver = ver.replace('%3a', ':')
     groups[(pkg, arch)].append((ver, f))
 
 def vcmp(a, b):
-    # dpkg --compare-versions a gt b → return 1 if a>b
     r = subprocess.run(['dpkg', '--compare-versions', a, 'gt', b], capture_output=True)
     return r.returncode == 0
 
+# Packages 파일에서 패키지명 → 등록된 버전 매핑
+packages_versions = {}
+pkg_file = os.path.join(apt_dir, 'Packages')
+if mode == 'vs-packages' and os.path.exists(pkg_file):
+    cur_pkg = cur_ver = cur_arch = None
+    with open(pkg_file) as f:
+        for line in f:
+            line = line.rstrip()
+            if line.startswith('Package: '): cur_pkg = line[9:]
+            elif line.startswith('Version: '): cur_ver = line[9:]
+            elif line.startswith('Architecture: '): cur_arch = line[14:]
+            elif line == '':
+                if cur_pkg and cur_ver:
+                    packages_versions[(cur_pkg, cur_arch)] = cur_ver
+                cur_pkg = cur_ver = cur_arch = None
+        if cur_pkg and cur_ver:
+            packages_versions[(cur_pkg, cur_arch)] = cur_ver
+    print(f"Packages 파일에서 {len(packages_versions)}개 항목 로드")
+
 selected = []
 for (pkg, arch), vlist in groups.items():
-    if updated_only and len(vlist) < 2:
+    if mode == 'updated-only' and len(vlist) < 2:
         continue
-    # 최신 버전 찾기
     best = vlist[0]
     for v in vlist[1:]:
         if vcmp(v[0], best[0]):
             best = v
+    if mode == 'vs-packages':
+        registered = packages_versions.get((pkg, arch))
+        if registered and not vcmp(best[0], registered):
+            continue  # 최신 .deb가 Packages에 등록된 버전과 같거나 더 낮음 → 스킵
     selected.append(f"apt_packages/{best[1]}")
 
 selected.sort()
 with open(out_file, 'w') as f:
     f.write('\n'.join(selected) + '\n')
-print(f"선별: {len(selected)}개 (전체 그룹 {len(groups)}개)")
+print(f"선별: {len(selected)}개 (전체 그룹 {len(groups)}개, 모드 {mode})")
 PYEOF
 
 COUNT=$(wc -l < "$FILELIST")
