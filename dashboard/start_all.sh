@@ -398,17 +398,8 @@ export MOCK_MODE=false
 
 # Auth Services (must start first for nginx)
 echo -e "${YELLOW}전 Step: 포트 4430, 4431 체크 및 정리...${NC}"
-if [ -d "${SCRIPT_DIR}/auth_portal_4430" ]; then
-    cd "${SCRIPT_DIR}/auth_portal_4430"
-    echo -e "${GREEN}✅ Auth Backend 시작${NC}"
-    echo "   🔗 http://localhost:4430"
-    echo "   💡 venv 사용"
-    ./venv/bin/python app.py > logs/auth_backend.log 2>&1 &
-    AUTH_BACKEND_PID=$!
-    echo "   PID: $AUTH_BACKEND_PID"
-    cd "${SCRIPT_DIR}"
-    echo ""
-fi
+[ -f "${SCRIPT_DIR}/auth_portal_4430/start.sh" ] && \
+    cd "${SCRIPT_DIR}/auth_portal_4430" && ./start.sh && cd "${SCRIPT_DIR}" && echo ""
 
 echo -e "${BLUE}ℹ️  Auth Frontend(4431): 빌드된 dist를 nginx가 서빙 (dev server 생략)${NC}"
 echo ""
