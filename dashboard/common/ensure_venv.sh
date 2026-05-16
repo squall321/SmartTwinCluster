@@ -9,13 +9,26 @@
 ensure_venv() {
     local script_dir="$(pwd)"
     local venv_dir="$script_dir/venv"
-    # venv 있으면 활성화 후 모듈 검사
-    if [ -f "$venv_dir/bin/activate" ]; then
-        source "$venv_dir/bin/activate" 2>/dev/null || true
+
+    # ── 0) PYTHON_BIN 버전 일치 우선 검사 (모듈 검사 전에) ──────
+    local target_py="${PYTHON_BIN:-/usr/bin/python3}"
+    [ ! -x "$target_py" ] && target_py="/usr/bin/python3"
+    local target_ver=$("$target_py" -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+    local cur_ver=""
+    [ -x "$venv_dir/bin/python3" ] && cur_ver=$("$venv_dir/bin/python3" -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+    if [ -n "$target_ver" ] && [ -n "$cur_ver" ] && [ "$cur_ver" != "$target_ver" ]; then
+        echo -e "\033[1;33m⚠️  venv python 버전 불일치 ($cur_ver → $target_ver) → 재생성\033[0m"
+        deactivate 2>/dev/null || true
+        sudo rm -rf "$venv_dir"
+        "$target_py" -m venv "$venv_dir" || { echo -e "\033[0;31m❌ venv 생성 실패 ($target_py)\033[0m"; return 1; }
+        local owner="${SUDO_USER:-$(whoami)}"
+        sudo chown -R "$owner":"$owner" "$venv_dir" 2>/dev/null || true
     fi
-    # 인자: "module" 또는 "module:pip-name" 형식 (pip 이름이 다를 때)
-    local missing=()         # pip install용 (pkg 이름)
-    local missing_imports=() # 표시용 (import 이름)
+    [ -f "$venv_dir/bin/activate" ] && source "$venv_dir/bin/activate" 2>/dev/null || true
+
+    # ── 1) 모듈 검사 (인자: "module" 또는 "module:pip-name") ──────
+    local missing=()
+    local missing_imports=()
     if [ -f "$venv_dir/bin/python3" ]; then
         for arg in "$@"; do
             local imp_name="${arg%%:*}"
