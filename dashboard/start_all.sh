@@ -255,20 +255,27 @@ for mod in /etc/nginx/modules-enabled/*perl*.conf /etc/nginx/modules-enabled/*nc
     sudo mv "$mod" "${mod}.disabled" 2>/dev/null && MODULES_CHANGED=1
 done
 
+# 현재 마스터가 perl/nchan 메모리에 들고 있나? (이전 실행에서 비활성화했어도 안 빠짐)
+MASTER_PID=$(pgrep -f 'nginx: master' | head -1)
+STALE_MODULES=0
+if [ -n "$MASTER_PID" ] && sudo grep -qE "ngx_http_perl_module|nchan_module" "/proc/$MASTER_PID/maps" 2>/dev/null; then
+    STALE_MODULES=1
+    echo -e "${YELLOW}   • 옛 마스터(PID $MASTER_PID)에 perl/nchan 잔존 → 강제 재시작 필요${NC}"
+fi
+
 if sudo nginx -t 2>/dev/null; then
     CUR_LIMIT=$(cat /proc/$(pgrep -f 'nginx: worker' 2>/dev/null | head -1)/limits 2>/dev/null | awk '/Max open files/{print $4}')
-    # 모듈 변경됐으면 reload로는 안 빠짐 → 강제 restart
-    if [ "$MODULES_CHANGED" = "1" ] || [ "${CUR_LIMIT:-0}" -lt 65536 ]; then
-        # 깨끗하게 죽이고 시작 (systemctl restart가 옛 마스터 못 죽이는 경우 대비)
+    if [ "$MODULES_CHANGED" = "1" ] || [ "$STALE_MODULES" = "1" ] || [ "${CUR_LIMIT:-0}" -lt 65536 ]; then
+        # stop + pkill + start (systemctl restart가 옛 마스터 못 죽이는 경우 대비)
         sudo systemctl stop nginx 2>/dev/null
         sleep 1
         sudo pkill -9 nginx 2>/dev/null; sleep 1
-        sudo systemctl start nginx && echo -e "${GREEN}   ✓ nginx 강제 재시작 (ulimit 적용)${NC}"
+        sudo systemctl start nginx && echo -e "${GREEN}   ✓ nginx 강제 재시작${NC}"
         sleep 1
         NEW_LIMIT=$(cat /proc/$(pgrep -f 'nginx: worker' 2>/dev/null | head -1)/limits 2>/dev/null | awk '/Max open files/{print $4}')
         echo -e "${GREEN}   ✓ 워커 nofile: ${NEW_LIMIT:-?}${NC}"
     else
-        sudo systemctl reload nginx && echo -e "${GREEN}   ✓ nginx reload 완료 (nofile=$CUR_LIMIT)${NC}"
+        sudo systemctl reload nginx && echo -e "${GREEN}   ✓ nginx reload (nofile=$CUR_LIMIT, 모듈 OK)${NC}"
     fi
 else
     echo -e "${RED}   ⚠️ nginx 설정 오류 — sudo nginx -t 로 확인${NC}"
