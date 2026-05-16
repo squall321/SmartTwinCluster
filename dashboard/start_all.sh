@@ -198,15 +198,26 @@ SS_CRT="/etc/ssl/certs/nginx-selfsigned.crt"
 SS_KEY="/etc/ssl/private/nginx-selfsigned.key"
 SS_DH="/etc/nginx/dhparam.pem"
 
-# 자체서명 인증서 + 스니펫 자동 생성
+# 자체서명 인증서 + 스니펫 자동 생성 (CN/SAN이 HOST_IP와 다르면 재발급)
+REGEN_CERT=0
 if [ ! -f "$SS_CRT" ] || [ ! -f "$SS_KEY" ]; then
-    echo -e "${YELLOW}   • 자체서명 인증서 생성 (${HOST_IP})...${NC}"
+    REGEN_CERT=1
+else
+    # 기존 CN + SAN 확인
+    CERT_INFO=$(sudo openssl x509 -in "$SS_CRT" -noout -subject -ext subjectAltName 2>/dev/null)
+    if ! echo "$CERT_INFO" | grep -q "CN *= *$HOST_IP" && ! echo "$CERT_INFO" | grep -q "IP Address:$HOST_IP"; then
+        echo -e "${YELLOW}   • 인증서 CN/SAN이 ${HOST_IP}와 불일치 → 재발급${NC}"
+        REGEN_CERT=1
+    fi
+fi
+if [ "$REGEN_CERT" = "1" ]; then
+    echo -e "${YELLOW}   • 자체서명 인증서 생성 (CN=${HOST_IP})...${NC}"
     sudo mkdir -p /etc/ssl/private /etc/nginx/snippets
     sudo openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
         -keyout "$SS_KEY" -out "$SS_CRT" \
         -subj "/C=KR/ST=Local/L=Local/O=HPC/CN=${HOST_IP}" \
         -addext "subjectAltName=IP:${HOST_IP},DNS:localhost" 2>/dev/null \
-        && echo -e "${GREEN}   ✓ 인증서 생성: $SS_CRT${NC}"
+        && echo -e "${GREEN}   ✓ 인증서 발급 완료: $SS_CRT${NC}"
 fi
 if [ ! -f "$SELF_SIGNED_SNIPPET" ]; then
     echo -e "${YELLOW}   • self-signed.conf 스니펫 생성${NC}"
