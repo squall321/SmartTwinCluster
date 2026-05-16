@@ -410,20 +410,14 @@ if [ -d "${SCRIPT_DIR}/auth_portal_4430" ]; then
     echo ""
 fi
 
-if [ -d "${SCRIPT_DIR}/auth_portal_4431" ]; then
-    cd "${SCRIPT_DIR}/auth_portal_4431"
-    echo -e "${GREEN}✅ Auth Frontend 시작${NC}"
-    echo "   🔗 http://localhost:4431"
-    npm run dev > logs/auth_frontend.log 2>&1 &
-    cd "${SCRIPT_DIR}"
-    echo ""
-fi
+echo -e "${BLUE}ℹ️  Auth Frontend(4431): 빌드된 dist를 nginx가 서빙 (dev server 생략)${NC}"
+echo ""
 
 cd "${SCRIPT_DIR}/backend_5010" && ./start.sh && cd "${SCRIPT_DIR}"
 echo ""
 cd "${SCRIPT_DIR}/websocket_5011" && ./start.sh && cd "${SCRIPT_DIR}"
 echo ""
-cd "${SCRIPT_DIR}/frontend_3010" && ./start.sh && cd "${SCRIPT_DIR}"
+echo -e "${BLUE}ℹ️  Frontend(3010): 빌드된 dist를 nginx가 서빙 (dev server 생략)${NC}"
 echo ""
 
 # CAE Services
@@ -440,7 +434,7 @@ echo ""
 echo "🔗 접속 정보 (외부 접속용):"
 echo "  메인(SSO):   https://${HOST_IP}/        (→ /auth_portal/ 자동 진입)"
 echo "  Dashboard:  https://${HOST_IP}/dashboard/"
-echo "  (직접 포트) Frontend http://${HOST_IP}:3010 / Backend http://${HOST_IP}:5010"
+echo "  (백엔드 디버그) http://${HOST_IP}:5010"
 echo ""
 echo "💡 외부 접속이 안 되면 방화벽 확인:"
 echo "   sudo ufw allow 80,443,3010,5010,5011,9090,9100/tcp"
