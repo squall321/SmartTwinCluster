@@ -162,6 +162,19 @@ fi
 # ── Nginx 443 보장 (sites-enabled 심볼릭 + SSL 인증서 + 시작/리로드) ────
 echo -e "${BLUE}🔧 Nginx 443 상태 확인...${NC}"
 
+# nginx ulimit (Too many open files 방지) — systemd override + worker_rlimit_nofile
+NGINX_OVERRIDE=/etc/systemd/system/nginx.service.d/override.conf
+if [ ! -f "$NGINX_OVERRIDE" ] || ! grep -q "LimitNOFILE=65536" "$NGINX_OVERRIDE" 2>/dev/null; then
+    sudo mkdir -p /etc/systemd/system/nginx.service.d
+    echo -e "[Service]\nLimitNOFILE=65536" | sudo tee "$NGINX_OVERRIDE" >/dev/null
+    sudo systemctl daemon-reload
+    echo -e "${GREEN}   ✓ nginx LimitNOFILE=65536 설정${NC}"
+fi
+if [ -f /etc/nginx/nginx.conf ] && ! grep -q "^worker_rlimit_nofile" /etc/nginx/nginx.conf; then
+    sudo sed -i '1a worker_rlimit_nofile 65536;' /etc/nginx/nginx.conf
+    echo -e "${GREEN}   ✓ nginx.conf worker_rlimit_nofile 추가${NC}"
+fi
+
 # nginx 패키지 자체 설치 확인
 if ! command -v nginx >/dev/null 2>&1; then
     echo -e "${YELLOW}   • nginx 미설치 → apt 설치 시도${NC}"
@@ -224,7 +237,13 @@ if ! sudo systemctl is-active --quiet nginx; then
     sudo systemctl enable --now nginx 2>/dev/null || sudo systemctl start nginx
 fi
 if sudo nginx -t 2>/dev/null; then
-    sudo systemctl reload nginx && echo -e "${GREEN}   ✓ nginx reload 완료${NC}"
+    # LimitNOFILE 적용 위해 한번이라도 restart 필요
+    CUR_LIMIT=$(cat /proc/$(pgrep -f 'nginx: worker' 2>/dev/null | head -1)/limits 2>/dev/null | awk '/Max open files/{print $4}')
+    if [ "${CUR_LIMIT:-0}" -lt 65536 ]; then
+        sudo systemctl restart nginx && echo -e "${GREEN}   ✓ nginx restart (ulimit 적용)${NC}"
+    else
+        sudo systemctl reload nginx && echo -e "${GREEN}   ✓ nginx reload 완료${NC}"
+    fi
 else
     echo -e "${RED}   ⚠️ nginx 설정 오류 — sudo nginx -t 로 확인${NC}"
 fi
