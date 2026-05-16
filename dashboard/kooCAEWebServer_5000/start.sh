@@ -33,7 +33,7 @@ source "$SCRIPT_DIR/../common/ensure_venv.sh" 2>/dev/null
 [ -f "venv/bin/activate" ] && source venv/bin/activate
 ensure_venv flask flask_cors flask_sqlalchemy:Flask-SQLAlchemy flask_sock \
             jwt:PyJWT numpy requests werkzeug yaml:PyYAML trimesh dotenv:python-dotenv \
-            stl:numpy-stl
+            stl:numpy-stl redis
 [ -f "venv/bin/activate" ] && source venv/bin/activate
 
 export FLASK_APP=app.py FLASK_ENV=production
