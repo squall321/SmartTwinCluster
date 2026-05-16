@@ -248,15 +248,17 @@ if ! sudo systemctl is-active --quiet nginx; then
     sudo systemctl enable --now nginx 2>/dev/null || sudo systemctl start nginx
 fi
 # 문제 일으키는 동적 모듈 비활성화 (perl: strict.pm 24, nchan: memstore assertion)
+MODULES_CHANGED=0
 for mod in /etc/nginx/modules-enabled/*perl*.conf /etc/nginx/modules-enabled/*nchan*.conf; do
     [ -f "$mod" ] || continue
     echo -e "${YELLOW}   • 문제 모듈 비활성화: $(basename "$mod")${NC}"
-    sudo mv "$mod" "${mod}.disabled" 2>/dev/null || true
+    sudo mv "$mod" "${mod}.disabled" 2>/dev/null && MODULES_CHANGED=1
 done
 
 if sudo nginx -t 2>/dev/null; then
     CUR_LIMIT=$(cat /proc/$(pgrep -f 'nginx: worker' 2>/dev/null | head -1)/limits 2>/dev/null | awk '/Max open files/{print $4}')
-    if [ "${CUR_LIMIT:-0}" -lt 65536 ]; then
+    # 모듈 변경됐으면 reload로는 안 빠짐 → 강제 restart
+    if [ "$MODULES_CHANGED" = "1" ] || [ "${CUR_LIMIT:-0}" -lt 65536 ]; then
         # 깨끗하게 죽이고 시작 (systemctl restart가 옛 마스터 못 죽이는 경우 대비)
         sudo systemctl stop nginx 2>/dev/null
         sleep 1
