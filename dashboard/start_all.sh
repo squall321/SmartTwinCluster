@@ -239,9 +239,16 @@ ssl_session_tickets off;
 EOF
 fi
 
-if [ ! -L "$NGINX_ENABLED" ] && [ ! -f "$NGINX_ENABLED" ]; then
-    echo -e "${YELLOW}   • sites-enabled 미연결 → setup_nginx_symlink.sh 실행${NC}"
-    sudo "${SCRIPT_DIR}/setup_nginx_symlink.sh" || echo -e "${RED}   ⚠️ nginx symlink 설정 실패${NC}"
+# sites-enabled가 소스(dashboard/nginx/hpc-portal.conf)를 가리키도록 강제
+NGINX_AVAILABLE=/etc/nginx/sites-available/hpc-portal.conf
+NGINX_SRC_RESOLVED=$(readlink -f "$NGINX_CONF_SRC")
+NGINX_ENABLED_RESOLVED=$(readlink -f "$NGINX_ENABLED" 2>/dev/null)
+if [ "$NGINX_ENABLED_RESOLVED" != "$NGINX_SRC_RESOLVED" ]; then
+    echo -e "${YELLOW}   • sites-enabled 가 소스 가리키지 않음 → 심볼릭 재설정${NC}"
+    sudo rm -f "$NGINX_ENABLED" "$NGINX_AVAILABLE"
+    sudo ln -sf "$NGINX_CONF_SRC" "$NGINX_AVAILABLE"
+    sudo ln -sf "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+    CONF_CHANGED=1  # 설정 바뀜 → restart 강제
 fi
 if ! sudo systemctl is-active --quiet nginx; then
     echo -e "${YELLOW}   • nginx 미실행 → 시작${NC}"
@@ -265,7 +272,7 @@ fi
 
 if sudo nginx -t 2>/dev/null; then
     CUR_LIMIT=$(cat /proc/$(pgrep -f 'nginx: worker' 2>/dev/null | head -1)/limits 2>/dev/null | awk '/Max open files/{print $4}')
-    if [ "$MODULES_CHANGED" = "1" ] || [ "$STALE_MODULES" = "1" ] || [ "${CUR_LIMIT:-0}" -lt 65536 ]; then
+    if [ "$MODULES_CHANGED" = "1" ] || [ "$STALE_MODULES" = "1" ] || [ "${CONF_CHANGED:-0}" = "1" ] || [ "${CUR_LIMIT:-0}" -lt 65536 ]; then
         # stop + pkill + start (systemctl restart가 옛 마스터 못 죽이는 경우 대비)
         sudo systemctl stop nginx 2>/dev/null
         sleep 1
