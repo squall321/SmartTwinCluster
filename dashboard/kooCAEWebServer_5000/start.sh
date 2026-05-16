@@ -53,7 +53,7 @@ fi
 mkdir -p logs
 
 # nohup 실행 시 env를 사용하여 환경변수 명시적 전달
-nohup env MOCK_MODE=$MOCK_MODE python3 app.py > logs/cae_backend.log 2>&1 &
+nohup env MOCK_MODE=$MOCK_MODE "$SCRIPT_DIR/venv/bin/python3" app.py > logs/cae_backend.log 2>&1 &
 echo $! > .cae_backend.pid
 sleep 2
 
