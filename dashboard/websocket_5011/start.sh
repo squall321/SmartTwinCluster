@@ -24,6 +24,9 @@ fi
 # PID 파일로 기록된 프로세스도 종료
 [ -f ".websocket.pid" ] && kill $(cat .websocket.pid) 2>/dev/null && rm -f .websocket.pid
 
+# 명시적 Python 버전 (시스템 기본 3.12 — aiohttp 휠 포함)
+export PYTHON_BIN=/usr/bin/python3.12
+
 # venv 없거나 깨졌으면 ensure_venv가 재생성
 source "$SCRIPT_DIR/../common/ensure_venv.sh" 2>/dev/null
 [ -f "venv/bin/activate" ] && source venv/bin/activate

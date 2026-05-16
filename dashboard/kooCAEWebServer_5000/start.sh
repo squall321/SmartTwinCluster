@@ -25,6 +25,9 @@ fi
 # PID 파일로 기록된 프로세스도 종료
 [ -f ".cae_backend.pid" ] && kill $(cat .cae_backend.pid) 2>/dev/null && rm -f .cae_backend.pid
 
+# 명시적 Python 버전 (KooCAE.so 가 3.13용 빌드)
+export PYTHON_BIN=/usr/bin/python3.13
+
 # venv 없거나 깨졌으면 ensure_venv가 재생성
 source "$SCRIPT_DIR/../common/ensure_venv.sh" 2>/dev/null
 [ -f "venv/bin/activate" ] && source venv/bin/activate

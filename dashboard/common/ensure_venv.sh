@@ -73,15 +73,29 @@ ensure_venv() {
         fi
     fi
 
-    # venv 깨짐(activate/pip 없음) 감지 → 재생성
+    # venv 검증/재생성: 깨졌거나 PYTHON_BIN 버전과 다르면 재생성
     local venv_dir="$(cd "$(dirname "${BASH_SOURCE[1]:-$0}")" && pwd)/venv"
     [ ! -d "$venv_dir" ] && venv_dir="$(pwd)/venv"
+    local target_py="${PYTHON_BIN:-/usr/bin/python3}"
+    [ ! -x "$target_py" ] && target_py="/usr/bin/python3"
+    local target_ver=$("$target_py" -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+
+    local need_recreate=0
     if [ ! -f "$venv_dir/bin/activate" ] || ! "$venv_dir/bin/python3" -m pip --version >/dev/null 2>&1; then
-        echo -e "\033[1;33m   • venv 깨짐 → 재생성: $venv_dir\033[0m"
+        need_recreate=1
+        echo -e "\033[1;33m   • venv 깨짐 → 재생성\033[0m"
+    else
+        local cur_ver=$("$venv_dir/bin/python3" -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+        if [ -n "$target_ver" ] && [ "$cur_ver" != "$target_ver" ]; then
+            need_recreate=1
+            echo -e "\033[1;33m   • venv python 버전 불일치 ($cur_ver → $target_ver) → 재생성\033[0m"
+        fi
+    fi
+
+    if [ "$need_recreate" = "1" ]; then
         deactivate 2>/dev/null || true
         sudo rm -rf "$venv_dir"
-        /usr/bin/python3 -m venv "$venv_dir" || { echo -e "\033[0;31m❌ venv 생성 실패\033[0m"; return 1; }
-        # 소유자 원복 (sudo 실행이었을 경우)
+        "$target_py" -m venv "$venv_dir" || { echo -e "\033[0;31m❌ venv 생성 실패 ($target_py)\033[0m"; return 1; }
         local owner="${SUDO_USER:-$(whoami)}"
         sudo chown -R "$owner":"$owner" "$venv_dir" 2>/dev/null || true
         source "$venv_dir/bin/activate"
