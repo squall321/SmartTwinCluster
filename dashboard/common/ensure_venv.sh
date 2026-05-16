@@ -127,11 +127,19 @@ ensure_venv() {
     # 1) requirements.txt 그대로 (핀 일치 시)
     if [ -f requirements.txt ]; then
         $PIP install --no-index $FL -r requirements.txt 2>&1 | tail -5
-        echo -e "\033[1;33m   • requirements 결과와 무관하게 요청 모듈 강제 설치 (venv 정상화)\033[0m"
     fi
-    # 2) 요청된 모듈은 항상 venv에 강제 설치 (check를 통과했더라도 시스템 패키지 잡혔을 수 있음)
+    # 2) 요청된 모듈은 항상 venv에 강제 설치 (오프라인 only)
     $PIP install --no-index --upgrade $FL "${missing[@]}" 2>&1 | tail -5
-    # 3) 못 받은 모듈 마지막 시도: 온라인 fallback
-    $PIP install --upgrade $FL "${missing[@]}" 2>&1 | tail -5
+
+    # 3) 여전히 누락된 모듈만 온라인 fallback (offline 서버면 즉시 timeout)
+    local still_missing=()
+    for arg in "$@"; do
+        local imp_name="${arg%%:*}"
+        "$venv_dir/bin/python3" -c "import ${imp_name//-/_}" 2>/dev/null || still_missing+=("${arg##*:}")
+    done
+    if [ ${#still_missing[@]} -gt 0 ]; then
+        echo -e "\033[1;33m   • 잔존 누락: ${still_missing[*]} → 온라인 fallback 시도 (timeout 10s)\033[0m"
+        $PIP install --upgrade --timeout 10 --retries 1 $FL "${still_missing[@]}" 2>&1 | tail -5
+    fi
     return 0
 }
