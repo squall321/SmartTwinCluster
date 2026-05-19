@@ -37,6 +37,7 @@ set -euo pipefail
 #############################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../utils/ssh_helpers.sh" 2>/dev/null || true
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # OS 감지 기반 오프라인 패키지 디렉토리 설정
