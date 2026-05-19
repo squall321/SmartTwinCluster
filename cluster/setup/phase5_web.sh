@@ -1311,6 +1311,12 @@ try:
     domain = config.get('cluster_info', {}).get('domain', 'hpc.local')
     saml_config = config.get('web_services', {}).get('saml', {})
     users = saml_config.get('users', [])
+    if not users:
+        users = config.get('saml', {}).get('test_users', []) or config.get('saml', {}).get('users', [])
+    for u in users:
+        if 'groups' not in u and 'roles' in u:
+            role_map = {'admin': 'HPC-Admins', 'user': 'DX-Users', 'cae': 'CAEG-Users'}
+            u['groups'] = list({role_map.get(r, r) for r in u['roles']})
 
     if not users:
         # No users defined - create default admin with secure random password
@@ -1383,6 +1389,12 @@ try:
     domain = config.get('cluster_info', {}).get('domain', 'hpc.local')
     saml_config = config.get('web_services', {}).get('saml', {})
     users = saml_config.get('users', [])
+    if not users:
+        users = config.get('saml', {}).get('test_users', []) or config.get('saml', {}).get('users', [])
+    for u in users:
+        if 'groups' not in u and 'roles' in u:
+            role_map = {'admin': 'HPC-Admins', 'user': 'DX-Users', 'cae': 'CAEG-Users'}
+            u['groups'] = list({role_map.get(r, r) for r in u['roles']})
 
     if not users:
         admin_password = generate_secure_password()
