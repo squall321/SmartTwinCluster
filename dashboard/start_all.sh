@@ -41,20 +41,39 @@ export CLUSTER_YAML_PATH="$CLUSTER_YAML"
 export CLUSTER_CONFIG_PATH="$CLUSTER_YAML"
 echo -e "\033[0;34m📄 Cluster YAML: $CLUSTER_YAML\033[0m"
 
-# 외부 접속 IP: YAML public_url 우선, 없으면 hostname -I
+# 외부 접속 주소: YAML public_url(도메인/IP) 우선 → hostname -I
 HOST_IP=""
+SSL_CERT_PATH=""
+SSL_KEY_PATH=""
 if command -v python3 >/dev/null 2>&1; then
-    HOST_IP=$(python3 -c "
+    eval $(python3 -c "
 import yaml
 try:
     with open('$CLUSTER_YAML') as f: c = yaml.safe_load(f)
-    print(c.get('access', {}).get('public_url') or c.get('public_url') or '', end='')
+    web = c.get('web', {}) or {}
+    pub = c.get('access', {}).get('public_url') or c.get('public_url') or web.get('public_url') or ''
+    ssl = web.get('ssl', {}) or {}
+    print(f'HOST_IP=\"{pub}\"')
+    print(f'SSL_CERT_PATH=\"{ssl.get(\"cert_path\",\"\")}\"')
+    print(f'SSL_KEY_PATH=\"{ssl.get(\"key_path\",\"\")}\"')
 except Exception: pass
 " 2>/dev/null)
 fi
 [ -z "$HOST_IP" ] && HOST_IP="$(hostname -I | awk '{print $1}')"
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
-echo -e "\033[0;34m🌐 외부 접속 IP: $HOST_IP\033[0m"
+
+# 도메인 vs IP 판별
+IS_DOMAIN=0
+REAL_IP=""
+if [[ "$HOST_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    IS_DOMAIN=0
+    REAL_IP="$HOST_IP"
+else
+    IS_DOMAIN=1
+    REAL_IP=$(getent ahosts "$HOST_IP" 2>/dev/null | awk '{print $1}' | head -1)
+    [ -z "$REAL_IP" ] && REAL_IP="$(hostname -I | awk '{print $1}')"
+fi
+echo -e "\033[0;34m🌐 외부 접속 주소: $HOST_IP $([ "$IS_DOMAIN" = "1" ] && echo "(도메인, IP=$REAL_IP)" || echo "(IP)")\033[0m"
 
 # 오프라인 APT 저장소 보장 (의존성 해결용)
 ensure_offline_apt_repo() {
@@ -123,6 +142,7 @@ needs_rebuild() {
     # src/config가 dist보다 최신이면 빌드
     find "$dir/src" "$dir/index.html" "$dir/package.json" \
         "$dir/vite.config.ts" "$dir/vite.config.js" "$dir/tailwind.config.js" "$dir/tsconfig.json" \
+        "$dir/.env" "$dir/.env.production" \
         -type f -newer "$dir/dist/index.html" -print -quit 2>/dev/null | grep -q . && return 0
     # dist가 nginx 배포본보다 최신이면 빌드(배포 누락)
     [ "$dir/dist/index.html" -nt "$nginx_idx" ] && return 0
@@ -198,26 +218,44 @@ SS_CRT="/etc/ssl/certs/nginx-selfsigned.crt"
 SS_KEY="/etc/ssl/private/nginx-selfsigned.key"
 SS_DH="/etc/nginx/dhparam.pem"
 
-# 자체서명 인증서 + 스니펫 자동 생성 (CN/SAN이 HOST_IP와 다르면 재발급)
-REGEN_CERT=0
-if [ ! -f "$SS_CRT" ] || [ ! -f "$SS_KEY" ]; then
-    REGEN_CERT=1
-else
-    # 기존 CN + SAN 확인
-    CERT_INFO=$(sudo openssl x509 -in "$SS_CRT" -noout -subject -ext subjectAltName 2>/dev/null)
-    if ! echo "$CERT_INFO" | grep -q "CN *= *$HOST_IP" && ! echo "$CERT_INFO" | grep -q "IP Address:$HOST_IP"; then
-        echo -e "${YELLOW}   • 인증서 CN/SAN이 ${HOST_IP}와 불일치 → 재발급${NC}"
-        REGEN_CERT=1
-    fi
+# SSL 인증서: YAML 의 web.ssl.cert_path 우선 → 자체서명
+USE_REAL_CERT=0
+if [ -n "$SSL_CERT_PATH" ] && [ -f "$SSL_CERT_PATH" ] && [ -f "$SSL_KEY_PATH" ]; then
+    USE_REAL_CERT=1
+    SS_CRT="$SSL_CERT_PATH"
+    SS_KEY="$SSL_KEY_PATH"
+    echo -e "${GREEN}   ✓ 정식 인증서 사용: $SS_CRT${NC}"
 fi
-if [ "$REGEN_CERT" = "1" ]; then
-    echo -e "${YELLOW}   • 자체서명 인증서 생성 (CN=${HOST_IP})...${NC}"
-    sudo mkdir -p /etc/ssl/private /etc/nginx/snippets
-    sudo openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
-        -keyout "$SS_KEY" -out "$SS_CRT" \
-        -subj "/C=KR/ST=Local/L=Local/O=HPC/CN=${HOST_IP}" \
-        -addext "subjectAltName=IP:${HOST_IP},DNS:localhost" 2>/dev/null \
-        && echo -e "${GREEN}   ✓ 인증서 발급 완료: $SS_CRT${NC}"
+
+if [ "$USE_REAL_CERT" = "0" ]; then
+    # 자체서명 — 도메인+IP SAN 모두 포함
+    SAN_ENTRIES="DNS:localhost,IP:127.0.0.1"
+    if [ "$IS_DOMAIN" = "1" ]; then
+        SAN_ENTRIES="DNS:${HOST_IP},${SAN_ENTRIES}"
+        [ -n "$REAL_IP" ] && SAN_ENTRIES="${SAN_ENTRIES},IP:${REAL_IP}"
+    else
+        SAN_ENTRIES="IP:${HOST_IP},${SAN_ENTRIES}"
+    fi
+
+    REGEN_CERT=0
+    if [ ! -f "$SS_CRT" ] || [ ! -f "$SS_KEY" ]; then
+        REGEN_CERT=1
+    else
+        CERT_INFO=$(sudo openssl x509 -in "$SS_CRT" -noout -subject -ext subjectAltName 2>/dev/null)
+        if ! echo "$CERT_INFO" | grep -qF "$HOST_IP"; then
+            echo -e "${YELLOW}   • 인증서가 ${HOST_IP} 미포함 → 재발급${NC}"
+            REGEN_CERT=1
+        fi
+    fi
+    if [ "$REGEN_CERT" = "1" ]; then
+        echo -e "${YELLOW}   • 자체서명 인증서 생성 (CN=${HOST_IP}, SAN=${SAN_ENTRIES})...${NC}"
+        sudo mkdir -p /etc/ssl/private /etc/nginx/snippets
+        sudo openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
+            -keyout "$SS_KEY" -out "$SS_CRT" \
+            -subj "/C=KR/ST=Local/L=Local/O=HPC/CN=${HOST_IP}" \
+            -addext "subjectAltName=${SAN_ENTRIES}" 2>/dev/null \
+            && echo -e "${GREEN}   ✓ 자체서명 인증서 발급 완료: $SS_CRT${NC}"
+    fi
 fi
 if [ ! -f "$SELF_SIGNED_SNIPPET" ]; then
     echo -e "${YELLOW}   • self-signed.conf 스니펫 생성${NC}"
@@ -237,6 +275,42 @@ ssl_session_timeout 10m;
 ssl_session_cache shared:SSL:10m;
 ssl_session_tickets off;
 EOF
+fi
+
+# 도메인 사용 시 nginx server_name 자동 업데이트 (default_server 유지)
+if [ "$IS_DOMAIN" = "1" ]; then
+    if ! grep -q "server_name ${HOST_IP}" "$NGINX_CONF_SRC"; then
+        echo -e "${YELLOW}   • nginx server_name 에 ${HOST_IP} 추가${NC}"
+        sudo sed -i "s|server_name _;|server_name ${HOST_IP} ${REAL_IP} _;|g" "$NGINX_CONF_SRC"
+        CONF_CHANGED=1
+    fi
+fi
+
+# 프론트엔드 .env.production 자동 작성 (도메인/IP 기반 API URL)
+SCHEME="https"
+PUBLIC_BASE="${SCHEME}://${HOST_IP}"
+for fe in frontend_3010 auth_portal_4431; do
+    fe_dir="${SCRIPT_DIR}/${fe}"
+    [ ! -d "$fe_dir" ] && continue
+    cat > "${fe_dir}/.env.production" <<EOF
+# Auto-generated by start_all.sh — 도메인/IP 변경 시 자동 갱신
+VITE_API_URL=/api
+VITE_WS_URL=/ws
+VITE_AUTH_URL=/auth
+VITE_PUBLIC_URL=${PUBLIC_BASE}
+EOF
+done
+
+# auth_portal_4430 .env 의 SAML/CORS URL 자동 업데이트
+AUTH_ENV="${SCRIPT_DIR}/auth_portal_4430/.env"
+if [ -f "$AUTH_ENV" ]; then
+    sudo sed -i \
+        -e "s|^SAML_ACS_URL=.*|SAML_ACS_URL=${PUBLIC_BASE}/auth/saml/acs|" \
+        -e "s|^SAML_SLS_URL=.*|SAML_SLS_URL=${PUBLIC_BASE}/auth/saml/sls|" \
+        -e "s|^CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=${PUBLIC_BASE}|" \
+        -e "s|^PUBLIC_URL=.*|PUBLIC_URL=${PUBLIC_BASE}|" \
+        "$AUTH_ENV"
+    grep -q "^PUBLIC_URL=" "$AUTH_ENV" || echo "PUBLIC_URL=${PUBLIC_BASE}" | sudo tee -a "$AUTH_ENV" >/dev/null
 fi
 
 # sites-enabled가 소스(dashboard/nginx/hpc-portal.conf)를 가리키도록 강제
