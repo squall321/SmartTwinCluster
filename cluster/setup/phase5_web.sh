@@ -1528,19 +1528,30 @@ setup_python_venvs() {
 
                 if [[ -d "$wheels_dir" ]]; then
                     local pip_log="/tmp/pip_${service}_$$.log"
-                    if pip install --no-index --find-links="$wheels_dir" -r requirements.txt >"$pip_log" 2>&1; then
+                    # 부모 python_wheels도 같이 검색 (서비스별 휠이 부족할 때)
+                    local parent_wheels="${wheels_base}"
+                    if pip install --no-index --find-links="$wheels_dir" --find-links="$parent_wheels" -r requirements.txt >"$pip_log" 2>&1; then
                         log_success "  Requirements installed from offline wheels"
                         rm -f "$pip_log"
                     else
-                        log_warning "  Offline install failed, retrying with deps..."
-                        if pip install --find-links="$wheels_dir" -r requirements.txt >>"$pip_log" 2>&1; then
-                            log_success "  Requirements installed (with online deps)"
-                            rm -f "$pip_log"
-                        else
-                            log_error "  Failed to install requirements for $service"
-                            log_error "  pip log: $pip_log"
-                            tail -20 "$pip_log" >&2
-                        fi
+                        # 온라인 fallback 대신 누락 무시하고 부분 설치 시도 (--no-index 유지: PyPI 무한 retry 방지)
+                        log_warning "  Offline install failed (일부 핀 불일치 가능) — 휠에 있는 것만 설치 시도"
+                        # requirements.txt 한 줄씩 시도하여 가능한 모듈만 설치
+                        local installed_count=0 failed_count=0
+                        while IFS= read -r line; do
+                            line=$(echo "$line" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')
+                            [[ -z "$line" || "$line" == \#* ]] && continue
+                            # 패키지 이름만 추출 (==, >=, <= 제거)
+                            local pkg=$(echo "$line" | sed 's/[<>=!~].*//')
+                            if pip install --no-index --find-links="$wheels_dir" --find-links="$parent_wheels" \
+                                "$pkg" >>"$pip_log" 2>&1; then
+                                installed_count=$((installed_count + 1))
+                            else
+                                failed_count=$((failed_count + 1))
+                            fi
+                        done < requirements.txt
+                        log_info "  Partial install: ${installed_count} ok, ${failed_count} skipped"
+                        log_info "  pip log: $pip_log (skip된 패키지 확인용)"
                     fi
                 else
                     log_warning "  No offline wheels found at $wheels_dir"
