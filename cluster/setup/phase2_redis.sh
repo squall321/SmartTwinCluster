@@ -36,6 +36,7 @@ set -uo pipefail
 #############################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../utils/ssh_helpers.sh" 2>/dev/null || true
 
 # Detect if running from /tmp (remote deployment mode)
 if [[ "$SCRIPT_DIR" == "/tmp" ]]; then
@@ -639,11 +640,12 @@ deploy_to_other_controllers() {
         # Pre-populate known_hosts for security
         populate_known_hosts "$ip"
 
-        # Test SSH connection (BatchMode prevents password prompts)
+        # Test SSH connection — set -e 회피 + node-user 키 자동 탐색
+        type setup_node_ssh_opts &>/dev/null && setup_node_ssh_opts "$ssh_user" "$ip" || true
         log INFO "[DEBUG] Testing SSH: ssh $SSH_OPTS $ssh_user@$ip echo OK"
-        local ssh_test_output
-        ssh_test_output=$(ssh $SSH_OPTS "$ssh_user@$ip" "echo OK" 2>&1)
-        local ssh_exit_code=$?
+        local ssh_test_output=""
+        local ssh_exit_code=0
+        ssh_test_output=$(ssh $SSH_OPTS "$ssh_user@$ip" "echo OK" 2>&1) || ssh_exit_code=$?
         if [[ $ssh_exit_code -ne 0 ]]; then
             log WARNING "Cannot connect to $hostname ($ip) via SSH key authentication"
             log WARNING "[DEBUG] SSH exit code: $ssh_exit_code"

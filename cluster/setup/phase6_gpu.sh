@@ -20,6 +20,10 @@
 
 set -e
 
+# 공통 SSH 헬퍼 (node-user 키 자동 탐색)
+_SCRIPT_DIR_SSH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_SCRIPT_DIR_SSH/../utils/ssh_helpers.sh" 2>/dev/null || true
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 

@@ -1434,9 +1434,10 @@ setup_munge() {
         if [[ "$DRY_RUN" == "false" ]]; then
             # First, test SSH connectivity to primary controller
             log INFO "  Testing SSH connectivity to primary controller..."
-            local ssh_test_output
-            ssh_test_output=$(ssh $SSH_OPTS "$first_controller_user@$first_controller_ip" "echo 'SSH OK'" 2>&1)
-            local ssh_test_exit=$?
+            setup_node_ssh_opts "$first_controller_user" "$first_controller_ip" || true
+            local ssh_test_output=""
+            local ssh_test_exit=0
+            ssh_test_output=$(ssh $SSH_OPTS "$first_controller_user@$first_controller_ip" "echo 'SSH OK'" 2>&1) || ssh_test_exit=$?
 
             if [[ $ssh_test_exit -ne 0 ]]; then
                 log WARNING "  ⚠️  Primary controller ($first_controller_ip) 도달 불가 — 로컬 fallback 사용"
@@ -1475,9 +1476,9 @@ setup_munge() {
                 while [[ $attempt -le $max_attempts ]]; do
                     log INFO "  Attempt $attempt/$max_attempts: Fetching munge key..."
 
-                    local scp_error
-                    scp_error=$(scp $SCP_OPTS "$first_controller_user@$first_controller_ip:/etc/munge/munge.key" /tmp/munge.key.sync 2>&1)
-                    local scp_exit=$?
+                    local scp_error=""
+                    local scp_exit=0
+                    scp_error=$(scp $SCP_OPTS "$first_controller_user@$first_controller_ip:/etc/munge/munge.key" /tmp/munge.key.sync 2>&1) || scp_exit=$?
 
                     if [[ $scp_exit -eq 0 ]]; then
                         # Verify key is valid (non-empty)

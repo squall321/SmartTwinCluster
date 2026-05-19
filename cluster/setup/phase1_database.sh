@@ -36,6 +36,7 @@ set -uo pipefail
 #############################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../utils/ssh_helpers.sh" 2>/dev/null || true
 
 # Detect if running from /tmp (remote deployment mode)
 if [[ "$SCRIPT_DIR" == "/tmp" ]]; then
@@ -1017,6 +1018,9 @@ deploy_to_other_controllers() {
 
         # Pre-populate known_hosts for security
         populate_known_hosts "$ip"
+
+        # node-user 키 자동 탐색 (있으면 SSH_OPTS/SCP_OPTS 오버라이드)
+        type setup_node_ssh_opts &>/dev/null && setup_node_ssh_opts "$ssh_user" "$ip" || true
 
         # Test SSH connection (BatchMode prevents password prompts)
         if ! ssh $SSH_OPTS "$ssh_user@$ip" "echo OK" > /dev/null 2>&1; then
