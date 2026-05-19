@@ -294,12 +294,15 @@ container_support:
 
 ```yaml
 network:
-  cluster_network: 10.228.0.0/16
-  compute_network: 10.179.100.0/24
+  # ⚠️ cluster_network / compute_network 는 현재 스크립트가 안 읽음 (참고용)
+  # 노드별 ip_address 가 nodes.*[].ip_address 에 직접 명시되므로 CIDR은 불필요.
+  # 향후 방화벽 자동 생성 시 사용 예정.
+  cluster_network: 10.228.0.0/16    # 참고용 (관리망)
+  compute_network: 10.179.100.0/24  # 참고용 (통신망)
   vip:
     address: 10.179.100.100     # 내부 클러스터용 VIP (외부 X)
     netmask: 24
-    interface: ens18
+    interface: ens18            # ← 실제로 VIP가 띄워질 NIC (필수)
     vrrp_router_id: 51
     auth_password: "vrrp_password"
   firewall:
