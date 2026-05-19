@@ -810,6 +810,7 @@ Type=simple
 EnvironmentFile=-/etc/default/slurmctld
 ExecStartPre=/bin/mkdir -p /run/slurm
 ExecStartPre=/bin/chown slurm:slurm /run/slurm
+ExecStartPre=-/bin/bash -c 'mkdir -p /mnt/gluster/slurm/state /mnt/gluster/slurm/log /mnt/gluster/slurm/spool && chown -R slurm:slurm /mnt/gluster/slurm 2>/dev/null && chmod 755 /mnt/gluster/slurm/state /mnt/gluster/slurm/log /mnt/gluster/slurm/spool 2>/dev/null; true'
 ExecStart=$SLURM_SBIN/slurmctld -D \$SLURMCTLD_OPTIONS
 ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=process
