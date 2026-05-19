@@ -1689,17 +1689,25 @@ setup_jwt_authentication() {
                 local wheels_subdir="${wheels_dir}/python${py_version}"
 
                 if [[ -d "$wheels_subdir" ]]; then
-                    log_info "  Using offline wheels from $wheels_subdir"
-                    if ! pip install --no-index --find-links="$wheels_subdir" -r requirements.txt --quiet; then
-                        log_warning "Failed to install from offline wheels, trying online..."
-                        if ! pip install -r requirements.txt --quiet; then
-                            log_error "CRITICAL: Failed to install requirements for $service"
-                            log_error "Requirements file: $service_dir/requirements.txt"
-                            log_error "Tried: offline wheels and PyPI"
-                            echo ""
-                            log_error "--- pip install output (last attempt) ---"
-                            pip install -r requirements.txt 2>&1 | tail -50 || true
-                            echo ""
+                    log_info "  Using offline wheels from $wheels_subdir (+ parent)"
+                    # 부모 python_wheels 도 같이 검색 (서비스별 휠 누락 보완)
+                    if ! pip install --no-index --find-links="$wheels_subdir" --find-links="$wheels_dir" -r requirements.txt --quiet; then
+                        log_warning "전체 requirements 실패 → 한 줄씩 부분 설치 시도 (--no-index 유지, PyPI 무한 retry 차단)"
+                        local _ok=0 _fail=0
+                        while IFS= read -r _line; do
+                            _line=$(echo "$_line" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')
+                            [[ -z "$_line" || "$_line" == \#* ]] && continue
+                            local _pkg=$(echo "$_line" | sed 's/[<>=!~].*//')
+                            if pip install --no-index --find-links="$wheels_subdir" --find-links="$wheels_dir" \
+                                "$_pkg" --quiet 2>/dev/null; then
+                                _ok=$((_ok + 1))
+                            else
+                                _fail=$((_fail + 1))
+                            fi
+                        done < requirements.txt
+                        log_info "  Partial install: ${_ok} 성공, ${_fail} 스킵"
+                        if [[ "$_ok" -eq 0 ]]; then
+                            log_error "CRITICAL: 휠 디렉토리 자체가 비었거나 매칭 안 됨: $wheels_subdir"
                             deactivate
                             exit 1
                         fi
