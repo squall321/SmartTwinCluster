@@ -429,6 +429,14 @@ download_wheels() {
 
         mkdir -p "$ver_dir"
 
+        # Build deps + 자주 누락되는 핵심 패키지 명시적 수집
+        # PyYAML/numpy 등 sdist 빌드 시 wheel, setuptools, pip 필요
+        local core_build_pkgs=(wheel setuptools pip Cython)
+        log_info "  Downloading core build deps: ${core_build_pkgs[*]}"
+        $py_cmd -m pip download "${core_build_pkgs[@]}" \
+            --dest "$ver_dir" --prefer-binary 2>&1 | tail -3 || \
+            log_warning "  Some core build deps failed to download"
+
         # Process each requirements file
         local files=()
         read -ra files <<< "$files_str"
