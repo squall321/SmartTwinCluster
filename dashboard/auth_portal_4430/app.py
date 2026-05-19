@@ -125,8 +125,9 @@ def saml_acs():
         session['user_info'] = user_info
         session['jwt_token'] = jwt_token
 
-        # Redirect to frontend with token
-        frontend_url = f"http://localhost:4431/auth/callback"
+        # Redirect to frontend with token (PUBLIC_URL/auth_portal 우선, 없으면 상대경로)
+        public_url = os.getenv('PUBLIC_URL', '').rstrip('/')
+        frontend_url = f"{public_url}/auth_portal/auth/callback" if public_url else "/auth_portal/auth/callback"
         return redirect(f"{frontend_url}?token={jwt_token}")
 
     except Exception as e:
@@ -238,8 +239,9 @@ def oidc_callback():
         session['user_info'] = user_info
         session['jwt_token'] = jwt_token
 
-        # Redirect to frontend with token
-        frontend_url = f"http://localhost:4431/auth/callback"
+        # Redirect to frontend with token (PUBLIC_URL/auth_portal 우선, 없으면 상대경로)
+        public_url = os.getenv('PUBLIC_URL', '').rstrip('/')
+        frontend_url = f"{public_url}/auth_portal/auth/callback" if public_url else "/auth_portal/auth/callback"
         return redirect(f"{frontend_url}?token={jwt_token}")
 
     except Exception as e:
