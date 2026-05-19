@@ -1580,12 +1580,15 @@ setup_munge() {
 
             # First verify SSH connectivity to the target controller
             log INFO "      Testing SSH connectivity..."
-            local ssh_test_output
-            ssh_test_output=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "echo 'SSH OK'" 2>&1)
-            local ssh_test_exit=$?
+            # ctrl_user의 키 자동 탐색 (stcx 등 deploy 계정 케이스) — SSH_OPTS 오버라이드
+            setup_node_ssh_opts "$ctrl_user" "$ctrl_ip" || true
+            local ssh_test_output=""
+            local ssh_test_exit=0
+            ssh_test_output=$(ssh $SSH_OPTS "$ctrl_user@$ctrl_ip" "echo 'SSH OK'" 2>&1) || ssh_test_exit=$?
 
             if [[ $ssh_test_exit -ne 0 ]]; then
-                log WARNING "      ⚠️  $ctrl_hostname ($ctrl_ip) 도달 불가 — 스킵"
+                log WARNING "      ⚠️  $ctrl_hostname ($ctrl_ip) 도달 불가 (exit=$ssh_test_exit) — 스킵"
+                log WARNING "      ssh stderr: ${ssh_test_output:0:200}"
                 fail_count=$((fail_count + 1))
                 failed_controllers+=("$ctrl_hostname")
                 continue
