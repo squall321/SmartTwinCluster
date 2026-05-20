@@ -1,0 +1,1 @@
+cluster/utils/check_yaml_applied.sh
