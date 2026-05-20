@@ -936,6 +936,71 @@ install_slurm() {
     log INFO "Installing/checking Slurm packages..."
 
     # ============================================================================
+    # 런타임 라이브러리 보장 (소스 빌드 Slurm 의 dlopen 의존성)
+    # libpmix2t64, libevent, libhwloc, libucx — 24.04 t64 suffix 주의
+    # ============================================================================
+    ensure_slurm_runtime_libs() {
+        log INFO "Ensuring Slurm runtime libraries (pmix, event, hwloc, ucx)..."
+        local need_install=()
+        # 24.04 (t64 suffix) / 22.04 (no suffix) 자동 판별
+        local OS_VER=$(. /etc/os-release && echo "$VERSION_ID")
+        local TSUF=""
+        [[ "$OS_VER" == "24.04" ]] && TSUF="t64"
+
+        # 패키지명: libpmix2t64 (24.04) / libpmix2 (22.04)
+        local pkgs=(
+            "libpmix2${TSUF}"
+            "libevent-2.1-7${TSUF}"
+            "libevent-core-2.1-7${TSUF}"
+            "libhwloc15"
+            "libucx0"
+            "libmunge2"
+            "libnl-3-200"
+            "libnl-route-3-200"
+        )
+        for pkg in "${pkgs[@]}"; do
+            if ! dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+                need_install+=("$pkg")
+            fi
+        done
+
+        if [[ ${#need_install[@]} -gt 0 ]]; then
+            log INFO "  설치할 패키지: ${need_install[*]}"
+            # 오프라인 저장소 우선 (offline-local.list가 등록되어 있으면 apt 가 자동 사용)
+            DEBIAN_FRONTEND=noninteractive apt-get install -y "${need_install[@]}" 2>&1 | tail -10 || {
+                # 직접 .deb 시도
+                local apt_dir="${OFFLINE_PKG_DIR}/apt_packages"
+                if [[ -d "$apt_dir" ]]; then
+                    local debs=()
+                    for p in "${need_install[@]}"; do
+                        local f=$(ls "$apt_dir"/${p}_*.deb 2>/dev/null | tail -1)
+                        [[ -n "$f" ]] && debs+=("$f")
+                    done
+                    [[ ${#debs[@]} -gt 0 ]] && \
+                        DEBIAN_FRONTEND=noninteractive apt-get install -y "${debs[@]}" 2>&1 | tail -10
+                fi
+            }
+            ldconfig
+            log SUCCESS "Slurm 런타임 라이브러리 설치 완료"
+        else
+            log SUCCESS "Slurm 런타임 라이브러리 모두 존재"
+        fi
+
+        # Slurm pmix 플러그인이 .so 잘 찾는지 검증
+        local pmix_plugin="/usr/local/slurm/lib/slurm/mpi_pmix_v4.so"
+        [[ ! -f "$pmix_plugin" ]] && pmix_plugin="/usr/local/slurm/lib/slurm/mpi_pmix.so"
+        if [[ -f "$pmix_plugin" ]]; then
+            if ldd "$pmix_plugin" 2>&1 | grep -q "not found"; then
+                log WARNING "  $pmix_plugin 의 dlopen 의존성 미해결:"
+                ldd "$pmix_plugin" 2>&1 | grep "not found" | head -5
+            else
+                log SUCCESS "  $pmix_plugin dlopen 의존성 OK"
+            fi
+        fi
+    }
+    ensure_slurm_runtime_libs
+
+    # ============================================================================
     # 기존 apt/yum Slurm 패키지 제거 (소스 빌드 23.x만 사용)
     # /usr/bin에 있는 apt 패키지 slurm 바이너리가 충돌을 일으킬 수 있음
     # ============================================================================
