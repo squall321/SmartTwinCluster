@@ -947,15 +947,14 @@ install_slurm() {
         local TSUF=""
         [[ "$OS_VER" == "24.04" ]] && TSUF="t64"
 
-        # 패키지명: libpmix2t64 (24.04) / libpmix2 (22.04)
-        local pkgs=(
+        # slurmctld 핵심 의존성 (이게 빠지면 slurmctld 시작 실패)
+        local core_pkgs=(
             "libpmix2${TSUF}"
             "libevent-2.1-7${TSUF}"
             "libevent-core-2.1-7${TSUF}"
             "libevent-pthreads-2.1-7${TSUF}"
             "libhwloc15"
             "libhwloc-plugins"
-            "libucx0"
             "libnuma1"
             "libltdl7"
             "libxml2"
@@ -963,33 +962,56 @@ install_slurm() {
             "libnl-3-200"
             "libnl-route-3-200"
         )
-        for pkg in "${pkgs[@]}"; do
-            if ! dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-                need_install+=("$pkg")
-            fi
+        # 선택 의존성 (GPU/HPC 통신용, 없어도 slurmctld 동작)
+        local opt_pkgs=(
+            "libucx0"            # AMD GPU 의존 → 실패 가능
+            "librdmacm1${TSUF}"
+        )
+
+        local need_core=() need_opt=()
+        for pkg in "${core_pkgs[@]}"; do
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii" || need_core+=("$pkg")
+        done
+        for pkg in "${opt_pkgs[@]}"; do
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii" || need_opt+=("$pkg")
         done
 
-        if [[ ${#need_install[@]} -gt 0 ]]; then
-            log INFO "  설치할 패키지: ${need_install[*]}"
-            # 오프라인 저장소 우선 (offline-local.list가 등록되어 있으면 apt 가 자동 사용)
-            DEBIAN_FRONTEND=noninteractive apt-get install -y "${need_install[@]}" 2>&1 | tail -10 || {
-                # 직접 .deb 시도
-                local apt_dir="${OFFLINE_PKG_DIR}/apt_packages"
-                if [[ -d "$apt_dir" ]]; then
-                    local debs=()
-                    for p in "${need_install[@]}"; do
-                        local f=$(ls "$apt_dir"/${p}_*.deb 2>/dev/null | tail -1)
-                        [[ -n "$f" ]] && debs+=("$f")
-                    done
-                    [[ ${#debs[@]} -gt 0 ]] && \
-                        DEBIAN_FRONTEND=noninteractive apt-get install -y "${debs[@]}" 2>&1 | tail -10
+        local apt_dir="${OFFLINE_PKG_DIR}/apt_packages"
+        install_debs_by_name() {
+            local label="$1"; shift
+            local pkg_list=("$@")
+            [[ ${#pkg_list[@]} -eq 0 ]] && return 0
+            log INFO "  [$label] 설치 시도: ${pkg_list[*]}"
+            # 직접 .deb 파일 경로로 설치 (apt가 의존성 체인 부분 인식, 인덱스 누락 회피)
+            local debs=()
+            for p in "${pkg_list[@]}"; do
+                local f=$(ls "$apt_dir"/${p}_*.deb 2>/dev/null | tail -1)
+                if [[ -n "$f" ]]; then
+                    debs+=("$f")
+                else
+                    log WARNING "    .deb 못 찾음: $p"
                 fi
-            }
-            ldconfig
-            log SUCCESS "Slurm 런타임 라이브러리 설치 완료"
+            done
+            if [[ ${#debs[@]} -gt 0 ]]; then
+                # 1차: apt (의존성 자동)
+                DEBIAN_FRONTEND=noninteractive apt-get install -y "${debs[@]}" 2>&1 | tail -5 \
+                    || {
+                    # 2차: dpkg -i (의존성 우회)
+                    log WARNING "    apt 실패 → dpkg -i --force-depends"
+                    dpkg -i --force-depends "${debs[@]}" 2>&1 | tail -5 || true
+                }
+            fi
+        }
+
+        if [[ ${#need_core[@]} -gt 0 ]]; then
+            install_debs_by_name "core" "${need_core[@]}"
         else
-            log SUCCESS "Slurm 런타임 라이브러리 모두 존재"
+            log SUCCESS "  core 라이브러리 모두 존재"
         fi
+        if [[ ${#need_opt[@]} -gt 0 ]]; then
+            install_debs_by_name "optional (실패해도 진행)" "${need_opt[@]}" || true
+        fi
+        ldconfig
 
         # Slurm pmix 플러그인이 .so 잘 찾는지 검증
         local pmix_plugin="/usr/local/slurm/lib/slurm/mpi_pmix_v4.so"
