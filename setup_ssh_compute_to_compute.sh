@@ -34,8 +34,8 @@ _log_info() { echo -e "  ${CYAN}→${NC} $1"; }
 #   $2: (선택) 대상 노드 목록 (공백 구분). 없으면 YAML에서 전체 추출
 ################################################################################
 setup_cross_node_ssh() {
-    local config_file="$1"
-    local target_nodes_filter="$2"
+    local config_file="${1:-}"
+    local target_nodes_filter="${2:-}"
 
     if [[ -z "$config_file" ]] || [[ ! -f "$config_file" ]]; then
         echo "❌ config 파일을 찾을 수 없습니다: $config_file"
