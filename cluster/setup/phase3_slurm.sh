@@ -2642,22 +2642,36 @@ EOFSLURMDBD
         sleep 3
         if ! systemctl is-active --quiet slurmdbd; then
             log WARNING "slurmdbd 1차 시작 실패 — 자동 복구 시도"
-            # ConditionPathExists 미충족 케이스
-            if systemctl status slurmdbd --no-pager 2>&1 | grep -q "Condition.*unmet"; then
-                log INFO "  ConditionPathExists 미충족 → conf symlink 양방향 생성"
-                mkdir -p /etc/slurm /usr/local/slurm/etc
-                for cf in slurm.conf slurmdbd.conf cgroup.conf gres.conf; do
-                    [[ -f /etc/slurm/$cf ]] && [[ ! -e /usr/local/slurm/etc/$cf ]] && \
-                        ln -sf /etc/slurm/$cf /usr/local/slurm/etc/$cf
-                    [[ -f /usr/local/slurm/etc/$cf ]] && [[ ! -e /etc/slurm/$cf ]] && \
-                        ln -sf /usr/local/slurm/etc/$cf /etc/slurm/$cf
-                done
-            fi
-            # /var/log/slurm 권한
+
+            # (1) ConditionPathExists 무조건 양방향 symlink (조건 매칭 검사 생략 — 항상 안전)
+            log INFO "  conf symlink 양방향 생성 (/etc/slurm <-> /usr/local/slurm/etc)"
+            mkdir -p /etc/slurm /usr/local/slurm/etc
+            for cf in slurm.conf slurmdbd.conf cgroup.conf gres.conf; do
+                # 양쪽 다 있으면 스킵, 한쪽만 있으면 반대편에 symlink
+                if [[ -f /etc/slurm/$cf ]]; then
+                    ln -sfn /etc/slurm/$cf /usr/local/slurm/etc/$cf
+                fi
+                if [[ -f /usr/local/slurm/etc/$cf ]] && [[ ! -e /etc/slurm/$cf ]]; then
+                    ln -sfn /usr/local/slurm/etc/$cf /etc/slurm/$cf
+                fi
+            done
+            ls -la /usr/local/slurm/etc/slurmdbd.conf 2>&1 | head -1
+
+            # (2) /var/log/slurm /run/slurm 권한
             mkdir -p /var/log/slurm /run/slurm
             chown -R slurm:slurm /var/log/slurm /run/slurm 2>/dev/null || true
+
+            # (3) service file ConditionPathExists 자체를 /etc/slurm 으로 변경 (강제)
+            if [[ -f /etc/systemd/system/slurmdbd.service ]] && \
+               grep -q "ConditionPathExists=/usr/local/slurm" /etc/systemd/system/slurmdbd.service; then
+                log INFO "  service file ConditionPathExists 를 /etc/slurm 으로 변경"
+                sed -i 's|ConditionPathExists=/usr/local/slurm/etc/slurmdbd.conf|ConditionPathExists=/etc/slurm/slurmdbd.conf|g' \
+                    /etc/systemd/system/slurmdbd.service
+            fi
+
             # 재시도
             systemctl daemon-reload
+            systemctl reset-failed slurmdbd 2>/dev/null || true
             systemctl restart slurmdbd
             sleep 3
         fi
