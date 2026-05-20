@@ -831,11 +831,26 @@ SLURMCTLD_SERVICE
         needs_reload=true
     fi
 
+    # 호환: /etc/slurm 이 비어 있으면 /usr/local/slurm/etc 에서 심볼릭
+    mkdir -p /etc/slurm
+    for cf in slurm.conf slurmdbd.conf cgroup.conf gres.conf; do
+        if [[ -f /usr/local/slurm/etc/$cf ]] && [[ ! -e /etc/slurm/$cf ]]; then
+            ln -sf /usr/local/slurm/etc/$cf /etc/slurm/$cf
+        fi
+        # 역방향도 만들기 (slurmdbd.service의 ConditionPathExists 호환)
+        if [[ -f /etc/slurm/$cf ]] && [[ ! -e /usr/local/slurm/etc/$cf ]]; then
+            mkdir -p /usr/local/slurm/etc
+            ln -sf /etc/slurm/$cf /usr/local/slurm/etc/$cf
+        fi
+    done
+
     # Check slurmdbd service file
     # Check slurmdbd service file - fix if pointing to /usr/sbin (apt package path) OR Type=forking
+    # OR ConditionPathExists 가 우리 conf 위치와 다른 경우
     if [[ -f /etc/systemd/system/slurmdbd.service ]]; then
         if grep -q "/usr/sbin/slurmdbd" /etc/systemd/system/slurmdbd.service 2>/dev/null || \
-           grep -q "Type=forking" /etc/systemd/system/slurmdbd.service 2>/dev/null; then
+           grep -q "Type=forking" /etc/systemd/system/slurmdbd.service 2>/dev/null || \
+           ! grep -q "ConditionPathExists=/etc/slurm/slurmdbd.conf" /etc/systemd/system/slurmdbd.service 2>/dev/null; then
             log WARNING "Found slurmdbd.service needs update (apt path or Type=forking)"
             log INFO "Updating slurmdbd.service to use source-built path with Type=simple..."
 
