@@ -2180,10 +2180,15 @@ generate_slurm_config() {
         local LOCAL_SLURM_ETC="/usr/local/slurm/etc"
         if [[ -d "$LOCAL_SLURM_ETC" ]] || [[ -d "/usr/local/slurm" ]]; then
             mkdir -p "$LOCAL_SLURM_ETC"
-            cp "$SLURM_CONFIG" "$LOCAL_SLURM_ETC/slurm.conf"
-            chmod 644 "$LOCAL_SLURM_ETC/slurm.conf"
-            chown slurm:slurm "$LOCAL_SLURM_ETC/slurm.conf"
-            log SUCCESS "Slurm configuration also copied to $LOCAL_SLURM_ETC/slurm.conf"
+            # symlink로 같은 파일이면 cp 스킵 (오류 방지)
+            if [[ "$(readlink -f "$LOCAL_SLURM_ETC/slurm.conf" 2>/dev/null)" == "$(readlink -f "$SLURM_CONFIG")" ]]; then
+                log INFO "  $LOCAL_SLURM_ETC/slurm.conf 가 이미 $SLURM_CONFIG symlink — cp 스킵"
+            else
+                cp "$SLURM_CONFIG" "$LOCAL_SLURM_ETC/slurm.conf"
+                chmod 644 "$LOCAL_SLURM_ETC/slurm.conf"
+                chown slurm:slurm "$LOCAL_SLURM_ETC/slurm.conf"
+                log SUCCESS "Slurm configuration also copied to $LOCAL_SLURM_ETC/slurm.conf"
+            fi
         fi
     fi
 }
@@ -3540,10 +3545,20 @@ main() {
         # Try to copy slurm.conf from shared storage or system config
         local config_found=false
 
+        # 같은 파일(symlink chain)이면 cp 스킵 helper
+        safe_cp() {
+            local src="$1" dst="$2"
+            if [[ "$(readlink -f "$src" 2>/dev/null)" == "$(readlink -f "$dst" 2>/dev/null)" ]]; then
+                log INFO "  $src 와 $dst 가 같은 파일 — cp 스킵"
+                return 0
+            fi
+            cp "$src" "$dst"
+        }
+
         # Check GlusterFS shared storage first
         if [[ -f "$GLUSTER_MOUNT/slurm/slurm.conf" ]]; then
             log INFO "Copying slurm.conf from shared storage (GlusterFS)..."
-            cp "$GLUSTER_MOUNT/slurm/slurm.conf" "$SLURM_CONFIG"
+            safe_cp "$GLUSTER_MOUNT/slurm/slurm.conf" "$SLURM_CONFIG"
             config_found=true
         # Fallback: Check /etc/slurm
         elif [[ -f "/etc/slurm/slurm.conf" ]]; then
@@ -3552,7 +3567,7 @@ main() {
         # Fallback: Check /usr/local/slurm/etc
         elif [[ -f "/usr/local/slurm/etc/slurm.conf" ]]; then
             log INFO "Using existing slurm.conf from /usr/local/slurm/etc"
-            cp "/usr/local/slurm/etc/slurm.conf" "$SLURM_CONFIG"
+            safe_cp "/usr/local/slurm/etc/slurm.conf" "$SLURM_CONFIG"
             config_found=true
         fi
 
