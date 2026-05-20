@@ -2637,9 +2637,31 @@ EOFSLURMDBD
     log INFO "Starting slurmdbd service..."
     run_command "systemctl restart slurmdbd"
 
-    # Verify service started
+    # Verify service started — 실패 시 자동 복구 후 재시도
     if [[ "$DRY_RUN" == "false" ]]; then
         sleep 3
+        if ! systemctl is-active --quiet slurmdbd; then
+            log WARNING "slurmdbd 1차 시작 실패 — 자동 복구 시도"
+            # ConditionPathExists 미충족 케이스
+            if systemctl status slurmdbd --no-pager 2>&1 | grep -q "Condition.*unmet"; then
+                log INFO "  ConditionPathExists 미충족 → conf symlink 양방향 생성"
+                mkdir -p /etc/slurm /usr/local/slurm/etc
+                for cf in slurm.conf slurmdbd.conf cgroup.conf gres.conf; do
+                    [[ -f /etc/slurm/$cf ]] && [[ ! -e /usr/local/slurm/etc/$cf ]] && \
+                        ln -sf /etc/slurm/$cf /usr/local/slurm/etc/$cf
+                    [[ -f /usr/local/slurm/etc/$cf ]] && [[ ! -e /etc/slurm/$cf ]] && \
+                        ln -sf /usr/local/slurm/etc/$cf /etc/slurm/$cf
+                done
+            fi
+            # /var/log/slurm 권한
+            mkdir -p /var/log/slurm /run/slurm
+            chown -R slurm:slurm /var/log/slurm /run/slurm 2>/dev/null || true
+            # 재시도
+            systemctl daemon-reload
+            systemctl restart slurmdbd
+            sleep 3
+        fi
+
         if systemctl is-active --quiet slurmdbd; then
             log SUCCESS "SlurmDBD started successfully"
         else
