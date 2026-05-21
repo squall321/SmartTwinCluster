@@ -101,20 +101,30 @@ for n in (c.get('nodes',{}).get('compute_nodes',[]) or []):
     OK=0; FAIL=0
     echo "  대상 노드 수: $TOTAL"
 
-    # 병렬 SSH (8개씩)
-    echo "$NODE_INFO" | xargs -n3 -P8 -I{} bash -c '
-        read host ip user <<< "{}"
-        ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no \
-            "$user@$ip" "sudo systemctl restart slurmd && sudo systemctl is-active --quiet slurmd" \
-            >/dev/null 2>&1 && echo "OK $host" || echo "FAIL $host"
-    ' | while read result host; do
-        if [[ "$result" == "OK" ]]; then
-            OK=$((OK+1))
+    # 병렬 SSH (8개씩) — 줄단위 처리
+    RESULT_TMP=$(mktemp)
+    echo "$NODE_INFO" | while read host ip user; do
+        [ -z "$host" ] && continue
+        echo "$host $ip $user"
+    done | xargs -P8 -L1 bash -c '
+        host="$1"; ip="$2"; user="$3"
+        if ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no \
+               "$user@$ip" "sudo systemctl restart slurmd && sudo systemctl is-active --quiet slurmd" \
+               >/dev/null 2>&1; then
+            echo "OK $host"
         else
-            echo -e "    ${RED}✗ $host${NC}"
-            FAIL=$((FAIL+1))
+            echo "FAIL $host"
         fi
-    done
+    ' _ > "$RESULT_TMP"
+
+    OK_COUNT=$(grep -c "^OK " "$RESULT_TMP" 2>/dev/null || echo 0)
+    FAIL_COUNT=$(grep -c "^FAIL " "$RESULT_TMP" 2>/dev/null || echo 0)
+    echo -e "  ${GREEN}성공 ${OK_COUNT}${NC} / ${RED}실패 ${FAIL_COUNT}${NC}"
+    if [[ "$FAIL_COUNT" -gt 0 ]]; then
+        echo -e "  ${RED}실패 노드 (앞 20개):${NC}"
+        grep "^FAIL " "$RESULT_TMP" | awk '{print "    ✗ "$2}' | head -20
+    fi
+    rm -f "$RESULT_TMP"
 
     echo ""
     echo -e "  ${GREEN}성공${NC} / ${RED}실패${NC}: 진행 중... (위 출력 참고)"
