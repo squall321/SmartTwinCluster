@@ -1,0 +1,4 @@
+showcase/node_modules/
+showcase/*.png
+showcase/package*.json
+showcase/capture.js
