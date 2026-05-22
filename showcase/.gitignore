@@ -1,4 +1,11 @@
 showcase/node_modules/
-showcase/*.png
 showcase/package*.json
 showcase/capture.js
+showcase/screens.png
+showcase/hero.png
+showcase/ax.png
+showcase/features.png
+showcase/arch.png
+showcase/workflow.png
+showcase/compare.png
+showcase/full.png
