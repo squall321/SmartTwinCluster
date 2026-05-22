@@ -250,6 +250,14 @@ h2 .grad{background:linear-gradient(135deg,var(--accent3),var(--accent2));-webki
 .compare-card.before li::before{background:#ff5757}
 .compare-card.after li::before{background:var(--success)}
 
+
+.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:1.2rem;margin-top:2rem}
+.gallery figure{margin:0;border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--glass);transition:transform .3s ease}
+.gallery figure:hover{transform:translateY(-4px);border-color:rgba(124,92,255,.4)}
+.gallery img{width:100%;height:220px;object-fit:cover;object-position:top;display:block;background:#000}
+.gallery img[src=""]{background:linear-gradient(135deg,rgba(124,92,255,.15),rgba(0,212,255,.05))}
+.gallery figcaption{padding:.9rem 1rem;font-size:.88rem;color:var(--mute);border-top:1px solid var(--border)}
+
 /* Footer */
 footer{
  padding:4rem 3rem;border-top:1px solid var(--border);text-align:center;color:var(--mute);
@@ -272,6 +280,7 @@ footer .brand{font-size:1.3rem;font-weight:700;margin-bottom:1rem;color:var(--fg
  <div class="nav-links">
  <a href="#ax">AX First</a>
  <a href="#features">Features</a>
+    <a href="#screens">Live</a>
  <a href="#arch">Architecture</a>
  <a href="#workflow">Workflow</a>
  <a href="#compare">Why</a>
@@ -449,6 +458,24 @@ footer .brand{font-size:1.3rem;font-weight:700;margin-bottom:1rem;color:var(--fg
  <div class="stack"><span class="tag">Self-improving</span></div>
  </div>
  </div>
+</section>
+
+
+<!-- Live Screenshots -->
+<section id="screens" class="reveal">
+  <div class="eyebrow">LIVE PRODUCTION</div>
+  <h2>실제 운영 화면 <span class="grad">엿보기</span></h2>
+  <p class="lead">스크린샷은 헤드노드에서 자동 캡처. 자체서명 인증서·SSO·실시간 노드 상태 모두 정상 동작 중.</p>
+  <div class="gallery">
+    <figure><img src="dashboard_01_main.png" alt="Main entry"><figcaption>1. 메인 진입 → SSO 자동 리다이렉트</figcaption></figure>
+    <figure><img src="dashboard_02_sso.png" alt="SSO portal"><figcaption>2. SSO 로그인 (SAML/Mock)</figcaption></figure>
+    <figure><img src="dashboard_03_dashboard.png" alt="Dashboard"><figcaption>3. 클러스터 대시보드</figcaption></figure>
+    <figure><img src="dashboard_04_nodes.png" alt="Nodes"><figcaption>4. 346 노드 상태 모니터링</figcaption></figure>
+    <figure><img src="dashboard_05_jobs.png" alt="Jobs"><figcaption>5. 작업 큐 · 템플릿</figcaption></figure>
+    <figure><img src="dashboard_07_cae.png" alt="CAE"><figcaption>6. CAE Automation</figcaption></figure>
+    <figure><img src="dashboard_08_vnc.png" alt="VNC"><figcaption>7. VNC · Visualization</figcaption></figure>
+    <figure><img src="dashboard_10_prometheus.png" alt="Prometheus"><figcaption>8. Prometheus · 메트릭</figcaption></figure>
+  </div>
 </section>
 
 <!-- Architecture -->
