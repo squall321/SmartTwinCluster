@@ -75,12 +75,30 @@ else
 fi
 echo -e "\033[0;34m🌐 외부 접속 주소: $HOST_IP $([ "$IS_DOMAIN" = "1" ] && echo "(도메인, IP=$REAL_IP)" || echo "(IP)")\033[0m"
 
-# 오프라인 APT 저장소 보장 (의존성 해결용)
+# 오프라인 APT 저장소 보장 (의존성 해결용) — OS 버전 자동 분기
 ensure_offline_apt_repo() {
     local repo_list="/etc/apt/sources.list.d/offline-local.list"
-    [ -f "$repo_list" ] && return 0
+    # OS 버전 자동 판별 (22.04 → offline_packages, 24.04 → offline_packages_2404)
+    local os_ver=$(. /etc/os-release 2>/dev/null && echo "$VERSION_ID")
     local apt_dir=""
-    for d in "${REPO_ROOT}/offline_packages_2404/apt_packages" "${REPO_ROOT}/offline_packages/apt_packages"; do
+    local search_order=()
+    case "$os_ver" in
+        24.04|noble*) search_order=("offline_packages_2404" "offline_packages") ;;
+        22.04|jammy*) search_order=("offline_packages" "offline_packages_2404") ;;
+        *)            search_order=("offline_packages_2404" "offline_packages") ;;
+    esac
+    # 기존 등록이 OS와 안 맞으면 재등록
+    if [ -f "$repo_list" ]; then
+        local cur=$(awk '{for(i=1;i<=NF;i++) if($i ~ /^file:/) print $i}' "$repo_list" | head -1)
+        local expected_name="${search_order[0]}"
+        if echo "$cur" | grep -q "$expected_name"; then
+            return 0
+        else
+            echo -e "${YELLOW}   • 옛 저장소($cur) → OS=$os_ver 용으로 재등록${NC}"
+        fi
+    fi
+    for d in "${search_order[@]/#/${REPO_ROOT}/}"; do
+        d="$d/apt_packages"
         [ -f "$d/Packages.gz" ] && apt_dir="$d" && break
     done
     [ -z "$apt_dir" ] && { echo -e "\033[1;33m⚠️ 오프라인 apt 저장소 디렉토리 없음 (Packages.gz)\033[0m"; return 1; }
