@@ -20,7 +20,7 @@ show_help() {
 
 옵션:
     -h, --help      이 도움말 표시
-    -c, --config    설정 파일 경로 지정 (기본값: my_cluster.yaml)
+    -c, --config    설정 파일 경로 지정 (기본값: my_multihead_cluster.yaml)
 
 설치 단계:
     1. 오프라인 패키지 검증
@@ -33,7 +33,7 @@ show_help() {
 필수 조건:
     - Ubuntu 22.04 LTS
     - packages/ 디렉토리 (사전 다운로드 필요)
-    - my_cluster.yaml 설정 파일
+    - my_multihead_cluster.yaml 설정 파일
     - root 권한 (sudo)
 
 오프라인 패키지 준비:
@@ -80,7 +80,7 @@ EOF
 }
 
 # 옵션 파싱
-CONFIG_FILE="my_cluster.yaml"
+CONFIG_FILE="my_multihead_cluster.yaml"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -426,11 +426,11 @@ echo ""
 echo "🌐 Step 10/14: /etc/hosts 자동 설정..."
 echo "--------------------------------------------------------------------------------"
 
-if [ -f "$PACKAGES_DIR/scripts/complete_slurm_setup.py" ] && [ -f "$PACKAGES_DIR/scripts/my_cluster.yaml" ]; then
+if [ -f "$PACKAGES_DIR/scripts/complete_slurm_setup.py" ] && [ -f "$PACKAGES_DIR/scripts/my_multihead_cluster.yaml" ]; then
     cd "$SCRIPT_DIR"
 
     # scripts에서 필요한 파일 복사
-    cp "$PACKAGES_DIR/scripts/my_cluster.yaml" . 2>/dev/null || true
+    cp "$PACKAGES_DIR/scripts/my_multihead_cluster.yaml" . 2>/dev/null || true
     cp "$PACKAGES_DIR/scripts/complete_slurm_setup.py" . 2>/dev/null || true
     cp -r "$PACKAGES_DIR/scripts/src" . 2>/dev/null || true
 
@@ -439,7 +439,7 @@ if [ -f "$PACKAGES_DIR/scripts/complete_slurm_setup.py" ] && [ -f "$PACKAGES_DIR
         echo "⚠️  /etc/hosts 설정 실패 (수동 확인 필요)"
     }
 else
-    echo "⚠️  complete_slurm_setup.py 또는 my_cluster.yaml을 찾을 수 없습니다"
+    echo "⚠️  complete_slurm_setup.py 또는 my_multihead_cluster.yaml을 찾을 수 없습니다"
     echo "   수동으로 /etc/hosts를 설정하세요"
 fi
 
@@ -455,11 +455,11 @@ echo "--------------------------------------------------------------------------
 read -p "계산 노드에 Slurm을 설치하시겠습니까? (Y/n): " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    # my_cluster.yaml에서 노드 목록 읽기
+    # my_multihead_cluster.yaml에서 노드 목록 읽기
     mapfile -t COMPUTE_NODES < <(python3 << 'EOFPY'
 import yaml
 try:
-    with open('my_cluster.yaml', 'r') as f:
+    with open('my_multihead_cluster.yaml', 'r') as f:
         config = yaml.safe_load(f)
     for node in config['nodes']['compute_nodes']:
         print(f"{node['ssh_user']}@{node['ip_address']}")
@@ -496,7 +496,7 @@ EOFPY
             }
         done
     else
-        echo "⚠️  my_cluster.yaml에서 노드 정보를 읽을 수 없습니다"
+        echo "⚠️  my_multihead_cluster.yaml에서 노드 정보를 읽을 수 없습니다"
     fi
 else
     echo "⏭️  계산 노드 설치 건너뜀"

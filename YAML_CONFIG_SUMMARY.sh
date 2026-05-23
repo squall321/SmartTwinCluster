@@ -51,8 +51,8 @@ echo ""
 echo "📋 YAML 설정 확인:"
 echo "--------------------------------------------------------------------------------"
 
-if [ -f "my_cluster.yaml" ]; then
-    echo "✅ my_cluster.yaml 존재"
+if [ -f "my_multihead_cluster.yaml" ]; then
+    echo "✅ my_multihead_cluster.yaml 존재"
     echo ""
     
     # 주요 설정 추출
@@ -63,7 +63,7 @@ if [ -f "my_cluster.yaml" ]; then
         python3 << 'EOFPY'
 import yaml
 try:
-    with open('my_cluster.yaml', 'r') as f:
+    with open('my_multihead_cluster.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
     print(f"  - ClusterName: {config['cluster_info']['cluster_name']}")
@@ -90,11 +90,11 @@ except Exception as e:
 EOFPY
     fi
 else
-    echo "❌ my_cluster.yaml 없음"
+    echo "❌ my_multihead_cluster.yaml 없음"
     echo ""
     echo "💡 생성 방법:"
-    echo "  cp examples/2node_example.yaml my_cluster.yaml"
-    echo "  vim my_cluster.yaml"
+    echo "  cp examples/2node_example.yaml my_multihead_cluster.yaml"
+    echo "  vim my_multihead_cluster.yaml"
 fi
 
 echo ""
@@ -122,7 +122,7 @@ echo "📋 다음 단계:"
 echo "--------------------------------------------------------------------------------"
 echo ""
 echo "1. YAML 파일 확인 및 수정"
-echo "   vim my_cluster.yaml"
+echo "   vim my_multihead_cluster.yaml"
 echo ""
 echo "2. 설정 미리보기"
 echo "   python3 configure_slurm_from_yaml.py --dry-run"

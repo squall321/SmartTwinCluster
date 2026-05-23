@@ -81,7 +81,7 @@ ssh node1 'sudo whoami'  # "root" 출력되어야 함
 ssh node2 'sudo whoami'  # "root" 출력되어야 함
 
 # 또는 검증 스크립트 실행
-python3 test_connection.py my_cluster.yaml
+python3 test_connection.py my_multihead_cluster.yaml
 
 ================================================================================
 🚨 주의사항

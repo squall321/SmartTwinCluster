@@ -74,8 +74,8 @@ setup_slurm_paths() {
     local required_major_version="23"
 
     # YAML에서 bin_path 읽기 시도
-    if [[ -f "$PROJECT_ROOT/my_cluster.yaml" ]]; then
-        local yaml_bin_path=$(grep -E "^\s+bin_path:" "$PROJECT_ROOT/my_cluster.yaml" 2>/dev/null | head -1 | awk '{print $2}')
+    if [[ -f "$PROJECT_ROOT/my_multihead_cluster.yaml" ]]; then
+        local yaml_bin_path=$(grep -E "^\s+bin_path:" "$PROJECT_ROOT/my_multihead_cluster.yaml" 2>/dev/null | head -1 | awk '{print $2}')
         if [[ -n "$yaml_bin_path" ]]; then
             target_bin_path="$yaml_bin_path"
         fi
@@ -1291,7 +1291,7 @@ except:
             GLUSTER_BRICK=""
 
             CONFIG_YAML=""
-            for candidate in "$SCRIPT_DIR/my_multihead_cluster_2.yaml" "$SCRIPT_DIR/my_multihead_cluster.yaml" "$SCRIPT_DIR/my_cluster.yaml" "$SCRIPT_DIR/dev_cluster.yaml"; do
+            for candidate in "$SCRIPT_DIR/my_multihead_cluster_2.yaml" "$SCRIPT_DIR/my_multihead_cluster.yaml" "$SCRIPT_DIR/my_multihead_cluster.yaml" "$SCRIPT_DIR/dev_cluster.yaml"; do
                 if [[ -f "$candidate" ]]; then
                     CONFIG_YAML="$candidate"
                     break
@@ -1472,7 +1472,7 @@ GRESEOF
 
                     # YAML에서 viz 노드의 ssh_user 가져오기
                     local VIZ_SSH_USER=""
-                    for yaml_file in "$PROJECT_ROOT/my_multihead_cluster.yaml" "$PROJECT_ROOT/my_cluster.yaml"; do
+                    for yaml_file in "$PROJECT_ROOT/my_multihead_cluster.yaml" "$PROJECT_ROOT/my_multihead_cluster.yaml"; do
                         if [[ -f "$yaml_file" ]]; then
                             VIZ_SSH_USER=$(python3 -c "
 import yaml

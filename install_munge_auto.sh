@@ -4,13 +4,28 @@
 # SSH 키가 설정되어 있으면 비밀번호 입력 없이 작동
 #
 # Usage: ./install_munge_auto.sh [CONFIG_FILE]
-#   CONFIG_FILE: Path to YAML config file (default: my_cluster.yaml)
+#   CONFIG_FILE: Path to YAML config file (default: my_multihead_cluster.yaml)
 ################################################################################
+
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
 
 set -e
 
-# 설정 파일 파라미터 (기본값: my_cluster.yaml)
-CONFIG_FILE="${1:-my_cluster.yaml}"
+# 설정 파일 파라미터 (기본값: my_multihead_cluster.yaml)
+CONFIG_FILE="${1:-my_multihead_cluster.yaml}"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "❌ 설정 파일을 찾을 수 없습니다: $CONFIG_FILE"
@@ -24,7 +39,7 @@ echo ""
 mapfile -t NODES < <(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
 import os
-config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+config_file = os.environ.get('CONFIG_FILE', '$CONFIG_FILE')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
@@ -35,7 +50,7 @@ EOFPY
 mapfile -t NODE_NAMES < <(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
 import os
-config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+config_file = os.environ.get('CONFIG_FILE', '$CONFIG_FILE')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
@@ -46,7 +61,7 @@ EOFPY
 USER_NAME=$(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
 import os
-config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+config_file = os.environ.get('CONFIG_FILE', '$CONFIG_FILE')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 
@@ -133,7 +148,7 @@ if [ "$USE_SSHPASS" = true ]; then
     PASSWORD=$(CONFIG_FILE="$CONFIG_FILE" python3 << EOFPY
 import yaml
 import os
-config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+config_file = os.environ.get('CONFIG_FILE', '$CONFIG_FILE')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 password = config.get('cluster_info', {}).get('ssh_password', '')

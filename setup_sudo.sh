@@ -20,10 +20,10 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 echo ""
 
-# my_cluster.yaml에서 노드 정보 읽기
+# my_multihead_cluster.yaml에서 노드 정보 읽기
 CONTROLLER_IP=$(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 print(config['nodes']['controller']['ip_address'])
 EOFPY
@@ -31,7 +31,7 @@ EOFPY
 
 CONTROLLER_USER=$(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 print(config['nodes']['controller']['ssh_user'])
 EOFPY
@@ -39,7 +39,7 @@ EOFPY
 
 mapfile -t COMPUTE_NODES < <(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(node['ip_address'])
@@ -203,10 +203,10 @@ echo "1. sudo 권한 테스트"
 echo -e "   ${YELLOW}sudo -n whoami${NC}"
 echo ""
 echo "2. SSH 연결 테스트"
-echo -e "   ${YELLOW}./test_connection.py my_cluster.yaml${NC}"
+echo -e "   ${YELLOW}./test_connection.py my_multihead_cluster.yaml${NC}"
 echo ""
 echo "3. Slurm 설치"
-echo -e "   ${YELLOW}./install_slurm.py -c my_cluster.yaml${NC}"
+echo -e "   ${YELLOW}./install_slurm.py -c my_multihead_cluster.yaml${NC}"
 echo ""
 
 echo "Happy Computing! 🚀"

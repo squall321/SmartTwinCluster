@@ -7,6 +7,21 @@
 # 모든 권한과 설정을 확인하고 설정합니다.
 ################################################################################
 
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
+
 set -e
 
 # 색상 정의
@@ -73,15 +88,15 @@ echo ""
 
 # 3. 설정 파일 확인
 echo -e "${GREEN}[3/5]${NC} 설정 파일 확인..."
-if [ -f "my_cluster.yaml" ]; then
-    echo -e "  ${CYAN}✓${NC} my_cluster.yaml 존재"
+if [ -f "$CONFIG_FILE" ]; then
+    echo -e "  ${CYAN}✓${NC} my_multihead_cluster.yaml 존재"
     
     # Apptainer 설정 확인
-    if grep -q "apptainer:" my_cluster.yaml; then
+    if grep -q "apptainer:" my_multihead_cluster.yaml; then
         echo -e "  ${CYAN}✓${NC} Apptainer 설정 발견"
         
         # enabled 확인
-        if grep -A1 "apptainer:" my_cluster.yaml | grep -q "enabled: true"; then
+        if grep -A1 "apptainer:" my_multihead_cluster.yaml | grep -q "enabled: true"; then
             echo -e "  ${CYAN}✓${NC} Apptainer 활성화됨"
         else
             echo -e "  ${YELLOW}!${NC} Apptainer가 비활성화되어 있을 수 있습니다"
@@ -91,15 +106,15 @@ if [ -f "my_cluster.yaml" ]; then
     fi
     
     # 계산 노드 확인
-    if grep -q "compute_nodes:" my_cluster.yaml; then
-        node_count=$(grep -A100 "compute_nodes:" my_cluster.yaml | grep "hostname:" | wc -l)
+    if grep -q "compute_nodes:" my_multihead_cluster.yaml; then
+        node_count=$(grep -A100 "compute_nodes:" my_multihead_cluster.yaml | grep "hostname:" | wc -l)
         echo -e "  ${CYAN}✓${NC} 계산 노드 수: $node_count"
     else
         echo -e "  ${RED}✗${NC} compute_nodes 설정이 없습니다"
         exit 1
     fi
 else
-    echo -e "  ${RED}✗${NC} my_cluster.yaml 파일이 없습니다"
+    echo -e "  ${RED}✗${NC} my_multihead_cluster.yaml 파일이 없습니다"
     exit 1
 fi
 
@@ -160,7 +175,7 @@ import yaml
 import sys
 
 try:
-    with open('my_cluster.yaml', 'r') as f:
+    with open('$CONFIG_FILE', 'r') as f:
         config = yaml.safe_load(f)
     
     compute_nodes = config.get('nodes', {}).get('compute_nodes', [])

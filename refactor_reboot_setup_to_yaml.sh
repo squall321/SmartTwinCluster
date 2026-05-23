@@ -14,17 +14,17 @@ echo "==========================================================================
 echo ""
 
 # 1. YAML 파일에 admin_user 추가
-echo "📝 Step 1: my_cluster.yaml에 admin_user 추가..."
+echo "📝 Step 1: my_multihead_cluster.yaml에 admin_user 추가..."
 
-if ! grep -q "admin_user:" my_cluster.yaml; then
+if ! grep -q "admin_user:" my_multihead_cluster.yaml; then
     # users 섹션 바로 다음에 admin_user 추가
-    sed -i '/^users:/a\  admin_user: koopark' my_cluster.yaml
+    sed -i '/^users:/a\  admin_user: koopark' my_multihead_cluster.yaml
     echo "✅ admin_user: koopark 추가 완료"
 else
     echo "✅ admin_user가 이미 존재합니다"
     # 값이 koopark인지 확인
-    if ! grep -q "admin_user: koopark" my_cluster.yaml; then
-        sed -i 's/admin_user:.*/admin_user: koopark/' my_cluster.yaml
+    if ! grep -q "admin_user: koopark" my_multihead_cluster.yaml; then
+        sed -i 's/admin_user:.*/admin_user: koopark/' my_multihead_cluster.yaml
         echo "✅ admin_user를 koopark로 업데이트"
     fi
 fi
@@ -47,7 +47,7 @@ cat > setup_reboot_program.sh << 'EOF'
 #!/bin/bash
 ################################################################################
 # RebootProgram 설정 - YAML 기반
-# my_cluster.yaml에서 설정을 읽어와서 동적으로 구성합니다
+# my_multihead_cluster.yaml에서 설정을 읽어와서 동적으로 구성합니다
 ################################################################################
 
 set -e
@@ -58,7 +58,7 @@ echo "==========================================================================
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-YAML_FILE="${SCRIPT_DIR}/my_cluster.yaml"
+YAML_FILE="${SCRIPT_DIR}/my_multihead_cluster.yaml"
 
 # YAML 파일 확인
 if [ ! -f "$YAML_FILE" ]; then
@@ -232,7 +232,7 @@ echo "✅ 리팩토링 완료!"
 echo "================================================================================"
 echo ""
 echo "📝 변경 사항:"
-echo "  1. my_cluster.yaml에 admin_user: koopark 추가"
+echo "  1. my_multihead_cluster.yaml에 admin_user: koopark 추가"
 echo "  2. setup_reboot_program.sh를 YAML 기반으로 재작성"
 echo "     - 하드코딩 제거"
 echo "     - YAML에서 admin_user, install_path, reboot_program 읽기"
@@ -240,7 +240,7 @@ echo "     - 계산 노드 목록 동적 생성"
 echo ""
 echo "📋 다음 단계:"
 echo "  1. 변경사항 확인:"
-echo "     grep admin_user my_cluster.yaml"
+echo "     grep admin_user my_multihead_cluster.yaml"
 echo "     head -30 setup_reboot_program.sh"
 echo ""
 echo "  2. 테스트:"

@@ -15,7 +15,7 @@ show_help() {
 
 옵션:
     -h, --help      이 도움말 표시
-    -c, --config    설정 파일 경로 지정 (기본값: my_cluster.yaml)
+    -c, --config    설정 파일 경로 지정 (기본값: my_multihead_cluster.yaml)
 
 예제:
     # 기본 설정 파일 사용
@@ -32,11 +32,11 @@ show_help() {
     4. NOPASSWD sudoers 설정 (클러스터 관리 명령용)
 
 필수 조건:
-    - my_cluster.yaml (또는 지정된 설정 파일)
+    - my_multihead_cluster.yaml (또는 지정된 설정 파일)
     - Python3 + PyYAML
     - 모든 노드에 동일한 SSH 비밀번호 (최초 1회만 입력)
 
-설정 파일 예시 (my_cluster.yaml):
+설정 파일 예시 (my_multihead_cluster.yaml):
     nodes:
       controller:
         hostname: controller
@@ -56,7 +56,7 @@ EOF
 }
 
 # 옵션 파싱
-CONFIG_FILE="my_cluster.yaml"
+CONFIG_FILE="my_multihead_cluster.yaml"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -106,7 +106,7 @@ NODES=$(CONFIG_FILE="$CONFIG_FILE" python3 << 'EOFPY'
 import yaml
 import os
 
-config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+config_file = os.environ.get('CONFIG_FILE', 'my_multihead_cluster.yaml')
 
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
@@ -234,7 +234,7 @@ if [ "$NEEDS_PASSWORD" = true ]; then
     PASSWORD=$(CONFIG_FILE="$CONFIG_FILE" python3 << 'EOFPY' 2>/dev/null || echo ""
 import yaml
 import os
-config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+config_file = os.environ.get('CONFIG_FILE', 'my_multihead_cluster.yaml')
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
 password = config.get('cluster_info', {}).get('ssh_password', '')

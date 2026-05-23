@@ -20,7 +20,7 @@ show_help() {
 
 옵션:
     -h, --help      이 도움말 표시
-    -c, --config    설정 파일 경로 지정 (기본값: my_cluster.yaml)
+    -c, --config    설정 파일 경로 지정 (기본값: my_multihead_cluster.yaml)
     -y, --yes       모든 확인 프롬프트에 자동 yes
 
 설치 단계:
@@ -40,7 +40,7 @@ show_help() {
 
 필수 조건:
     - Ubuntu 22.04 LTS
-    - my_cluster.yaml 설정 파일
+    - my_multihead_cluster.yaml 설정 파일
     - 인터넷 연결 (패키지 다운로드)
     - root 권한 (sudo)
 
@@ -77,7 +77,7 @@ EOF
 }
 
 # 옵션 파싱
-CONFIG_FILE="my_cluster.yaml"
+CONFIG_FILE="my_multihead_cluster.yaml"
 AUTO_YES=false
 
 while [[ $# -gt 0 ]]; do
@@ -130,7 +130,7 @@ echo "🔍 Step 3/11: 설정 파일 검증..."
 echo "--------------------------------------------------------------------------------"
 
 if [ -f "validate_config.py" ]; then
-    python3 validate_config.py my_cluster.yaml
+    python3 validate_config.py my_multihead_cluster.yaml
     if [ $? -ne 0 ]; then
         echo "❌ 설정 파일 검증 실패"
         exit 1
@@ -151,7 +151,7 @@ echo "--------------------------------------------------------------------------
 
 # SSH 연결 테스트
 if [ -f "test_connection.py" ]; then
-    python3 test_connection.py my_cluster.yaml
+    python3 test_connection.py my_multihead_cluster.yaml
     SSH_TEST_RESULT=$?
 
     if [ $SSH_TEST_RESULT -ne 0 ]; then
@@ -167,7 +167,7 @@ if [ -f "test_connection.py" ]; then
             if [ $? -eq 0 ]; then
                 echo ""
                 echo "✅ SSH 키 설정 완료! 연결 재테스트 중..."
-                python3 test_connection.py my_cluster.yaml
+                python3 test_connection.py my_multihead_cluster.yaml
 
                 if [ $? -eq 0 ]; then
                     echo "✅ SSH 연결 테스트 성공!"
@@ -207,7 +207,7 @@ echo ""
 
 echo "🌐 Step 4.3/11: /etc/hosts 자동 설정 (YAML 기반)..."
 echo "--------------------------------------------------------------------------------"
-echo "모든 노드의 /etc/hosts 파일을 my_cluster.yaml 기반으로 업데이트합니다."
+echo "모든 노드의 /etc/hosts 파일을 my_multihead_cluster.yaml 기반으로 업데이트합니다."
 echo "SSH 키 설정 및 호스트명 해석을 위해 필수입니다."
 echo ""
 
@@ -229,7 +229,7 @@ if [ -f "complete_slurm_setup.py" ]; then
 
         mapfile -t COMPUTE_NODES < <(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(f"{node['ssh_user']}@{node['ip_address']}:{node['hostname']}")
@@ -238,7 +238,7 @@ EOFPY
 
         CONTROLLER_HOSTNAME=$(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 print(config['nodes']['controller']['hostname'])
 EOFPY
@@ -286,7 +286,7 @@ echo ""
 ################################################################################
 
 # YAML에 reboot_program이 정의되어 있으면 자동으로 설정
-if [ -f "my_cluster.yaml" ] && grep -q "reboot_program:" my_cluster.yaml; then
+if [ -f "my_multihead_cluster.yaml" ] && grep -q "reboot_program:" my_multihead_cluster.yaml; then
     echo "🔄 Step 4.5/11: RebootProgram 자동 설정 (YAML 기반)..."
     echo "--------------------------------------------------------------------------------"
     echo "✅ YAML에 reboot_program 설정이 감지되었습니다."
@@ -495,11 +495,11 @@ echo ""
 echo "📦 Step 7/14: 계산 노드에 Slurm 23.11.x 설치..."
 echo "--------------------------------------------------------------------------------"
 
-# my_cluster.yaml에서 모든 compute_nodes 읽기 (viz 노드 포함)
+# my_multihead_cluster.yaml에서 모든 compute_nodes 읽기 (viz 노드 포함)
 # 형식: ip|ssh_user|hostname
 mapfile -t COMPUTE_NODE_INFO < <(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     ip = node.get('ip_address', '')

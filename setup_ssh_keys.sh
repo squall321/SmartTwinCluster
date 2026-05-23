@@ -5,6 +5,21 @@
 # 비밀번호 한 번 입력으로 모든 노드 설정 가능
 ################################################################################
 
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
+
 set -e
 
 # 색상 정의
@@ -341,13 +356,13 @@ echo ""
 echo -e "${BLUE}📋 다음 단계:${NC}"
 echo ""
 echo "1. 설정 파일 검증"
-echo -e "   ${YELLOW}./validate_config.py my_cluster.yaml${NC}"
+echo -e "   ${YELLOW}./validate_config.py my_multihead_cluster.yaml${NC}"
 echo ""
 echo "2. SSH 연결 테스트"
-echo -e "   ${YELLOW}./test_connection.py my_cluster.yaml${NC}"
+echo -e "   ${YELLOW}./test_connection.py my_multihead_cluster.yaml${NC}"
 echo ""
 echo "3. Slurm 설치 시작"
-echo -e "   ${YELLOW}./install_slurm.py -c my_cluster.yaml${NC}"
+echo -e "   ${YELLOW}./install_slurm.py -c my_multihead_cluster.yaml${NC}"
 echo ""
 
 echo "Happy Computing! 🚀"

@@ -6,7 +6,7 @@
 #   YAML 설정에서 GPU 정보를 읽어 각 노드의 gres.conf 파일 생성
 #
 # 사용법:
-#   ./generate_gres_conf.sh [--config my_cluster.yaml]
+#   ./generate_gres_conf.sh [--config my_multihead_cluster.yaml]
 #
 # 작성자: Claude Code
 ################################################################################

@@ -3,6 +3,21 @@
 # 파티션 이름 문제 즉시 수정 및 재시작
 ################################################################################
 
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
+
 echo "================================================================================"
 echo "🚨 Slurm 시작 실패 수정 - 파티션 노드 이름"
 echo "================================================================================"
@@ -21,22 +36,22 @@ echo ""
 
 # 1. YAML 수정
 echo "================================================================================"
-echo "Step 1/4: my_cluster.yaml 수정"
+echo "Step 1/4: my_multihead_cluster.yaml 수정"
 echo "================================================================================"
 echo ""
 
-BACKUP="my_cluster.yaml.backup_$(date +%Y%m%d_%H%M%S)"
-cp my_cluster.yaml "$BACKUP"
+BACKUP="my_multihead_cluster.yaml.backup_$(date +%Y%m%d_%H%M%S)"
+cp my_multihead_cluster.yaml "$BACKUP"
 echo "✅ 백업: $BACKUP"
 
-sed -i 's/nodes: node\[1-2\]/nodes: node[001-002]/' my_cluster.yaml
-sed -i 's/nodes: node1$/nodes: node001/' my_cluster.yaml
+sed -i 's/nodes: node\[1-2\]/nodes: node[001-002]/' my_multihead_cluster.yaml
+sed -i 's/nodes: node1$/nodes: node001/' my_multihead_cluster.yaml
 
 echo "✅ YAML 수정 완료"
 echo ""
 echo "변경 내용:"
-grep -A 1 "name: normal" my_cluster.yaml | grep "nodes:"
-grep -A 1 "name: debug" my_cluster.yaml | grep "nodes:"
+grep -A 1 "name: normal" my_multihead_cluster.yaml | grep "nodes:"
+grep -A 1 "name: debug" my_multihead_cluster.yaml | grep "nodes:"
 echo ""
 
 # 2. slurm.conf 재생성

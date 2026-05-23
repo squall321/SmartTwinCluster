@@ -15,7 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/my_cluster.yaml"
+CONFIG_FILE="${SCRIPT_DIR}/my_multihead_cluster.yaml"
 REMOTE_APPTAINER_DIR="/scratch/apptainers"
 
 echo ""

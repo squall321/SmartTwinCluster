@@ -8,6 +8,21 @@
 # 사용법: ./diagnose_nodes.sh <cluster_yaml>
 #
 
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

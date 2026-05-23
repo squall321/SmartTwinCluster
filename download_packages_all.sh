@@ -244,7 +244,7 @@ cd "$SCRIPT_DIR"
 
 # 현재 스크립트 및 설정 파일들을 packages/scripts에 복사
 SCRIPT_FILES=(
-    "my_cluster.yaml"
+    "my_multihead_cluster.yaml"
     "install_slurm_cgroup_v2.sh"
     "install_munge_auto.sh"
     "install_slurm_accounting.sh"

@@ -16,7 +16,7 @@
 #   ./sync_apptainers_to_nodes.sh [options]
 #
 # 옵션:
-#   --config FILE    YAML 설정 파일 (기본: my_cluster.yaml)
+#   --config FILE    YAML 설정 파일 (기본: my_multihead_cluster.yaml)
 #   --force          기존 파일 덮어쓰기
 #   --dry-run        실제 복사 없이 시뮬레이션만 수행
 #   --help           도움말 출력
@@ -35,7 +35,7 @@ NC='\033[0m' # No Color
 
 # 기본 설정
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/my_cluster.yaml"
+CONFIG_FILE="${SCRIPT_DIR}/my_multihead_cluster.yaml"
 LOCAL_APPTAINER_DIR="${SCRIPT_DIR}/apptainers"
 REMOTE_APPTAINER_DIR="/opt/containers"
 FORCE_OVERWRITE=false
@@ -80,7 +80,7 @@ Apptainer 이미지 동기화 스크립트
   - .def 및 .sif 파일을 모든 노드에 동기화
 
 옵션:
-    --config FILE    YAML 설정 파일 지정 (기본: my_cluster.yaml)
+    --config FILE    YAML 설정 파일 지정 (기본: my_multihead_cluster.yaml)
     --force          기존 파일을 강제로 덮어쓰기
     --dry-run        실제 복사 없이 시뮬레이션만 수행
     --help           이 도움말 출력

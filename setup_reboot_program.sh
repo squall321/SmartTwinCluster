@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # RebootProgram 설정 - YAML 기반
-# my_cluster.yaml에서 설정을 읽어와서 동적으로 구성합니다
+# my_multihead_cluster.yaml에서 설정을 읽어와서 동적으로 구성합니다
 ################################################################################
 
 set -e
@@ -12,7 +12,7 @@ echo "==========================================================================
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-YAML_FILE="${SCRIPT_DIR}/my_cluster.yaml"
+YAML_FILE="${SCRIPT_DIR}/my_multihead_cluster.yaml"
 
 # YAML 파일 확인
 if [ ! -f "$YAML_FILE" ]; then
@@ -28,7 +28,7 @@ import yaml
 import sys
 
 try:
-    with open('my_cluster.yaml', 'r') as f:
+    with open('my_multihead_cluster.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
     admin_user = config.get('users', {}).get('admin_user', 'koopark')
@@ -132,7 +132,7 @@ echo "📝 계산 노드 목록 가져오는 중..."
 COMPUTE_NODES=$(python3 << 'NODEEOF'
 import yaml
 try:
-    with open('my_cluster.yaml', 'r') as f:
+    with open('my_multihead_cluster.yaml', 'r') as f:
         config = yaml.safe_load(f)
     nodes = config.get('nodes', {}).get('compute_nodes', [])
     for node in nodes:

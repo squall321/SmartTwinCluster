@@ -30,7 +30,7 @@ echo "--------------------------------------------------------------------------
 
 REQUIRED_FILES=(
     "setup_cluster_full.sh"
-    "my_cluster.yaml"
+    "my_multihead_cluster.yaml"
     "validate_config.py"
     "test_connection.py"
     "install_munge_auto.sh"

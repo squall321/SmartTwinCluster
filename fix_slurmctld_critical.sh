@@ -64,7 +64,7 @@ echo "현재 파티션 정의:"
 sudo grep "^PartitionName=" "$SLURM_CONF" || echo "파티션 정의 없음"
 echo ""
 
-# my_cluster.yaml에 따르면 노드는 node001, node002
+# my_multihead_cluster.yaml에 따르면 노드는 node001, node002
 # 파티션에서 node[1-2]가 아니라 node[001-002]로 수정 필요
 
 echo "파티션 노드 이름 수정 중..."

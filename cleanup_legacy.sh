@@ -223,7 +223,7 @@ echo "     cat QUICKSTART.md"
 echo ""
 echo "  3. 기존 작업 계속"
 echo "     source venv/bin/activate"
-echo "     ./install_slurm.py -c my_cluster.yaml"
+echo "     ./install_slurm.py -c my_multihead_cluster.yaml"
 echo ""
 
 echo "Happy Computing! 🚀"

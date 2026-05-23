@@ -7,10 +7,10 @@ echo "🔐 sudo 권한 빠른 설정"
 echo "======================================"
 echo ""
 
-# my_cluster.yaml에서 사용자 이름 및 비밀번호 읽기
+# my_multihead_cluster.yaml에서 사용자 이름 및 비밀번호 읽기
 USER_NAME=$(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 print(config['nodes']['controller']['ssh_user'])
 EOFPY
@@ -18,7 +18,7 @@ EOFPY
 
 SSH_PASSWORD=$(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 password = config.get('cluster_info', {}).get('ssh_password', '')
 print(password if password else '')
@@ -40,10 +40,10 @@ else
 fi
 echo ""
 
-# my_cluster.yaml에서 모든 compute_nodes 읽기
+# my_multihead_cluster.yaml에서 모든 compute_nodes 읽기
 mapfile -t NODES < <(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(node['ip_address'])
@@ -52,14 +52,14 @@ EOFPY
 
 mapfile -t NODE_NAMES < <(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(f"{node['hostname']} ({node['ip_address']})")
 EOFPY
 )
 
-echo "📋 설정할 노드 (my_cluster.yaml에서 읽음):"
+echo "📋 설정할 노드 (my_multihead_cluster.yaml에서 읽음):"
 for i in "${!NODES[@]}"; do
   echo "  - ${NODE_NAMES[$i]}"
 done

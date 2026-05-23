@@ -47,7 +47,7 @@ sed -i '/^# Step 4: SSH 연결 테스트/,/^echo ""$/{
 ################################################################################\
 \
 # YAML에 reboot_program이 정의되어 있으면 자동으로 설정\
-if [ -f "my_cluster.yaml" ] && grep -q "reboot_program:" my_cluster.yaml; then\
+if [ -f "my_multihead_cluster.yaml" ] && grep -q "reboot_program:" my_multihead_cluster.yaml; then\
     echo "🔄 Step 4.5/11: RebootProgram 자동 설정 (YAML 기반)..."\
     echo "--------------------------------------------------------------------------------"\
     echo "✅ YAML에 reboot_program 설정이 감지되었습니다."\

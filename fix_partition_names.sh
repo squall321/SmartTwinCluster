@@ -1,10 +1,25 @@
 #!/bin/bash
 ################################################################################
-# my_cluster.yaml 파티션 이름 수정
+# my_multihead_cluster.yaml 파티션 이름 수정
 ################################################################################
 
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
+
 echo "================================================================================"
-echo "🔧 my_cluster.yaml 파티션 노드 이름 수정"
+echo "🔧 my_multihead_cluster.yaml 파티션 노드 이름 수정"
 echo "================================================================================"
 echo ""
 
@@ -16,21 +31,21 @@ echo "✅ 수정: node[001-002]"
 echo ""
 
 # 백업
-BACKUP="my_cluster.yaml.backup_$(date +%Y%m%d_%H%M%S)"
-cp my_cluster.yaml "$BACKUP"
+BACKUP="my_multihead_cluster.yaml.backup_$(date +%Y%m%d_%H%M%S)"
+cp my_multihead_cluster.yaml "$BACKUP"
 echo "✅ 백업 생성: $BACKUP"
 echo ""
 
 # 수정
-sed -i 's/nodes: node\[1-2\]/nodes: node[001-002]/' my_cluster.yaml
-sed -i 's/nodes: node1$/nodes: node001/' my_cluster.yaml
+sed -i 's/nodes: node\[1-2\]/nodes: node[001-002]/' my_multihead_cluster.yaml
+sed -i 's/nodes: node1$/nodes: node001/' my_multihead_cluster.yaml
 
-echo "✅ my_cluster.yaml 수정 완료"
+echo "✅ my_multihead_cluster.yaml 수정 완료"
 echo ""
 
 echo "📋 변경 내용:"
 echo "--------------------------------------------------------------------------------"
-grep -A 5 "partitions:" my_cluster.yaml | grep "nodes:"
+grep -A 5 "partitions:" my_multihead_cluster.yaml | grep "nodes:"
 echo "--------------------------------------------------------------------------------"
 echo ""
 

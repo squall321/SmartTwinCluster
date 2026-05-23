@@ -24,10 +24,10 @@ USER="koopark"
 echo -e "${YELLOW}⚠ 각 노드에서 비밀번호를 입력해야 합니다${NC}"
 echo ""
 
-# my_cluster.yaml에서 노드 목록 읽기
+# my_multihead_cluster.yaml에서 노드 목록 읽기
 mapfile -t REMOTE_NODES < <(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('my_multihead_cluster.yaml', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(node['ip_address'])
@@ -110,5 +110,5 @@ echo "ssh 192.168.122.230 'sudo -n whoami'"
 echo ""
 
 echo -e "${BLUE}📋 다음 단계:${NC}"
-echo "  ./test_connection.py my_cluster.yaml"
+echo "  ./test_connection.py my_multihead_cluster.yaml"
 echo ""

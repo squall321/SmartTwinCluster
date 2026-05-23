@@ -217,7 +217,7 @@ else
 fi
 
 # Slurm 설정 파일 미수정 확인
-if [ -f "my_cluster.yaml" ] && [ -f "setup_cluster_full.sh" ]; then
+if [ -f "my_multihead_cluster.yaml" ] && [ -f "setup_cluster_full.sh" ]; then
     echo -e "  ${GREEN}✅ Slurm 설정 파일 존재 (수정하지 않음)${NC}"
 else
     echo -e "  ${YELLOW}⚠️  Slurm 설정 파일 확인 필요${NC}"

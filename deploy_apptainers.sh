@@ -1,6 +1,6 @@
 #!/bin/bash
 # Apptainer 이미지 배포 스크립트
-# my_cluster.yaml 설정에 따라 각 노드에 로컬 복사
+# my_multihead_cluster.yaml 설정에 따라 각 노드에 로컬 복사
 
 set -uo pipefail
 
@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "예시:"
             echo "  $0                                    # 전체 배포 (기본 YAML)"
-            echo "  $0 --config my_cluster.yaml           # 다른 YAML 파일 사용"
+            echo "  $0 --config my_multihead_cluster.yaml           # 다른 YAML 파일 사용"
             echo "  $0 --update                           # 이미지만 업데이트"
             echo "  $0 --image vnc_gnome_lsprepost.sif    # 특정 이미지만 배포"
             exit 0

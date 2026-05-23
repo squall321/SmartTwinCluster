@@ -14,21 +14,21 @@ echo "==========================================================================
 echo ""
 
 # 1. YAML 파일 확인
-echo "📝 Step 1: my_cluster.yaml 확인..."
+echo "📝 Step 1: my_multihead_cluster.yaml 확인..."
 
-if [ ! -f "my_cluster.yaml" ]; then
-    echo "❌ my_cluster.yaml 파일을 찾을 수 없습니다!"
+if [ ! -f "my_multihead_cluster.yaml" ]; then
+    echo "❌ my_multihead_cluster.yaml 파일을 찾을 수 없습니다!"
     exit 1
 fi
 
 # admin_user 확인
-if ! grep -q "admin_user:" my_cluster.yaml; then
+if ! grep -q "admin_user:" my_multihead_cluster.yaml; then
     echo "⚠️  admin_user가 없어서 추가합니다..."
-    sed -i '/^users:/a\  admin_user: koopark' my_cluster.yaml
+    sed -i '/^users:/a\  admin_user: koopark' my_multihead_cluster.yaml
     echo "✅ admin_user: koopark 추가 완료"
 else
     echo "✅ admin_user가 이미 존재합니다"
-    grep "admin_user:" my_cluster.yaml
+    grep "admin_user:" my_multihead_cluster.yaml
 fi
 echo ""
 
@@ -49,7 +49,7 @@ cat > setup_reboot_program.sh << 'MAINSCRIPT'
 #!/bin/bash
 ################################################################################
 # RebootProgram 설정 - YAML 기반
-# my_cluster.yaml에서 설정을 읽어와서 동적으로 구성합니다
+# my_multihead_cluster.yaml에서 설정을 읽어와서 동적으로 구성합니다
 ################################################################################
 
 set -e
@@ -60,7 +60,7 @@ echo "==========================================================================
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-YAML_FILE="${SCRIPT_DIR}/my_cluster.yaml"
+YAML_FILE="${SCRIPT_DIR}/my_multihead_cluster.yaml"
 
 # YAML 파일 확인
 if [ ! -f "$YAML_FILE" ]; then
@@ -76,7 +76,7 @@ import yaml
 import sys
 
 try:
-    with open('my_cluster.yaml', 'r') as f:
+    with open('my_multihead_cluster.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
     admin_user = config.get('users', {}).get('admin_user', 'koopark')
@@ -180,7 +180,7 @@ echo "📝 계산 노드 목록 가져오는 중..."
 COMPUTE_NODES=$(python3 << 'NODEEOF'
 import yaml
 try:
-    with open('my_cluster.yaml', 'r') as f:
+    with open('my_multihead_cluster.yaml', 'r') as f:
         config = yaml.safe_load(f)
     nodes = config.get('nodes', {}).get('compute_nodes', [])
     for node in nodes:

@@ -4,6 +4,21 @@
 # Copies slurm.conf, cgroup.conf, and systemd service files to all nodes
 ################################################################################
 
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
+
 set -e
 
 echo "================================================================================"
@@ -12,10 +27,10 @@ echo "==========================================================================
 echo ""
 
 # Configuration
-# my_cluster.yaml에서 모든 compute_nodes 읽기 (viz 노드 포함)
+# my_multihead_cluster.yaml에서 모든 compute_nodes 읽기 (viz 노드 포함)
 mapfile -t COMPUTE_NODES < <(python3 << 'EOFPY'
 import yaml
-with open('my_cluster.yaml', 'r') as f:
+with open('$CONFIG_FILE', 'r') as f:
     config = yaml.safe_load(f)
 for node in config['nodes']['compute_nodes']:
     print(node['ip_address'])

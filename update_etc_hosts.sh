@@ -1,8 +1,23 @@
 #!/bin/bash
 ################################################################################
 # /etc/hosts 업데이트 스크립트
-# my_cluster.yaml 기반으로 모든 노드의 /etc/hosts 자동 업데이트
+# my_multihead_cluster.yaml 기반으로 모든 노드의 /etc/hosts 자동 업데이트
 ################################################################################
+
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
 
 set -e
 
@@ -11,8 +26,8 @@ echo "🌐 /etc/hosts 자동 업데이트 (YAML 기반)"
 echo "================================================================================"
 echo ""
 
-if [ ! -f "my_cluster.yaml" ]; then
-    echo "❌ my_cluster.yaml 파일을 찾을 수 없습니다."
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "❌ my_multihead_cluster.yaml 파일을 찾을 수 없습니다."
     exit 1
 fi
 

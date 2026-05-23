@@ -19,22 +19,22 @@ echo ""
 
 # 2. YAML 파일 확인
 echo "📝 Step 2/4: YAML 파일 확인..."
-if [ ! -f "my_cluster.yaml" ]; then
-    echo "  ⚠️  my_cluster.yaml이 없습니다!"
+if [ ! -f "my_multihead_cluster.yaml" ]; then
+    echo "  ⚠️  my_multihead_cluster.yaml이 없습니다!"
     echo "  💡 예시 파일을 복사하세요:"
-    echo "     cp examples/2node_example.yaml my_cluster.yaml"
+    echo "     cp examples/2node_example.yaml my_multihead_cluster.yaml"
     echo ""
     exit 1
 else
-    echo "  ✅ my_cluster.yaml 존재"
+    echo "  ✅ my_multihead_cluster.yaml 존재"
     
     # reboot_program 설정 확인
-    if grep -q "reboot_program:" my_cluster.yaml; then
-        REBOOT_PROGRAM=$(grep "reboot_program:" my_cluster.yaml | awk '{print $2}')
+    if grep -q "reboot_program:" my_multihead_cluster.yaml; then
+        REBOOT_PROGRAM=$(grep "reboot_program:" my_multihead_cluster.yaml | awk '{print $2}')
         echo "  ✅ RebootProgram 설정 발견: $REBOOT_PROGRAM"
     else
         echo "  ⚠️  reboot_program 설정이 없습니다!"
-        echo "  💡 my_cluster.yaml에 추가하세요:"
+        echo "  💡 my_multihead_cluster.yaml에 추가하세요:"
         echo "     slurm_config:"
         echo "       reboot_program: /sbin/reboot"
     fi

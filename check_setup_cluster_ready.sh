@@ -168,7 +168,7 @@ else
 fi
 
 # slurmd (원격) - YAML에서 노드 정보 읽기
-CONFIG_FILE="${1:-my_cluster.yaml}"
+CONFIG_FILE="${1:-my_multihead_cluster.yaml}"
 if [ -f "$CONFIG_FILE" ] && python3 -c "import yaml" 2>/dev/null; then
     while IFS='|' read -r node_ip ssh_user hostname; do
         if timeout 5 ssh -o ConnectTimeout=5 -o BatchMode=yes ${ssh_user}@${node_ip} "sudo systemctl is-active --quiet slurmd" 2>/dev/null; then

@@ -60,27 +60,27 @@ echo "==========================================================================
 echo ""
 
 # YAML 파일 확인
-if [ -f "my_cluster.yaml" ]; then
-    echo "✅ my_cluster.yaml 파일 발견!"
+if [ -f "my_multihead_cluster.yaml" ]; then
+    echo "✅ my_multihead_cluster.yaml 파일 발견!"
     echo ""
     
     # RebootProgram 설정 확인
-    if grep -q "reboot_program:" my_cluster.yaml; then
-        REBOOT_PROGRAM=$(grep "reboot_program:" my_cluster.yaml | awk '{print $2}')
+    if grep -q "reboot_program:" my_multihead_cluster.yaml; then
+        REBOOT_PROGRAM=$(grep "reboot_program:" my_multihead_cluster.yaml | awk '{print $2}')
         echo "✅ RebootProgram 설정: $REBOOT_PROGRAM"
     else
         echo "⚠️  RebootProgram 설정이 없습니다."
         echo ""
-        echo "💡 my_cluster.yaml에 추가하세요:"
+        echo "💡 my_multihead_cluster.yaml에 추가하세요:"
         echo "   slurm_config:"
         echo "     reboot_program: /sbin/reboot"
     fi
 else
-    echo "⚠️  my_cluster.yaml 파일이 없습니다!"
+    echo "⚠️  my_multihead_cluster.yaml 파일이 없습니다!"
     echo ""
     echo "💡 생성 방법:"
-    echo "   cp examples/2node_example.yaml my_cluster.yaml"
-    echo "   vim my_cluster.yaml"
+    echo "   cp examples/2node_example.yaml my_multihead_cluster.yaml"
+    echo "   vim my_multihead_cluster.yaml"
 fi
 
 echo ""

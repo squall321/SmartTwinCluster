@@ -40,7 +40,7 @@ cat << 'EOF'
 
 설정 관리:
    python3 fix_config.py                 # 설정 파일 수정
-   python3 validate_config.py my_cluster.yaml  # 검증
+   python3 validate_config.py my_multihead_cluster.yaml  # 검증
 
 이미지 관리:
    python3 manage_images.py list         # 목록

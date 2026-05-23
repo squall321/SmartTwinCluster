@@ -253,10 +253,10 @@ if [ $failed_checks -eq 0 ]; then
     echo -e "${GREEN}✓ 모든 필수 항목이 준비되었습니다!${NC}"
     echo ""
     echo "다음 단계:"
-    echo "  1. 설정 파일 준비: cp examples/2node_example_improved.yaml my_cluster.yaml"
-    echo "  2. 설정 파일 수정: vim my_cluster.yaml"
-    echo "  3. 설정 검증: ./validate_config.py my_cluster.yaml"
-    echo "  4. Slurm 설치: ./install_slurm.py -c my_cluster.yaml"
+    echo "  1. 설정 파일 준비: cp examples/2node_example_improved.yaml my_multihead_cluster.yaml"
+    echo "  2. 설정 파일 수정: vim my_multihead_cluster.yaml"
+    echo "  3. 설정 검증: ./validate_config.py my_multihead_cluster.yaml"
+    echo "  4. Slurm 설치: ./install_slurm.py -c my_multihead_cluster.yaml"
     exit 0
 else
     echo -e "${RED}✗ $failed_checks 개의 필수 항목이 준비되지 않았습니다.${NC}"

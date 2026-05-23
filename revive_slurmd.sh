@@ -36,7 +36,7 @@ if [[ -z "$CONFIG_FILE" ]]; then
     for candidate in \
         "$SCRIPT_DIR/my_multihead_cluster_2.yaml" \
         "$SCRIPT_DIR/my_multihead_cluster.yaml" \
-        "$SCRIPT_DIR/my_cluster.yaml" \
+        "$SCRIPT_DIR/my_multihead_cluster.yaml" \
         "$SCRIPT_DIR/dev_cluster.yaml"; do
         if [[ -f "$candidate" ]]; then
             CONFIG_FILE="$candidate"
@@ -47,7 +47,7 @@ fi
 
 if [[ -z "$CONFIG_FILE" ]] || [[ ! -f "$CONFIG_FILE" ]]; then
     echo "❌ config 파일을 찾을 수 없습니다."
-    echo "   Usage: sudo $0 --config my_cluster.yaml"
+    echo "   Usage: sudo $0 --config my_multihead_cluster.yaml"
     exit 1
 fi
 

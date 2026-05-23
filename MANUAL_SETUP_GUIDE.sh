@@ -85,7 +85,7 @@ ssh 192.168.122.103 'sudo whoami'
 
 # 모두 성공하면
 cd ~/claude/KooSlurmInstallAutomation
-python3 test_connection.py my_cluster.yaml
+python3 test_connection.py my_multihead_cluster.yaml
 
 ================================================================================
 빠른 복사 명령어 (각 노드에서 실행)

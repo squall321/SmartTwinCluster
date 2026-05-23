@@ -10,7 +10,7 @@
 #   - 헤드노드를 NTP 서버로 사용 가능
 ################################################################################
 
-CONFIG_FILE="${1:-my_cluster.yaml}"
+CONFIG_FILE="${1:-my_multihead_cluster.yaml}"
 
 # --help 옵션
 if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
@@ -25,11 +25,11 @@ if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
 
 옵션:
     -h, --help      이 도움말 표시
-    CONFIG_FILE     YAML 설정 파일 (기본값: my_cluster.yaml)
+    CONFIG_FILE     YAML 설정 파일 (기본값: my_multihead_cluster.yaml)
 
 원격 노드 설정 (오프라인 환경):
-    scp setup_time_sync.sh my_cluster.yaml node001:/tmp/
-    ssh node001 'cd /tmp && sudo bash setup_time_sync.sh my_cluster.yaml'
+    scp setup_time_sync.sh my_multihead_cluster.yaml node001:/tmp/
+    ssh node001 'cd /tmp && sudo bash setup_time_sync.sh my_multihead_cluster.yaml'
 
 YAML 설정 예시 (오프라인 - 헤드노드를 NTP 서버로):
     time_synchronization:

@@ -1,7 +1,7 @@
 #!/bin/bash
 # 노드 목록 디버깅 스크립트
 
-CONFIG_FILE="${1:-my_cluster.yaml}"
+CONFIG_FILE="${1:-my_multihead_cluster.yaml}"
 
 echo "=== 디버그: YAML에서 노드 정보 추출 ==="
 echo "Config file: $CONFIG_FILE"
@@ -19,7 +19,7 @@ NODES=$(CONFIG_FILE="$CONFIG_FILE" python3 << 'EOFPY'
 import yaml
 import os
 
-config_file = os.environ.get('CONFIG_FILE', 'my_cluster.yaml')
+config_file = os.environ.get('CONFIG_FILE', 'my_multihead_cluster.yaml')
 
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)

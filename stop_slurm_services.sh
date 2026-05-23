@@ -21,19 +21,19 @@ echo "==========================================================================
 echo ""
 
 # YAML 파일에서 설정 읽기
-if [ ! -f "my_cluster.yaml" ]; then
-    echo -e "${RED}❌ my_cluster.yaml 파일을 찾을 수 없습니다.${NC}"
+if [ ! -f "my_multihead_cluster.yaml" ]; then
+    echo -e "${RED}❌ my_multihead_cluster.yaml 파일을 찾을 수 없습니다.${NC}"
     exit 1
 fi
 
 # Python으로 YAML 파싱
-CONTROLLER_HOSTNAME=$(python3 -c "import yaml; print(yaml.safe_load(open('my_cluster.yaml'))['nodes']['controller']['hostname'])")
-SSH_USER=$(python3 -c "import yaml; print(yaml.safe_load(open('my_cluster.yaml'))['nodes']['controller']['ssh_user'])")
+CONTROLLER_HOSTNAME=$(python3 -c "import yaml; print(yaml.safe_load(open('my_multihead_cluster.yaml'))['nodes']['controller']['hostname'])")
+SSH_USER=$(python3 -c "import yaml; print(yaml.safe_load(open('my_multihead_cluster.yaml'))['nodes']['controller']['ssh_user'])")
 
 # 컴퓨트 노드 목록 가져오기
 COMPUTE_NODES=($(python3 -c "
 import yaml
-with open('my_cluster.yaml') as f:
+with open('my_multihead_cluster.yaml') as f:
     config = yaml.safe_load(f)
     for node in config['nodes']['compute_nodes']:
         print(f\"{node['ssh_user']}@{node['ip_address']}\")

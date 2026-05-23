@@ -127,7 +127,7 @@ JobAcctGatherFrequency=30
 
 #######################################################################
 # COMPUTE NODES
-# my_cluster.yaml 기준
+# my_multihead_cluster.yaml 기준
 #######################################################################
 NodeName=node001 NodeAddr=192.168.122.90 CPUs=2 Sockets=1 CoresPerSocket=2 ThreadsPerCore=1 RealMemory=4096 State=UNKNOWN
 NodeName=node002 NodeAddr=192.168.122.103 CPUs=2 Sockets=1 CoresPerSocket=2 ThreadsPerCore=1 RealMemory=4096 State=UNKNOWN

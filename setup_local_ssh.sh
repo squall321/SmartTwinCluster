@@ -5,6 +5,21 @@
 ################################################################################
 
 # 색상 정의
+
+# --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
+CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
+_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config) CONFIG_FILE="$2"; shift 2 ;;
+        --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+        *) _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+[[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
+echo "📄 Config: $CONFIG_FILE"
+
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -130,7 +145,7 @@ echo "1. 로컬 SSH 연결 (비밀번호 없이)"
 echo -e "   ${YELLOW}ssh localhost \"hostname\"${NC}"
 echo ""
 echo "2. SSH 연결 테스트"
-echo -e "   ${YELLOW}./test_connection.py my_cluster.yaml${NC}"
+echo -e "   ${YELLOW}./test_connection.py my_multihead_cluster.yaml${NC}"
 echo ""
 echo "3. 다른 노드에 SSH 키 배포"
 echo -e "   ${YELLOW}./setup_ssh_keys.sh${NC}"

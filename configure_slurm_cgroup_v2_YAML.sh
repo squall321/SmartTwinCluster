@@ -13,17 +13,17 @@ echo "==========================================================================
 echo "🔧 Slurm 설정 파일 생성 (YAML 기반)"
 echo "================================================================================"
 echo ""
-echo "📝 설정 파일: my_cluster.yaml"
+echo "📝 설정 파일: my_multihead_cluster.yaml"
 echo "📍 위치: $SCRIPT_DIR"
 echo ""
 
 # YAML 파일 존재 확인
-if [ ! -f "my_cluster.yaml" ]; then
-    echo "❌ my_cluster.yaml 파일을 찾을 수 없습니다!"
+if [ ! -f "my_multihead_cluster.yaml" ]; then
+    echo "❌ my_multihead_cluster.yaml 파일을 찾을 수 없습니다!"
     echo ""
     echo "💡 다음 중 하나를 실행하세요:"
     echo "  1. 예시 파일 복사:"
-    echo "     cp examples/2node_example.yaml my_cluster.yaml"
+    echo "     cp examples/2node_example.yaml my_multihead_cluster.yaml"
     echo ""
     echo "  2. 템플릿 생성:"
     echo "     python3 generate_config.py"
@@ -49,7 +49,7 @@ fi
 echo "🚀 Python 스크립트 실행 중..."
 echo ""
 
-python3 configure_slurm_from_yaml.py -c my_cluster.yaml
+python3 configure_slurm_from_yaml.py -c my_multihead_cluster.yaml
 
 EXIT_CODE=$?
 
