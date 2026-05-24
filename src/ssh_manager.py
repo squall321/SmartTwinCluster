@@ -52,6 +52,8 @@ class SSHConnection:
                     key_filename=self.key_path,
                     port=self.port,
                     timeout=self.timeout,
+                    look_for_keys=False,
+                    allow_agent=False,
                     disabled_algorithms={'pubkeys': ['ssh-dss']}
                 )
             elif self.password:
@@ -61,6 +63,8 @@ class SSHConnection:
                     password=self.password,
                     port=self.port,
                     timeout=self.timeout,
+                    look_for_keys=False,
+                    allow_agent=False,
                     disabled_algorithms={'pubkeys': ['ssh-dss']}
                 )
             else:
