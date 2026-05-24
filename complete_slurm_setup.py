@@ -677,12 +677,22 @@ def main():
                         help='cgroup 설정 건너뛰기 (이미 설정된 경우)')
     parser.add_argument('--skip-nfs', action='store_true',
                         help='NFS 설정 건너뛰기')
+    parser.add_argument('--config', default='my_multihead_cluster.yaml',
+                        help='YAML 설정 파일 (기본: my_multihead_cluster.yaml)')
     args = parser.parse_args()
 
-    config_file = Path("my_cluster.yaml")
+    config_file = Path(args.config)
     if not config_file.exists():
-        print("❌ my_cluster.yaml 파일을 찾을 수 없습니다.")
+        # fallback: 옛 이름
+        for alt in ['my_multihead_cluster.yaml', 'my_cluster.yaml']:
+            if Path(alt).exists():
+                config_file = Path(alt)
+                break
+    if not config_file.exists():
+        print(f"❌ YAML 없음: {args.config}")
+        print(f"   사용: python3 {sys.argv[0] if 'sys' in dir() else __file__} --config <yaml>")
         return
+    print(f"📄 Config: {config_file}")
 
     with open(config_file, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
@@ -690,8 +700,14 @@ def main():
     # SSHManager 생성 및 노드 추가
     ssh_mgr = ssh_manager.SSHManager()
 
-    # 모든 노드 추가
-    all_nodes = [config['nodes']['controller']] + config['nodes']['compute_nodes']
+    # 모든 노드 추가 — controllers(여러개 가능) + compute_nodes + viz_nodes
+    nodes_section = config.get('nodes', {}) or {}
+    all_nodes = []
+    if 'controller' in nodes_section:           # 옛 스키마(단일)
+        all_nodes.append(nodes_section['controller'])
+    all_nodes += nodes_section.get('controllers', []) or []
+    all_nodes += nodes_section.get('compute_nodes', []) or []
+    all_nodes += nodes_section.get('viz_nodes', []) or []
 
     # viz-node이 있으면 추가
     if 'viz_nodes' in config['nodes']:
