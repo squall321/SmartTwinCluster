@@ -123,3 +123,5 @@ offline_packages_2404/host_packages.txt
 
 # 클러스터 설정 파일 (노드 IP/비밀번호 포함 — git 제외)
 my_*.yaml
+offline_packages_2404/.drive-sync.env
+offline_packages_2404/dist/stc-offline-*/
