@@ -51,7 +51,8 @@ class SSHConnection:
                     username=self.username,
                     key_filename=self.key_path,
                     port=self.port,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    disabled_algorithms={'pubkeys': ['ssh-dss']}
                 )
             elif self.password:
                 self.client.connect(
@@ -59,7 +60,8 @@ class SSHConnection:
                     username=self.username,
                     password=self.password,
                     port=self.port,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    disabled_algorithms={'pubkeys': ['ssh-dss']}
                 )
             else:
                 # 기본 SSH 키들 시도
@@ -67,7 +69,8 @@ class SSHConnection:
                     hostname=self.connect_address,  # IP 우선!
                     username=self.username,
                     port=self.port,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    disabled_algorithms={'pubkeys': ['ssh-dss']}
                 )
             
             self.connected = True
