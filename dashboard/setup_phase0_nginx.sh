@@ -18,7 +18,7 @@ SSL_MODE="${1:-}"
 if [[ -z "$SSL_MODE" ]]; then
     # 프로젝트 루트에서 YAML 파일 찾기
     PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-    for yaml_file in "$PROJECT_ROOT/my_multihead_cluster.yaml" "$PROJECT_ROOT/my_cluster.yaml" "$PROJECT_ROOT/config.yaml"; do
+    for yaml_file in "$PROJECT_ROOT/my_multihead_cluster.yaml" "$PROJECT_ROOT/my_multihead_cluster.yaml" "$PROJECT_ROOT/config.yaml"; do
         if [[ -f "$yaml_file" ]]; then
             SSL_MODE=$(python3 -c "import yaml; c=yaml.safe_load(open('$yaml_file')); print(c.get('web', {}).get('ssl', {}).get('mode', 'self_signed'))" 2>/dev/null || echo "")
             if [[ -n "$SSL_MODE" ]]; then

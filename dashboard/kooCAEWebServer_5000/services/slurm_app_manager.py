@@ -187,7 +187,7 @@ class SlurmAppManager:
             if match:
                 node = match.group(1)
                 if node != '(null)':  # (null)이 아닌 경우만
-                    # 노드 IP는 my_cluster.yaml에서 가져오거나 DNS 조회
+                    # 노드 IP는 my_multihead_cluster.yaml에서 가져오거나 DNS 조회
                     # 간단하게 노드 이름을 그대로 사용
                     return {
                         'node': node,
@@ -201,7 +201,7 @@ class SlurmAppManager:
 
     def _get_node_ip(self, node_name: str) -> str:
         """노드 이름으로 IP 조회"""
-        # 하드코딩된 매핑 (추후 my_cluster.yaml에서 읽기)
+        # 하드코딩된 매핑 (추후 my_multihead_cluster.yaml에서 읽기)
         node_mapping = {
             'viz-node001': '192.168.122.252',
         }

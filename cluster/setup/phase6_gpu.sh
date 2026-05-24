@@ -69,9 +69,9 @@ Phase 6: GPU Driver Installation
   --help            도움말 출력
 
 예시:
-  $0 --config my_cluster.yaml
-  $0 --config my_cluster.yaml --nvidia-only
-  $0 --config my_cluster.yaml --dry-run
+  $0 --config my_multihead_cluster.yaml
+  $0 --config my_multihead_cluster.yaml --nvidia-only
+  $0 --config my_multihead_cluster.yaml --dry-run
 
 YAML 설정:
   nodes:

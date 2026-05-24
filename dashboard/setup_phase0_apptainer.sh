@@ -120,21 +120,21 @@ if [ "$AVAILABLE_GB" -lt 50 ]; then
     echo "Apptainer sandbox는 이미지당 5-10GB를 사용할 수 있습니다."
 fi
 
-# my_cluster.yaml 업데이트 확인
+# my_multihead_cluster.yaml 업데이트 확인
 echo
-echo "my_cluster.yaml 설정 확인 중..."
-CLUSTER_YAML="../my_cluster.yaml"
+echo "my_multihead_cluster.yaml 설정 확인 중..."
+CLUSTER_YAML="../my_multihead_cluster.yaml"
 
 if [ -f "$CLUSTER_YAML" ]; then
     if grep -q "sandbox_path: /scratch/apptainer_sandboxes" "$CLUSTER_YAML"; then
-        echo -e "${GREEN}✓${NC} my_cluster.yaml에 sandbox_path 설정됨"
+        echo -e "${GREEN}✓${NC} my_multihead_cluster.yaml에 sandbox_path 설정됨"
     else
-        echo -e "${YELLOW}⚠${NC} my_cluster.yaml에 sandbox_path 설정이 없습니다."
+        echo -e "${YELLOW}⚠${NC} my_multihead_cluster.yaml에 sandbox_path 설정이 없습니다."
         echo "다음 설정을 추가해주세요:"
         echo "  sandbox_path: /scratch/apptainer_sandboxes"
     fi
 else
-    echo -e "${YELLOW}⚠${NC} my_cluster.yaml 파일을 찾을 수 없습니다: $CLUSTER_YAML"
+    echo -e "${YELLOW}⚠${NC} my_multihead_cluster.yaml 파일을 찾을 수 없습니다: $CLUSTER_YAML"
 fi
 
 echo

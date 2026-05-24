@@ -279,9 +279,9 @@ def main():
     print("=" * 70)
     
     # 설정 파일 로드
-    config_file = Path("my_cluster.yaml")
+    config_file = Path("my_multihead_cluster.yaml")
     if not config_file.exists():
-        print("❌ my_cluster.yaml 파일을 찾을 수 없습니다.")
+        print("❌ my_multihead_cluster.yaml 파일을 찾을 수 없습니다.")
         sys.exit(1)
     
     with open(config_file, 'r', encoding='utf-8') as f:

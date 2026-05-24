@@ -22,7 +22,19 @@ class SlurmAutoSetup:
     def __init__(self, config: Dict[str, Any], ssh_mgr):
         self.config = config
         self.ssh_manager = ssh_mgr
-        self.all_nodes = [config['nodes']['controller']] + config['nodes']['compute_nodes']
+        # 옛 스키마(controller 단수) + 신 스키마(controllers 복수) + viz_nodes 모두 지원
+        _nodes = config.get('nodes', {}) or {}
+        self.all_nodes = []
+        if _nodes.get('controller'):
+            self.all_nodes.append(_nodes['controller'])
+        self.all_nodes += _nodes.get('controllers', []) or []
+        self.all_nodes += _nodes.get('compute_nodes', []) or []
+        self.all_nodes += _nodes.get('viz_nodes', []) or []
+
+    def _get_primary_controller(self):
+        """controller(단수, 옛 스키마) 또는 controllers[0] (신 스키마) 반환"""
+        n = self.config.get('nodes', {}) or {}
+        return n.get('controller') or (n.get('controllers') or [{}])[0]
     
     def complete_setup(self) -> bool:
         """완전 자동 설치 - 누락된 모든 단계 처리"""
@@ -96,7 +108,7 @@ class SlurmAutoSetup:
 
         print("    ✅ /etc/hosts 업데이트 완료")
         
-        controller = self.config['nodes']['controller']
+        controller = self._get_primary_controller()
         controller_hostname = controller['hostname']
         ssh_user = controller['ssh_user']
         
@@ -371,7 +383,7 @@ class SlurmAutoSetup:
             print("    ⏭️  NFS 설정 건너뜀")
             return True
         
-        controller = self.config['nodes']['controller']
+        controller = self._get_primary_controller()
         controller_hostname = controller['hostname']
         nfs_server = nfs_config.get('nfs_server', controller['ip_address'])
         mount_points = nfs_config.get('mount_points', [])
@@ -466,7 +478,7 @@ class SlurmAutoSetup:
         """slurm.conf 파일 생성"""
         print("  📝 slurm.conf 생성 중...")
         
-        controller = self.config['nodes']['controller']
+        controller = self._get_primary_controller()
         controller_hostname = controller['hostname']
         cluster_name = self.config['cluster_info']['cluster_name']
         

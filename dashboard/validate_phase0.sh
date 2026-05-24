@@ -189,28 +189,28 @@ else
     check_fail "Apptainer Sandbox 디렉토리 없음"
 fi
 
-# 19. my_cluster.yaml 설정
-CLUSTER_YAML="../my_cluster.yaml"
+# 19. my_multihead_cluster.yaml 설정
+CLUSTER_YAML="../my_multihead_cluster.yaml"
 if [ -f "$CLUSTER_YAML" ]; then
     if grep -q "sandbox_path: /scratch/apptainer_sandboxes" "$CLUSTER_YAML"; then
-        check_pass "my_cluster.yaml sandbox_path 설정"
+        check_pass "my_multihead_cluster.yaml sandbox_path 설정"
     else
-        check_warn "my_cluster.yaml sandbox_path 미설정"
+        check_warn "my_multihead_cluster.yaml sandbox_path 미설정"
     fi
 
     if grep -q "enabled: true" "$CLUSTER_YAML" | grep -A1 "nvidia:" | grep -q "enabled: true"; then
-        check_pass "my_cluster.yaml GPU 활성화 (nvidia.enabled: true)"
+        check_pass "my_multihead_cluster.yaml GPU 활성화 (nvidia.enabled: true)"
     else
-        check_warn "my_cluster.yaml GPU 설정 확인 필요"
+        check_warn "my_multihead_cluster.yaml GPU 설정 확인 필요"
     fi
 
     if grep -q "name: vnc" "$CLUSTER_YAML"; then
-        check_pass "my_cluster.yaml VNC 파티션 설정"
+        check_pass "my_multihead_cluster.yaml VNC 파티션 설정"
     else
-        check_warn "my_cluster.yaml VNC 파티션 미설정"
+        check_warn "my_multihead_cluster.yaml VNC 파티션 미설정"
     fi
 else
-    check_fail "my_cluster.yaml 파일 없음"
+    check_fail "my_multihead_cluster.yaml 파일 없음"
 fi
 
 # 최종 결과

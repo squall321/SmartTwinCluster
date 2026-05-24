@@ -11,7 +11,7 @@ from pathlib import Path
 def main():
     """간단한 wrapper"""
     # 설정 파일 경로
-    config_file = "my_cluster.yaml"
+    config_file = "my_multihead_cluster.yaml"
     
     if not Path(config_file).exists():
         print(f"❌ 설정 파일을 찾을 수 없습니다: {config_file}")

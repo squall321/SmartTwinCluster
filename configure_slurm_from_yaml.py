@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 YAML 기반 Slurm 설정 파일 생성 스크립트
-모든 설정을 my_cluster.yaml에서 읽어와서 동적으로 생성합니다.
+모든 설정을 my_multihead_cluster.yaml에서 읽어와서 동적으로 생성합니다.
 """
 
 import yaml
@@ -14,7 +14,7 @@ from datetime import datetime
 class SlurmConfigFromYAML:
     """YAML 기반 Slurm 설정 생성기"""
     
-    def __init__(self, yaml_file='my_cluster.yaml'):
+    def __init__(self, yaml_file='my_multihead_cluster.yaml'):
         self.yaml_file = yaml_file
         self.config = self.load_yaml()
         
@@ -151,7 +151,7 @@ JobAcctGatherFrequency=30
         # Compute Nodes (YAML에서 동적으로 생성)
         slurm_conf += """#######################################################################
 # COMPUTE NODES
-# Generated from my_cluster.yaml nodes.compute_nodes
+# Generated from my_multihead_cluster.yaml nodes.compute_nodes
 #######################################################################
 """
         
@@ -172,7 +172,7 @@ JobAcctGatherFrequency=30
         slurm_conf += """
 #######################################################################
 # PARTITIONS
-# Generated from my_cluster.yaml slurm_config.partitions
+# Generated from my_multihead_cluster.yaml slurm_config.partitions
 #######################################################################
 """
         
@@ -514,7 +514,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  # 기본 (my_cluster.yaml 사용)
+  # 기본 (my_multihead_cluster.yaml 사용)
   python3 configure_slurm_from_yaml.py
   
   # 다른 YAML 파일 사용
@@ -527,8 +527,8 @@ def main():
     
     parser.add_argument(
         '-c', '--config',
-        default='my_cluster.yaml',
-        help='YAML 설정 파일 경로 (기본: my_cluster.yaml)'
+        default='my_multihead_cluster.yaml',
+        help='YAML 설정 파일 경로 (기본: my_multihead_cluster.yaml)'
     )
     
     parser.add_argument(

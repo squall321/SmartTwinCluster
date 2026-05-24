@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 설정 파일 자동 수정 스크립트
-my_cluster.yaml의 오류를 자동으로 수정합니다.
+my_multihead_cluster.yaml의 오류를 자동으로 수정합니다.
 """
 
 import yaml
@@ -11,8 +11,8 @@ from pathlib import Path
 
 def fix_config():
     """설정 파일 오류 자동 수정"""
-    config_file = Path("my_cluster.yaml")
-    backup_file = Path("my_cluster.yaml.backup")
+    config_file = Path("my_multihead_cluster.yaml")
+    backup_file = Path("my_multihead_cluster.yaml.backup")
     
     print("🔧 설정 파일 자동 수정 시작...")
     
@@ -294,7 +294,7 @@ def fix_config():
     print("   ✅ Apptainer 이미지 경로 설정:")
     print(f"      - 중앙 저장소: /share/apptainer/images")
     print(f"      - 로컬 캐시: /scratch/apptainer/images")
-    print("\n💡 백업 파일: my_cluster.yaml.backup")
+    print("\n💡 백업 파일: my_multihead_cluster.yaml.backup")
 
 
 if __name__ == '__main__':
