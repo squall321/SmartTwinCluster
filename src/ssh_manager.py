@@ -62,6 +62,7 @@ class SSHConnection:
                     hostname=self.connect_address,  # IP 우선!
                     username=self.username,
                     pkey=_pkey,
+                    password=self.password,  # 키 실패 시 password fallback
                     port=self.port,
                     timeout=self.timeout,
                     look_for_keys=False,
