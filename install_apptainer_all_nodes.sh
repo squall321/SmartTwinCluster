@@ -338,7 +338,7 @@ fi
                 exit 1
             fi
         else
-            echo -e "${CYAN}  → apt install 단계 스킵 (이미 설치됨)${NC}"
+            echo "  → apt install 단계 스킵 (이미 설치됨)"
         fi
 
         # /scratch/vnc_sandboxes 디렉토리 생성
