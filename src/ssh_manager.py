@@ -45,11 +45,23 @@ class SSHConnection:
                 connect_info = f"{self.hostname} ({self.ip_address})"
             
             # SSH 키 또는 패스워드로 연결 (IP 주소 우선 사용)
-            if self.key_path and Path(self.key_path).exists():
+            # 키는 명시적으로 RSAKey/Ed25519Key로 로드 — paramiko 자동탐지가
+            # 깨진 DSSKey 객체를 만드는 버그 회피
+            _key_path = str(Path(self.key_path).expanduser()) if self.key_path else None
+            if _key_path and Path(_key_path).exists():
+                _pkey = None
+                for _kcls in (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey):
+                    try:
+                        _pkey = _kcls.from_private_key_file(_key_path)
+                        break
+                    except Exception:
+                        continue
+                if _pkey is None:
+                    raise paramiko.SSHException(f"{_key_path} 로 RSA/ECDSA/Ed25519 키 로드 실패")
                 self.client.connect(
                     hostname=self.connect_address,  # IP 우선!
                     username=self.username,
-                    key_filename=self.key_path,
+                    pkey=_pkey,
                     port=self.port,
                     timeout=self.timeout,
                     look_for_keys=False,
