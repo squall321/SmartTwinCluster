@@ -304,6 +304,15 @@ if ! sudo -n true 2>/dev/null; then
     fi
 fi
 trap 'sudo -n rm -f /etc/sudoers.d/_apptainer_install_temp 2>/dev/null || true' EXIT
+export DEBIAN_FRONTEND=noninteractive
+
+# 이미 설치된 경우 apt install 단계 스킵
+if [ "${APT_INSTALLED:-0}" = "1" ]; then
+    echo "  → apt 설치 스킵 (이미 설치됨)"
+    SKIP_APT=1
+else
+    SKIP_APT=0
+fi
         set -euo pipefail
 
         RED='\033[0;31m'
@@ -311,34 +320,25 @@ trap 'sudo -n rm -f /etc/sudoers.d/_apptainer_install_temp 2>/dev/null || true' 
         YELLOW='\033[1;33m'
         NC='\033[0m'
 
-        echo -e "${YELLOW}  Installing apptainer via APT (offline repository)...${NC}"
-
-        # APT 로컬 저장소 확인
-        REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
-
-        if [[ -f "$REPO_LIST" ]]; then
-            echo -e "${GREEN}  ✓ Offline APT repository found${NC}"
-
-            # apt-get install로 설치 (의존성 및 설정 파일 자동 처리)
-            APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
-
-            if sudo apt-get "${APT_OPTS[@]}" install -y apptainer &>/dev/null; then
-                VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
-                echo -e "${GREEN}  ✓ apptainer installed via APT: $VERSION${NC}"
-            else
-                echo -e "${YELLOW}  ⚠️  APT install failed (local-only), trying with all sources...${NC}"
-                if sudo apt-get install -y apptainer &>/dev/null; then
-                    VERSION=$(apptainer --version 2>/dev/null || echo "unknown")
-                    echo -e "${GREEN}  ✓ apptainer installed: $VERSION${NC}"
+        if [ "$SKIP_APT" = "0" ]; then
+            echo -e "${YELLOW}  Installing apptainer via APT (offline repository)...${NC}"
+            REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
+            if [[ -f "$REPO_LIST" ]]; then
+                APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
+                if sudo -n apt-get "${APT_OPTS[@]}" install -y apptainer </dev/null &>/dev/null; then
+                    echo -e "${GREEN}  ✓ apptainer installed via APT${NC}"
+                elif sudo -n apt-get install -y apptainer </dev/null &>/dev/null; then
+                    echo -e "${GREEN}  ✓ apptainer installed (fallback)${NC}"
                 else
-                    echo -e "${RED}  ✗ ERROR: apptainer installation failed${NC}"
+                    echo -e "${RED}  ✗ ERROR: apt install failed (apptainer 부재 + 저장소 미해결)${NC}"
                     exit 1
                 fi
+            else
+                echo -e "${RED}  ✗ offline-local.list 없음 — install_offline_packages.sh 먼저${NC}"
+                exit 1
             fi
         else
-            echo -e "${RED}  ✗ ERROR: Offline APT repository not configured: $REPO_LIST${NC}"
-            echo -e "${YELLOW}  Please run Step 1 (install_offline_packages.sh) first${NC}"
-            exit 1
+            echo -e "${CYAN}  → apt install 단계 스킵 (이미 설치됨)${NC}"
         fi
 
         # /scratch/vnc_sandboxes 디렉토리 생성
