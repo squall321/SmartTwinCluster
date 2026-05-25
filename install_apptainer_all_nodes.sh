@@ -102,6 +102,9 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# sshpass / yaml에서 비번 읽어 SSHPASS env 설정 (deploy_to_compute_node.sh 패턴)
+command -v sshpass &>/dev/null || apt-get install -y sshpass &>/dev/null || true
+
 # 설정 파일 기본값
 if [[ -z "$CONFIG_FILE" ]]; then
     if [[ -f "$DEFAULT_CONFIG" ]]; then
@@ -119,6 +122,14 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     log_error "Config file not found: $CONFIG_FILE"
     exit 1
 fi
+
+# SSH 비번 (cluster_info.ssh_password) → SSHPASS env
+export SSHPASS=$(python3 -c "
+import yaml
+c=yaml.safe_load(open('$CONFIG_FILE'))
+print((c.get('cluster_info') or {}).get('ssh_password',''))
+")
+SUDO_PW="$SSHPASS"
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
@@ -244,31 +255,55 @@ install_apptainer_on_node() {
     local user="$3"
     local node_type="$4"
 
-    local ssh_target="${user}@${hostname}"
+    local ssh_target="${user}@${ip}"
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo -e "${CYAN}[$hostname]${NC} Installing apptainer ($node_type node)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    # SSH 연결 테스트
-    if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$ssh_target" "echo SSH OK" &>/dev/null; then
-        echo -e "${RED}  ✗ SSH connection failed${NC}"
+    # 키 인증 우선, sshpass 폴백 (deploy_to_compute_node.sh 패턴)
+    local SSH_CMD SCP_CMD REMOTE_SUDO_PREFIX
+    if ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+        "$ssh_target" "echo OK" &>/dev/null; then
+        SSH_CMD="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"
+        SCP_CMD="scp -o StrictHostKeyChecking=no -o ConnectTimeout=10"
+        # NOPASSWD 가능한지
+        if $SSH_CMD "$ssh_target" "sudo -n true" &>/dev/null; then
+            REMOTE_SUDO_PREFIX="sudo"
+        else
+            REMOTE_SUDO_PREFIX="echo '$SUDO_PW' | sudo -S -p ''"
+        fi
+        echo -e "${GREEN}  ✓ SSH 키 인증 OK${NC}"
+    elif [[ -n "$SSHPASS" ]] && command -v sshpass &>/dev/null; then
+        SSH_CMD="sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=10"
+        SCP_CMD="sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=10"
+        REMOTE_SUDO_PREFIX="echo '$SUDO_PW' | sudo -S -p ''"
+        echo -e "${YELLOW}  ⚠ 키 인증 실패 → sshpass+password 사용${NC}"
+    else
+        echo -e "${RED}  ✗ SSH 인증 수단 없음 (키도, 비번도 없음)${NC}"
         return 1
     fi
-    echo -e "${GREEN}  ✓ SSH connected${NC}"
 
     # apptainer 이미 설치 여부 확인
-    if ssh "$ssh_target" "command -v apptainer" &>/dev/null; then
+    local APT_INSTALLED=0
+    if $SSH_CMD "$ssh_target" "command -v apptainer" &>/dev/null; then
         local current_version
-        current_version=$(ssh "$ssh_target" "apptainer --version 2>/dev/null" || echo "unknown")
-        echo -e "${YELLOW}  ℹ apptainer already installed: $current_version${NC}"
-        echo -e "${CYAN}  Skipping (already installed)${NC}"
-        return 0
+        current_version=$($SSH_CMD "$ssh_target" "apptainer --version 2>/dev/null" || echo "unknown")
+        echo -e "${YELLOW}  ℹ apptainer already installed: $current_version (sysctl/conf만 점검)${NC}"
+        APT_INSTALLED=1
     fi
 
-    # 원격 노드에서 apptainer 설치
-    ssh "$ssh_target" bash << 'EOF_REMOTE'
+    # 원격 노드에서 apptainer 설치 + sysctl + conf
+    # SUDO_PW 환경변수로 비번 전달 → 원격에서 임시 NOPASSWD sudoer 설치
+    $SSH_CMD "$ssh_target" "SUDO_PW='$SUDO_PW' RUSER='$user' APT_INSTALLED=$APT_INSTALLED bash -s" <<'EOF_REMOTE'
+# 임시 NOPASSWD 활성화 (이미 NOPASSWD면 무해)
+if ! sudo -n true 2>/dev/null; then
+    if [ -n "${SUDO_PW:-}" ]; then
+        echo "$SUDO_PW" | sudo -S -p '' bash -c "echo '${RUSER:-$USER} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/_apptainer_install_temp && chmod 440 /etc/sudoers.d/_apptainer_install_temp" 2>/dev/null
+    fi
+fi
+trap 'sudo -n rm -f /etc/sudoers.d/_apptainer_install_temp 2>/dev/null || true' EXIT
         set -euo pipefail
 
         RED='\033[0;31m'
