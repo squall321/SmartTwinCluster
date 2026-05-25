@@ -312,11 +312,38 @@ install_apptainer_on_node() {
         sudo chmod 1777 /scratch/vnc_sandboxes
         echo -e "${GREEN}  ✓ /scratch/vnc_sandboxes created${NC}"
 
-        # apptainer 설정 파일 확인
+        # apptainer 설정 파일 확인 — /usr/local 빌드면 심볼릭링크
+        if [[ ! -d /etc/apptainer && -d /usr/local/etc/apptainer ]]; then
+            echo -e "${YELLOW}  → /etc/apptainer → /usr/local/etc/apptainer 심볼릭링크 생성${NC}"
+            sudo ln -sfn /usr/local/etc/apptainer /etc/apptainer
+        fi
         if [[ -f /etc/apptainer/apptainer.conf ]]; then
             echo -e "${GREEN}  ✓ Configuration file exists: /etc/apptainer/apptainer.conf${NC}"
         else
             echo -e "${RED}  ✗ WARNING: Configuration file missing: /etc/apptainer/apptainer.conf${NC}"
+        fi
+
+        # User namespace 활성화 (Ubuntu 24.04 AppArmor + 일반 sysctl)
+        echo -e "${YELLOW}  Enabling user namespaces for apptainer...${NC}"
+        sudo tee /etc/sysctl.d/99-apptainer.conf > /dev/null <<'SYSCTL_EOF'
+# Apptainer unprivileged user namespace 활성화
+user.max_user_namespaces=15000
+kernel.unprivileged_userns_clone=1
+kernel.apparmor_restrict_unprivileged_userns=0
+SYSCTL_EOF
+        sudo sysctl --system >/dev/null 2>&1 || true
+        echo -e "${GREEN}  ✓ user_namespaces sysctl 적용${NC}"
+
+        # 검증
+        UNS=$(sysctl -n user.max_user_namespaces 2>/dev/null || echo 0)
+        AAR=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)
+        echo -e "${GREEN}  ✓ max_user_namespaces=$UNS, apparmor_restrict=$AAR${NC}"
+
+        # suid 바이너리 옵션 — 소스빌드 + setuid 권한 보정
+        if [[ -f /usr/local/libexec/apptainer/bin/starter-suid ]]; then
+            sudo chown root:root /usr/local/libexec/apptainer/bin/starter-suid 2>/dev/null || true
+            sudo chmod 4755 /usr/local/libexec/apptainer/bin/starter-suid 2>/dev/null || true
+            echo -e "${GREEN}  ✓ starter-suid setuid 권한 보정${NC}"
         fi
 EOF_REMOTE
 
