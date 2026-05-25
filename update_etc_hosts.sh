@@ -96,11 +96,11 @@ while IFS=$'\t' read -r HOST IP USER; do
     USER="${USER:-$USER}"
     TARGET="${USER}@${IP}"
 
-    # 원격에서 마커 블록 교체 (sed로 idempotent)
+    # 원격에서 마커 블록 교체 (sed로 idempotent). sudo는 -S로 stdin 비번 수용
     REMOTE_CMD=$(cat <<EOF
 set -e
-sudo sed -i '/^# === BEGIN cluster hosts (auto-managed) ===\$/,/^# === END cluster hosts (auto-managed) ===\$/d' /etc/hosts
-sudo bash -c 'cat >> /etc/hosts' < /tmp/_cluster_hosts_block
+echo '$SSH_PASSWORD' | sudo -S -p '' sed -i '/^# === BEGIN cluster hosts (auto-managed) ===\$/,/^# === END cluster hosts (auto-managed) ===\$/d' /etc/hosts 2>/dev/null
+echo '$SSH_PASSWORD' | sudo -S -p '' bash -c 'cat /tmp/_cluster_hosts_block >> /etc/hosts'
 rm -f /tmp/_cluster_hosts_block
 EOF
 )
