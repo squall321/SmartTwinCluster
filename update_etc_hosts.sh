@@ -86,28 +86,44 @@ TMPHOSTS=$(mktemp)
 trap "rm -f $TMPHOSTS" EXIT
 printf '%s\n' "$HOSTS_BLOCK" > "$TMPHOSTS"
 
-# SSH 옵션 (호스트키 자동수락 + 인증 강제)
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o PreferredAuthentications=password,publickey -o PubkeyAcceptedKeyTypes=+ssh-rsa,rsa-sha2-256,rsa-sha2-512,ssh-ed25519,ecdsa-sha2-nistp256 -o LogLevel=ERROR"
+# SSH 옵션 — 키 인증 우선, 실패 시 sshpass+password 폴백
+SSH_KEY_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR"
+SSH_PW_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o PreferredAuthentications=password -o PubkeyAuthentication=no -o LogLevel=ERROR"
 
 ok=0; fail=0; failed_nodes=()
 
+run_remote() {
+    # $1=target, $2=local_file, $3=remote_path, $4=cmd
+    local target="$1" lfile="$2" rpath="$3" cmd="$4" err="$5"
+    # 키 인증 우선
+    if scp $SSH_KEY_OPTS "$lfile" "${target}:${rpath}" 2>"$err" \
+        && ssh $SSH_KEY_OPTS "$target" "$cmd" 2>>"$err"; then
+        return 0
+    fi
+    # 폴백: sshpass + password
+    : > "$err"
+    sshpass -p "$SSH_PASSWORD" scp $SSH_PW_OPTS "$lfile" "${target}:${rpath}" 2>"$err" \
+        && sshpass -p "$SSH_PASSWORD" ssh $SSH_PW_OPTS "$target" "$cmd" 2>>"$err"
+}
+
 while IFS=$'\t' read -r HOST IP USER; do
     [[ -z "$HOST" ]] && continue
-    USER="${USER:-$USER}"
+    [[ -z "$USER" ]] && USER="koopark"
     TARGET="${USER}@${IP}"
 
-    # 원격에서 마커 블록 교체 (sed로 idempotent). sudo는 -S로 stdin 비번 수용
+    # 원격 명령: 키 인증이면 sudo NOPASSWD 가정, 폴백이면 -S로 비번 파이프
     REMOTE_CMD=$(cat <<EOF
 set -e
-echo '$SSH_PASSWORD' | sudo -S -p '' sed -i '/^# === BEGIN cluster hosts (auto-managed) ===\$/,/^# === END cluster hosts (auto-managed) ===\$/d' /etc/hosts 2>/dev/null
-echo '$SSH_PASSWORD' | sudo -S -p '' bash -c 'cat /tmp/_cluster_hosts_block >> /etc/hosts'
+SUDO="sudo -n"
+\$SUDO true 2>/dev/null || SUDO="echo '$SSH_PASSWORD' | sudo -S -p ''"
+eval "\$SUDO sed -i '/^# === BEGIN cluster hosts (auto-managed) ===\$/,/^# === END cluster hosts (auto-managed) ===\$/d' /etc/hosts" 2>/dev/null
+eval "\$SUDO bash -c 'cat /tmp/_cluster_hosts_block >> /etc/hosts'"
 rm -f /tmp/_cluster_hosts_block
 EOF
 )
 
     _err=$(mktemp)
-    if sshpass -p "$SSH_PASSWORD" scp $SSH_OPTS "$TMPHOSTS" "${TARGET}:/tmp/_cluster_hosts_block" 2>"$_err" \
-        && sshpass -p "$SSH_PASSWORD" ssh $SSH_OPTS "$TARGET" "$REMOTE_CMD" 2>>"$_err"; then
+    if run_remote "$TARGET" "$TMPHOSTS" "/tmp/_cluster_hosts_block" "$REMOTE_CMD" "$_err"; then
         echo "  ✓ $HOST ($IP)"
         ok=$((ok+1))
     else
