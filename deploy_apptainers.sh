@@ -620,7 +620,7 @@ if [[ -n "$TARGET_IMAGE" ]]; then
             (( ${#_img_pids[@]} >= PARALLEL )) && sleep 1
         done
 
-        deploy_image_to "$node" "$ip" &
+        deploy_image_to "$node" "$ip" </dev/null &
         _img_pids+=($!)
     done
 
@@ -706,7 +706,7 @@ for node in "${!NODE_IPS[@]}"; do
         else
             echo "FAIL ${NODE_IPS[$node]}" > "$RESULTS_DIR/$node"
         fi
-    ) &
+    ) </dev/null &
     _pids+=($!)
 done
 

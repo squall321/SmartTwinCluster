@@ -34,9 +34,8 @@
 # 날짜: 2026-01-21
 ################################################################################
 
-# set -e 제거 — ((counter++))가 0→1일 때 산술결과 0이라 죽음 +
-# wait $pid가 백그라운드 실패 시 메인 루프 죽이는 부작용 회피
-set -uo pipefail
+# set -e/-u/pipefail 전부 제거 — 한 노드 실패가 메인 루프 죽임
+# 노드별 결과는 PIDS/exit code로 명시 추적
 
 # 색상 정의
 RED='\033[0;31m'
@@ -421,10 +420,11 @@ while IFS='|' read -r hostname ip user node_type; do
         (( ${#PIDS[@]} >= PARALLEL )) && sleep 1
     done
 
-    # 백그라운드로 설치 시작
+    # 백그라운드로 설치 시작 — stdin은 /dev/null로 묶음 (안 그러면 내부 ssh가
+    # 메인 while-read stdin을 먹어 다음 read가 EOF → 첫 두 노드만 처리되고 종료)
     (
         install_apptainer_on_node "$hostname" "$ip" "$user" "$node_type"
-    ) &
+    ) </dev/null &
 
     PIDS+=($!)
     sleep 0.3
