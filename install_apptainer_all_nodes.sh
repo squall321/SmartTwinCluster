@@ -403,25 +403,20 @@ SKIP_COUNT=0
 declare -a PIDS=()
 declare -a NODE_NAMES=()
 
-echo "$NODES_JSON" | python3 -c "
-import sys, json
-nodes = json.load(sys.stdin)
-for node in nodes:
-    print(f'{node[\"hostname\"]}|{node[\"ip\"]}|{node[\"user\"]}|{node[\"type\"]}')
-" | while IFS='|' read -r hostname ip user node_type; do
+while IFS='|' read -r hostname ip user node_type; do
 
     # 병렬 제한
     while [[ ${#PIDS[@]} -ge $PARALLEL ]]; do
-        for i in "${!PIDS[@]}"; do
-            if ! kill -0 "${PIDS[$i]}" 2>/dev/null; then
-                wait "${PIDS[$i]}" || true
-                unset "PIDS[$i]"
-                unset "NODE_NAMES[$i]"
+        new_pids=()
+        for pid in "${PIDS[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                new_pids+=("$pid")
+            else
+                wait "$pid" 2>/dev/null || true
             fi
         done
-        PIDS=("${PIDS[@]}")  # 배열 재정렬
-        NODE_NAMES=("${NODE_NAMES[@]}")
-        sleep 1
+        PIDS=("${new_pids[@]}")
+        (( ${#PIDS[@]} >= PARALLEL )) && sleep 1
     done
 
     # 백그라운드로 설치 시작
@@ -430,10 +425,13 @@ for node in nodes:
     ) &
 
     PIDS+=($!)
-    NODE_NAMES+=("$hostname")
-
-    sleep 0.5  # SSH 연결 간격
-done
+    sleep 0.3
+done < <(echo "$NODES_JSON" | python3 -c "
+import sys, json
+nodes = json.load(sys.stdin)
+for node in nodes:
+    print(f'{node[\"hostname\"]}|{node[\"ip\"]}|{node[\"user\"]}|{node[\"type\"]}')
+")
 
 # 모든 작업 대기
 log_info "Waiting for all installations to complete..."
@@ -450,12 +448,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # 설치 결과 확인
-echo "$NODES_JSON" | python3 -c "
-import sys, json
-nodes = json.load(sys.stdin)
-for node in nodes:
-    print(f\"{node['hostname']}|{node['ip']}|{node['user']}\")
-" | while IFS='|' read -r hostname ip user; do
+while IFS='|' read -r hostname ip user; do
     target="${user}@${ip}"
     if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$target" \
         "command -v apptainer && apptainer --version" &>/dev/null; then
@@ -474,7 +467,12 @@ for node in nodes:
         echo -e "${RED}  ✗ $hostname: 검증 실패${NC}"
         ((FAIL_COUNT++))
     fi
-done
+done < <(echo "$NODES_JSON" | python3 -c "
+import sys, json
+nodes = json.load(sys.stdin)
+for node in nodes:
+    print(f\"{node['hostname']}|{node['ip']}|{node['user']}\")
+")
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
