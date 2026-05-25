@@ -95,11 +95,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Root 권한 확인
-if [[ $EUID -ne 0 ]]; then
-    log_error "This script must be run as root"
-    echo "Usage: sudo $0 [OPTIONS]"
-    exit 1
+# 로컬 root 불필요 — 모든 sudo는 원격에서 처리 (sshpass+sudo -S)
+if [[ $EUID -eq 0 ]]; then
+    log_warning "root로 실행 중 — sudo 없이 실행 권장 (SSHPASS env 보존 위해)"
 fi
 
 # sshpass / yaml에서 비번 읽어 SSHPASS env 설정 (deploy_to_compute_node.sh 패턴)
