@@ -1,9 +1,10 @@
 #!/bin/bash
 ################################################################################
-# /etc/hosts 업데이트 스크립트
+# /etc/hosts 업데이트 스크립트 (sshpass 기반 — paramiko 비의존)
 # my_multihead_cluster.yaml 기반으로 모든 노드의 /etc/hosts 자동 업데이트
 ################################################################################
 
+set -e
 
 # --config <yaml> 옵션 처리 (기본: my_multihead_cluster.yaml)
 CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
@@ -19,70 +20,108 @@ set -- "${_args[@]+"${_args[@]}"}"
 [[ ! -f "$CONFIG_FILE" ]] && { echo "❌ YAML 없음: $CONFIG_FILE"; echo "사용: $0 [--config <yaml>]"; exit 1; }
 echo "📄 Config: $CONFIG_FILE"
 
-set -e
-
 echo "================================================================================"
-echo "🌐 /etc/hosts 자동 업데이트 (YAML 기반)"
+echo "🌐 /etc/hosts 자동 업데이트 (YAML 기반, sshpass)"
 echo "================================================================================"
 echo ""
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "❌ my_multihead_cluster.yaml 파일을 찾을 수 없습니다."
-    exit 1
-fi
-
-if [ ! -f "complete_slurm_setup.py" ]; then
-    echo "❌ complete_slurm_setup.py 파일을 찾을 수 없습니다."
-    exit 1
-fi
-
-echo "📝 모든 노드의 /etc/hosts를 업데이트합니다..."
-echo "   - 컨트롤러: smarttwincluster"
-echo "   - 계산 노드: node001, node002, viz-node001"
-echo ""
-
-# paramiko 보장 (오프라인 apt 우선, 실패 시 휠로 폴백)
-if ! python3 -c "import paramiko" 2>/dev/null; then
-    echo "⚠️ python3-paramiko 미설치 → 오프라인 패키지로 자동 설치"
-    if sudo apt install -y python3-paramiko 2>/dev/null; then
-        echo "✓ apt 설치 완료"
-    else
-        # .deb 직접
+# sshpass 보장
+if ! command -v sshpass &>/dev/null; then
+    echo "⚠️  sshpass 미설치 → 오프라인 패키지로 자동 설치"
+    sudo apt install -y sshpass 2>/dev/null || {
         for d in offline_packages_2404/apt_packages offline_packages/apt_packages; do
-            f=$(ls "$d"/python3-paramiko_*.deb 2>/dev/null | head -1)
+            f=$(ls "$d"/sshpass_*.deb 2>/dev/null | head -1)
             [ -n "$f" ] && sudo apt install -y "$f" && break
         done
-    fi
-    # 그래도 안 되면 휠 + --break-system-packages
-    if ! python3 -c "import paramiko" 2>/dev/null; then
-        for d in offline_packages_2404/python_wheels/python3.12 \
-                 offline_packages_2404/python_wheels \
-                 offline_packages/python_wheels; do
-            [ -d "$d" ] || continue
-            sudo python3 -m pip install --no-index --find-links="$d" \
-                --break-system-packages paramiko 2>&1 | tail -3 && break
-        done
-    fi
-    python3 -c "import paramiko" 2>/dev/null && echo "✓ paramiko OK" \
-        || { echo "❌ paramiko 설치 최종 실패"; exit 1; }
+    }
+    command -v sshpass &>/dev/null || { echo "❌ sshpass 설치 실패"; exit 1; }
 fi
 
-# SSH 키 설정 + /etc/hosts만 업데이트
-python3 complete_slurm_setup.py --only-hosts --config "$CONFIG_FILE"
+# pyyaml 보장
+python3 -c "import yaml" 2>/dev/null || sudo apt install -y python3-yaml 2>/dev/null || true
 
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "✅ /etc/hosts 업데이트 완료!"
-    echo ""
-    echo "검증:"
-    for node in node001 node002 viz-node001; do
-        echo "  📍 $node:"
-        ssh koopark@$node "grep -E 'smarttwincluster|node00|viz-node' /etc/hosts | head -5" 2>/dev/null || echo "    ⚠️  연결 실패"
-    done
-else
-    echo "❌ /etc/hosts 업데이트 실패"
+# YAML 파싱 — 노드 목록 + 공통 password 추출
+read -r SSH_PASSWORD <<<"$(python3 -c "
+import yaml,sys
+with open('$CONFIG_FILE') as f: c = yaml.safe_load(f)
+env = c.get('environment', {}) or {}
+print(env.get('ssh_password', ''))
+")"
+
+NODES_TSV=$(python3 -c "
+import yaml
+with open('$CONFIG_FILE') as f: c = yaml.safe_load(f)
+n = c.get('nodes', {}) or {}
+all_nodes = []
+if n.get('controller'): all_nodes.append(n['controller'])
+all_nodes += n.get('controllers', []) or []
+all_nodes += n.get('compute_nodes', []) or []
+all_nodes += n.get('viz_nodes', []) or []
+for x in all_nodes:
+    h = x.get('hostname','')
+    ip = x.get('ip_address', h)
+    user = x.get('ssh_user','')
+    print(f'{h}\t{ip}\t{user}')
+")
+
+if [[ -z "$NODES_TSV" ]]; then
+    echo "❌ 노드 목록을 파싱할 수 없습니다"
     exit 1
 fi
 
+# 전체 hosts 블록 (BEGIN/END 마커로 idempotent)
+MARK_BEGIN="# === BEGIN cluster hosts (auto-managed) ==="
+MARK_END="# === END cluster hosts (auto-managed) ==="
+HOSTS_BLOCK=$(printf '%s\n' "$MARK_BEGIN"; while IFS=$'\t' read -r h ip _; do
+    [[ -z "$h" ]] && continue
+    printf '%s %s\n' "$ip" "$h"
+done <<< "$NODES_TSV"; printf '%s\n' "$MARK_END")
+
+NODE_COUNT=$(wc -l <<< "$NODES_TSV")
+echo "📋 노드 수: $NODE_COUNT"
 echo ""
+
+# 임시 hosts 블록 파일
+TMPHOSTS=$(mktemp)
+trap "rm -f $TMPHOSTS" EXIT
+printf '%s\n' "$HOSTS_BLOCK" > "$TMPHOSTS"
+
+# SSH 옵션 (호스트키 자동수락 + 인증 강제)
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o PreferredAuthentications=password,publickey -o PubkeyAcceptedKeyTypes=+ssh-rsa,rsa-sha2-256,rsa-sha2-512,ssh-ed25519,ecdsa-sha2-nistp256 -o LogLevel=ERROR"
+
+ok=0; fail=0; failed_nodes=()
+
+while IFS=$'\t' read -r HOST IP USER; do
+    [[ -z "$HOST" ]] && continue
+    USER="${USER:-$USER}"
+    TARGET="${USER}@${IP}"
+
+    # 원격에서 마커 블록 교체 (sed로 idempotent)
+    REMOTE_CMD=$(cat <<EOF
+set -e
+sudo sed -i '/^# === BEGIN cluster hosts (auto-managed) ===\$/,/^# === END cluster hosts (auto-managed) ===\$/d' /etc/hosts
+sudo bash -c 'cat >> /etc/hosts' < /tmp/_cluster_hosts_block
+rm -f /tmp/_cluster_hosts_block
+EOF
+)
+
+    if sshpass -p "$SSH_PASSWORD" scp $SSH_OPTS "$TMPHOSTS" "${TARGET}:/tmp/_cluster_hosts_block" 2>/dev/null \
+        && sshpass -p "$SSH_PASSWORD" ssh $SSH_OPTS "$TARGET" "$REMOTE_CMD" 2>/dev/null; then
+        echo "  ✓ $HOST ($IP)"
+        ok=$((ok+1))
+    else
+        echo "  ✗ $HOST ($IP) — 연결/업데이트 실패"
+        failed_nodes+=("$HOST")
+        fail=$((fail+1))
+    fi
+done <<< "$NODES_TSV"
+
+echo ""
+echo "================================================================================"
+echo "✅ 성공: $ok  ❌ 실패: $fail"
+[[ $fail -gt 0 ]] && {
+    echo "실패 노드:"
+    printf '  - %s\n' "${failed_nodes[@]}"
+    exit 1
+}
 echo "================================================================================"
