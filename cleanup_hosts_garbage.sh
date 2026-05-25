@@ -1,6 +1,6 @@
 #!/bin/bash
 ################################################################################
-# 모든 노드 /etc/hosts에서 잘못 박힌 쓰레기 라인 제거
+# /etc/hosts 잔재 정리 — deploy_to_compute_node.sh 패턴 (sshpass -e)
 ################################################################################
 
 CONFIG_FILE="${CONFIG_FILE:-my_multihead_cluster.yaml}"
@@ -12,11 +12,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-SSH_PASSWORD=$(python3 -c "
+SSH_PW=$(python3 -c "
 import yaml
 c=yaml.safe_load(open('$CONFIG_FILE'))
-print((c.get('environment') or {}).get('ssh_password',''))
+print((c.get('cluster_info') or {}).get('ssh_password',''))
 ")
+export SSHPASS="$SSH_PW"
 
 mapfile -t NODES_TSV < <(python3 -c "
 import yaml
@@ -32,7 +33,6 @@ for x in nodes:
 ")
 
 echo "📋 노드 수: ${#NODES_TSV[@]}"
-
 ok=0; fail=0
 for line in "${NODES_TSV[@]}"; do
     IFS=$'\t' read -r HOST IP USER <<< "$line"
@@ -40,34 +40,34 @@ for line in "${NODES_TSV[@]}"; do
     TARGET="${USER}@${IP}"
     printf "→ %s (%s) ... " "$HOST" "$IP"
 
-    if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$TARGET" "echo ok" >/dev/null 2>&1; then
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$TARGET" bash <<'ENDSSH' >/dev/null 2>&1
+    if ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$TARGET" "echo OK" &>/dev/null; then
+        SSH_CMD="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"
+        USE_PW=0
+    elif [ -n "$SSH_PW" ] && command -v sshpass &>/dev/null; then
+        SSH_CMD="sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=10"
+        USE_PW=1
+    else
+        echo "✗ (인증수단 없음)"; fail=$((fail+1)); continue
+    fi
+
+    if [ "$USE_PW" = "1" ]; then
+        $SSH_CMD "$TARGET" bash <<ENDSSH >/dev/null 2>&1
+TS=\$(date +%Y%m%d-%H%M%S)
+echo '$SSH_PW' | sudo -S -p '' cp /etc/hosts /etc/hosts.bak.\$TS
+echo '$SSH_PW' | sudo -S -p '' sed -i '/^비밀번호\$/d;/^Password:\$/d;/^[Pp]assword\$/d' /etc/hosts
+echo '$SSH_PW' | sudo -S -p '' bash -c "awk 'BEGIN{b=0} /^\\\$/{b++; if(b<=1)print; next} {b=0; print}' /etc/hosts > /tmp/_hosts && cat /tmp/_hosts > /etc/hosts && rm -f /tmp/_hosts"
+ENDSSH
+    else
+        $SSH_CMD "$TARGET" bash <<'ENDSSH' >/dev/null 2>&1
 TS=$(date +%Y%m%d-%H%M%S)
 sudo cp /etc/hosts /etc/hosts.bak.$TS
 sudo sed -i '/^비밀번호$/d;/^Password:$/d;/^[Pp]assword$/d' /etc/hosts
 sudo bash -c "awk 'BEGIN{b=0} /^\$/{b++; if(b<=1)print; next} {b=0; print}' /etc/hosts > /tmp/_hosts && cat /tmp/_hosts > /etc/hosts && rm -f /tmp/_hosts"
 ENDSSH
-    else
-        sshpass -p "$SSH_PASSWORD" ssh \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o PreferredAuthentications=password -o PubkeyAuthentication=no \
-            -o ConnectTimeout=10 "$TARGET" bash <<ENDSSH >/dev/null 2>&1
-TS=\$(date +%Y%m%d-%H%M%S)
-echo '$SSH_PASSWORD' | sudo -S -p '' cp /etc/hosts /etc/hosts.bak.\$TS
-echo '$SSH_PASSWORD' | sudo -S -p '' sed -i '/^비밀번호\$/d;/^Password:\$/d;/^[Pp]assword\$/d' /etc/hosts
-echo '$SSH_PASSWORD' | sudo -S -p '' bash -c "awk 'BEGIN{b=0} /^\\\$/{b++; if(b<=1)print; next} {b=0; print}' /etc/hosts > /tmp/_hosts && cat /tmp/_hosts > /etc/hosts && rm -f /tmp/_hosts"
-ENDSSH
     fi
 
-    if [ $? -eq 0 ]; then
-        echo "✓"
-        ok=$((ok+1))
-    else
-        echo "✗"
-        fail=$((fail+1))
-    fi
+    if [ $? -eq 0 ]; then echo "✓ [$([ $USE_PW = 1 ] && echo pw || echo key)]"; ok=$((ok+1))
+    else echo "✗"; fail=$((fail+1)); fi
 done
-
 echo "================================================================================"
 echo "✅ 성공 $ok  ❌ 실패 $fail"
-echo "복구 필요시: 각 노드 /etc/hosts.bak.<TS>"
