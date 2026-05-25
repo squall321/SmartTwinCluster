@@ -105,15 +105,18 @@ rm -f /tmp/_cluster_hosts_block
 EOF
 )
 
-    if sshpass -p "$SSH_PASSWORD" scp $SSH_OPTS "$TMPHOSTS" "${TARGET}:/tmp/_cluster_hosts_block" 2>/dev/null \
-        && sshpass -p "$SSH_PASSWORD" ssh $SSH_OPTS "$TARGET" "$REMOTE_CMD" 2>/dev/null; then
+    _err=$(mktemp)
+    if sshpass -p "$SSH_PASSWORD" scp $SSH_OPTS "$TMPHOSTS" "${TARGET}:/tmp/_cluster_hosts_block" 2>"$_err" \
+        && sshpass -p "$SSH_PASSWORD" ssh $SSH_OPTS "$TARGET" "$REMOTE_CMD" 2>>"$_err"; then
         echo "  ✓ $HOST ($IP)"
         ok=$((ok+1))
     else
-        echo "  ✗ $HOST ($IP) — 연결/업데이트 실패"
+        echo "  ✗ $HOST ($IP) — 실패:"
+        sed 's/^/      /' "$_err" | head -5
         failed_nodes+=("$HOST")
         fail=$((fail+1))
     fi
+    rm -f "$_err"
 done <<< "$NODES_TSV"
 
 echo ""
