@@ -454,14 +454,24 @@ echo "$NODES_JSON" | python3 -c "
 import sys, json
 nodes = json.load(sys.stdin)
 for node in nodes:
-    print(node['hostname'])
-" | while read -r hostname; do
-    if ssh "${hostname}" "command -v apptainer && apptainer --version" &>/dev/null; then
-        VERSION=$(ssh "${hostname}" "apptainer --version 2>/dev/null" || echo "unknown")
+    print(f\"{node['hostname']}|{node['ip']}|{node['user']}\")
+" | while IFS='|' read -r hostname ip user; do
+    target="${user}@${ip}"
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$target" \
+        "command -v apptainer && apptainer --version" &>/dev/null; then
+        VERSION=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$target" "apptainer --version 2>/dev/null" || echo "unknown")
+        echo -e "${GREEN}  ✓ $hostname: $VERSION${NC}"
+        ((SUCCESS_COUNT++))
+    elif [ -n "$SSHPASS" ] && sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=5 \
+        "$target" "command -v apptainer" &>/dev/null; then
+        VERSION=$(sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+            "$target" "apptainer --version 2>/dev/null" || echo "unknown")
         echo -e "${GREEN}  ✓ $hostname: $VERSION${NC}"
         ((SUCCESS_COUNT++))
     else
-        echo -e "${RED}  ✗ $hostname: Installation failed or not found${NC}"
+        echo -e "${RED}  ✗ $hostname: 검증 실패${NC}"
         ((FAIL_COUNT++))
     fi
 done
