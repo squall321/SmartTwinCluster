@@ -11,6 +11,7 @@ CONFIG_FILE="$SCRIPT_DIR/my_multihead_cluster_2.yaml"
 UPDATE_ONLY=false  # --update: 이미지만 업데이트 (Apptainer 설치 스킵)
 SKIP_APPTAINER_INSTALL=false
 TARGET_IMAGE=""    # --image: 특정 이미지만 배포
+PARALLEL=1         # --parallel N: 동시 배포 노드 수
 
 # 인자 파싱
 while [[ $# -gt 0 ]]; do
@@ -33,6 +34,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_APPTAINER_INSTALL=true
             shift 2
             ;;
+        --parallel|-j)
+            PARALLEL="$2"
+            shift 2
+            ;;
         --help|-h)
             echo "사용법: $0 [옵션]"
             echo ""
@@ -41,6 +46,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --update        이미지만 업데이트 (Apptainer 설치 스킵)"
             echo "  --skip-install  Apptainer 설치 스킵"
             echo "  --image FILE    특정 SIF 이미지만 모든 노드에 배포"
+            echo "  --parallel, -j N 병렬 배포 노드 수 (기본: 1, 350노드는 20~30 권장)"
             echo "  --help, -h      이 도움말 표시"
             echo ""
             echo "예시:"
@@ -564,7 +570,35 @@ if [[ -n "$TARGET_IMAGE" ]]; then
         IMG_FAILED_NODES+=("controller (localhost)")
     fi
 
-    # 모든 노드에 배포
+    # 모든 노드에 병렬 배포
+    IMG_RESULTS_DIR=$(mktemp -d)
+    trap "rm -rf $IMG_RESULTS_DIR" EXIT
+    echo "🚀 병렬 이미지 배포 (동시 ${PARALLEL}개)"
+    _img_pids=()
+
+    deploy_image_to() {
+        local node="$1" ip="$2"
+        if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "exit" 2>/dev/null; then
+            echo -e "${RED}[${node}]${NC} ❌ SSH 실패"
+            echo "FAIL $ip" > "$IMG_RESULTS_DIR/$node"
+            return
+        fi
+        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mkdir -p ${NODE_IMAGE_PATH}" 2>/dev/null
+        if ! image_needs_update "$IMAGE_FILE" "$ip" "${NODE_IMAGE_PATH}"; then
+            echo -e "${GREEN}[${node}]${NC} = 동일, 스킵"
+            echo "OK" > "$IMG_RESULTS_DIR/$node"
+            return
+        fi
+        if scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:/tmp/ 2>/dev/null \
+            && ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}" 2>/dev/null; then
+            echo -e "${GREEN}[${node}]${NC} ✅"
+            echo "OK" > "$IMG_RESULTS_DIR/$node"
+        else
+            echo -e "${RED}[${node}]${NC} ❌"
+            echo "FAIL $ip" > "$IMG_RESULTS_DIR/$node"
+        fi
+    }
+
     for node in "${!NODE_IPS[@]}"; do
         local_ip=$(hostname -I | awk '{print $1}')
         ip="${NODE_IPS[$node]}"
@@ -575,45 +609,35 @@ if [[ -n "$TARGET_IMAGE" ]]; then
             continue
         fi
 
-        echo -e "${YELLOW}[${node}]${NC} ${TARGET_IMAGE} 확인 중 (${ip})..."
+        # 슬롯 대기
+        while (( ${#_img_pids[@]} >= PARALLEL )); do
+            new_pids=()
+            for pid in "${_img_pids[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then new_pids+=("$pid")
+                else wait "$pid" 2>/dev/null || true; fi
+            done
+            _img_pids=("${new_pids[@]}")
+            (( ${#_img_pids[@]} >= PARALLEL )) && sleep 1
+        done
 
-        # SSH 접속 확인
-        if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "exit" 2>/dev/null; then
-            echo -e "${RED}[${node}]${NC} ❌ SSH 접속 실패 - 스킵"
-            IMG_DEPLOY_FAIL=$((IMG_DEPLOY_FAIL + 1))
-            IMG_FAILED_NODES+=("${node} (${ip})")
-            continue
-        fi
+        deploy_image_to "$node" "$ip" &
+        _img_pids+=($!)
+    done
 
-        # 원격 디렉토리 생성
-        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mkdir -p ${NODE_IMAGE_PATH}" 2>/dev/null
+    # 잔여 대기
+    for pid in "${_img_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
 
-        # 변경 비교: 크기+날짜 동일하면 스킵
-        if ! image_needs_update "$IMAGE_FILE" "$ip" "${NODE_IMAGE_PATH}"; then
-            echo -e "${GREEN}[${node}]${NC} = ${TARGET_IMAGE} — 동일, 스킵"
+    # 결과 집계
+    for f in "$IMG_RESULTS_DIR"/*; do
+        [[ -e "$f" ]] || continue
+        nodename=$(basename "$f")
+        if [[ "$(head -1 "$f")" == OK ]]; then
             IMG_DEPLOY_SUCCESS=$((IMG_DEPLOY_SUCCESS + 1))
-            continue
-        fi
-
-        echo -e "${YELLOW}[${node}]${NC}   → ${TARGET_IMAGE} 전송 중..."
-
-        # SIF 전송
-        if ! scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:/tmp/; then
-            echo -e "${RED}[${node}]${NC} ❌ 전송 실패"
+        else
             IMG_DEPLOY_FAIL=$((IMG_DEPLOY_FAIL + 1))
-            IMG_FAILED_NODES+=("${node} (${ip})")
-            continue
+            ip=$(awk '{print $2}' "$f")
+            IMG_FAILED_NODES+=("${nodename} (${ip})")
         fi
-
-        if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}"; then
-            echo -e "${RED}[${node}]${NC} ❌ 설치 실패"
-            IMG_DEPLOY_FAIL=$((IMG_DEPLOY_FAIL + 1))
-            IMG_FAILED_NODES+=("${node} (${ip})")
-            continue
-        fi
-
-        echo -e "${GREEN}[${node}]${NC} ✅ 배포 완료"
-        IMG_DEPLOY_SUCCESS=$((IMG_DEPLOY_SUCCESS + 1))
     done
 
     IMG_TOTAL=$((IMG_DEPLOY_SUCCESS + IMG_DEPLOY_FAIL))
@@ -654,13 +678,51 @@ else
     FAILED_NODES+=("controller (localhost)")
 fi
 
-# 모든 노드에 배포 (실패해도 다음 노드로 진행)
+# 모든 노드에 병렬 배포 — 세마포어 (PARALLEL개 동시)
+RESULTS_DIR=$(mktemp -d)
+trap "rm -rf $RESULTS_DIR" EXIT
+echo ""
+echo "🚀 병렬 배포 시작 (동시 ${PARALLEL}개)"
+
+_pids=()
 for node in "${!NODE_IPS[@]}"; do
-    if deploy_to_node "$node" "${NODE_IPS[$node]}" "${NODE_TYPES[$node]}"; then
+    # 슬롯 대기
+    while (( ${#_pids[@]} >= PARALLEL )); do
+        new_pids=()
+        for pid in "${_pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                new_pids+=("$pid")
+            else
+                wait "$pid" 2>/dev/null || true
+            fi
+        done
+        _pids=("${new_pids[@]}")
+        (( ${#_pids[@]} >= PARALLEL )) && sleep 1
+    done
+
+    (
+        if deploy_to_node "$node" "${NODE_IPS[$node]}" "${NODE_TYPES[$node]}"; then
+            echo "OK" > "$RESULTS_DIR/$node"
+        else
+            echo "FAIL ${NODE_IPS[$node]}" > "$RESULTS_DIR/$node"
+        fi
+    ) &
+    _pids+=($!)
+done
+
+# 잔여 대기
+for pid in "${_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+
+# 결과 집계
+for f in "$RESULTS_DIR"/*; do
+    [[ -e "$f" ]] || continue
+    nodename=$(basename "$f")
+    if [[ "$(head -1 "$f")" == OK ]]; then
         DEPLOY_SUCCESS=$((DEPLOY_SUCCESS + 1))
     else
         DEPLOY_FAIL=$((DEPLOY_FAIL + 1))
-        FAILED_NODES+=("${node} (${NODE_IPS[$node]})")
+        ip=$(awk '{print $2}' "$f")
+        FAILED_NODES+=("${nodename} (${ip})")
     fi
 done
 
