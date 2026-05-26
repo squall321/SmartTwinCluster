@@ -346,6 +346,22 @@ fi
         sudo chmod 1777 /scratch/vnc_sandboxes
         echo -e "${GREEN}  ✓ /scratch/vnc_sandboxes created${NC}"
 
+        # squashfuse / fuse 보장 (Ubuntu 24.04: libfuse2t64로 변경됨)
+        if ! command -v squashfuse_ll &>/dev/null && ! command -v squashfuse &>/dev/null; then
+            echo "  Installing squashfuse + fuse libraries..."
+            REPO_LIST="/etc/apt/sources.list.d/offline-local.list"
+            if [[ -f "$REPO_LIST" ]]; then
+                APT_OPTS=(-o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts="-")
+                sudo -n apt-get "${APT_OPTS[@]}" install -y \
+                    squashfuse libsquashfuse0 fuse3 libfuse3-3 libfuse2t64 \
+                    </dev/null &>/dev/null && echo "  ✓ squashfuse 설치 완료" \
+                    || echo "  ⚠ squashfuse apt 설치 실패 (수동 확인 필요)"
+            fi
+        else
+            VER=$(squashfuse --version 2>&1 | head -1 || echo "?")
+            echo "  ✓ squashfuse 이미 설치됨 ($VER)"
+        fi
+
         # apptainer 설정 파일 확인 — /usr/local 빌드면 심볼릭링크
         if [[ ! -d /etc/apptainer && -d /usr/local/etc/apptainer ]]; then
             echo -e "${YELLOW}  → /etc/apptainer → /usr/local/etc/apptainer 심볼릭링크 생성${NC}"
