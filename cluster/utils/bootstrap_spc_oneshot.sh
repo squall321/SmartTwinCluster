@@ -485,7 +485,18 @@ EOF
 
 run_extra_users_via_stcx() {
     local ip="$1"
-    ssh $SSH_OPTS "$TARGET_USER@$ip" "$(extra_users_cmd)" <<< "$EXTRA_USERS_TSV" 2>&1
+    # SSH_OPTS의 -n은 stdin 차단해서 TSV 전달 못 함 → 자체 옵션 사용
+    local OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
+    # 키 인증 우선 (BatchMode로 prompt 차단)
+    if ssh -o BatchMode=yes $OPTS "$TARGET_USER@$ip" "echo OK" &>/dev/null; then
+        ssh $OPTS "$TARGET_USER@$ip" "$(extra_users_cmd)" <<< "$EXTRA_USERS_TSV" 2>&1
+    elif [[ -n "${TARGET_PASSWORD:-}" ]] && command -v sshpass &>/dev/null; then
+        SSHPASS="$TARGET_PASSWORD" sshpass -e ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+            $OPTS "$TARGET_USER@$ip" "$(extra_users_cmd)" <<< "$EXTRA_USERS_TSV" 2>&1
+    else
+        echo "ERROR: $TARGET_USER 키 인증 실패, sshpass 폴백도 불가"
+        return 1
+    fi
 }
 
 SUCCESS=0; FAILED=0; SKIPPED=0
