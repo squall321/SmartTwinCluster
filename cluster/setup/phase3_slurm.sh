@@ -397,8 +397,8 @@ setup_scp_offline_repo_remote() {
             else
                 # Try to install dpkg-dev from local packages
                 if ls dpkg-dev*.deb &>/dev/null; then
-                    sudo dpkg -i dpkg-dev*.deb 2>/dev/null || true
-                    sudo apt-get install -f -y 2>/dev/null || true
+                    sudo -n dpkg -i dpkg-dev*.deb 2>/dev/null || true
+                    sudo -n apt-get install -f -y 2>/dev/null || true
                     dpkg-scanpackages . /dev/null > Packages 2>/dev/null
                     gzip -k -f Packages
                 fi
@@ -486,10 +486,10 @@ setup_glusterfs_offline_repo_remote() {
             else
                 # dpkg-scanpackages not available, try to install dpkg-dev first
                 if [ -f dpkg-dev*.deb ]; then
-                    sudo dpkg -i dpkg-dev*.deb 2>/dev/null || true
-                    sudo apt-get install -f -y 2>/dev/null || true
-                    sudo dpkg-scanpackages . /dev/null > Packages 2>/dev/null
-                    sudo gzip -k -f Packages
+                    sudo -n dpkg -i dpkg-dev*.deb 2>/dev/null || true
+                    sudo -n apt-get install -f -y 2>/dev/null || true
+                    sudo -n dpkg-scanpackages . /dev/null > Packages 2>/dev/null
+                    sudo -n gzip -k -f Packages
                 fi
             fi
         " 2>/dev/null || log WARNING "  Could not generate Packages.gz (may already exist or dpkg-dev missing)"
@@ -1788,13 +1788,13 @@ setup_munge() {
                         echo 'deb [trusted=yes] file://$remote_pkg_dir ./' | sudo tee '$repo_list' > /dev/null
 
                         # Update APT cache with local repo
-                        sudo apt-get update -o Dir::Etc::sourcelist='$repo_list' \
+                        sudo -n apt-get update -o Dir::Etc::sourcelist='$repo_list' \
                                             -o Dir::Etc::sourceparts='-' \
                                             -o APT::Get::List-Cleanup='0' 2>/dev/null || true
 
                         # Install munge via APT (handles dependencies automatically)
-                        sudo apt-get install -y --no-install-recommends munge libmunge2 2>/dev/null || {
-                            sudo apt-get install -f -y 2>/dev/null || true
+                        sudo -n apt-get install -y --no-install-recommends munge libmunge2 2>/dev/null || {
+                            sudo -n apt-get install -f -y 2>/dev/null || true
                         }
 
                         # Keep repo for future use
@@ -1853,20 +1853,20 @@ setup_munge() {
 
                     # Create munge user if not exists
                     if ! id munge &> /dev/null; then
-                        sudo useradd -r -s /sbin/nologin munge 2>/dev/null || true
+                        sudo -n useradd -r -s /sbin/nologin munge 2>/dev/null || true
                     fi
 
-                    sudo systemctl stop munge 2>/dev/null || true
-                    sudo rm -f /etc/munge/munge.key 2>/dev/null || true
-                    sudo rm -rf /var/run/munge/* /run/munge/* 2>/dev/null || true
-                    sudo mkdir -p /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge
-                    sudo mv /tmp/munge.key.sync /etc/munge/munge.key
-                    sudo chown -R munge:munge /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge 2>/dev/null || true
-                    sudo chmod 700 /etc/munge /var/lib/munge
-                    sudo chmod 400 /etc/munge/munge.key
-                    sudo chmod 755 /var/log/munge /var/run/munge /run/munge
-                    sudo systemctl enable munge 2>/dev/null || true
-                    sudo systemctl start munge
+                    sudo -n systemctl stop munge 2>/dev/null || true
+                    sudo -n rm -f /etc/munge/munge.key 2>/dev/null || true
+                    sudo -n rm -rf /var/run/munge/* /run/munge/* 2>/dev/null || true
+                    sudo -n mkdir -p /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge
+                    sudo -n mv /tmp/munge.key.sync /etc/munge/munge.key
+                    sudo -n chown -R munge:munge /etc/munge /var/lib/munge /var/log/munge /var/run/munge /run/munge 2>/dev/null || true
+                    sudo -n chmod 700 /etc/munge /var/lib/munge
+                    sudo -n chmod 400 /etc/munge/munge.key
+                    sudo -n chmod 755 /var/log/munge /var/run/munge /run/munge
+                    sudo -n systemctl enable munge 2>/dev/null || true
+                    sudo -n systemctl start munge
                 " 2>&1)
                 ssh_exit=$?
                 set -e  # Re-enable errexit
@@ -3148,8 +3148,8 @@ EOPY
 
                     ssh $SSH_OPTS "$ssh_user@$ip_address" \
                         "sudo mv /tmp/cgroup.conf ${remote_config_dir}/cgroup.conf && \
-                         sudo chown slurm:slurm ${remote_config_dir}/cgroup.conf && \
-                         sudo chmod 644 ${remote_config_dir}/cgroup.conf" &>/dev/null
+                         sudo -n chown slurm:slurm ${remote_config_dir}/cgroup.conf && \
+                         sudo -n chmod 644 ${remote_config_dir}/cgroup.conf" &>/dev/null
 
                     log INFO "  cgroup.conf synced to $hostname"
                 fi
@@ -3171,8 +3171,8 @@ EOPY
 
                 ssh $SSH_OPTS "$ssh_user@$ip_address" \
                     "sudo mv /tmp/gres.conf ${remote_config_dir}/gres.conf && \
-                     sudo chown slurm:slurm ${remote_config_dir}/gres.conf && \
-                     sudo chmod 644 ${remote_config_dir}/gres.conf" &>/dev/null
+                     sudo -n chown slurm:slurm ${remote_config_dir}/gres.conf && \
+                     sudo -n chmod 644 ${remote_config_dir}/gres.conf" &>/dev/null
 
                 log INFO "  gres.conf synced to $hostname"
             fi
@@ -3225,17 +3225,17 @@ EOPY
                 "if id slurm &>/dev/null; then \
                     CUR_UID=\$(id -u slurm); CUR_GID=\$(id -g slurm); \
                     if [[ \"\$CUR_GID\" != \"$target_slurm_gid\" ]]; then \
-                        sudo groupmod -g $target_slurm_gid slurm 2>/dev/null || true; \
-                        sudo find / -xdev -gid \$CUR_GID -exec chgrp -h $target_slurm_gid {} + 2>/dev/null || true; \
+                        sudo -n groupmod -g $target_slurm_gid slurm 2>/dev/null || true; \
+                        sudo -n find / -xdev -gid \$CUR_GID -exec chgrp -h $target_slurm_gid {} + 2>/dev/null || true; \
                     fi; \
                     if [[ \"\$CUR_UID\" != \"$target_slurm_uid\" ]]; then \
-                        sudo pkill -KILL -u slurm 2>/dev/null || true; sleep 1; \
-                        sudo usermod -u $target_slurm_uid slurm 2>/dev/null || true; \
-                        sudo find / -xdev -uid \$CUR_UID -exec chown -h $target_slurm_uid {} + 2>/dev/null || true; \
+                        sudo -n pkill -KILL -u slurm 2>/dev/null || true; sleep 1; \
+                        sudo -n usermod -u $target_slurm_uid slurm 2>/dev/null || true; \
+                        sudo -n find / -xdev -uid \$CUR_UID -exec chown -h $target_slurm_uid {} + 2>/dev/null || true; \
                     fi; \
                 else \
-                    sudo groupadd -g $target_slurm_gid slurm 2>/dev/null || true; \
-                    sudo useradd -r -u $target_slurm_uid -g $target_slurm_gid -s /bin/false -d /nonexistent slurm; \
+                    sudo -n groupadd -g $target_slurm_gid slurm 2>/dev/null || true; \
+                    sudo -n useradd -r -u $target_slurm_uid -g $target_slurm_gid -s /bin/false -d /nonexistent slurm; \
                 fi" >> "$install_log" 2>&1 || log WARNING "  Could not ensure slurm user"
 
             log INFO "  Ensuring munge user on $hostname (UID=$target_munge_uid, GID=$target_munge_gid)..."
@@ -3243,20 +3243,25 @@ EOPY
                 "if id munge &>/dev/null; then \
                     CUR_UID=\$(id -u munge); CUR_GID=\$(id -g munge); \
                     if [[ \"\$CUR_GID\" != \"$target_munge_gid\" ]]; then \
-                        sudo groupmod -g $target_munge_gid munge 2>/dev/null || true; \
-                        sudo find / -xdev -gid \$CUR_GID -exec chgrp -h $target_munge_gid {} + 2>/dev/null || true; \
+                        sudo -n groupmod -g $target_munge_gid munge 2>/dev/null || true; \
+                        sudo -n find / -xdev -gid \$CUR_GID -exec chgrp -h $target_munge_gid {} + 2>/dev/null || true; \
                     fi; \
                     if [[ \"\$CUR_UID\" != \"$target_munge_uid\" ]]; then \
-                        sudo pkill -KILL -u munge 2>/dev/null || true; sleep 1; \
-                        sudo usermod -u $target_munge_uid munge 2>/dev/null || true; \
-                        sudo find / -xdev -uid \$CUR_UID -exec chown -h $target_munge_uid {} + 2>/dev/null || true; \
+                        sudo -n pkill -KILL -u munge 2>/dev/null || true; sleep 1; \
+                        sudo -n usermod -u $target_munge_uid munge 2>/dev/null || true; \
+                        sudo -n find / -xdev -uid \$CUR_UID -exec chown -h $target_munge_uid {} + 2>/dev/null || true; \
                     fi; \
                 else \
-                    sudo groupadd -g $target_munge_gid munge 2>/dev/null || true; \
-                    sudo useradd -r -u $target_munge_uid -g $target_munge_gid -s /sbin/nologin -d /nonexistent munge; \
+                    sudo -n groupadd -g $target_munge_gid munge 2>/dev/null || true; \
+                    sudo -n useradd -r -u $target_munge_uid -g $target_munge_gid -s /sbin/nologin -d /nonexistent munge; \
                 fi" >> "$install_log" 2>&1 || log WARNING "  Could not ensure munge user"
 
             log INFO "  Copying prebuilt Slurm package to $hostname..."
+
+            # 이전 실행에서 다른 유저가 남긴 /tmp 파일 정리 (Permission denied 회피)
+            ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "sudo -n rm -f /tmp/slurm-23.11.10-prebuilt.tar.gz /tmp/slurm_prebuilt 2>/dev/null; \
+                 sudo -n rm -rf /tmp/slurm_prebuilt 2>/dev/null; true" >> "$install_log" 2>&1 || true
 
             # Copy prebuilt tarball
             if ! scp $SCP_OPTS "$PREBUILT_TARBALL" "$ssh_user@$ip_address:/tmp/" 2>&1 | tee -a "$install_log"; then
@@ -3344,12 +3349,12 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
                 "if ! command -v munge &>/dev/null; then \
                     if [[ -f $GLUSTER_MOUNT/offline_packages/apt_packages/Packages.gz ]]; then \
                         echo 'deb [trusted=yes] file://$GLUSTER_MOUNT/offline_packages/apt_packages ./' | sudo tee /etc/apt/sources.list.d/offline-gluster.list > /dev/null && \
-                        sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/offline-gluster.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 2>/dev/null || true && \
-                        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends munge libmunge2 2>/dev/null || \
-                        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null || true; \
+                        sudo -n apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/offline-gluster.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 2>/dev/null || true && \
+                        sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends munge libmunge2 2>/dev/null || \
+                        sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null || true; \
                     else \
-                        sudo DEBIAN_FRONTEND=noninteractive apt-get update && \
-                        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null || true; \
+                        sudo -n DEBIAN_FRONTEND=noninteractive apt-get update && \
+                        sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y munge 2>/dev/null || true; \
                     fi; \
                 fi" >> "$install_log" 2>&1 || log WARNING "  Munge installation may need manual attention"
 
@@ -3359,12 +3364,12 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
                 scp $SCP_OPTS /etc/munge/munge.key "$ssh_user@$ip_address:/tmp/munge.key" 2>/dev/null || true
                 ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
                     "sudo mkdir -p /etc/munge /var/log/munge /var/lib/munge /run/munge && \
-                     sudo mv /tmp/munge.key /etc/munge/munge.key && \
-                     sudo chown -R munge:munge /etc/munge /var/log/munge /var/lib/munge /run/munge 2>/dev/null || true && \
-                     sudo chmod 700 /etc/munge /var/lib/munge && \
-                     sudo chmod 400 /etc/munge/munge.key && \
-                     sudo systemctl enable munge && \
-                     sudo systemctl restart munge" >> "$install_log" 2>&1 || log WARNING "  Munge key setup may need manual attention"
+                     sudo -n mv /tmp/munge.key /etc/munge/munge.key && \
+                     sudo -n chown -R munge:munge /etc/munge /var/log/munge /var/lib/munge /run/munge 2>/dev/null || true && \
+                     sudo -n chmod 700 /etc/munge /var/lib/munge && \
+                     sudo -n chmod 400 /etc/munge/munge.key && \
+                     sudo -n systemctl enable munge && \
+                     sudo -n systemctl restart munge" >> "$install_log" 2>&1 || log WARNING "  Munge key setup may need manual attention"
             fi
 
             # Cleanup temporary files
@@ -3451,8 +3456,8 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
                     "$ssh_user@$ip_address:/tmp/cgroup.conf" &>/dev/null; then
                     ssh $SSH_OPTS "$ssh_user@$ip_address" \
                         "sudo mv /tmp/cgroup.conf ${remote_config_dir}/cgroup.conf && \
-                         sudo chown slurm:slurm ${remote_config_dir}/cgroup.conf && \
-                         sudo chmod 644 ${remote_config_dir}/cgroup.conf" &>/dev/null
+                         sudo -n chown slurm:slurm ${remote_config_dir}/cgroup.conf && \
+                         sudo -n chmod 644 ${remote_config_dir}/cgroup.conf" &>/dev/null
                     log SUCCESS "cgroup.conf copied to $hostname (${remote_config_dir}/cgroup.conf)"
                 else
                     log WARNING "Failed to copy cgroup.conf to $hostname"
@@ -3475,8 +3480,8 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
                 "$ssh_user@$ip_address:/tmp/gres.conf" &>/dev/null; then
                 ssh $SSH_OPTS "$ssh_user@$ip_address" \
                     "sudo mv /tmp/gres.conf ${remote_config_dir}/gres.conf && \
-                     sudo chown slurm:slurm ${remote_config_dir}/gres.conf && \
-                     sudo chmod 644 ${remote_config_dir}/gres.conf" &>/dev/null
+                     sudo -n chown slurm:slurm ${remote_config_dir}/gres.conf && \
+                     sudo -n chmod 644 ${remote_config_dir}/gres.conf" &>/dev/null
                 log SUCCESS "gres.conf copied to $hostname (${remote_config_dir}/gres.conf)"
             else
                 log WARNING "Failed to copy gres.conf to $hostname"
