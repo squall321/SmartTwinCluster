@@ -1,25 +1,49 @@
 #!/bin/bash
 ################################################################################
-# spc 사용자 일회성 부트스트랩 (사용 후 삭제)
+# spc 사용자 일회성 부트스트랩 + UID/GID 싱크
 #
 # 동작:
 #   - 각 노드에 spc/password1! 로 SSH 접속
-#   - spc 비밀번호를 SmartTwinCluster321! 로 변경
-#   - passwordless sudo 등록
-#   - 헤드노드 SSH 공개키 등록
+#   - stcx 계정 생성/보정 + UID/GID 클러스터 전체 통일
+#   - passwordless sudo + SSH 키 등록
+#
+# 모드:
+#   기본 (sync)        : 계정 보존, UID/GID 어긋나면 usermod로 정렬, /home/stcx chown
+#   --force-recreate   : 옛 동작 (userdel -r → useradd, 데이터 손실)
+#
+# UID/GID 결정 우선순위:
+#   1. CLI: --target-uid N --target-gid N
+#   2. YAML: cluster_info.target_uid / cluster_info.target_gid
+#   3. 헤드노드의 현재 stcx UID/GID 자동 사용
 #
 # 사용법:
-#   sudo bash bootstrap_spc_oneshot.sh [--config YAML]
+#   sudo bash bootstrap_spc_oneshot.sh [--config YAML] [--target-uid N] [--target-gid N] [--force-recreate]
 ################################################################################
 
 set -uo pipefail
 
-# 인자 파싱 (set -u 안전)
-CONFIG_FILE="${1:-my_multihead_cluster.yaml}"
-if [[ "${1:-}" == "--config" ]]; then
-    CONFIG_FILE="${2:-}"
-    [[ -z "$CONFIG_FILE" ]] && { echo "ERROR: --config 다음에 YAML 경로 필요"; exit 1; }
-fi
+# 인자 파싱
+CONFIG_FILE="my_multihead_cluster.yaml"
+TARGET_UID=""
+TARGET_GID=""
+FORCE_RECREATE=false
+while [[ $# -gt 0 ]]; do
+    case "${1:-}" in
+        --config)          CONFIG_FILE="${2:-}"; shift 2 ;;
+        --target-uid)      TARGET_UID="${2:-}"; shift 2 ;;
+        --target-gid)      TARGET_GID="${2:-}"; shift 2 ;;
+        --force-recreate)  FORCE_RECREATE=true; shift ;;
+        -h|--help)
+            grep '^#' "$0" | sed 's/^#//' | head -25; exit 0 ;;
+        *)
+            # 위치 인자 (옛 호환): 첫 인자를 config로
+            if [[ "$CONFIG_FILE" == "my_multihead_cluster.yaml" && -f "$1" ]]; then
+                CONFIG_FILE="$1"; shift
+            else
+                echo "Unknown option: $1"; exit 1
+            fi ;;
+    esac
+done
 
 # ⚠️ 하드코딩 (사용 후 스크립트 삭제 권장)
 BOOTSTRAP_USER="spc"
@@ -57,26 +81,126 @@ fi
 log_info "사용 YAML: $CONFIG_PATH"
 
 # ────────────────────────────────────────────────────────────
-# 헤드노드 부트스트랩: stcx — 있으면 보존, 없을 때만 생성 (안전)
+# 추가 사용자 (admin_user + cluster_users) 추출
+# 출력: TSV (name<TAB>uid<TAB>gid<TAB>sudo<TAB>pw_mode<TAB>groups_csv)
+#   pw_mode: 'set' (TARGET_PASSWORD 해시 적용) 또는 'lock' (잠금)
+# ────────────────────────────────────────────────────────────
+EXTRA_USERS_TSV=$(CONFIG_PATH="$CONFIG_PATH" python3 <<'EOPY'
+import yaml, os
+with open(os.environ['CONFIG_PATH']) as f:
+    cfg = yaml.safe_load(f) or {}
+u = cfg.get('users', {}) or {}
+rows = []
+if u.get('admin_user'):
+    grps = 'sudo' if u.get('admin_sudo') else ''
+    rows.append((u['admin_user'], u.get('admin_uid',''), u.get('admin_gid',''),
+                 'true' if u.get('admin_sudo') else 'false', 'set', grps))
+for cu in (u.get('cluster_users') or []):
+    grps = ','.join(cu.get('groups') or [])
+    rows.append((cu.get('username',''), cu.get('uid',''), cu.get('gid',''),
+                 'false', 'lock', grps))
+for r in rows:
+    print('\t'.join(str(x) for x in r))
+EOPY
+)
+log_info "추가 동기화 사용자 (admin+cluster):"
+while IFS=$'\t' read -r n uid gid s pm g; do
+    [[ -z "$n" ]] && continue
+    log_info "  - $n (uid=$uid gid=$gid sudo=$s pw=$pm groups=$g)"
+done <<< "$EXTRA_USERS_TSV"
+
+# ssh_user/uid/gid도 yaml에서 (TARGET_USER 덮어쓰기)
+YAML_SSH=$(CONFIG_PATH="$CONFIG_PATH" python3 <<'EOPY'
+import yaml, os
+with open(os.environ['CONFIG_PATH']) as f:
+    cfg = yaml.safe_load(f) or {}
+u = cfg.get('users', {}) or {}
+print(u.get('ssh_user', '') or '')
+print(u.get('ssh_uid', '') or '')
+print(u.get('ssh_gid', '') or '')
+EOPY
+)
+YAML_SSH_USER=$(sed -n '1p' <<<"$YAML_SSH")
+YAML_SSH_UID=$(sed -n '2p' <<<"$YAML_SSH")
+YAML_SSH_GID=$(sed -n '3p' <<<"$YAML_SSH")
+[[ -n "$YAML_SSH_USER" ]] && TARGET_USER="$YAML_SSH_USER"
+[[ -z "$TARGET_UID" && -n "$YAML_SSH_UID" ]] && TARGET_UID="$YAML_SSH_UID"
+[[ -z "$TARGET_GID" && -n "$YAML_SSH_GID" ]] && TARGET_GID="$YAML_SSH_GID"
+
+# ────────────────────────────────────────────────────────────
+# UID/GID 결정: CLI > YAML > 헤드의 현재 stcx
+# ────────────────────────────────────────────────────────────
+if [[ -z "$TARGET_UID" || -z "$TARGET_GID" ]]; then
+    YAML_IDS=$(python3 -c "
+import yaml
+with open('$CONFIG_PATH') as f: cfg = yaml.safe_load(f) or {}
+ci = cfg.get('cluster_info', {}) or {}
+print(ci.get('target_uid', '') or '')
+print(ci.get('target_gid', '') or '')
+" 2>/dev/null)
+    [[ -z "$TARGET_UID" ]] && TARGET_UID=$(sed -n '1p' <<<"$YAML_IDS")
+    [[ -z "$TARGET_GID" ]] && TARGET_GID=$(sed -n '2p' <<<"$YAML_IDS")
+fi
+# 그래도 없으면 헤드의 현재 stcx에서 추출 (없으면 useradd 자동)
+if [[ -z "$TARGET_UID" ]] && id "$TARGET_USER" &>/dev/null; then
+    TARGET_UID=$(id -u "$TARGET_USER")
+fi
+if [[ -z "$TARGET_GID" ]] && id "$TARGET_USER" &>/dev/null; then
+    TARGET_GID=$(id -g "$TARGET_USER")
+fi
+log_info "TARGET UID=${TARGET_UID:-(auto)} GID=${TARGET_GID:-(auto)} (모드: $([[ $FORCE_RECREATE == true ]] && echo destructive || echo sync))"
+
+# ────────────────────────────────────────────────────────────
+# 헤드노드 부트스트랩: stcx 생성 또는 UID/GID 정렬
 # ────────────────────────────────────────────────────────────
 HASHED_PASSWORD=$(openssl passwd -6 "$TARGET_PASSWORD")
 
+ensure_uid_gid_local() {
+    local cur_uid cur_gid
+    cur_uid=$(id -u "$TARGET_USER")
+    cur_gid=$(id -g "$TARGET_USER")
+    if [[ -n "$TARGET_GID" && "$cur_gid" != "$TARGET_GID" ]]; then
+        log_warning "헤드 GID 어긋남 ($cur_gid → $TARGET_GID) — groupmod"
+        groupmod -g "$TARGET_GID" "$TARGET_USER" 2>/dev/null || \
+            groupadd -g "$TARGET_GID" "$TARGET_USER" 2>/dev/null || true
+        find /home/$TARGET_USER -gid "$cur_gid" -exec chgrp -h "$TARGET_GID" {} + 2>/dev/null || true
+    fi
+    if [[ -n "$TARGET_UID" && "$cur_uid" != "$TARGET_UID" ]]; then
+        log_warning "헤드 UID 어긋남 ($cur_uid → $TARGET_UID) — usermod"
+        pkill -KILL -u "$TARGET_USER" 2>/dev/null || true
+        sleep 1
+        usermod -u "$TARGET_UID" "$TARGET_USER"
+        find /home/$TARGET_USER -uid "$cur_uid" -exec chown -h "$TARGET_UID" {} + 2>/dev/null || true
+    fi
+}
+
 if id "$TARGET_USER" &>/dev/null; then
-    log_info "헤드노드 $TARGET_USER 이미 존재 → 보존 (홈 디렉토리/세션 유지)"
-    # sudoers + 비번 + 키만 보강 (있으면 OK, 없으면 추가)
+    log_info "헤드노드 $TARGET_USER 이미 존재 → 보존 (UID/GID 정렬만 수행)"
+    ensure_uid_gid_local
     [[ -f /etc/sudoers.d/$TARGET_USER ]] || {
         echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$TARGET_USER
         chmod 440 /etc/sudoers.d/$TARGET_USER
-        log_info "  sudoers.d/$TARGET_USER 추가"
     }
 else
     log_info "헤드노드 $TARGET_USER 없음 → 신규 생성"
-    useradd -m -s /bin/bash -G sudo "$TARGET_USER"
+    if [[ -n "$TARGET_GID" ]]; then
+        getent group "$TARGET_GID" &>/dev/null || groupadd -g "$TARGET_GID" "$TARGET_USER"
+        useradd -m -s /bin/bash -G sudo -u "${TARGET_UID:-65000}" -g "$TARGET_GID" "$TARGET_USER"
+    elif [[ -n "$TARGET_UID" ]]; then
+        useradd -m -s /bin/bash -G sudo -u "$TARGET_UID" "$TARGET_USER"
+    else
+        useradd -m -s /bin/bash -G sudo "$TARGET_USER"
+    fi
     echo "$TARGET_USER:$HASHED_PASSWORD" | chpasswd -e
     echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$TARGET_USER
     chmod 440 /etc/sudoers.d/$TARGET_USER
-    log_success "  $TARGET_USER 생성 완료"
+    [[ -z "$TARGET_UID" ]] && TARGET_UID=$(id -u "$TARGET_USER")
+    [[ -z "$TARGET_GID" ]] && TARGET_GID=$(id -g "$TARGET_USER")
+    log_success "  $TARGET_USER 생성 완료 (UID=$TARGET_UID GID=$TARGET_GID)"
 fi
+# 이후 원격에 보낼 때 사용할 결정값
+[[ -z "$TARGET_UID" ]] && TARGET_UID=$(id -u "$TARGET_USER")
+[[ -z "$TARGET_GID" ]] && TARGET_GID=$(id -g "$TARGET_USER")
 
 # SSH 키 (없으면 생성)
 TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
@@ -104,6 +228,59 @@ if [[ -z "$PUBKEY" ]]; then
 fi
 log_info "헤드노드 $TARGET_USER 키: ${PUBKEY:0:50}..."
 log_info "비밀번호 해시 생성 완료 (SHA-512): ${HASHED_PASSWORD:0:8}..."
+
+# ────────────────────────────────────────────────────────────
+# 헤드 로컬: admin_user + cluster_users 생성/UID 정렬
+# ────────────────────────────────────────────────────────────
+RUNNING_USER="${SUDO_USER:-$(whoami)}"
+sync_local_user() {
+    local name="$1" uid="$2" gid="$3" sudo_flag="$4" pw_mode="$5" groups_csv="$6"
+    [[ -z "$name" ]] && return
+    # 그룹 보장
+    if [[ -n "$gid" ]] && ! getent group "$gid" &>/dev/null; then
+        groupadd -g "$gid" "$name" 2>/dev/null || true
+    fi
+    if id "$name" &>/dev/null; then
+        local cur_uid cur_gid
+        cur_uid=$(id -u "$name"); cur_gid=$(id -g "$name")
+        if [[ "$name" == "$RUNNING_USER" && -n "$uid" && "$cur_uid" != "$uid" ]]; then
+            log_warning "헤드: $name 은 현재 실행 계정 — UID 변경 스킵 (현재 $cur_uid, 목표 $uid)"
+        else
+            if [[ -n "$gid" && "$cur_gid" != "$gid" ]]; then
+                log_warning "헤드 GID 정렬 $name: $cur_gid → $gid"
+                groupmod -g "$gid" "$name" 2>/dev/null || usermod -g "$gid" "$name" 2>/dev/null || true
+                find /home/$name -gid "$cur_gid" -exec chgrp -h "$gid" {} + 2>/dev/null || true
+            fi
+            if [[ -n "$uid" && "$cur_uid" != "$uid" ]]; then
+                log_warning "헤드 UID 정렬 $name: $cur_uid → $uid"
+                pkill -KILL -u "$name" 2>/dev/null || true; sleep 1
+                usermod -u "$uid" "$name"
+                find /home/$name -uid "$cur_uid" -exec chown -h "$uid" {} + 2>/dev/null || true
+            fi
+        fi
+    else
+        local args=(-m -s /bin/bash)
+        [[ -n "$uid" ]] && args+=(-u "$uid")
+        [[ -n "$gid" ]] && args+=(-g "$gid")
+        [[ -n "$groups_csv" ]] && args+=(-G "$groups_csv")
+        useradd "${args[@]}" "$name"
+        if [[ "$pw_mode" == "set" ]]; then
+            echo "$name:$HASHED_PASSWORD" | chpasswd -e
+        else
+            passwd -l "$name" >/dev/null
+        fi
+        if [[ "$sudo_flag" == "true" ]]; then
+            echo "$name ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$name
+            chmod 440 /etc/sudoers.d/$name
+        fi
+        log_success "헤드: $name 신규 생성 (uid=$(id -u $name) gid=$(id -g $name))"
+    fi
+}
+
+while IFS=$'\t' read -r n uid gid s pm g; do
+    [[ -z "$n" ]] && continue
+    sync_local_user "$n" "$uid" "$gid" "$s" "$pm" "$g"
+done <<< "$EXTRA_USERS_TSV"
 
 # 헤드노드 자기 자신 authorized_keys에도 등록 (root로 직접)
 touch "$TARGET_HOME/.ssh/authorized_keys"
@@ -162,16 +339,62 @@ if ! SUDO true 2>/dev/null; then
 fi
 echo "    [1/7] ✓ spc sudo 권한 OK"
 
-# 2. 기존 $TARGET_USER 완전 삭제 + 재생성 (clean slate)
-if id $TARGET_USER &>/dev/null; then
-    echo "    [2/7] 기존 $TARGET_USER 발견 → 완전 삭제 + 재생성"
-    SUDO pkill -KILL -u $TARGET_USER 2>/dev/null || true
-    sleep 1
-    SUDO userdel -r $TARGET_USER 2>/dev/null || SUDO userdel $TARGET_USER 2>/dev/null || true
-    SUDO rm -rf /home/$TARGET_USER
+# 2. $TARGET_USER 생성 또는 UID/GID 정렬
+TGT_UID="$TARGET_UID"
+TGT_GID="$TARGET_GID"
+FORCE_RC="$FORCE_RECREATE"
+
+# 충돌 UID/GID 점유자 비우기 (다른 사용자가 같은 UID 가지면 useradd 실패)
+CUR_OWNER_UID=\$(getent passwd "\$TGT_UID" 2>/dev/null | cut -d: -f1)
+if [[ -n "\$CUR_OWNER_UID" && "\$CUR_OWNER_UID" != "$TARGET_USER" ]]; then
+    echo "    [2/7] ⚠ UID \$TGT_UID 가 \$CUR_OWNER_UID 에 점유됨 — 충돌"
+    echo "ERROR_UID_CONFLICT"
+    exit 1
 fi
-SUDO useradd -m -s /bin/bash -G sudo $TARGET_USER
-echo "    [2/7] ✓ $TARGET_USER 신규 생성 (UID: \$(id -u $TARGET_USER))"
+CUR_OWNER_GID=\$(getent group "\$TGT_GID" 2>/dev/null | cut -d: -f1)
+
+if id $TARGET_USER &>/dev/null; then
+    CUR_UID=\$(id -u $TARGET_USER)
+    CUR_GID=\$(id -g $TARGET_USER)
+    if [[ "\$FORCE_RC" == "true" ]]; then
+        echo "    [2/7] 기존 $TARGET_USER 삭제 후 재생성 (force-recreate)"
+        SUDO pkill -KILL -u $TARGET_USER 2>/dev/null || true
+        sleep 1
+        SUDO userdel -r $TARGET_USER 2>/dev/null || SUDO userdel $TARGET_USER 2>/dev/null || true
+        SUDO rm -rf /home/$TARGET_USER
+        # 그룹: 동일 GID 그룹 없으면 생성
+        if [[ -z "\$CUR_OWNER_GID" ]]; then
+            SUDO groupadd -g "\$TGT_GID" $TARGET_USER 2>/dev/null || true
+        fi
+        SUDO useradd -m -s /bin/bash -G sudo -u "\$TGT_UID" -g "\$TGT_GID" $TARGET_USER
+        echo "    [2/7] ✓ 재생성 완료 (UID=\$(id -u $TARGET_USER) GID=\$(id -g $TARGET_USER))"
+    else
+        # sync 모드
+        if [[ "\$CUR_GID" != "\$TGT_GID" ]]; then
+            echo "    [2/7] GID 정렬: \$CUR_GID → \$TGT_GID"
+            if [[ -z "\$CUR_OWNER_GID" ]]; then
+                SUDO groupadd -g "\$TGT_GID" $TARGET_USER 2>/dev/null || true
+            fi
+            SUDO groupmod -g "\$TGT_GID" $TARGET_USER 2>/dev/null || \
+                SUDO usermod -g "\$TGT_GID" $TARGET_USER 2>/dev/null || true
+            SUDO find /home/$TARGET_USER -gid "\$CUR_GID" -exec chgrp -h "\$TGT_GID" {} + 2>/dev/null || true
+        fi
+        if [[ "\$CUR_UID" != "\$TGT_UID" ]]; then
+            echo "    [2/7] UID 정렬: \$CUR_UID → \$TGT_UID"
+            SUDO pkill -KILL -u $TARGET_USER 2>/dev/null || true
+            sleep 1
+            SUDO usermod -u "\$TGT_UID" $TARGET_USER
+            SUDO find /home/$TARGET_USER -uid "\$CUR_UID" -exec chown -h "\$TGT_UID" {} + 2>/dev/null || true
+        fi
+        echo "    [2/7] ✓ $TARGET_USER 유지 (UID=\$(id -u $TARGET_USER) GID=\$(id -g $TARGET_USER))"
+    fi
+else
+    if [[ -z "\$CUR_OWNER_GID" ]]; then
+        SUDO groupadd -g "\$TGT_GID" $TARGET_USER 2>/dev/null || true
+    fi
+    SUDO useradd -m -s /bin/bash -G sudo -u "\$TGT_UID" -g "\$TGT_GID" $TARGET_USER
+    echo "    [2/7] ✓ $TARGET_USER 신규 생성 (UID=\$(id -u $TARGET_USER) GID=\$(id -g $TARGET_USER))"
+fi
 
 # 3. 비밀번호 설정 (해시 전달 — 싱글쿼터로 \$ 보호)
 echo '$TARGET_USER:$HASHED_PASSWORD' | SUDO chpasswd -e
@@ -208,7 +431,65 @@ echo 'BOOTSTRAP_OK'
 EOF
 }
 
+# ────────────────────────────────────────────────────────────
+# 원격 추가-사용자 동기화 스크립트 (admin_user + cluster_users)
+# stdin으로 TSV 받아서 처리 (한 번에 모두)
+# ────────────────────────────────────────────────────────────
+extra_users_cmd() {
+cat <<EOF
+set -uo pipefail
+sync_user() {
+    local name="\$1" uid="\$2" gid="\$3" sudo_flag="\$4" pw_mode="\$5" groups_csv="\$6"
+    [[ -z "\$name" ]] && return 0
+    if [[ -n "\$gid" ]] && ! getent group "\$gid" &>/dev/null; then
+        sudo groupadd -g "\$gid" "\$name" 2>/dev/null || true
+    fi
+    if id "\$name" &>/dev/null; then
+        local cur_uid=\$(id -u "\$name") cur_gid=\$(id -g "\$name")
+        if [[ -n "\$gid" && "\$cur_gid" != "\$gid" ]]; then
+            sudo groupmod -g "\$gid" "\$name" 2>/dev/null || sudo usermod -g "\$gid" "\$name" 2>/dev/null || true
+            sudo find /home/\$name -gid "\$cur_gid" -exec chgrp -h "\$gid" {} + 2>/dev/null || true
+        fi
+        if [[ -n "\$uid" && "\$cur_uid" != "\$uid" ]]; then
+            sudo pkill -KILL -u "\$name" 2>/dev/null || true; sleep 1
+            sudo usermod -u "\$uid" "\$name"
+            sudo find /home/\$name -uid "\$cur_uid" -exec chown -h "\$uid" {} + 2>/dev/null || true
+        fi
+        echo "    sync \$name uid=\$(id -u \$name) gid=\$(id -g \$name)"
+    else
+        local args=(-m -s /bin/bash)
+        [[ -n "\$uid" ]] && args+=(-u "\$uid")
+        [[ -n "\$gid" ]] && args+=(-g "\$gid")
+        [[ -n "\$groups_csv" ]] && args+=(-G "\$groups_csv")
+        sudo useradd "\${args[@]}" "\$name"
+        if [[ "\$pw_mode" == "set" ]]; then
+            echo "\$name:$HASHED_PASSWORD" | sudo chpasswd -e
+        else
+            sudo passwd -l "\$name" >/dev/null
+        fi
+        if [[ "\$sudo_flag" == "true" ]]; then
+            echo "\$name ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/\$name >/dev/null
+            sudo chmod 440 /etc/sudoers.d/\$name
+        fi
+        echo "    create \$name uid=\$(id -u \$name) gid=\$(id -g \$name)"
+    fi
+}
+# stdin TSV 처리
+while IFS=\$'\t' read -r N UID_ GID_ S PM G; do
+    [[ -z "\$N" ]] && continue
+    sync_user "\$N" "\$UID_" "\$GID_" "\$S" "\$PM" "\$G"
+done
+echo 'EXTRA_USERS_OK'
+EOF
+}
+
+run_extra_users_via_stcx() {
+    local ip="$1"
+    ssh $SSH_OPTS "$TARGET_USER@$ip" "$(extra_users_cmd)" <<< "$EXTRA_USERS_TSV" 2>&1
+}
+
 SUCCESS=0; FAILED=0; SKIPPED=0
+EXTRA_OK=0; EXTRA_FAIL=0
 
 while IFS= read -r ip; do
     [[ -z "$ip" ]] && continue
@@ -242,8 +523,19 @@ while IFS= read -r ip; do
             "sudo cat /etc/shadow | grep '^$TARGET_USER:' | cut -d: -f2 | head -c 3" 2>/dev/null)
 
         if [[ "$pwd_state" =~ ^\$[y6]\$ ]]; then
-            log_success "[$ip] ✅ 이미 정상 (스킵)"
+            log_success "[$ip] ✅ stcx 정상"
             SKIPPED=$((SKIPPED + 1))
+            # 추가 사용자 sync도 적용
+            if [[ -n "$EXTRA_USERS_TSV" ]]; then
+                extra_result=$(run_extra_users_via_stcx "$ip")
+                if echo "$extra_result" | grep -q "EXTRA_USERS_OK"; then
+                    log_success "  [$ip] 추가 사용자 sync OK"
+                    EXTRA_OK=$((EXTRA_OK+1))
+                else
+                    log_warning "  [$ip] 추가 사용자 sync 실패: $(echo "$extra_result" | tail -1)"
+                    EXTRA_FAIL=$((EXTRA_FAIL+1))
+                fi
+            fi
             continue
         else
             # 시나리오 B: 키는 되는데 비번 이상 → stcx 통해 비번만 수정
@@ -258,6 +550,16 @@ while IFS= read -r ip; do
             if echo "$result" | grep -qE '\$[y6]\$'; then
                 log_success "[$ip] ✅ 비번 수리 성공"
                 SUCCESS=$((SUCCESS + 1))
+                if [[ -n "$EXTRA_USERS_TSV" ]]; then
+                    extra_result=$(run_extra_users_via_stcx "$ip")
+                    if echo "$extra_result" | grep -q "EXTRA_USERS_OK"; then
+                        log_success "  [$ip] 추가 사용자 sync OK"
+                        EXTRA_OK=$((EXTRA_OK+1))
+                    else
+                        log_warning "  [$ip] 추가 사용자 sync 실패"
+                        EXTRA_FAIL=$((EXTRA_FAIL+1))
+                    fi
+                fi
             else
                 log_error "[$ip] ❌ 비번 수리 실패: $result"
                 FAILED=$((FAILED + 1))
@@ -274,6 +576,16 @@ while IFS= read -r ip; do
     if echo "$result" | grep -q "BOOTSTRAP_OK"; then
         log_success "[$ip] ✅ 부트스트랩 성공"
         SUCCESS=$((SUCCESS + 1))
+        if [[ -n "$EXTRA_USERS_TSV" ]]; then
+            extra_result=$(run_extra_users_via_stcx "$ip")
+            if echo "$extra_result" | grep -q "EXTRA_USERS_OK"; then
+                log_success "  [$ip] 추가 사용자 sync OK"
+                EXTRA_OK=$((EXTRA_OK+1))
+            else
+                log_warning "  [$ip] 추가 사용자 sync 실패: $(echo "$extra_result" | tail -1)"
+                EXTRA_FAIL=$((EXTRA_FAIL+1))
+            fi
+        fi
     else
         err_msg=$(echo "$result" | grep -iE "permission denied|connection|host key|timeout|unable|ERROR_NO_SUDO" | head -1)
         [[ -z "$err_msg" ]] && err_msg=$(echo "$result" | tail -1)

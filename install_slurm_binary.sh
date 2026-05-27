@@ -63,10 +63,14 @@ with open('$CONFIG_FILE') as f:
 
 nodes = config.get('nodes', {})
 
-# UID/GID
-slurm_conf = config.get('slurm', {})
-print(f"SLURM_UID={slurm_conf.get('slurm_uid', 1001)}")
-print(f"SLURM_GID={slurm_conf.get('slurm_gid', 1001)}")
+# UID/GID — yaml의 users 섹션이 정본
+users_conf = config.get('users', {}) or {}
+slurm_conf = config.get('slurm', {}) or {}
+# users.slurm_uid 우선, 없으면 옛 slurm.slurm_uid 폴백
+print(f"SLURM_UID={users_conf.get('slurm_uid', slurm_conf.get('slurm_uid', 1001))}")
+print(f"SLURM_GID={users_conf.get('slurm_gid', slurm_conf.get('slurm_gid', 1001))}")
+print(f"MUNGE_UID={users_conf.get('munge_uid', 1002)}")
+print(f"MUNGE_GID={users_conf.get('munge_gid', 1002)}")
 
 # 컨트롤러 정보
 if 'controllers' in nodes:

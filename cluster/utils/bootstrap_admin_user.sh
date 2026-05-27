@@ -16,6 +16,12 @@
 #       --target-user koopark \
 #       --target-password 'Soseks314!' \
 #       --config my_multihead_cluster_2.yaml
+#
+# YAML 자동 추출 (CLI 인자 미지정 시):
+#   --target-user       ← cluster_info.admin_user (또는 nodes.*.ssh_user 첫번째)
+#   --target-password   ← cluster_info.ssh_password
+#   --bootstrap-user    ← cluster_info.bootstrap_user      (기본 'ubuntu')
+#   --bootstrap-password← cluster_info.bootstrap_password  (필수)
 ################################################################################
 
 set -uo pipefail
@@ -26,9 +32,9 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
-BOOTSTRAP_USER="ubuntu"
+BOOTSTRAP_USER=""
 BOOTSTRAP_PASSWORD=""
-TARGET_USER="koopark"
+TARGET_USER=""
 TARGET_PASSWORD=""
 CONFIG_FILE="my_multihead_cluster.yaml"
 
@@ -56,13 +62,45 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
-# YAML 비밀번호 자동 추출 (지정 안 했을 경우)
-[[ -z "$TARGET_PASSWORD" ]] && TARGET_PASSWORD=$(python3 -c "
+# YAML에서 미지정 필드 자동 추출
+# - TARGET_USER:     cluster_info.admin_user → nodes.*.ssh_user[0] 폴백
+# - TARGET_PASSWORD: cluster_info.ssh_password
+# - BOOTSTRAP_USER / BOOTSTRAP_PASSWORD: cluster_info.bootstrap_user / .bootstrap_password (없으면 기본값)
+YAML_VALS=$(python3 -c "
 import yaml
 with open('$PROJECT_ROOT/$CONFIG_FILE') as f:
-    cfg = yaml.safe_load(f)
-print(cfg.get('cluster_info', {}).get('ssh_password', ''))
+    cfg = yaml.safe_load(f) or {}
+ci = cfg.get('cluster_info', {}) or {}
+nodes = cfg.get('nodes', {}) or {}
+au = ci.get('admin_user', '') or ''
+if not au:
+    for grp in ('controllers','compute_nodes','viz_nodes'):
+        lst = nodes.get(grp) or []
+        if lst and lst[0].get('ssh_user'):
+            au = lst[0]['ssh_user']; break
+print(au)
+print(ci.get('ssh_password', '') or '')
+print(ci.get('bootstrap_user', '') or '')
+print(ci.get('bootstrap_password', '') or '')
 ")
+YAML_TARGET_USER=$(sed -n '1p' <<< "$YAML_VALS")
+YAML_TARGET_PW=$(sed -n '2p' <<< "$YAML_VALS")
+YAML_BOOT_USER=$(sed -n '3p' <<< "$YAML_VALS")
+YAML_BOOT_PW=$(sed -n '4p' <<< "$YAML_VALS")
+
+[[ -z "$TARGET_USER" ]]        && TARGET_USER="${YAML_TARGET_USER:-koopark}"
+[[ -z "$TARGET_PASSWORD" ]]    && TARGET_PASSWORD="$YAML_TARGET_PW"
+[[ -z "$BOOTSTRAP_USER" ]]     && BOOTSTRAP_USER="${YAML_BOOT_USER:-ubuntu}"
+[[ -z "$BOOTSTRAP_PASSWORD" ]] && BOOTSTRAP_PASSWORD="$YAML_BOOT_PW"
+
+if [[ -z "$BOOTSTRAP_PASSWORD" ]]; then
+    log_error "bootstrap 비밀번호 미지정 — --bootstrap-password 또는 yaml의 cluster_info.bootstrap_password 필요"
+    exit 1
+fi
+if [[ -z "$TARGET_PASSWORD" ]]; then
+    log_error "target 비밀번호 미지정 — --target-password 또는 yaml의 cluster_info.ssh_password 필요"
+    exit 1
+fi
 
 # 헤드노드에 koopark 사용자 SSH 공개키 (없으면 생성)
 PUBKEY_FILE="/home/$TARGET_USER/.ssh/id_rsa.pub"
@@ -126,7 +164,7 @@ while IFS= read -r ip; do
     fi
 
     # 이미 target 사용자로 SSH 가능한지 확인
-    if ssh -o BatchMode=yes $SSH_OPTS "$TARGET_USER@$ip" "exit" &>/dev/null; then
+    if ssh -n -o BatchMode=yes $SSH_OPTS "$TARGET_USER@$ip" "exit" &>/dev/null; then
         log_info "  ✓ $ip 이미 설정됨 ($TARGET_USER 키 인증 OK)"
         SKIPPED=$((SKIPPED + 1))
         continue
@@ -134,7 +172,7 @@ while IFS= read -r ip; do
 
     # bootstrap user로 시도
     log_info "  $ip → $BOOTSTRAP_USER 로 부트스트랩 시도..."
-    result=$(sshpass -p "$BOOTSTRAP_PASSWORD" ssh $SSH_OPTS "$BOOTSTRAP_USER@$ip" "$BOOTSTRAP_CMD" 2>&1)
+    result=$(sshpass -p "$BOOTSTRAP_PASSWORD" ssh -n $SSH_OPTS "$BOOTSTRAP_USER@$ip" "$BOOTSTRAP_CMD" 2>&1)
     if echo "$result" | grep -qE "CREATED|EXISTS"; then
         log_success "  ✓ $ip 완료"
         SUCCESS=$((SUCCESS + 1))

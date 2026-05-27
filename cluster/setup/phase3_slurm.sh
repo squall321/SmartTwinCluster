@@ -1271,9 +1271,23 @@ EOFPATH
         exit 1
     fi
 
-    # deploy_slurm.sh 실행
+    # deploy_slurm.sh가 yaml UID/GID를 알 수 있도록 /etc/slurm-uid.conf 박아두기
+    local _slurm_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('slurm_uid', 1001))" 2>/dev/null || echo 1001)
+    local _slurm_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('slurm_gid', 1001))" 2>/dev/null || echo 1001)
+    local _munge_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('munge_uid', 1002))" 2>/dev/null || echo 1002)
+    local _munge_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('munge_gid', 1002))" 2>/dev/null || echo 1002)
+    cat > /etc/slurm-uid.conf <<EOF_UID
+SLURM_UID=$_slurm_uid
+SLURM_GID=$_slurm_gid
+MUNGE_UID=$_munge_uid
+MUNGE_GID=$_munge_gid
+EOF_UID
+    chmod 644 /etc/slurm-uid.conf
+
+    # deploy_slurm.sh 실행 (env로도 전달 — 이중 안전망)
     log INFO "Slurm 23.x 설치 중... (deploy_slurm.sh)"
-    if bash "$DEPLOY_SCRIPT"; then
+    if SLURM_UID=$_slurm_uid SLURM_GID=$_slurm_gid MUNGE_UID=$_munge_uid MUNGE_GID=$_munge_gid \
+        bash "$DEPLOY_SCRIPT"; then
         log SUCCESS "Slurm 23.x 설치 완료!"
     else
         log ERROR "Slurm 설치 실패!"
@@ -1426,10 +1440,19 @@ create_slurm_user() {
         local existing_gid=$(id -g slurm)
         log INFO "User 'slurm' already exists (UID=$existing_uid, GID=$existing_gid)"
 
-        # Check if UID/GID matches
-        if [[ "$existing_uid" != "$target_slurm_uid" ]] || [[ "$existing_gid" != "$target_slurm_gid" ]]; then
-            log WARNING "Existing slurm user UID/GID ($existing_uid/$existing_gid) differs from target ($target_slurm_uid/$target_slurm_gid)"
-            log INFO "Keeping existing user to avoid breaking system"
+        # UID/GID 정렬 (어긋나면 강제 일치)
+        if [[ "$existing_gid" != "$target_slurm_gid" ]]; then
+            log WARNING "헤드 slurm GID 정렬: $existing_gid → $target_slurm_gid"
+            run_command "groupmod -g $target_slurm_gid slurm 2>/dev/null || true" "groupmod slurm"
+            run_command "find / -xdev -gid $existing_gid -exec chgrp -h $target_slurm_gid {} + 2>/dev/null || true" "chgrp slurm files"
+        fi
+        if [[ "$existing_uid" != "$target_slurm_uid" ]]; then
+            log WARNING "헤드 slurm UID 정렬: $existing_uid → $target_slurm_uid"
+            run_command "systemctl stop slurmctld slurmd 2>/dev/null || true" "stop slurm"
+            run_command "pkill -KILL -u slurm 2>/dev/null || true" "kill slurm procs"
+            sleep 1
+            run_command "usermod -u $target_slurm_uid slurm 2>/dev/null || true" "usermod slurm"
+            run_command "find / -xdev -uid $existing_uid -exec chown -h $target_slurm_uid {} + 2>/dev/null || true" "chown slurm files"
         fi
     else
         # Create group first
@@ -3190,28 +3213,48 @@ EOPY
         if [[ "$use_prebuilt" == "true" ]]; then
             # === PREBUILT PACKAGE DEPLOYMENT (OFFLINE) ===
 
-            # Get UID/GID from YAML config (default to 64001 to avoid conflicts with system accounts like opsadmin)
-            local target_slurm_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('uid', 64001))" 2>/dev/null || echo 64001)
-            local target_slurm_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('gid', 64001))" 2>/dev/null || echo 64001)
+            # Get UID/GID from YAML config (users.slurm_uid / users.munge_uid)
+            local target_slurm_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('slurm_uid', 1001))" 2>/dev/null || echo 1001)
+            local target_slurm_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('slurm_gid', 1001))" 2>/dev/null || echo 1001)
+            local target_munge_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('munge_uid', 1002))" 2>/dev/null || echo 1002)
+            local target_munge_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('munge_gid', 1002))" 2>/dev/null || echo 1002)
 
-            # Create slurm user on remote node BEFORE deploying (to avoid UID 1001 conflict in deploy_slurm.sh)
-            log INFO "  Creating slurm user on $hostname (UID=$target_slurm_uid, GID=$target_slurm_gid)..."
+            # Create slurm user — UID/GID 강제 정렬 (이미 있으면 usermod로 일치시킴)
+            log INFO "  Ensuring slurm user on $hostname (UID=$target_slurm_uid, GID=$target_slurm_gid)..."
             ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "if ! id slurm &>/dev/null; then \
-                    sudo groupadd -g $target_slurm_gid slurm 2>/dev/null || sudo groupadd slurm 2>/dev/null || true; \
-                    sudo useradd -u $target_slurm_uid -g slurm -m -s /bin/bash slurm 2>/dev/null || sudo useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true; \
-                fi" >> "$install_log" 2>&1 || log WARNING "  Could not create slurm user (may already exist)"
+                "if id slurm &>/dev/null; then \
+                    CUR_UID=\$(id -u slurm); CUR_GID=\$(id -g slurm); \
+                    if [[ \"\$CUR_GID\" != \"$target_slurm_gid\" ]]; then \
+                        sudo groupmod -g $target_slurm_gid slurm 2>/dev/null || true; \
+                        sudo find / -xdev -gid \$CUR_GID -exec chgrp -h $target_slurm_gid {} + 2>/dev/null || true; \
+                    fi; \
+                    if [[ \"\$CUR_UID\" != \"$target_slurm_uid\" ]]; then \
+                        sudo pkill -KILL -u slurm 2>/dev/null || true; sleep 1; \
+                        sudo usermod -u $target_slurm_uid slurm 2>/dev/null || true; \
+                        sudo find / -xdev -uid \$CUR_UID -exec chown -h $target_slurm_uid {} + 2>/dev/null || true; \
+                    fi; \
+                else \
+                    sudo groupadd -g $target_slurm_gid slurm 2>/dev/null || true; \
+                    sudo useradd -r -u $target_slurm_uid -g $target_slurm_gid -s /bin/false -d /nonexistent slurm; \
+                fi" >> "$install_log" 2>&1 || log WARNING "  Could not ensure slurm user"
 
-            # Also create munge user with proper UID
-            local target_munge_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('munge_uid', 64002))" 2>/dev/null || echo 64002)
-            local target_munge_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('slurm_user',{}).get('munge_gid', 64002))" 2>/dev/null || echo 64002)
-
-            log INFO "  Creating munge user on $hostname (UID=$target_munge_uid, GID=$target_munge_gid)..."
+            log INFO "  Ensuring munge user on $hostname (UID=$target_munge_uid, GID=$target_munge_gid)..."
             ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "if ! id munge &>/dev/null; then \
-                    sudo groupadd -g $target_munge_gid munge 2>/dev/null || sudo groupadd munge 2>/dev/null || true; \
-                    sudo useradd -u $target_munge_uid -g munge -m -s /sbin/nologin munge 2>/dev/null || sudo useradd -g munge -m -s /sbin/nologin munge 2>/dev/null || true; \
-                fi" >> "$install_log" 2>&1 || log WARNING "  Could not create munge user (may already exist)"
+                "if id munge &>/dev/null; then \
+                    CUR_UID=\$(id -u munge); CUR_GID=\$(id -g munge); \
+                    if [[ \"\$CUR_GID\" != \"$target_munge_gid\" ]]; then \
+                        sudo groupmod -g $target_munge_gid munge 2>/dev/null || true; \
+                        sudo find / -xdev -gid \$CUR_GID -exec chgrp -h $target_munge_gid {} + 2>/dev/null || true; \
+                    fi; \
+                    if [[ \"\$CUR_UID\" != \"$target_munge_uid\" ]]; then \
+                        sudo pkill -KILL -u munge 2>/dev/null || true; sleep 1; \
+                        sudo usermod -u $target_munge_uid munge 2>/dev/null || true; \
+                        sudo find / -xdev -uid \$CUR_UID -exec chown -h $target_munge_uid {} + 2>/dev/null || true; \
+                    fi; \
+                else \
+                    sudo groupadd -g $target_munge_gid munge 2>/dev/null || true; \
+                    sudo useradd -r -u $target_munge_uid -g $target_munge_gid -s /sbin/nologin -d /nonexistent munge; \
+                fi" >> "$install_log" 2>&1 || log WARNING "  Could not ensure munge user"
 
             log INFO "  Copying prebuilt Slurm package to $hostname..."
 
@@ -3244,7 +3287,11 @@ EOPY
                  sleep 2; \
                  sudo rm -f /opt/slurm/sbin/* 2>/dev/null; \
                  if [ -f /tmp/deploy_slurm_latest.sh ]; then cp /tmp/deploy_slurm_latest.sh deploy_slurm.sh; fi; \
-                 sudo bash deploy_slurm.sh" >> "$install_log" 2>&1; then
+                 echo \"SLURM_UID=$target_slurm_uid\" | sudo tee /etc/slurm-uid.conf >/dev/null; \
+                 echo \"SLURM_GID=$target_slurm_gid\" | sudo tee -a /etc/slurm-uid.conf >/dev/null; \
+                 echo \"MUNGE_UID=$target_munge_uid\" | sudo tee -a /etc/slurm-uid.conf >/dev/null; \
+                 echo \"MUNGE_GID=$target_munge_gid\" | sudo tee -a /etc/slurm-uid.conf >/dev/null; \
+                 sudo SLURM_UID=$target_slurm_uid SLURM_GID=$target_slurm_gid MUNGE_UID=$target_munge_uid MUNGE_GID=$target_munge_gid bash deploy_slurm.sh" >> "$install_log" 2>&1; then
                 local install_exit_code=$?
                 log ERROR "Failed to deploy prebuilt Slurm on $hostname (exit code: $install_exit_code)"
                 log ERROR "  Install log file: $install_log"

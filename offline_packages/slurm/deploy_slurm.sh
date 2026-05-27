@@ -92,18 +92,53 @@ if [[ -f /usr/bin/sinfo ]]; then
     log_info "Source-built Slurm 23.11.10 will be used instead (/usr/local/slurm/bin)"
 fi
 
-# Slurm 사용자 생성
-# NOTE: UID 64001 사용 - 일반 시스템 계정(1000~)과 충돌 방지
-# 이미 존재하면 건너뜀 (phase3_slurm.sh에서 YAML 기반 UID로 먼저 생성됨)
-log_info "Creating slurm user..."
-if ! id slurm &>/dev/null; then
-    # 64001 사용 (기본값), 충돌 시 자동 할당
-    groupadd -g 64001 slurm 2>/dev/null || groupadd slurm 2>/dev/null || true
-    useradd -u 64001 -g slurm -m -s /bin/bash slurm 2>/dev/null || useradd -g slurm -m -s /bin/bash slurm 2>/dev/null || true
-    log_success "User 'slurm' created"
-else
-    log_info "User 'slurm' already exists (using existing UID: $(id -u slurm))"
+# Slurm/Munge 사용자 UID/GID — 우선순위:
+#   1. 환경변수 SLURM_UID/SLURM_GID/MUNGE_UID/MUNGE_GID (호출자가 export)
+#   2. /etc/slurm-uid.conf (KEY=VALUE 형식)
+#   3. 폴백 1001/1002 (yaml 표준값)
+SLURM_UID="${SLURM_UID:-}"
+SLURM_GID="${SLURM_GID:-}"
+MUNGE_UID="${MUNGE_UID:-}"
+MUNGE_GID="${MUNGE_GID:-}"
+if [[ -z "$SLURM_UID" && -f /etc/slurm-uid.conf ]]; then
+    # shellcheck disable=SC1091
+    source /etc/slurm-uid.conf
 fi
+SLURM_UID="${SLURM_UID:-1001}"
+SLURM_GID="${SLURM_GID:-1001}"
+MUNGE_UID="${MUNGE_UID:-1002}"
+MUNGE_GID="${MUNGE_GID:-1002}"
+log_info "Target UID/GID — slurm=$SLURM_UID:$SLURM_GID  munge=$MUNGE_UID:$MUNGE_GID"
+
+ensure_service_user() {
+    local name="$1" uid="$2" gid="$3" shell="$4"
+    if id "$name" &>/dev/null; then
+        local cur_uid cur_gid
+        cur_uid=$(id -u "$name"); cur_gid=$(id -g "$name")
+        if [[ "$cur_gid" != "$gid" ]]; then
+            log_warning "$name GID 정렬: $cur_gid → $gid"
+            groupmod -g "$gid" "$name" 2>/dev/null || true
+            find / -xdev -gid "$cur_gid" -exec chgrp -h "$gid" {} + 2>/dev/null || true
+        fi
+        if [[ "$cur_uid" != "$uid" ]]; then
+            log_warning "$name UID 정렬: $cur_uid → $uid"
+            pkill -KILL -u "$name" 2>/dev/null || true
+            sleep 1
+            usermod -u "$uid" "$name" 2>/dev/null || true
+            find / -xdev -uid "$cur_uid" -exec chown -h "$uid" {} + 2>/dev/null || true
+        fi
+        log_info "$name OK (UID=$(id -u $name) GID=$(id -g $name))"
+    else
+        groupadd -g "$gid" "$name" 2>/dev/null || groupadd "$name" 2>/dev/null || true
+        useradd -r -u "$uid" -g "$gid" -s "$shell" -d /nonexistent "$name" 2>/dev/null \
+            || useradd -r -g "$name" -s "$shell" -d /nonexistent "$name"
+        log_success "$name 신규 생성 (UID=$(id -u $name) GID=$(id -g $name))"
+    fi
+}
+
+log_info "Ensuring slurm/munge users..."
+ensure_service_user slurm "$SLURM_UID" "$SLURM_GID" /bin/false
+ensure_service_user munge "$MUNGE_UID" "$MUNGE_GID" /sbin/nologin
 
 # 디렉토리 복사
 # tar.gz 압축 해제 후 opt/slurm 디렉토리가 SCRIPT_DIR 안에 생성됨
