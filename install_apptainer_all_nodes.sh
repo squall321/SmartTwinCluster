@@ -362,6 +362,23 @@ fi
             echo "  ✓ squashfuse 이미 설치됨 ($VER)"
         fi
 
+        # APPTAINER_TMPDIR/CACHEDIR을 로컬 디스크(/scratch)로 — NFS 회피
+        if [[ -d /scratch ]] || sudo -n mkdir -p /scratch 2>/dev/null; then
+            sudo mkdir -p /scratch/apptainer_tmp /scratch/apptainer_cache
+            sudo chmod 1777 /scratch/apptainer_tmp /scratch/apptainer_cache
+            sudo tee /etc/profile.d/apptainer_tmpdir.sh > /dev/null <<'PROFILE_EOF'
+# Apptainer: NFS 회피 — 로컬 /scratch 사용
+export APPTAINER_TMPDIR=/scratch/apptainer_tmp
+export APPTAINER_CACHEDIR=/scratch/apptainer_cache
+export SINGULARITY_TMPDIR=/scratch/apptainer_tmp
+export SINGULARITY_CACHEDIR=/scratch/apptainer_cache
+PROFILE_EOF
+            sudo chmod 644 /etc/profile.d/apptainer_tmpdir.sh
+            echo "  ✓ APPTAINER_TMPDIR=/scratch/apptainer_tmp 적용 (/etc/profile.d/)"
+        else
+            echo "  ⚠ /scratch 없음 — APPTAINER_TMPDIR 설정 스킵 (NFS 사용시 성능 저하 가능)"
+        fi
+
         # apptainer 설정 파일 확인 — /usr/local 빌드면 심볼릭링크
         if [[ ! -d /etc/apptainer && -d /usr/local/etc/apptainer ]]; then
             echo -e "${YELLOW}  → /etc/apptainer → /usr/local/etc/apptainer 심볼릭링크 생성${NC}"
