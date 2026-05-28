@@ -415,15 +415,15 @@ if id $TARGET_USER &>/dev/null; then
             fi
             SUDO groupmod -g "\$TGT_GID" $TARGET_USER 2>/dev/null || \
                 SUDO usermod -g "\$TGT_GID" $TARGET_USER 2>/dev/null || true
-            SUDO find /home/$TARGET_USER -gid "\$CUR_GID" -exec chgrp -h "\$TGT_GID" {} + 2>/dev/null || true
         fi
         if [[ "\$CUR_UID" != "\$TGT_UID" ]]; then
             echo "    [2/7] UID 정렬: \$CUR_UID → \$TGT_UID"
             SUDO pkill -KILL -u $TARGET_USER 2>/dev/null || true
             sleep 1
             SUDO usermod -u "\$TGT_UID" $TARGET_USER
-            SUDO find /home/$TARGET_USER -uid "\$CUR_UID" -exec chown -h "\$TGT_UID" {} + 2>/dev/null || true
         fi
+        # 강제 chown -R: sshd StrictModes 통과
+        SUDO chown -R "$TARGET_USER:$TARGET_USER" /home/$TARGET_USER 2>/dev/null || true
         echo "    [2/7] ✓ $TARGET_USER 유지 (UID=\$(id -u $TARGET_USER) GID=\$(id -g $TARGET_USER))"
     fi
 else
