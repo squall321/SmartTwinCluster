@@ -3289,10 +3289,18 @@ EOPY
                 scp $SCP_OPTS "$DEPLOY_SCRIPT" "$ssh_user@$ip_address:~/deploy_slurm_latest.sh" 2>/dev/null || true
             fi
 
-            # stcx 홈 안에서 extract + deploy 실행 (/tmp 권한 충돌 회피)
-            # slurmstepd kill + sbin pre-delete: Text file busy 에러 방지
-            if ! ssh $SSH_OPTS -o ConnectTimeout=300 -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-                "rm -rf ~/slurm_prebuilt && \
+            # 사전 진단: 업로드된 tarball 확인 + 디스크 공간
+            ssh $SSH_OPTS -o ConnectTimeout=30 "$ssh_user@$ip_address" \
+                "echo '=== PRE-DEPLOY CHECK ==='; \
+                 ls -la ~/slurm-prebuilt.tar.gz 2>&1; \
+                 df -h ~ 2>&1 | tail -2; \
+                 sudo -n true 2>&1 && echo 'sudo -n OK' || echo 'sudo -n FAIL'; \
+                 echo '======================='" >> "$install_log" 2>&1 || true
+
+            # stcx 홈 안에서 extract + deploy 실행 (set -x로 실제 어디서 실패하는지 추적)
+            ssh $SSH_OPTS -o ConnectTimeout=300 -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+                "set -x; \
+                 rm -rf ~/slurm_prebuilt && \
                  mkdir -p ~/slurm_prebuilt && \
                  cd ~/slurm_prebuilt && \
                  tar --no-same-owner --no-same-permissions -xzf ~/slurm-prebuilt.tar.gz && \
@@ -3306,8 +3314,9 @@ EOPY
                                   echo SLURM_GID=$target_slurm_gid >> /etc/slurm-uid.conf; \
                                   echo MUNGE_UID=$target_munge_uid >> /etc/slurm-uid.conf; \
                                   echo MUNGE_GID=$target_munge_gid >> /etc/slurm-uid.conf\"; \
-                 sudo -n SLURM_UID=$target_slurm_uid SLURM_GID=$target_slurm_gid MUNGE_UID=$target_munge_uid MUNGE_GID=$target_munge_gid bash deploy_slurm.sh" >> "$install_log" 2>&1; then
-                local install_exit_code=$?
+                 sudo -n SLURM_UID=$target_slurm_uid SLURM_GID=$target_slurm_gid MUNGE_UID=$target_munge_uid MUNGE_GID=$target_munge_gid bash deploy_slurm.sh" >> "$install_log" 2>&1
+            local install_exit_code=$?
+            if [[ $install_exit_code -ne 0 ]]; then
                 log ERROR "Failed to deploy prebuilt Slurm on $hostname (exit code: $install_exit_code)"
                 log ERROR "  Install log file: $install_log"
                 if [[ -f "$install_log" ]] && [[ -s "$install_log" ]]; then
