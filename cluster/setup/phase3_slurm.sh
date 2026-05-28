@@ -91,28 +91,22 @@ setup_node_ssh_opts() {
     local user="$1" ip="$2"
     local user_home
     user_home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || echo "")
+    # Key 인증 — 일시 실패 대비 키별 최대 2회 재시도
     for _k in "${user_home}/.ssh/id_ed25519" "${user_home}/.ssh/id_rsa" "$SSH_KEY_FILE"; do
         [[ -f "$_k" ]] || continue
-        if ssh -n -i "$_k" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-               "$user@$ip" "exit" &>/dev/null; then
-            SSH_OPTS="-n -i $_k -o BatchMode=yes $_SSH_BASE_OPTS"
-            SCP_OPTS="-i $_k -o BatchMode=yes $_SSH_BASE_OPTS"
-            return 0
-        fi
+        for _try in 1 2; do
+            if ssh -n -i "$_k" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                   "$user@$ip" "exit" &>/dev/null; then
+                SSH_OPTS="-n -i $_k -o BatchMode=yes $_SSH_BASE_OPTS"
+                SCP_OPTS="-i $_k -o BatchMode=yes $_SSH_BASE_OPTS"
+                return 0
+            fi
+            sleep 1
+        done
     done
-    # sshpass fallback
-    local _pass
-    _pass=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('cluster_info',{}).get('ssh_password',''))" 2>/dev/null || echo "")
-    if [[ -n "$_pass" ]] && command -v sshpass &>/dev/null; then
-        if SSHPASS="$_pass" sshpass -e ssh -n -o BatchMode=no -o ConnectTimeout=5 \
-               -o StrictHostKeyChecking=no "$user@$ip" "exit" &>/dev/null; then
-            export SSHPASS="$_pass"
-            SSH_OPTS="-n -o BatchMode=no $_SSH_BASE_OPTS"
-            SCP_OPTS="-o BatchMode=no $_SSH_BASE_OPTS"
-            # sshpass는 별도로 앞에 붙여야 함 — 호출부에서 처리
-            return 0
-        fi
-    fi
+    # 키 인증 다 실패 — sshpass 폴백은 호출부가 SSH_OPTS만 쓰는 구조라 불안전.
+    # 명확히 실패로 처리 (호출부가 continue로 스킵)
+    log WARNING "  setup_node_ssh_opts FAIL: $user@$ip 키 인증 불가 — bootstrap_spc 확인 필요"
     return 1
 }
 
