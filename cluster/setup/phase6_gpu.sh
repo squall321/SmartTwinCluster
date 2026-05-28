@@ -299,14 +299,19 @@ install_nvidia_driver() {
                 log_info "[DRY-RUN] ssh $user@$ip 'bash /tmp/$(basename $run_file) --silent'"
             else
                 # Nouveau 확인
+                # NOTE: ssh에 반드시 -n. 바깥 while-read <<< "$gpu_nodes" stdin 보호 (feedback_bg_subshell_stdin)
                 local nouveau_active
-                nouveau_active=$(ssh -o ConnectTimeout=10 "$user@$ip" "lsmod | grep -c nouveau 2>/dev/null || echo 0")
+                nouveau_active=$($SSH_CMD -n -o ConnectTimeout=10 "$user@$ip" "lsmod | grep -c nouveau 2>/dev/null || echo 0")
                 if [[ "$nouveau_active" -gt 0 ]]; then
-                    ssh "$user@$ip" "
-                        echo 'blacklist nouveau' > /etc/modprobe.d/blacklist-nouveau.conf
-                        echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nouveau.conf
-                        update-initramfs -u
-                    "
+                    # sudo + tee 로 /etc/modprobe.d 에 쓰기 (이전엔 redirect가 사용자 권한이라 silent fail)
+                    $SSH_CMD -n -o ConnectTimeout=30 "$user@$ip" "
+                        echo 'blacklist nouveau' | sudo -n tee /etc/modprobe.d/blacklist-nouveau.conf > /dev/null && \
+                        echo 'options nouveau modeset=0' | sudo -n tee -a /etc/modprobe.d/blacklist-nouveau.conf > /dev/null && \
+                        sudo -n update-initramfs -u
+                    " || {
+                        log_error "[$hostname] Nouveau 비활성화 실패 (sudo 권한 또는 ssh 문제)"
+                        return 1
+                    }
                     log_warning "[$hostname] Nouveau 비활성화됨 - 재부팅 후 다시 실행 필요"
                     return 100
                 fi
@@ -318,8 +323,8 @@ install_nvidia_driver() {
                 }
 
                 # GPU 드라이버 설치는 10분+ 소요 가능 — 1200초 타임아웃
-                timeout 1200 ssh -o ConnectTimeout=30 -o ServerAliveInterval=60 -o ServerAliveCountMax=20 "$user@$ip" "
-                    sudo bash /tmp/$(basename $run_file) --silent --no-questions --ui=none 2>&1
+                timeout 1200 $SSH_CMD -n -o ConnectTimeout=30 -o ServerAliveInterval=60 -o ServerAliveCountMax=20 "$user@$ip" "
+                    sudo -n bash /tmp/$(basename $run_file) --silent --no-questions --ui=none 2>&1
                     rm -f /tmp/$(basename $run_file)
                 "
                 local exit_code=$?
