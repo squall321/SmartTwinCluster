@@ -3179,9 +3179,8 @@ EOPY
 
         log INFO "Installing Slurm on $hostname..."
 
-        # Pre-check: stcx sudo NOPASSWD 작동 확인 — 없으면 스킵 (시간 낭비 방지)
-        if ! ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-            "$ssh_user@$ip_address" "sudo -n true" &>/dev/null; then
+        # Pre-check: stcx sudo NOPASSWD 작동 확인 — $SSH_OPTS 사용 (setup_node_ssh_opts에서 설정됨)
+        if ! ssh $SSH_OPTS "$ssh_user@$ip_address" "sudo -n true" &>/dev/null; then
             log ERROR "  [$hostname] sudo NOPASSWD 미설정 — bootstrap_spc_oneshot.sh 재실행 필요"
             failed_count=$((failed_count + 1))
             continue
@@ -3226,7 +3225,7 @@ EOPY
             local MUNGE_PATHS='/var/lib/munge /var/log/munge /var/run/munge /etc/munge'
 
             log INFO "  Ensuring slurm user on $hostname (UID=$target_slurm_uid, GID=$target_slurm_gid)..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=120 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS -o ConnectTimeout=120 "$ssh_user@$ip_address" \
                 "TGT_U=$target_slurm_uid; TGT_G=$target_slurm_gid; NAME=slurm; PATHS='$SLURM_PATHS'; \
                  EXIST_PATHS=\$(for p in \$PATHS; do [ -e \"\$p\" ] && echo \$p; done | xargs); \
                  if id \$NAME &>/dev/null; then \
@@ -3254,7 +3253,7 @@ EOPY
                  || log WARNING "  Could not ensure slurm user"
 
             log INFO "  Ensuring munge user on $hostname (UID=$target_munge_uid, GID=$target_munge_gid)..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=120 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS -o ConnectTimeout=120 "$ssh_user@$ip_address" \
                 "TGT_U=$target_munge_uid; TGT_G=$target_munge_gid; NAME=munge; PATHS='$MUNGE_PATHS'; \
                  EXIST_PATHS=\$(for p in \$PATHS; do [ -e \"\$p\" ] && echo \$p; done | xargs); \
                  if id \$NAME &>/dev/null; then \
@@ -3284,7 +3283,7 @@ EOPY
             log INFO "  Copying prebuilt Slurm package to $hostname..."
 
             # 이전 실행 잔재 정리 (stcx 홈 안만)
-            ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS -o ConnectTimeout=30 "$ssh_user@$ip_address" \
                 "rm -rf ~/slurm-prebuilt.tar.gz ~/slurm_prebuilt 2>/dev/null; true" >> "$install_log" 2>&1 || true
 
             # stcx 홈으로 scp — sudo 불필요
@@ -3305,7 +3304,7 @@ EOPY
 
             # stcx 홈 안에서 extract + deploy 실행 (/tmp 권한 충돌 회피)
             # slurmstepd kill + sbin pre-delete: Text file busy 에러 방지
-            if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+            if ! ssh $SSH_OPTS -o ConnectTimeout=300 -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
                 "rm -rf ~/slurm_prebuilt && \
                  mkdir -p ~/slurm_prebuilt && \
                  cd ~/slurm_prebuilt && \
@@ -3369,7 +3368,7 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
 
             # Also need to install Munge package via offline APT repo (if available)
             log INFO "  Installing Munge on $hostname..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=120 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS -o ConnectTimeout=120 "$ssh_user@$ip_address" \
                 "if ! command -v munge &>/dev/null; then \
                     if [[ -f $GLUSTER_MOUNT/offline_packages/apt_packages/Packages.gz ]]; then \
                         echo 'deb [trusted=yes] file://$GLUSTER_MOUNT/offline_packages/apt_packages ./' | sudo tee /etc/apt/sources.list.d/offline-gluster.list > /dev/null && \
@@ -3397,7 +3396,7 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
             fi
 
             # Cleanup temporary files
-            ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS -o ConnectTimeout=30 "$ssh_user@$ip_address" \
                 "rm -rf /tmp/slurm_prebuilt /tmp/slurm-23.11.10-prebuilt.tar.gz" 2>/dev/null || true
 
             log SUCCESS "Prebuilt Slurm deployed on $hostname"
@@ -3417,7 +3416,7 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
             log INFO "  SSH command: ssh -n ... $ssh_user@$ip_address 'cd /tmp && sudo bash install_slurm_cgroup_v2.sh'"
 
             # Execute with explicit error capture
-            if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
+            if ! ssh $SSH_OPTS -o ConnectTimeout=300 -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
                 "cd /tmp && sudo GLUSTER_MOUNT='$GLUSTER_MOUNT' bash install_slurm_cgroup_v2.sh" > "$install_log" 2>&1; then
                 local install_exit_code=$?
                 log ERROR "Failed to install Slurm on $hostname (exit code: $install_exit_code)"
