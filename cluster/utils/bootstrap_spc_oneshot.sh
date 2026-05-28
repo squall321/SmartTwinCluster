@@ -290,17 +290,21 @@ sort -u "$TARGET_HOME/.ssh/authorized_keys" -o "$TARGET_HOME/.ssh/authorized_key
 chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.ssh/authorized_keys"
 chmod 600 "$TARGET_HOME/.ssh/authorized_keys"
 
-# YAML에서 노드 IP 추출
+# YAML에서 노드 hostname|ip 추출
 NODE_IPS=$(python3 -c "
 import yaml
 with open('$CONFIG_PATH') as f:
     cfg = yaml.safe_load(f)
 nodes = cfg.get('nodes', {})
-ips = set()
-for c in nodes.get('controllers', []): ips.add(c['ip_address'])
-for n in nodes.get('compute_nodes', []): ips.add(n['ip_address'])
-for n in nodes.get('viz_nodes', []): ips.add(n['ip_address'])
-for ip in sorted(ips): print(ip)
+seen = set()
+rows = []
+for grp in ('controllers','compute_nodes','viz_nodes'):
+    for n in nodes.get(grp, []) or []:
+        ip = n.get('ip_address',''); hn = n.get('hostname','?')
+        if ip and ip not in seen:
+            seen.add(ip); rows.append((hn, ip))
+for hn, ip in sorted(rows, key=lambda x: x[1]):
+    print(f'{hn}|{ip}')
 ")
 
 TOTAL=$(echo "$NODE_IPS" | wc -l)
@@ -514,11 +518,15 @@ run_extra_users_via_stcx() {
 
 SUCCESS=0; FAILED=0; SKIPPED=0
 EXTRA_OK=0; EXTRA_FAIL=0
+# 노드별 결과: "hostname<TAB>ip<TAB>STATUS<TAB>detail"
+declare -a NODE_REPORT=()
+record() { NODE_REPORT+=("$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"); }
 
-while IFS= read -r ip; do
+while IFS='|' read -r hostname ip; do
     [[ -z "$ip" ]] && continue
     if ip a 2>/dev/null | grep -q "inet $ip\b"; then
-        log_info "  자기 자신 스킵: $ip"
+        log_info "  자기 자신 스킵: $hostname ($ip)"
+        record "$hostname" "$ip" "SELF-SKIP" "헤드 노드"
         continue
     fi
 
@@ -531,6 +539,7 @@ while IFS= read -r ip; do
     if ! timeout 3 bash -c "</dev/tcp/$ip/22" 2>/dev/null; then
         log_warning "  ✗ 22번 포트 닫힘 또는 노드 OFF — 스킵"
         FAILED=$((FAILED + 1))
+        record "$hostname" "$ip" "DOWN" "SSH 포트 22 닫힘 또는 노드 OFF"
         continue
     fi
     log_info "  ✓ TCP 22 도달 가능"
@@ -549,17 +558,24 @@ while IFS= read -r ip; do
         if [[ "$pwd_state" =~ ^\$[y6]\$ ]]; then
             log_success "[$ip] ✅ stcx 정상"
             SKIPPED=$((SKIPPED + 1))
-            # 추가 사용자 sync도 적용
+            local_status="OK-SKIP"; local_detail="이미 정상"
             if [[ -n "$EXTRA_USERS_TSV" ]]; then
                 extra_result=$(run_extra_users_via_stcx "$ip")
                 if echo "$extra_result" | grep -q "EXTRA_USERS_OK"; then
                     log_success "  [$ip] 추가 사용자 sync OK"
                     EXTRA_OK=$((EXTRA_OK+1))
+                    if echo "$extra_result" | grep -q "CONFLICT\|ERROR"; then
+                        local_status="OK-PARTIAL"
+                        local_detail="추가사용자: $(echo "$extra_result" | grep -E 'CONFLICT|ERROR' | head -1 | tr -s ' ')"
+                    fi
                 else
                     log_warning "  [$ip] 추가 사용자 sync 실패: $(echo "$extra_result" | tail -1)"
                     EXTRA_FAIL=$((EXTRA_FAIL+1))
+                    local_status="OK-EXTRA-FAIL"
+                    local_detail="추가사용자 sync 실패: $(echo "$extra_result" | tail -1)"
                 fi
             fi
+            record "$hostname" "$ip" "$local_status" "$local_detail"
             continue
         else
             # 시나리오 B: 키는 되는데 비번 이상 → stcx 통해 비번만 수정
@@ -574,19 +590,27 @@ while IFS= read -r ip; do
             if echo "$result" | grep -qE '\$[y6]\$'; then
                 log_success "[$ip] ✅ 비번 수리 성공"
                 SUCCESS=$((SUCCESS + 1))
+                local_status="OK-REPAIRED"; local_detail="stcx 비번 재설정"
                 if [[ -n "$EXTRA_USERS_TSV" ]]; then
                     extra_result=$(run_extra_users_via_stcx "$ip")
                     if echo "$extra_result" | grep -q "EXTRA_USERS_OK"; then
                         log_success "  [$ip] 추가 사용자 sync OK"
                         EXTRA_OK=$((EXTRA_OK+1))
+                        if echo "$extra_result" | grep -q "CONFLICT\|ERROR"; then
+                            local_detail+="; 추가사용자: $(echo "$extra_result" | grep -E 'CONFLICT|ERROR' | head -1 | tr -s ' ')"
+                        fi
                     else
                         log_warning "  [$ip] 추가 사용자 sync 실패"
                         EXTRA_FAIL=$((EXTRA_FAIL+1))
+                        local_status="OK-EXTRA-FAIL"
+                        local_detail+="; 추가사용자 실패"
                     fi
                 fi
+                record "$hostname" "$ip" "$local_status" "$local_detail"
             else
                 log_error "[$ip] ❌ 비번 수리 실패: $result"
                 FAILED=$((FAILED + 1))
+                record "$hostname" "$ip" "FAIL-REPAIR" "비번 수리 실패: $(echo "$result" | tail -1 | head -c 120)"
             fi
             continue
         fi
@@ -600,28 +624,67 @@ while IFS= read -r ip; do
     if echo "$result" | grep -q "BOOTSTRAP_OK"; then
         log_success "[$ip] ✅ 부트스트랩 성공"
         SUCCESS=$((SUCCESS + 1))
+        local_status="OK-BOOTSTRAPPED"; local_detail="신규 부트스트랩"
         if [[ -n "$EXTRA_USERS_TSV" ]]; then
             extra_result=$(run_extra_users_via_stcx "$ip")
             if echo "$extra_result" | grep -q "EXTRA_USERS_OK"; then
                 log_success "  [$ip] 추가 사용자 sync OK"
                 EXTRA_OK=$((EXTRA_OK+1))
+                if echo "$extra_result" | grep -q "CONFLICT\|ERROR"; then
+                    local_detail+="; 추가사용자: $(echo "$extra_result" | grep -E 'CONFLICT|ERROR' | head -1 | tr -s ' ')"
+                fi
             else
                 log_warning "  [$ip] 추가 사용자 sync 실패: $(echo "$extra_result" | tail -1)"
                 EXTRA_FAIL=$((EXTRA_FAIL+1))
+                local_status="OK-EXTRA-FAIL"
+                local_detail+="; 추가사용자 실패: $(echo "$extra_result" | tail -1 | head -c 80)"
             fi
         fi
+        record "$hostname" "$ip" "$local_status" "$local_detail"
     else
         err_msg=$(echo "$result" | grep -iE "permission denied|connection|host key|timeout|unable|ERROR_NO_SUDO" | head -1)
         [[ -z "$err_msg" ]] && err_msg=$(echo "$result" | tail -1)
         log_error "[$ip] ❌ 실패: $err_msg"
         FAILED=$((FAILED + 1))
+        record "$hostname" "$ip" "FAIL" "$(echo "$err_msg" | head -c 150)"
     fi
 done <<< "$NODE_IPS"
 
 echo ""
-log_success "=== 완료 ==="
-log_info "  성공: ${SUCCESS}, 이미 설정: ${SKIPPED}, 실패: ${FAILED}"
-log_warning ""
+echo "════════════════════════════════════════════════════════════════════════════════"
+log_success "=== 노드별 결과 보고서 ==="
+echo "════════════════════════════════════════════════════════════════════════════════"
+# 헤더
+printf "%-26s %-16s %-18s %s\n" "HOSTNAME" "IP" "STATUS" "DETAIL"
+printf "%-26s %-16s %-18s %s\n" "--------" "--" "------" "------"
+
+# OK 먼저, 그다음 문제 있는 것
+for line in "${NODE_REPORT[@]}"; do
+    IFS=$'\t' read -r hn ip st det <<<"$line"
+    case "$st" in OK*|SELF*) printf "%-26s %-16s ${GREEN}%-18s${NC} %s\n" "$hn" "$ip" "$st" "$det" ;; esac
+done
+for line in "${NODE_REPORT[@]}"; do
+    IFS=$'\t' read -r hn ip st det <<<"$line"
+    case "$st" in OK*|SELF*) ;; *) printf "%-26s %-16s ${RED}%-18s${NC} %s\n" "$hn" "$ip" "$st" "$det" ;; esac
+done
+
+echo ""
+echo "════════════════════════════════════════════════════════════════════════════════"
+log_info "  성공: $SUCCESS  /  이미 설정: $SKIPPED  /  실패: $FAILED  /  추가사용자 OK: $EXTRA_OK  /  추가사용자 실패: $EXTRA_FAIL"
+
+# 문제 노드 요약 (재시도 명령 만들기 쉽도록 IP만)
+PROBLEM_IPS=()
+for line in "${NODE_REPORT[@]}"; do
+    IFS=$'\t' read -r hn ip st det <<<"$line"
+    case "$st" in OK*|SELF*) ;; *) PROBLEM_IPS+=("$ip") ;; esac
+done
+if [[ ${#PROBLEM_IPS[@]} -gt 0 ]]; then
+    echo ""
+    log_warning "문제 노드 IP 목록 (${#PROBLEM_IPS[@]}개):"
+    printf '  %s\n' "${PROBLEM_IPS[@]}"
+fi
+
+echo ""
 log_warning "⚠️  비밀번호 하드코딩 — 사용 후 스크립트 삭제:"
 log_warning "    sudo shred -uvz $0"
 echo ""
