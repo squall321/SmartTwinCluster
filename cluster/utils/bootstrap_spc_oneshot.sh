@@ -228,6 +228,31 @@ if [[ -z "$PUBKEY" ]]; then
 fi
 log_info "헤드노드 $TARGET_USER 키: ${PUBKEY:0:50}..."
 
+# admin_user (koopark) pubkey도 compute의 stcx authorized_keys에 등록
+# 이유: koopark 셸에서 'ssh stcx@compute' 패스워드리스 가능하게
+ADMIN_USER_NAME=$(CONFIG_PATH="$CONFIG_PATH" python3 -c "
+import yaml,os
+with open(os.environ['CONFIG_PATH']) as f: c=yaml.safe_load(f) or {}
+print((c.get('users',{}) or {}).get('admin_user',''))" 2>/dev/null)
+
+ADMIN_PUBKEY=""
+if [[ -n "$ADMIN_USER_NAME" && "$ADMIN_USER_NAME" != "$TARGET_USER" ]]; then
+    ADMIN_HOME=$(getent passwd "$ADMIN_USER_NAME" 2>/dev/null | cut -d: -f6)
+    if [[ -n "$ADMIN_HOME" && -d "$ADMIN_HOME" ]]; then
+        ADMIN_PUB_FILE="$ADMIN_HOME/.ssh/id_rsa.pub"
+        if [[ ! -f "$ADMIN_PUB_FILE" ]]; then
+            log_info "  $ADMIN_USER_NAME SSH 키 없음 → 생성"
+            sudo -u "$ADMIN_USER_NAME" mkdir -p "$ADMIN_HOME/.ssh"
+            sudo -u "$ADMIN_USER_NAME" chmod 700 "$ADMIN_HOME/.ssh"
+            sudo -u "$ADMIN_USER_NAME" ssh-keygen -t rsa -b 4096 -N "" -f "$ADMIN_HOME/.ssh/id_rsa" -q
+        fi
+        if [[ -f "$ADMIN_PUB_FILE" ]]; then
+            ADMIN_PUBKEY=$(cat "$ADMIN_PUB_FILE")
+            log_info "  + $ADMIN_USER_NAME 공개키 수집 (compute stcx authorized_keys에 함께 등록)"
+        fi
+    fi
+fi
+
 log_info "비밀번호 해시 생성 완료 (SHA-512): ${HASHED_PASSWORD:0:8}..."
 
 # ────────────────────────────────────────────────────────────
@@ -418,8 +443,11 @@ SUDO chown $TARGET_USER:$TARGET_USER \$TARGET_HOME/.ssh
 SUDO chmod 700 \$TARGET_HOME/.ssh
 echo "    [5/7] ✓ \$TARGET_HOME/.ssh 디렉토리 준비"
 
-# 6. authorized_keys 등록 (root tee → chown)
+# 6. authorized_keys 등록 (stcx 키 + admin_user 키)
 echo '$PUBKEY' | SUDO tee -a \$TARGET_HOME/.ssh/authorized_keys >/dev/null
+if [ -n "$ADMIN_PUBKEY" ]; then
+    echo '$ADMIN_PUBKEY' | SUDO tee -a \$TARGET_HOME/.ssh/authorized_keys >/dev/null
+fi
 SUDO sort -u \$TARGET_HOME/.ssh/authorized_keys -o \$TARGET_HOME/.ssh/authorized_keys
 SUDO chown $TARGET_USER:$TARGET_USER \$TARGET_HOME/.ssh/authorized_keys
 SUDO chmod 600 \$TARGET_HOME/.ssh/authorized_keys
@@ -443,6 +471,35 @@ EOF
 extra_users_cmd() {
 cat <<EOF
 set -uo pipefail
+
+# TARGET_USER (stcx) NOPASSWD sudoers 보장 — 시나리오 A/B에서 누락 방지
+if [ ! -f /etc/sudoers.d/$TARGET_USER ] || ! sudo -n true 2>/dev/null; then
+    echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$TARGET_USER >/dev/null
+    sudo chmod 440 /etc/sudoers.d/$TARGET_USER
+    sudo usermod -aG sudo $TARGET_USER 2>/dev/null || true
+    echo "    ensured /etc/sudoers.d/$TARGET_USER"
+fi
+
+# admin_user (koopark) pubkey도 stcx authorized_keys에 보장
+ADMIN_PUB_LINE='$ADMIN_PUBKEY'
+if [ -n "\$ADMIN_PUB_LINE" ]; then
+    TGT_HOME=\$(getent passwd $TARGET_USER | cut -d: -f6)
+    if [ -n "\$TGT_HOME" ]; then
+        sudo -u $TARGET_USER mkdir -p \$TGT_HOME/.ssh 2>/dev/null || sudo mkdir -p \$TGT_HOME/.ssh
+        sudo chown $TARGET_USER:$TARGET_USER \$TGT_HOME/.ssh
+        sudo chmod 700 \$TGT_HOME/.ssh
+        AK=\$TGT_HOME/.ssh/authorized_keys
+        sudo touch \$AK
+        if ! sudo grep -qF "\$ADMIN_PUB_LINE" \$AK 2>/dev/null; then
+            echo "\$ADMIN_PUB_LINE" | sudo tee -a \$AK >/dev/null
+            sudo sort -u \$AK -o \$AK
+            sudo chown $TARGET_USER:$TARGET_USER \$AK
+            sudo chmod 600 \$AK
+            echo "    ensured admin pubkey in $TARGET_USER authorized_keys"
+        fi
+    fi
+fi
+
 sync_user() {
     local name="\$1" uid="\$2" gid="\$3" sudo_flag="\$4" pw_mode="\$5" groups_csv="\$6"
     [[ -z "\$name" ]] && return 0
