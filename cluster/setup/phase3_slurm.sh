@@ -3274,7 +3274,8 @@ EOPY
                 "rm -rf ~/slurm-prebuilt.tar.gz ~/slurm_prebuilt 2>/dev/null; true" >> "$install_log" 2>&1 || true
 
             # stcx 홈으로 scp — sudo 불필요
-            if ! scp $SCP_OPTS "$PREBUILT_TARBALL" "$ssh_user@$ip_address:~/slurm-prebuilt.tar.gz" 2>&1 | tee -a "$install_log"; then
+            # NOTE: OpenSSH 9+ SFTP 모드는 ~ 리터럴 처리 → 틸드 없는 상대경로 사용 (CWD=홈)
+            if ! scp $SCP_OPTS "$PREBUILT_TARBALL" "$ssh_user@$ip_address:slurm-prebuilt.tar.gz" 2>&1 | tee -a "$install_log"; then
                 log ERROR "Failed to copy prebuilt tarball to $hostname (홈 scp 실패)"
                 failed_count=$((failed_count + 1))
                 continue
@@ -3284,9 +3285,10 @@ EOPY
             log INFO "  Deploying prebuilt Slurm on $hostname..."
 
             # 최신 deploy_slurm.sh를 별도로 전송 (tar 안의 버전보다 우선) — stcx 홈으로
+            # ~ 리터럴 회피
             local DEPLOY_SCRIPT="${OFFLINE_PKG_DIR}/slurm/deploy_slurm.sh"
             if [[ -f "$DEPLOY_SCRIPT" ]]; then
-                scp $SCP_OPTS "$DEPLOY_SCRIPT" "$ssh_user@$ip_address:~/deploy_slurm_latest.sh" 2>/dev/null || true
+                scp $SCP_OPTS "$DEPLOY_SCRIPT" "$ssh_user@$ip_address:deploy_slurm_latest.sh" 2>/dev/null || true
             fi
 
             # 사전 진단: 업로드된 tarball 확인 + 디스크 공간
