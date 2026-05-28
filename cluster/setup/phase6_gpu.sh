@@ -36,6 +36,7 @@ CONFIG_PATH=""
 DRY_RUN=false
 NVIDIA_ONLY=false
 ROCM_ONLY=false
+INSTALL_DRIVER=false   # 기본: 드라이버 설치 안 함 (검증만)
 
 # 색상 정의
 RED='\033[0;31m'
@@ -62,11 +63,16 @@ Phase 6: GPU Driver Installation
   $0 --config <yaml_file> [옵션]
 
 옵션:
-  --config <file>   YAML 설정 파일 경로 (필수)
-  --dry-run         실제 설치 없이 계획만 출력
-  --nvidia-only     NVIDIA GPU만 설치
-  --rocm-only       AMD ROCm만 설치
-  --help            도움말 출력
+  --config <file>     YAML 설정 파일 경로 (필수)
+  --dry-run           실제 설치 없이 계획만 출력
+  --nvidia-only       NVIDIA GPU만 설치 (--install-driver 와 함께 사용)
+  --rocm-only         AMD ROCm만 설치 (--install-driver 와 함께 사용)
+  --install-driver    GPU 드라이버 설치 활성화 (기본: 검증만 수행)
+  --help              도움말 출력
+
+⚠️  기본 동작: 드라이버 설치는 건너뛰고 기존 설치 검증만 수행.
+   드라이버 설치는 노드별 OS/커널 의존성이 커서 수동 진행 권장.
+   자동 설치 원하면 --install-driver 명시.
 
 예시:
   $0 --config my_multihead_cluster.yaml
@@ -104,6 +110,10 @@ parse_args() {
                 ;;
             --rocm-only)
                 ROCM_ONLY=true
+                shift
+                ;;
+            --install-driver)
+                INSTALL_DRIVER=true
                 shift
                 ;;
             --help|-h)
@@ -640,27 +650,31 @@ main() {
         hw_check=$(check_gpu_hardware "$ip" "$user" "$gpu_type")
         log_info "[$hostname] 하드웨어 감지: $hw_check"
 
-        # 드라이버 설치
+        # 드라이버 설치 — 기본 OFF (--install-driver 명시한 경우만)
         local install_result=0
-        if [[ "$gpu_type" == "nvidia" ]]; then
-            install_nvidia_driver "$ip" "$user" "$hostname"
-            install_result=$?
-        elif [[ "$gpu_type" == "amd" ]]; then
-            install_rocm_driver "$ip" "$user" "$hostname"
-            install_result=$?
+        if [[ "$INSTALL_DRIVER" == "true" ]]; then
+            if [[ "$gpu_type" == "nvidia" ]]; then
+                install_nvidia_driver "$ip" "$user" "$hostname"
+                install_result=$?
+            elif [[ "$gpu_type" == "amd" ]]; then
+                install_rocm_driver "$ip" "$user" "$hostname"
+                install_result=$?
+            else
+                log_warning "[$hostname] 지원하지 않는 GPU 타입: $gpu_type"
+                continue
+            fi
         else
-            log_warning "[$hostname] 지원하지 않는 GPU 타입: $gpu_type"
-            continue
+            log_info "[$hostname] 드라이버 설치 건너뜀 (--install-driver 미지정) — 검증만 수행"
         fi
 
         if [[ $install_result -eq 100 ]]; then
             reboot_needed="$reboot_needed $hostname"
-            ((success_count++))
+            : $((success_count++))
         elif [[ $install_result -eq 0 ]]; then
             verify_gpu_installation "$ip" "$user" "$hostname" "$gpu_type"
-            ((success_count++))
+            : $((success_count++))
         else
-            ((fail_count++))
+            : $((fail_count++))
         fi
 
     done <<< "$gpu_nodes"
