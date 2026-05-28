@@ -615,11 +615,21 @@ for i in $(seq 0 $(($TOTAL_CONTROLLERS - 1))); do
 
     echo -e "${YELLOW}Checking $HOSTNAME ($IP)...${NC}" >&2
 
-    # Skip if this is the current host
+    # Skip if this is the current host — SSH 안 하고 로컬로 active 처리
     if [[ "$IP" == "$CURRENT_IP" ]]; then
-        verbose_log "  → Skipping: This is the current host"
-        debug_log "  Current host detected, marking as active without SSH"
-        # Still mark as active but skip SSH check
+        verbose_log "  → Current host detected: SSH 건너뛰고 로컬로 active 처리"
+        STATUS="active"
+        ACTIVE_COUNT=$((ACTIVE_COUNT + 1))
+        LOAD=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "0")
+        UPTIME=$(uptime -p 2>/dev/null | sed 's/^up //' || echo "?")
+        CTRL_INFO=$(jq -n --arg hostname "$HOSTNAME" --arg ip "$IP" --arg status "$STATUS" \
+            --argjson priority "$PRIORITY" --arg load "$LOAD" --arg uptime "$UPTIME" \
+            --argjson services '{}' \
+            '{hostname:$hostname, ip:$ip, status:$status, priority:$priority,
+              load:$load, uptime:$uptime, services:$services}')
+        RESULT_JSON=$(echo "$RESULT_JSON" | jq ".controllers += [$CTRL_INFO]")
+        echo -e "${GREEN}  ✓ $HOSTNAME is active (local)${NC}" >&2
+        continue
     fi
 
     # Check SSH connectivity
