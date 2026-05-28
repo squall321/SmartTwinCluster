@@ -163,14 +163,18 @@ ensure_uid_gid_local() {
         log_warning "헤드 GID 어긋남 ($cur_gid → $TARGET_GID) — groupmod"
         groupmod -g "$TARGET_GID" "$TARGET_USER" 2>/dev/null || \
             groupadd -g "$TARGET_GID" "$TARGET_USER" 2>/dev/null || true
-        find /home/$TARGET_USER -gid "$cur_gid" -exec chgrp -h "$TARGET_GID" {} + 2>/dev/null || true
     fi
     if [[ -n "$TARGET_UID" && "$cur_uid" != "$TARGET_UID" ]]; then
         log_warning "헤드 UID 어긋남 ($cur_uid → $TARGET_UID) — usermod"
         pkill -KILL -u "$TARGET_USER" 2>/dev/null || true
         sleep 1
         usermod -u "$TARGET_UID" "$TARGET_USER"
-        find /home/$TARGET_USER -uid "$cur_uid" -exec chown -h "$TARGET_UID" {} + 2>/dev/null || true
+    fi
+    # 강제 chown -R: sshd StrictModes 통과 보장
+    [[ -d /home/$TARGET_USER ]] && chown -R "$TARGET_USER:$TARGET_USER" /home/$TARGET_USER 2>/dev/null || true
+    if [[ -d /home/$TARGET_USER/.ssh ]]; then
+        chmod 700 /home/$TARGET_USER/.ssh
+        [[ -f /home/$TARGET_USER/.ssh/authorized_keys ]] && chmod 600 /home/$TARGET_USER/.ssh/authorized_keys
     fi
 }
 
@@ -275,13 +279,17 @@ sync_local_user() {
             if [[ -n "$gid" && "$cur_gid" != "$gid" ]]; then
                 log_warning "헤드 GID 정렬 $name: $cur_gid → $gid"
                 groupmod -g "$gid" "$name" 2>/dev/null || usermod -g "$gid" "$name" 2>/dev/null || true
-                find /home/$name -gid "$cur_gid" -exec chgrp -h "$gid" {} + 2>/dev/null || true
             fi
             if [[ -n "$uid" && "$cur_uid" != "$uid" ]]; then
                 log_warning "헤드 UID 정렬 $name: $cur_uid → $uid"
                 pkill -KILL -u "$name" 2>/dev/null || true; sleep 1
                 usermod -u "$uid" "$name"
-                find /home/$name -uid "$cur_uid" -exec chown -h "$uid" {} + 2>/dev/null || true
+            fi
+            # 강제 chown -R
+            [[ -d /home/$name ]] && chown -R "$name:$name" /home/$name 2>/dev/null || true
+            if [[ -d /home/$name/.ssh ]]; then
+                chmod 700 /home/$name/.ssh
+                [[ -f /home/$name/.ssh/authorized_keys ]] && chmod 600 /home/$name/.ssh/authorized_keys
             fi
         fi
     else
@@ -516,18 +524,24 @@ sync_user() {
                 return 1
             fi
         fi
-        # 사용자 관련 경로만 chown — 시스템 전체 스캔 안 함
-        local USER_PATHS=()
-        [[ -d /home/\$name ]] && USER_PATHS+=(/home/\$name)
-        [[ -d /scratch/\$name ]] && USER_PATHS+=(/scratch/\$name)
+        # UID/GID 정렬 + 사용자 홈 강제 chown -R
+        # 이유: find -uid OLD 매칭은 OLD가 아닌 잔재 파일을 놓쳐서 sshd StrictModes 실패
         if [[ -n "\$gid" && "\$cur_gid" != "\$gid" ]]; then
             sudo groupmod -g "\$gid" "\$name" 2>/dev/null || sudo usermod -g "\$gid" "\$name" 2>/dev/null || true
-            [[ \${#USER_PATHS[@]} -gt 0 ]] && sudo find "\${USER_PATHS[@]}" -gid "\$cur_gid" -exec chgrp -h "\$gid" {} + 2>/dev/null || true
         fi
         if [[ -n "\$uid" && "\$cur_uid" != "\$uid" ]]; then
             sudo pkill -KILL -u "\$name" 2>/dev/null || true; sleep 1
             sudo usermod -u "\$uid" "\$name"
-            [[ \${#USER_PATHS[@]} -gt 0 ]] && sudo find "\${USER_PATHS[@]}" -uid "\$cur_uid" -exec chown -h "\$uid" {} + 2>/dev/null || true
+        fi
+        # 무조건 강제 chown -R: 소유권 일관성 보장 (sshd StrictModes 통과)
+        [[ -d /home/\$name ]] && sudo chown -R "\$name:\$name" /home/\$name 2>/dev/null || true
+        [[ -d /scratch/\$name ]] && sudo chown -R "\$name:\$name" /scratch/\$name 2>/dev/null || true
+        # .ssh 디렉토리/파일 권한도 확실히
+        if [[ -d /home/\$name/.ssh ]]; then
+            sudo chmod 700 /home/\$name/.ssh
+            [[ -f /home/\$name/.ssh/authorized_keys ]] && sudo chmod 600 /home/\$name/.ssh/authorized_keys
+            sudo find /home/\$name/.ssh -name 'id_*' ! -name '*.pub' -exec chmod 600 {} + 2>/dev/null || true
+            sudo find /home/\$name/.ssh -name '*.pub' -exec chmod 644 {} + 2>/dev/null || true
         fi
         echo "    sync \$name uid=\$(id -u \$name) gid=\$(id -g \$name)"
     else
