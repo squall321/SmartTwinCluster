@@ -3179,6 +3179,14 @@ EOPY
 
         log INFO "Installing Slurm on $hostname..."
 
+        # Pre-check: stcx sudo NOPASSWD 작동 확인 — 없으면 스킵 (시간 낭비 방지)
+        if ! ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            "$ssh_user@$ip_address" "sudo -n true" &>/dev/null; then
+            log ERROR "  [$hostname] sudo NOPASSWD 미설정 — bootstrap_spc_oneshot.sh 재실행 필요"
+            failed_count=$((failed_count + 1))
+            continue
+        fi
+
         # Setup GlusterFS-based offline APT repository on compute node (for offline environments)
         if [[ "$USE_GLUSTERFS" == "true" ]]; then
             log INFO "  Setting up offline APT repository on $hostname..."
@@ -3275,52 +3283,44 @@ EOPY
 
             log INFO "  Copying prebuilt Slurm package to $hostname..."
 
-            # 이전 실행 root-owned 파일 정리 (sudo -n 우선, 그래도 안 되면 chown)
+            # 이전 실행 잔재 정리 (stcx 홈 안만)
             ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "sudo -n rm -rf /tmp/slurm-23.11.10-prebuilt.tar.gz /tmp/slurm_prebuilt 2>/dev/null; \
-                 sudo -n chown $ssh_user /tmp/slurm-23.11.10-prebuilt.tar.gz 2>/dev/null; true" >> "$install_log" 2>&1 || true
+                "rm -rf ~/slurm-prebuilt.tar.gz ~/slurm_prebuilt 2>/dev/null; true" >> "$install_log" 2>&1 || true
 
-            # 1) stcx 홈으로 scp (항상 쓰기 가능) → 2) sudo로 /tmp 이동
+            # stcx 홈으로 scp — sudo 불필요
             if ! scp $SCP_OPTS "$PREBUILT_TARBALL" "$ssh_user@$ip_address:~/slurm-prebuilt.tar.gz" 2>&1 | tee -a "$install_log"; then
                 log ERROR "Failed to copy prebuilt tarball to $hostname (홈 scp 실패)"
                 failed_count=$((failed_count + 1))
                 continue
             fi
-            ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "sudo -n mv -f ~/slurm-prebuilt.tar.gz /tmp/slurm-23.11.10-prebuilt.tar.gz && \
-                 sudo -n chmod 644 /tmp/slurm-23.11.10-prebuilt.tar.gz" >> "$install_log" 2>&1 || {
-                log ERROR "Failed to move tarball to /tmp on $hostname"
-                failed_count=$((failed_count + 1))
-                continue
-            }
 
             # Extract and deploy prebuilt package
             log INFO "  Deploying prebuilt Slurm on $hostname..."
 
-            # 최신 deploy_slurm.sh를 별도로 전송 (tar 안의 버전보다 우선)
+            # 최신 deploy_slurm.sh를 별도로 전송 (tar 안의 버전보다 우선) — stcx 홈으로
             local DEPLOY_SCRIPT="${OFFLINE_PKG_DIR}/slurm/deploy_slurm.sh"
             if [[ -f "$DEPLOY_SCRIPT" ]]; then
-                scp $SCP_OPTS "$DEPLOY_SCRIPT" "$ssh_user@$ip_address:/tmp/deploy_slurm_latest.sh" 2>/dev/null || true
+                scp $SCP_OPTS "$DEPLOY_SCRIPT" "$ssh_user@$ip_address:~/deploy_slurm_latest.sh" 2>/dev/null || true
             fi
 
-            # Create dedicated extraction directory to avoid /tmp permission issues
+            # stcx 홈 안에서 extract + deploy 실행 (/tmp 권한 충돌 회피)
             # slurmstepd kill + sbin pre-delete: Text file busy 에러 방지
             if ! ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no "$ssh_user@$ip_address" \
-                "sudo rm -rf /tmp/slurm_prebuilt && \
-                 mkdir -p /tmp/slurm_prebuilt && \
-                 cd /tmp/slurm_prebuilt && \
-                 tar --no-same-owner --no-same-permissions -xzf /tmp/slurm-23.11.10-prebuilt.tar.gz && \
-                 sudo pkill -9 slurmstepd 2>/dev/null; \
-                 sudo pkill -9 slurmd 2>/dev/null; \
-                 sudo pkill -9 -f slurmstepd 2>/dev/null; \
+                "rm -rf ~/slurm_prebuilt && \
+                 mkdir -p ~/slurm_prebuilt && \
+                 cd ~/slurm_prebuilt && \
+                 tar --no-same-owner --no-same-permissions -xzf ~/slurm-prebuilt.tar.gz && \
+                 sudo -n pkill -9 slurmstepd 2>/dev/null; \
+                 sudo -n pkill -9 slurmd 2>/dev/null; \
+                 sudo -n pkill -9 -f slurmstepd 2>/dev/null; \
                  sleep 2; \
-                 sudo rm -f /opt/slurm/sbin/* 2>/dev/null; \
-                 if [ -f /tmp/deploy_slurm_latest.sh ]; then cp /tmp/deploy_slurm_latest.sh deploy_slurm.sh; fi; \
-                 echo \"SLURM_UID=$target_slurm_uid\" | sudo tee /etc/slurm-uid.conf >/dev/null; \
-                 echo \"SLURM_GID=$target_slurm_gid\" | sudo tee -a /etc/slurm-uid.conf >/dev/null; \
-                 echo \"MUNGE_UID=$target_munge_uid\" | sudo tee -a /etc/slurm-uid.conf >/dev/null; \
-                 echo \"MUNGE_GID=$target_munge_gid\" | sudo tee -a /etc/slurm-uid.conf >/dev/null; \
-                 sudo SLURM_UID=$target_slurm_uid SLURM_GID=$target_slurm_gid MUNGE_UID=$target_munge_uid MUNGE_GID=$target_munge_gid bash deploy_slurm.sh" >> "$install_log" 2>&1; then
+                 sudo -n rm -f /opt/slurm/sbin/* 2>/dev/null; \
+                 if [ -f ~/deploy_slurm_latest.sh ]; then cp ~/deploy_slurm_latest.sh deploy_slurm.sh; fi; \
+                 sudo -n bash -c \"echo SLURM_UID=$target_slurm_uid > /etc/slurm-uid.conf; \
+                                  echo SLURM_GID=$target_slurm_gid >> /etc/slurm-uid.conf; \
+                                  echo MUNGE_UID=$target_munge_uid >> /etc/slurm-uid.conf; \
+                                  echo MUNGE_GID=$target_munge_gid >> /etc/slurm-uid.conf\"; \
+                 sudo -n SLURM_UID=$target_slurm_uid SLURM_GID=$target_slurm_gid MUNGE_UID=$target_munge_uid MUNGE_GID=$target_munge_gid bash deploy_slurm.sh" >> "$install_log" 2>&1; then
                 local install_exit_code=$?
                 log ERROR "Failed to deploy prebuilt Slurm on $hostname (exit code: $install_exit_code)"
                 log ERROR "  Install log file: $install_log"
