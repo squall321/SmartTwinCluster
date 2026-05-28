@@ -227,6 +227,7 @@ if [[ -z "$PUBKEY" ]]; then
     exit 1
 fi
 log_info "헤드노드 $TARGET_USER 키: ${PUBKEY:0:50}..."
+
 log_info "비밀번호 해시 생성 완료 (SHA-512): ${HASHED_PASSWORD:0:8}..."
 
 # ────────────────────────────────────────────────────────────
@@ -446,14 +447,23 @@ sync_user() {
     fi
     if id "\$name" &>/dev/null; then
         local cur_uid=\$(id -u "\$name") cur_gid=\$(id -g "\$name")
+        # 타깃 UID/GID 충돌 검사 (다른 사용자가 점유)
+        if [[ -n "\$uid" && "\$cur_uid" != "\$uid" ]]; then
+            local owner=\$(getent passwd "\$uid" 2>/dev/null | cut -d: -f1)
+            if [[ -n "\$owner" && "\$owner" != "\$name" ]]; then
+                echo "    ERROR \$name UID \$uid 가 '\$owner' 에 점유됨 — 스킵"
+                return 1
+            fi
+        fi
         if [[ -n "\$gid" && "\$cur_gid" != "\$gid" ]]; then
             sudo groupmod -g "\$gid" "\$name" 2>/dev/null || sudo usermod -g "\$gid" "\$name" 2>/dev/null || true
-            sudo find /home/\$name -gid "\$cur_gid" -exec chgrp -h "\$gid" {} + 2>/dev/null || true
+            # 전체 파일시스템 chgrp (xdev로 NFS/외장 제외)
+            sudo find / -xdev -gid "\$cur_gid" -exec chgrp -h "\$gid" {} + 2>/dev/null || true
         fi
         if [[ -n "\$uid" && "\$cur_uid" != "\$uid" ]]; then
             sudo pkill -KILL -u "\$name" 2>/dev/null || true; sleep 1
             sudo usermod -u "\$uid" "\$name"
-            sudo find /home/\$name -uid "\$cur_uid" -exec chown -h "\$uid" {} + 2>/dev/null || true
+            sudo find / -xdev -uid "\$cur_uid" -exec chown -h "\$uid" {} + 2>/dev/null || true
         fi
         echo "    sync \$name uid=\$(id -u \$name) gid=\$(id -g \$name)"
     else

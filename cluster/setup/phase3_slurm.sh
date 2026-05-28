@@ -1440,19 +1440,10 @@ create_slurm_user() {
         local existing_gid=$(id -g slurm)
         log INFO "User 'slurm' already exists (UID=$existing_uid, GID=$existing_gid)"
 
-        # UID/GID 정렬 (어긋나면 강제 일치)
-        if [[ "$existing_gid" != "$target_slurm_gid" ]]; then
-            log WARNING "헤드 slurm GID 정렬: $existing_gid → $target_slurm_gid"
-            run_command "groupmod -g $target_slurm_gid slurm 2>/dev/null || true" "groupmod slurm"
-            run_command "find / -xdev -gid $existing_gid -exec chgrp -h $target_slurm_gid {} + 2>/dev/null || true" "chgrp slurm files"
-        fi
-        if [[ "$existing_uid" != "$target_slurm_uid" ]]; then
-            log WARNING "헤드 slurm UID 정렬: $existing_uid → $target_slurm_uid"
-            run_command "systemctl stop slurmctld slurmd 2>/dev/null || true" "stop slurm"
-            run_command "pkill -KILL -u slurm 2>/dev/null || true" "kill slurm procs"
-            sleep 1
-            run_command "usermod -u $target_slurm_uid slurm 2>/dev/null || true" "usermod slurm"
-            run_command "find / -xdev -uid $existing_uid -exec chown -h $target_slurm_uid {} + 2>/dev/null || true" "chown slurm files"
+        # UID/GID 정렬은 사용자 데이터/실행 잡 영향 커서 자동 안 함 (옛 동작 유지)
+        if [[ "$existing_uid" != "$target_slurm_uid" ]] || [[ "$existing_gid" != "$target_slurm_gid" ]]; then
+            log WARNING "Existing slurm user UID/GID ($existing_uid/$existing_gid) differs from target ($target_slurm_uid/$target_slurm_gid)"
+            log INFO "Keeping existing user to avoid breaking system (수동으로 정렬 필요시 별도 작업)"
         fi
     else
         # Create group first
@@ -3219,56 +3210,83 @@ EOPY
             local target_munge_uid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('munge_uid', 1002))" 2>/dev/null || echo 1002)
             local target_munge_gid=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c.get('users',{}).get('munge_gid', 1002))" 2>/dev/null || echo 1002)
 
-            # Create slurm user — UID/GID 강제 정렬 (이미 있으면 usermod로 일치시킴)
+            # Slurm/munge 사용자 UID/GID 강제 정렬:
+            #  - 없으면 생성, 있고 UID 어긋나면 usermod + 전체 FS chown
+            #  - 충돌 (타깃 UID를 다른 사용자가 점유) 시 에러
             log INFO "  Ensuring slurm user on $hostname (UID=$target_slurm_uid, GID=$target_slurm_gid)..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "if id slurm &>/dev/null; then \
-                    CUR_UID=\$(id -u slurm); CUR_GID=\$(id -g slurm); \
-                    if [[ \"\$CUR_GID\" != \"$target_slurm_gid\" ]]; then \
-                        sudo -n groupmod -g $target_slurm_gid slurm 2>/dev/null || true; \
-                        sudo -n find / -xdev -gid \$CUR_GID -exec chgrp -h $target_slurm_gid {} + 2>/dev/null || true; \
+            ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "TGT_U=$target_slurm_uid; TGT_G=$target_slurm_gid; NAME=slurm; \
+                 if id \$NAME &>/dev/null; then \
+                    CUR_U=\$(id -u \$NAME); CUR_G=\$(id -g \$NAME); \
+                    if [ \"\$CUR_U\" != \"\$TGT_U\" ]; then \
+                        OWNER=\$(getent passwd \$TGT_U | cut -d: -f1); \
+                        if [ -n \"\$OWNER\" ] && [ \"\$OWNER\" != \"\$NAME\" ]; then \
+                            echo CONFLICT: UID \$TGT_U owned by \$OWNER; exit 0; \
+                        fi; \
+                        sudo -n systemctl stop slurmd slurmctld slurmstepd 2>/dev/null || true; \
+                        sudo -n pkill -KILL -u \$NAME 2>/dev/null || true; sleep 1; \
+                        sudo -n usermod -u \$TGT_U \$NAME && \
+                        sudo -n find / -xdev -uid \$CUR_U -exec chown -h \$TGT_U {} + 2>/dev/null || true; \
                     fi; \
-                    if [[ \"\$CUR_UID\" != \"$target_slurm_uid\" ]]; then \
-                        sudo -n pkill -KILL -u slurm 2>/dev/null || true; sleep 1; \
-                        sudo -n usermod -u $target_slurm_uid slurm 2>/dev/null || true; \
-                        sudo -n find / -xdev -uid \$CUR_UID -exec chown -h $target_slurm_uid {} + 2>/dev/null || true; \
+                    if [ \"\$CUR_G\" != \"\$TGT_G\" ]; then \
+                        sudo -n groupmod -g \$TGT_G \$NAME 2>/dev/null || true; \
+                        sudo -n find / -xdev -gid \$CUR_G -exec chgrp -h \$TGT_G {} + 2>/dev/null || true; \
                     fi; \
-                else \
-                    sudo -n groupadd -g $target_slurm_gid slurm 2>/dev/null || true; \
-                    sudo -n useradd -r -u $target_slurm_uid -g $target_slurm_gid -s /bin/false -d /nonexistent slurm; \
-                fi" >> "$install_log" 2>&1 || log WARNING "  Could not ensure slurm user"
+                 else \
+                    sudo -n groupadd -g \$TGT_G \$NAME 2>/dev/null || sudo -n groupadd \$NAME 2>/dev/null || true; \
+                    sudo -n useradd -r -u \$TGT_U -g \$TGT_G -s /bin/false -d /nonexistent \$NAME 2>/dev/null || \
+                    sudo -n useradd -r -g \$NAME -s /bin/false -d /nonexistent \$NAME 2>/dev/null || true; \
+                 fi; \
+                 echo DONE_SLURM_UID=\$(id -u \$NAME) GID=\$(id -g \$NAME)" >> "$install_log" 2>&1 \
+                 || log WARNING "  Could not ensure slurm user"
 
             log INFO "  Ensuring munge user on $hostname (UID=$target_munge_uid, GID=$target_munge_gid)..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "if id munge &>/dev/null; then \
-                    CUR_UID=\$(id -u munge); CUR_GID=\$(id -g munge); \
-                    if [[ \"\$CUR_GID\" != \"$target_munge_gid\" ]]; then \
-                        sudo -n groupmod -g $target_munge_gid munge 2>/dev/null || true; \
-                        sudo -n find / -xdev -gid \$CUR_GID -exec chgrp -h $target_munge_gid {} + 2>/dev/null || true; \
+            ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "TGT_U=$target_munge_uid; TGT_G=$target_munge_gid; NAME=munge; \
+                 if id \$NAME &>/dev/null; then \
+                    CUR_U=\$(id -u \$NAME); CUR_G=\$(id -g \$NAME); \
+                    if [ \"\$CUR_U\" != \"\$TGT_U\" ]; then \
+                        OWNER=\$(getent passwd \$TGT_U | cut -d: -f1); \
+                        if [ -n \"\$OWNER\" ] && [ \"\$OWNER\" != \"\$NAME\" ]; then \
+                            echo CONFLICT: UID \$TGT_U owned by \$OWNER; exit 0; \
+                        fi; \
+                        sudo -n systemctl stop munge 2>/dev/null || true; \
+                        sudo -n pkill -KILL -u \$NAME 2>/dev/null || true; sleep 1; \
+                        sudo -n usermod -u \$TGT_U \$NAME && \
+                        sudo -n find / -xdev -uid \$CUR_U -exec chown -h \$TGT_U {} + 2>/dev/null || true; \
                     fi; \
-                    if [[ \"\$CUR_UID\" != \"$target_munge_uid\" ]]; then \
-                        sudo -n pkill -KILL -u munge 2>/dev/null || true; sleep 1; \
-                        sudo -n usermod -u $target_munge_uid munge 2>/dev/null || true; \
-                        sudo -n find / -xdev -uid \$CUR_UID -exec chown -h $target_munge_uid {} + 2>/dev/null || true; \
+                    if [ \"\$CUR_G\" != \"\$TGT_G\" ]; then \
+                        sudo -n groupmod -g \$TGT_G \$NAME 2>/dev/null || true; \
+                        sudo -n find / -xdev -gid \$CUR_G -exec chgrp -h \$TGT_G {} + 2>/dev/null || true; \
                     fi; \
-                else \
-                    sudo -n groupadd -g $target_munge_gid munge 2>/dev/null || true; \
-                    sudo -n useradd -r -u $target_munge_uid -g $target_munge_gid -s /sbin/nologin -d /nonexistent munge; \
-                fi" >> "$install_log" 2>&1 || log WARNING "  Could not ensure munge user"
+                 else \
+                    sudo -n groupadd -g \$TGT_G \$NAME 2>/dev/null || sudo -n groupadd \$NAME 2>/dev/null || true; \
+                    sudo -n useradd -r -u \$TGT_U -g \$TGT_G -s /sbin/nologin -d /nonexistent \$NAME 2>/dev/null || \
+                    sudo -n useradd -r -g \$NAME -s /sbin/nologin -d /nonexistent \$NAME 2>/dev/null || true; \
+                 fi; \
+                 echo DONE_MUNGE_UID=\$(id -u \$NAME) GID=\$(id -g \$NAME)" >> "$install_log" 2>&1 \
+                 || log WARNING "  Could not ensure munge user"
 
             log INFO "  Copying prebuilt Slurm package to $hostname..."
 
-            # 이전 실행에서 다른 유저가 남긴 /tmp 파일 정리 (Permission denied 회피)
+            # 이전 실행 root-owned 파일 정리 (sudo -n 우선, 그래도 안 되면 chown)
             ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "sudo -n rm -f /tmp/slurm-23.11.10-prebuilt.tar.gz /tmp/slurm_prebuilt 2>/dev/null; \
-                 sudo -n rm -rf /tmp/slurm_prebuilt 2>/dev/null; true" >> "$install_log" 2>&1 || true
+                "sudo -n rm -rf /tmp/slurm-23.11.10-prebuilt.tar.gz /tmp/slurm_prebuilt 2>/dev/null; \
+                 sudo -n chown $ssh_user /tmp/slurm-23.11.10-prebuilt.tar.gz 2>/dev/null; true" >> "$install_log" 2>&1 || true
 
-            # Copy prebuilt tarball
-            if ! scp $SCP_OPTS "$PREBUILT_TARBALL" "$ssh_user@$ip_address:/tmp/" 2>&1 | tee -a "$install_log"; then
-                log ERROR "Failed to copy prebuilt tarball to $hostname"
+            # 1) stcx 홈으로 scp (항상 쓰기 가능) → 2) sudo로 /tmp 이동
+            if ! scp $SCP_OPTS "$PREBUILT_TARBALL" "$ssh_user@$ip_address:~/slurm-prebuilt.tar.gz" 2>&1 | tee -a "$install_log"; then
+                log ERROR "Failed to copy prebuilt tarball to $hostname (홈 scp 실패)"
                 failed_count=$((failed_count + 1))
                 continue
             fi
+            ssh -n -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "sudo -n mv -f ~/slurm-prebuilt.tar.gz /tmp/slurm-23.11.10-prebuilt.tar.gz && \
+                 sudo -n chmod 644 /tmp/slurm-23.11.10-prebuilt.tar.gz" >> "$install_log" 2>&1 || {
+                log ERROR "Failed to move tarball to /tmp on $hostname"
+                failed_count=$((failed_count + 1))
+                continue
+            }
 
             # Extract and deploy prebuilt package
             log INFO "  Deploying prebuilt Slurm on $hostname..."
