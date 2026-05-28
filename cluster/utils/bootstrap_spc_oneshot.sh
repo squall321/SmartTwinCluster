@@ -455,15 +455,18 @@ sync_user() {
                 return 1
             fi
         fi
+        # 사용자 관련 경로만 chown — 시스템 전체 스캔 안 함
+        local USER_PATHS=()
+        [[ -d /home/\$name ]] && USER_PATHS+=(/home/\$name)
+        [[ -d /scratch/\$name ]] && USER_PATHS+=(/scratch/\$name)
         if [[ -n "\$gid" && "\$cur_gid" != "\$gid" ]]; then
             sudo groupmod -g "\$gid" "\$name" 2>/dev/null || sudo usermod -g "\$gid" "\$name" 2>/dev/null || true
-            # 전체 파일시스템 chgrp (xdev로 NFS/외장 제외)
-            sudo find / -xdev -gid "\$cur_gid" -exec chgrp -h "\$gid" {} + 2>/dev/null || true
+            [[ \${#USER_PATHS[@]} -gt 0 ]] && sudo find "\${USER_PATHS[@]}" -gid "\$cur_gid" -exec chgrp -h "\$gid" {} + 2>/dev/null || true
         fi
         if [[ -n "\$uid" && "\$cur_uid" != "\$uid" ]]; then
             sudo pkill -KILL -u "\$name" 2>/dev/null || true; sleep 1
             sudo usermod -u "\$uid" "\$name"
-            sudo find / -xdev -uid "\$cur_uid" -exec chown -h "\$uid" {} + 2>/dev/null || true
+            [[ \${#USER_PATHS[@]} -gt 0 ]] && sudo find "\${USER_PATHS[@]}" -uid "\$cur_uid" -exec chown -h "\$uid" {} + 2>/dev/null || true
         fi
         echo "    sync \$name uid=\$(id -u \$name) gid=\$(id -g \$name)"
     else

@@ -3213,9 +3213,14 @@ EOPY
             # Slurm/munge 사용자 UID/GID 강제 정렬:
             #  - 없으면 생성, 있고 UID 어긋나면 usermod + 전체 FS chown
             #  - 충돌 (타깃 UID를 다른 사용자가 점유) 시 에러
+            # slurm 데몬 관련 경로만 chown (설치/스풀/로그 디렉토리 한정)
+            local SLURM_PATHS='/var/spool/slurmd /var/spool/slurmctld /var/spool/slurm /var/log/slurm /var/lib/slurm /etc/slurm /opt/slurm /usr/local/slurm'
+            local MUNGE_PATHS='/var/lib/munge /var/log/munge /var/run/munge /etc/munge'
+
             log INFO "  Ensuring slurm user on $hostname (UID=$target_slurm_uid, GID=$target_slurm_gid)..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "TGT_U=$target_slurm_uid; TGT_G=$target_slurm_gid; NAME=slurm; \
+            ssh -n -o BatchMode=yes -o ConnectTimeout=120 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "TGT_U=$target_slurm_uid; TGT_G=$target_slurm_gid; NAME=slurm; PATHS='$SLURM_PATHS'; \
+                 EXIST_PATHS=\$(for p in \$PATHS; do [ -e \"\$p\" ] && echo \$p; done | xargs); \
                  if id \$NAME &>/dev/null; then \
                     CUR_U=\$(id -u \$NAME); CUR_G=\$(id -g \$NAME); \
                     if [ \"\$CUR_U\" != \"\$TGT_U\" ]; then \
@@ -3226,11 +3231,11 @@ EOPY
                         sudo -n systemctl stop slurmd slurmctld slurmstepd 2>/dev/null || true; \
                         sudo -n pkill -KILL -u \$NAME 2>/dev/null || true; sleep 1; \
                         sudo -n usermod -u \$TGT_U \$NAME && \
-                        sudo -n find / -xdev -uid \$CUR_U -exec chown -h \$TGT_U {} + 2>/dev/null || true; \
+                        [ -n \"\$EXIST_PATHS\" ] && sudo -n find \$EXIST_PATHS -uid \$CUR_U -exec chown -h \$TGT_U {} + 2>/dev/null || true; \
                     fi; \
                     if [ \"\$CUR_G\" != \"\$TGT_G\" ]; then \
                         sudo -n groupmod -g \$TGT_G \$NAME 2>/dev/null || true; \
-                        sudo -n find / -xdev -gid \$CUR_G -exec chgrp -h \$TGT_G {} + 2>/dev/null || true; \
+                        [ -n \"\$EXIST_PATHS\" ] && sudo -n find \$EXIST_PATHS -gid \$CUR_G -exec chgrp -h \$TGT_G {} + 2>/dev/null || true; \
                     fi; \
                  else \
                     sudo -n groupadd -g \$TGT_G \$NAME 2>/dev/null || sudo -n groupadd \$NAME 2>/dev/null || true; \
@@ -3241,8 +3246,9 @@ EOPY
                  || log WARNING "  Could not ensure slurm user"
 
             log INFO "  Ensuring munge user on $hostname (UID=$target_munge_uid, GID=$target_munge_gid)..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=300 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
-                "TGT_U=$target_munge_uid; TGT_G=$target_munge_gid; NAME=munge; \
+            ssh -n -o BatchMode=yes -o ConnectTimeout=120 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                "TGT_U=$target_munge_uid; TGT_G=$target_munge_gid; NAME=munge; PATHS='$MUNGE_PATHS'; \
+                 EXIST_PATHS=\$(for p in \$PATHS; do [ -e \"\$p\" ] && echo \$p; done | xargs); \
                  if id \$NAME &>/dev/null; then \
                     CUR_U=\$(id -u \$NAME); CUR_G=\$(id -g \$NAME); \
                     if [ \"\$CUR_U\" != \"\$TGT_U\" ]; then \
@@ -3253,11 +3259,11 @@ EOPY
                         sudo -n systemctl stop munge 2>/dev/null || true; \
                         sudo -n pkill -KILL -u \$NAME 2>/dev/null || true; sleep 1; \
                         sudo -n usermod -u \$TGT_U \$NAME && \
-                        sudo -n find / -xdev -uid \$CUR_U -exec chown -h \$TGT_U {} + 2>/dev/null || true; \
+                        [ -n \"\$EXIST_PATHS\" ] && sudo -n find \$EXIST_PATHS -uid \$CUR_U -exec chown -h \$TGT_U {} + 2>/dev/null || true; \
                     fi; \
                     if [ \"\$CUR_G\" != \"\$TGT_G\" ]; then \
                         sudo -n groupmod -g \$TGT_G \$NAME 2>/dev/null || true; \
-                        sudo -n find / -xdev -gid \$CUR_G -exec chgrp -h \$TGT_G {} + 2>/dev/null || true; \
+                        [ -n \"\$EXIST_PATHS\" ] && sudo -n find \$EXIST_PATHS -gid \$CUR_G -exec chgrp -h \$TGT_G {} + 2>/dev/null || true; \
                     fi; \
                  else \
                     sudo -n groupadd -g \$TGT_G \$NAME 2>/dev/null || sudo -n groupadd \$NAME 2>/dev/null || true; \
