@@ -3179,13 +3179,6 @@ EOPY
 
         log INFO "Installing Slurm on $hostname..."
 
-        # Pre-check: stcx sudo NOPASSWD 작동 확인 — $SSH_OPTS 사용 (setup_node_ssh_opts에서 설정됨)
-        if ! ssh $SSH_OPTS "$ssh_user@$ip_address" "sudo -n true" &>/dev/null; then
-            log ERROR "  [$hostname] sudo NOPASSWD 미설정 — bootstrap_spc_oneshot.sh 재실행 필요"
-            failed_count=$((failed_count + 1))
-            continue
-        fi
-
         # Setup GlusterFS-based offline APT repository on compute node (for offline environments)
         if [[ "$USE_GLUSTERFS" == "true" ]]; then
             log INFO "  Setting up offline APT repository on $hostname..."
@@ -3336,7 +3329,7 @@ EOPY
 
             # Setup slurmd systemd service for prebuilt package
             log INFO "  Creating slurmd systemd service on $hostname..."
-            ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+            ssh $SSH_OPTS -o ConnectTimeout=60 "$ssh_user@$ip_address" \
                 "sudo tee /etc/systemd/system/slurmd.service > /dev/null << 'EOFSVC'
 [Unit]
 Description=Slurm node daemon
@@ -3385,7 +3378,7 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
             log INFO "  Setting up Munge key on $hostname..."
             if [[ -f /etc/munge/munge.key ]]; then
                 scp $SCP_OPTS /etc/munge/munge.key "$ssh_user@$ip_address:/tmp/munge.key" 2>/dev/null || true
-                ssh -n -o BatchMode=yes -o ConnectTimeout=60 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                ssh $SSH_OPTS -o ConnectTimeout=60 "$ssh_user@$ip_address" \
                     "sudo mkdir -p /etc/munge /var/log/munge /var/lib/munge /run/munge && \
                      sudo -n mv /tmp/munge.key /etc/munge/munge.key && \
                      sudo -n chown -R munge:munge /etc/munge /var/log/munge /var/lib/munge /run/munge 2>/dev/null || true && \
@@ -3430,7 +3423,7 @@ sudo systemctl daemon-reload" >> "$install_log" 2>&1 || log WARNING "  Could not
                 else
                     log ERROR "  (Log file empty or not created)"
                     log ERROR "  Checking if script exists on remote..."
-                    ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ssh_user@$ip_address" \
+                    ssh $SSH_OPTS -o ConnectTimeout=10 "$ssh_user@$ip_address" \
                         "ls -la /tmp/install_slurm_cgroup_v2.sh 2>&1" || log ERROR "    Script not found on remote!"
                 fi
                 failed_count=$((failed_count + 1))
