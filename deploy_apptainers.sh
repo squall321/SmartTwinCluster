@@ -266,14 +266,14 @@ deploy_to_node() {
         if ! ssh $SSH_OPTS ${SSH_USER}@${ip} "command -v apptainer" &>/dev/null; then
             echo -e "${YELLOW}[${node}]${NC} Apptainer 설치 중 (로컬 바이너리 복사)..."
 
-            # 로컬 바이너리 tar 파일 복사
-            scp $SSH_OPTS ${SCRIPT_DIR}/apptainer/apptainer-binary-1.3.3.tar.gz ${SSH_USER}@${ip}:/tmp/ || {
+            # 로컬 바이너리 tar 파일 복사 — stcx 홈 경유 (root 잔재 회피)
+            scp $SSH_OPTS ${SCRIPT_DIR}/apptainer/apptainer-binary-1.3.3.tar.gz ${SSH_USER}@${ip}:apptainer-binary-1.3.3.tar.gz || {
                 echo -e "${RED}[${node}]${NC} ❌ Apptainer 바이너리 복사 실패"
                 return 1
             }
 
-            # 원격에서 압축 해제 및 설치 (바이너리 + squashfuse_ll + libfuse + etc + libexec + var)
-            ssh $SSH_OPTS ${SSH_USER}@${ip} "cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz && \
+            # 원격에서 압축 해제 및 설치 (홈 디렉토리에서 작업)
+            ssh $SSH_OPTS ${SSH_USER}@${ip} "cd ~ && tar -xzf apptainer-binary-1.3.3.tar.gz && \
                 sudo install -m 755 apptainer /usr/local/bin/ && \
                 sudo install -m 755 squashfuse_ll /usr/local/bin/ && \
                 sudo cp -a lib/libfuse.so* /lib/x86_64-linux-gnu/ 2>/dev/null; \
@@ -325,8 +325,8 @@ deploy_to_node() {
             fi
             if [[ "$needs_fix" == "true" ]]; then
                 echo -e "${YELLOW}[${node}]${NC} 누락 파일 배포 중..."
-                scp $SSH_OPTS ${SCRIPT_DIR}/apptainer/apptainer-binary-1.3.3.tar.gz ${SSH_USER}@${ip}:/tmp/ && \
-                ssh $SSH_OPTS ${SSH_USER}@${ip} "cd /tmp && tar -xzf apptainer-binary-1.3.3.tar.gz && \
+                scp $SSH_OPTS ${SCRIPT_DIR}/apptainer/apptainer-binary-1.3.3.tar.gz ${SSH_USER}@${ip}:apptainer-binary-1.3.3.tar.gz && \
+                ssh $SSH_OPTS ${SSH_USER}@${ip} "cd ~ && tar -xzf apptainer-binary-1.3.3.tar.gz && \
                     sudo install -m 755 squashfuse_ll /usr/local/bin/ && \
                     sudo cp -a lib/libfuse.so* /lib/x86_64-linux-gnu/ 2>/dev/null; \
                     sudo ldconfig && \
@@ -397,12 +397,12 @@ deploy_to_node() {
 
                         echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size) — 전송 중..."
 
-                        scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:/tmp/ || {
+                        scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:$img_name || {
                             echo -e "${RED}[${node}]${NC} ❌ $img_name 전송 실패"
                             continue
                         }
 
-                        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/$img_name ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/$img_name && sudo chmod 755 ${NODE_IMAGE_PATH}/$img_name" || {
+                        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv ~/$img_name ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/$img_name && sudo chmod 755 ${NODE_IMAGE_PATH}/$img_name" || {
                             echo -e "${RED}[${node}]${NC} ❌ $img_name 설치 실패"
                             continue
                         }
@@ -452,12 +452,12 @@ deploy_to_node() {
 
                 echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size) — 전송 중..."
 
-                scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:/tmp/ || {
+                scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:$img_name || {
                     echo -e "${RED}[${node}]${NC} ❌ $img_name 전송 실패"
                     continue
                 }
 
-                ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/$img_name ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/$img_name && sudo chmod 755 ${NODE_IMAGE_PATH}/$img_name" || {
+                ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv ~/$img_name ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/$img_name && sudo chmod 755 ${NODE_IMAGE_PATH}/$img_name" || {
                     echo -e "${RED}[${node}]${NC} ❌ $img_name 설치 실패"
                     continue
                 }
@@ -589,8 +589,8 @@ if [[ -n "$TARGET_IMAGE" ]]; then
             echo "OK" > "$IMG_RESULTS_DIR/$node"
             return
         fi
-        if scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:/tmp/ 2>/dev/null \
-            && ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv /tmp/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}" 2>/dev/null; then
+        if scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:${TARGET_IMAGE} 2>/dev/null \
+            && ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv ~/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}" 2>/dev/null; then
             echo -e "${GREEN}[${node}]${NC} ✅"
             echo "OK" > "$IMG_RESULTS_DIR/$node"
         else
