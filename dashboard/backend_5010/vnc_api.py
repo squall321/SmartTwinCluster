@@ -225,26 +225,16 @@ NODE_IP_MAP = load_node_ip_map()
 # Visualization 노드 목록 (YAML에서 동적으로 로드)
 def get_viz_nodes():
     """YAML 설정에서 viz/hybrid 노드 목록 가져오기"""
-    import glob
     viz_nodes = []
-    # 1. 환경변수 우선
+    # 환경변수 CLUSTER_YAML 우선, 없으면 my_multihead_cluster.yaml
     yaml_paths = []
     env_path = os.getenv('CLUSTER_YAML')
     if env_path:
         yaml_paths.append(env_path)
-    # 2. 명시적 경로들
-    project_root = os.path.join(os.path.dirname(__file__), '..', '..')
     yaml_paths += [
-        os.path.join(project_root, 'my_multihead_cluster.yaml'),
+        os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
         '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
     ]
-    # 3. 글롭으로 my_multihead_cluster*.yaml 전부
-    for p in glob.glob(os.path.join(project_root, 'my_multihead_cluster*.yaml')):
-        if p not in yaml_paths:
-            yaml_paths.append(p)
-    for p in glob.glob('/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster*.yaml'):
-        if p not in yaml_paths:
-            yaml_paths.append(p)
 
     for yaml_path in yaml_paths:
         if os.path.exists(yaml_path):
