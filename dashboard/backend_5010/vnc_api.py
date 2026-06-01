@@ -224,23 +224,47 @@ NODE_IP_MAP = load_node_ip_map()
 
 # Visualization 노드 목록 (YAML에서 동적으로 로드)
 def get_viz_nodes():
-    """YAML 설정에서 viz 노드 목록 가져오기"""
+    """YAML 설정에서 viz/hybrid 노드 목록 가져오기"""
+    import glob
     viz_nodes = []
-    yaml_paths = [
-        os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
+    # 1. 환경변수 우선
+    yaml_paths = []
+    env_path = os.getenv('CLUSTER_YAML')
+    if env_path:
+        yaml_paths.append(env_path)
+    # 2. 명시적 경로들
+    project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+    yaml_paths += [
+        os.path.join(project_root, 'my_multihead_cluster.yaml'),
         '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
     ]
+    # 3. 글롭으로 my_multihead_cluster*.yaml 전부
+    for p in glob.glob(os.path.join(project_root, 'my_multihead_cluster*.yaml')):
+        if p not in yaml_paths:
+            yaml_paths.append(p)
+    for p in glob.glob('/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster*.yaml'):
+        if p not in yaml_paths:
+            yaml_paths.append(p)
+
     for yaml_path in yaml_paths:
         if os.path.exists(yaml_path):
             try:
                 import yaml
                 with open(yaml_path) as f:
                     config = yaml.safe_load(f)
-                    nodes_config = config.get('nodes', {})
+                    nodes_config = config.get('nodes', {}) or {}
 
-                    # node_type: viz인 노드 추출
-                    for node in nodes_config.get('compute_nodes', []):
-                        if node.get('node_type') == 'viz':
+                    # viz_nodes 섹션이 있으면 거기서
+                    for node in (nodes_config.get('viz_nodes') or []):
+                        viz_nodes.append({
+                            'hostname': node.get('hostname'),
+                            'ip_address': node.get('ip_address'),
+                            'hardware': node.get('hardware', {})
+                        })
+                    # compute_nodes 중 node_type == 'viz' 또는 'hybrid' 도 viz 자격
+                    for node in (nodes_config.get('compute_nodes') or []):
+                        nt = node.get('node_type', 'compute')
+                        if nt in ('viz', 'hybrid'):
                             viz_nodes.append({
                                 'hostname': node.get('hostname'),
                                 'ip_address': node.get('ip_address'),
@@ -248,13 +272,13 @@ def get_viz_nodes():
                             })
 
                     if viz_nodes:
-                        print(f"✅ Found {len(viz_nodes)} viz nodes from YAML")
+                        print(f"✅ Found {len(viz_nodes)} viz/hybrid nodes from {yaml_path}")
                         return viz_nodes
             except Exception as e:
-                print(f"⚠️  Failed to load viz nodes from YAML: {e}")
+                print(f"⚠️  Failed to load viz nodes from {yaml_path}: {e}")
 
     # Fallback
-    print("⚠️  Using fallback viz node")
+    print("⚠️  Using fallback viz node (yaml 매칭 실패)")
     return [{'hostname': 'viz-node001', 'ip_address': '192.168.122.252', 'hardware': {}}]
 
 VIZ_NODES = get_viz_nodes()
