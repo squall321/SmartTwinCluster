@@ -12,6 +12,7 @@ UPDATE_ONLY=false  # --update: 이미지만 업데이트 (Apptainer 설치 스�
 SKIP_APPTAINER_INSTALL=false
 TARGET_IMAGE=""    # --image: 특정 이미지만 배포
 PARALLEL=1         # --parallel N: 동시 배포 노드 수
+NODES_FILE=""      # --nodes-file FILE: 호스트네임 목록 파일 (yaml에서 필터)
 
 # 인자 파싱
 while [[ $# -gt 0 ]]; do
@@ -38,22 +39,29 @@ while [[ $# -gt 0 ]]; do
             PARALLEL="$2"
             shift 2
             ;;
+        --nodes-file)
+            NODES_FILE="$2"
+            shift 2
+            ;;
         --help|-h)
             echo "사용법: $0 [옵션]"
             echo ""
             echo "옵션:"
-            echo "  --config FILE   YAML 설정 파일 지정 (기본: my_multihead_cluster_2.yaml)"
-            echo "  --update        이미지만 업데이트 (Apptainer 설치 스킵)"
-            echo "  --skip-install  Apptainer 설치 스킵"
-            echo "  --image FILE    특정 SIF 이미지만 모든 노드에 배포"
-            echo "  --parallel, -j N 병렬 배포 노드 수 (기본: 1, 350노드는 20~30 권장)"
-            echo "  --help, -h      이 도움말 표시"
+            echo "  --config FILE     YAML 설정 파일 지정 (기본: my_multihead_cluster_2.yaml)"
+            echo "  --update          이미지만 업데이트 (Apptainer 설치 스킵)"
+            echo "  --skip-install    Apptainer 설치 스킵"
+            echo "  --image FILE      특정 SIF 이미지만 모든 노드에 배포"
+            echo "  --parallel, -j N  병렬 배포 노드 수 (기본: 1, 350노드는 20~30 권장)"
+            echo "  --nodes-file FILE 호스트네임 목록 파일 (한 줄 한 호스트, # 주석/빈 줄 무시)"
+            echo "                    yaml 노드 중 이 파일에 적힌 호스트네임만 대상"
+            echo "  --help, -h        이 도움말 표시"
             echo ""
             echo "예시:"
-            echo "  $0                                    # 전체 배포 (기본 YAML)"
+            echo "  $0                                              # 전체 배포 (기본 YAML)"
             echo "  $0 --config my_multihead_cluster.yaml           # 다른 YAML 파일 사용"
-            echo "  $0 --update                           # 이미지만 업데이트"
-            echo "  $0 --image vnc_gnome_lsprepost.sif    # 특정 이미지만 배포"
+            echo "  $0 --update                                     # 이미지만 업데이트"
+            echo "  $0 --image vnc_gnome_lsprepost.sif              # 특정 이미지만 배포"
+            echo "  $0 --nodes-file failed_nodes.txt --parallel 10  # 특정 노드만"
             exit 0
             ;;
         *)
@@ -131,10 +139,40 @@ for node in nodes.get('viz_nodes', []):
         print(f"{hostname}|{ip}|viz")
 EOPY
 
-# YAML에서 노드 정보 읽기
+# --nodes-file 파싱 (있으면 호스트네임 필터 집합 만들기)
+declare -A HOSTNAME_FILTER
+USE_HOSTNAME_FILTER=false
+if [[ -n "$NODES_FILE" ]]; then
+    if [[ ! -f "$NODES_FILE" ]]; then
+        echo "ERROR: --nodes-file 파일 없음: $NODES_FILE"
+        exit 1
+    fi
+    USE_HOSTNAME_FILTER=true
+    FILTER_COUNT=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # 주석/공백 제거
+        line="${line%%#*}"
+        line="${line//[$'\t\r ']/}"
+        [[ -z "$line" ]] && continue
+        HOSTNAME_FILTER["$line"]=1
+        FILTER_COUNT=$((FILTER_COUNT + 1))
+    done < "$NODES_FILE"
+    echo "ℹ️  --nodes-file: $NODES_FILE (필터 ${FILTER_COUNT}개 호스트)"
+    if [[ $FILTER_COUNT -eq 0 ]]; then
+        echo "ERROR: --nodes-file에 유효 호스트네임 없음"
+        exit 1
+    fi
+fi
+
+# YAML에서 노드 정보 읽기 (필터 적용)
 NODE_COUNT=0
+SKIPPED_BY_FILTER=0
 while IFS='|' read -r hostname ip node_type; do
     if [[ -z "$hostname" ]]; then
+        continue
+    fi
+    if [[ "$USE_HOSTNAME_FILTER" == "true" && -z "${HOSTNAME_FILTER[$hostname]:-}" ]]; then
+        SKIPPED_BY_FILTER=$((SKIPPED_BY_FILTER + 1))
         continue
     fi
     NODE_IPS[$hostname]="$ip"
@@ -142,8 +180,18 @@ while IFS='|' read -r hostname ip node_type; do
     NODE_COUNT=$((NODE_COUNT + 1))
 done < <(python3 -c "$PYTHON_SCRIPT" "$CONFIG_FILE")
 
+if [[ "$USE_HOSTNAME_FILTER" == "true" ]]; then
+    echo "ℹ️  yaml에서 매칭된 노드: ${NODE_COUNT}개 (필터로 ${SKIPPED_BY_FILTER}개 스킵)"
+    # 필터에 있지만 yaml에 없는 호스트 경고
+    for hn in "${!HOSTNAME_FILTER[@]}"; do
+        if [[ -z "${NODE_IPS[$hn]:-}" ]]; then
+            echo "  ⚠️  '$hn' 는 yaml에 없음"
+        fi
+    done
+fi
+
 if [[ $NODE_COUNT -eq 0 ]]; then
-    echo "ERROR: No compute_nodes or viz_nodes found in YAML"
+    echo "ERROR: No compute_nodes or viz_nodes found in YAML (또는 필터로 다 제외됨)"
     exit 1
 fi
 

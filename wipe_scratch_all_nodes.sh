@@ -11,7 +11,8 @@
 #
 # 옵션:
 #   --config PATH      YAML 설정 파일 경로 (기본: my_multihead_cluster_2.yaml)
-#   --node HOSTNAME    특정 노드만 정리 (생략 시 전체)
+#   --node HOSTNAME    특정 노드 하나만 정리
+#   --nodes-file FILE  호스트네임 목록 파일 (한 줄 한 호스트, # 주석/빈줄 무시)
 #   --parallel N       병렬 개수 (기본: 5)
 #   --keep-dir         /scratch 안만 비우고 디렉토리는 유지 (기본 동작)
 #   --remove-dir       /scratch 디렉토리까지 삭제 (위험)
@@ -42,6 +43,7 @@ DEFAULT_CONFIG="${SCRIPT_DIR}/my_multihead_cluster_2.yaml"
 
 CONFIG_FILE=""
 TARGET_NODE=""
+NODES_FILE=""
 PARALLEL=5
 AUTO_YES=false
 REMOVE_DIR=false
@@ -50,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --config) CONFIG_FILE="$2"; shift 2 ;;
         --node) TARGET_NODE="$2"; shift 2 ;;
+        --nodes-file) NODES_FILE="$2"; shift 2 ;;
         --parallel) PARALLEL="$2"; shift 2 ;;
         --keep-dir) REMOVE_DIR=false; shift ;;
         --remove-dir) REMOVE_DIR=true; shift ;;
@@ -60,7 +63,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--config PATH] [--node HOSTNAME] [--parallel N] [--remove-dir] [--yes]"
+            echo "Usage: $0 [--config PATH] [--node HOSTNAME] [--nodes-file FILE] [--parallel N] [--remove-dir] [--yes]"
             exit 1
             ;;
     esac
@@ -126,6 +129,23 @@ EOPY
 
 TOTAL_NODES=$(echo "$NODES_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 log_success "Found $TOTAL_NODES compute/viz nodes"
+
+if [[ -n "$NODES_FILE" ]]; then
+    [[ -f "$NODES_FILE" ]] || { log_error "--nodes-file 없음: $NODES_FILE"; exit 1; }
+    HOSTNAMES_JSON=$(python3 -c "
+import json
+hns=[ln.split('#',1)[0].strip() for ln in open('$NODES_FILE')]
+print(json.dumps([h for h in hns if h]))
+")
+    NODES_JSON=$(echo "$NODES_JSON" | python3 -c "
+import sys, json
+ns = json.load(sys.stdin); hns = set($HOSTNAMES_JSON)
+print(json.dumps([n for n in ns if n['hostname'] in hns]))
+")
+    [[ "$NODES_JSON" == "[]" ]] && { log_error "--nodes-file의 호스트네임이 yaml에 매칭 없음"; exit 1; }
+    TOTAL_NODES=$(echo "$NODES_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+    log_info "Filtered by --nodes-file: $TOTAL_NODES nodes"
+fi
 
 if [[ -n "$TARGET_NODE" ]]; then
     NODES_JSON=$(echo "$NODES_JSON" | python3 -c "

@@ -11,7 +11,8 @@
 #
 # 옵션:
 #   --config PATH        YAML 설정 파일 경로 (기본: my_multihead_cluster_2.yaml)
-#   --node HOSTNAME      특정 노드만 설치 (생략 시 전체)
+#   --node HOSTNAME      특정 노드 하나만 설치
+#   --nodes-file FILE    호스트네임 목록 파일 (한 줄 한 호스트, # 주석/빈줄 무시)
 #   --parallel N         병렬 설치 개수 (기본: 3)
 #   --yes, -y            확인 프롬프트 건너뛰기
 #   --help               도움말 표시
@@ -57,6 +58,7 @@ DEFAULT_CONFIG="${SCRIPT_DIR}/my_multihead_cluster_2.yaml"
 # 기본값
 CONFIG_FILE=""
 TARGET_NODE=""
+NODES_FILE=""
 PARALLEL=3
 AUTO_YES=false
 
@@ -69,6 +71,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --node)
             TARGET_NODE="$2"
+            shift 2
+            ;;
+        --nodes-file)
+            NODES_FILE="$2"
             shift 2
             ;;
         --parallel)
@@ -215,6 +221,38 @@ for i, node in enumerate(nodes, 1):
     print(f'  {i}. {node[\"hostname\"]:20s} {node[\"ip\"]:16s} [{node[\"type\"]}]')
 "
 echo ""
+
+# --nodes-file 호스트네임 목록으로 필터
+if [[ -n "$NODES_FILE" ]]; then
+    if [[ ! -f "$NODES_FILE" ]]; then
+        log_error "--nodes-file 파일 없음: $NODES_FILE"
+        exit 1
+    fi
+    log_info "Filtering by --nodes-file: $NODES_FILE"
+    # 호스트네임 한 줄 단위 + # 주석/공백 무시 → json array로 변환 후 filter
+    HOSTNAMES_JSON=$(python3 -c "
+import json, sys
+hns = []
+for ln in open('$NODES_FILE'):
+    ln = ln.split('#',1)[0].strip()
+    if ln: hns.append(ln)
+print(json.dumps(hns))
+")
+    NODES_JSON=$(echo "$NODES_JSON" | python3 -c "
+import sys, json
+nodes = json.load(sys.stdin)
+hns = set($HOSTNAMES_JSON)
+filtered = [n for n in nodes if n['hostname'] in hns]
+print(json.dumps(filtered))
+")
+    if [[ "$NODES_JSON" == "[]" ]]; then
+        log_error "--nodes-file 의 호스트네임이 yaml에 하나도 매칭 안 됨"
+        exit 1
+    fi
+    TOTAL_NODES=$(echo "$NODES_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+    log_info "Filtered: $TOTAL_NODES nodes"
+    echo ""
+fi
 
 # 특정 노드만 설치하는 경우
 if [[ -n "$TARGET_NODE" ]]; then
