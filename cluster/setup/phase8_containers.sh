@@ -62,6 +62,7 @@ SKIP_INSTALL=false
 TARGET_IMAGE=""
 # 병렬 수: 환경변수 PHASE8_PARALLEL > CLI > 기본값 4 (대역폭 보호)
 PARALLEL="${PHASE8_PARALLEL:-4}"
+NODES_FILE=""  # --nodes-file: 호스트네임 목록 파일 (yaml에서 필터)
 LOG_FILE="/var/log/cluster_containers_deployment.log"
 
 # Container images paths
@@ -218,6 +219,10 @@ parse_args() {
                 PARALLEL="$2"
                 shift 2
                 ;;
+            --nodes-file)
+                NODES_FILE="$2"
+                shift 2
+                ;;
             --help)
                 show_help
                 exit 0
@@ -304,6 +309,25 @@ EOPY
 }
 
 # Function to get viz nodes from YAML
+# 호스트네임 필터: NODES_FILE 설정 시 그 파일의 호스트만 통과
+filter_nodes_stdin() {
+    if [[ -z "$NODES_FILE" ]]; then
+        cat
+        return
+    fi
+    NODES_FILE="$NODES_FILE" python3 -c "
+import sys, os
+hns = set()
+for ln in open(os.environ['NODES_FILE']):
+    ln = ln.split('#',1)[0].strip()
+    if ln: hns.add(ln)
+for line in sys.stdin:
+    hn = line.strip().split('|')[0] if '|' in line else line.strip()
+    if hn in hns:
+        sys.stdout.write(line)
+"
+}
+
 get_viz_nodes() {
     python3 << EOPY
 import yaml
@@ -692,7 +716,7 @@ deploy_viz_images() {
     fi
 
     # Get viz nodes from YAML
-    local viz_nodes=$(get_viz_nodes)
+    local viz_nodes=$(get_viz_nodes | filter_nodes_stdin)
 
     if [[ -z "$viz_nodes" ]]; then
         log_warning "No viz nodes defined in YAML config"
@@ -785,7 +809,7 @@ deploy_compute_images() {
     fi
 
     # Get compute nodes from YAML
-    local compute_nodes=$(get_compute_nodes)
+    local compute_nodes=$(get_compute_nodes | filter_nodes_stdin)
 
     if [[ -z "$compute_nodes" ]]; then
         log_warning "No compute nodes defined in YAML config"
@@ -859,7 +883,7 @@ show_summary() {
     echo ""
 
     # Viz nodes summary
-    local viz_nodes=$(get_viz_nodes)
+    local viz_nodes=$(get_viz_nodes | filter_nodes_stdin)
     if [[ -n "$viz_nodes" ]]; then
         log_info "Viz Nodes (viz images):"
         while IFS= read -r node_info; do
@@ -887,7 +911,7 @@ show_summary() {
     fi
 
     # Compute nodes summary
-    local compute_nodes=$(get_compute_nodes)
+    local compute_nodes=$(get_compute_nodes | filter_nodes_stdin)
     if [[ -n "$compute_nodes" ]]; then
         log_info "Compute Nodes (compute images):"
         while IFS= read -r node_info; do

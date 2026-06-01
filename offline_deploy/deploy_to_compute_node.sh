@@ -17,7 +17,8 @@
 # 옵션:
 #   --config PATH        YAML 설정 파일
 #   --package-dir PATH   오프라인 패키지 디렉토리
-#   --node HOSTNAME      특정 노드만 배포
+#   --node HOSTNAME      특정 노드 하나만 배포
+#   --nodes-file FILE    호스트네임 목록 파일 (한 줄 한 호스트, # 주석/빈줄 무시)
 #   --parallel N         병렬 배포 개수 (기본: 3)
 #   --dry-run            실제 배포 없이 계획만 표시
 #   --yes, -y            사용자 확인 없이 자동 실행
@@ -47,6 +48,7 @@ detect_os_version
 set_offline_pkg_dir "$PROJECT_ROOT"
 PACKAGE_DIR="$OFFLINE_PKG_DIR"
 SPECIFIC_NODE=""
+NODES_FILE=""
 PARALLEL=3
 DRY_RUN=false
 AUTO_YES=false
@@ -110,6 +112,10 @@ parse_args() {
                 ;;
             --node)
                 SPECIFIC_NODE="$2"
+                shift 2
+                ;;
+            --nodes-file)
+                NODES_FILE="$2"
                 shift 2
                 ;;
             --parallel)
@@ -271,6 +277,23 @@ EOPY
         log_error "Failed to parse YAML configuration"
         echo "[]"
         return 1
+    fi
+
+    # --nodes-file 호스트네임 필터 적용
+    if [[ -n "$NODES_FILE" ]]; then
+        if [[ ! -f "$NODES_FILE" ]]; then
+            log_error "--nodes-file 파일 없음: $NODES_FILE"
+            exit 1
+        fi
+        nodes_json=$(echo "$nodes_json" | NODES_FILE="$NODES_FILE" python3 -c "
+import sys, json, os
+ns = json.load(sys.stdin)
+hns = set()
+for ln in open(os.environ['NODES_FILE']):
+    ln = ln.split('#',1)[0].strip()
+    if ln: hns.add(ln)
+print(json.dumps([n for n in ns if n['hostname'] in hns]))
+")
     fi
 
     echo "$nodes_json"
