@@ -198,8 +198,11 @@ setup_venv() {
         echo "    → 패키지 설치 중 (Python ${actual_version})..."
         echo "    → Wheels 경로: $wheels_dir"
 
-        # logs 디렉토리 생성
-        sudo -u "$RUN_USER" mkdir -p "$full_path/logs"
+        # logs 디렉토리 생성 + 기존 파일 소유권도 강제 정렬
+        # (이전 실행이 다른 계정이었다면 잔여 파일이 RUN_USER 가 아님 → PermissionError)
+        mkdir -p "$full_path/logs"
+        chown -R "$RUN_USER:$RUN_GROUP" "$full_path/logs"
+        chmod -R u+rwX,g+rX "$full_path/logs"
 
         if [ -d "$wheels_dir" ]; then
             # wheels 디렉토리 내용 확인
