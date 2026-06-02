@@ -103,8 +103,8 @@ declare -A SERVICES=(
     ["auth_backend"]="auth_portal_4430:${PY_LEGACY}:app:app"
     ["dashboard_backend"]="backend_5010:3.12:app:app"
     ["websocket_service"]="websocket_5011:${PY_LEGACY}:websocket_server_enhanced:py"
-    ["cae_backend"]="kooCAEWebServer_5000:3.13:app:create_app()"
-    ["cae_automation"]="kooCAEWebAutomationServer_5001:3.13:app:app"
+    ["cae_backend"]="kooCAEWebServer_5000:3.12:app:create_app()"
+    ["cae_automation"]="kooCAEWebAutomationServer_5001:3.12:app:app"
 )
 
 # 옵션 파싱
