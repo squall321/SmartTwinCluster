@@ -45,6 +45,16 @@ fi
 RUN_USER="${SUDO_USER:-$(whoami)}"
 RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
 
+# 관리자(install 실행한 사람)와 서비스 실행 계정 분리 시
+# 관리자도 logs 등에 접근 가능하게 RUN_USER 그룹에 추가
+ADMIN_USER="${SUDO_USER:-$(whoami)}"
+if [ "$ADMIN_USER" != "$RUN_USER" ] && id "$ADMIN_USER" &>/dev/null && id "$RUN_USER" &>/dev/null; then
+    if ! id -nG "$ADMIN_USER" | tr ' ' '\n' | grep -qx "$RUN_GROUP"; then
+        echo "  → $ADMIN_USER 를 $RUN_GROUP 그룹에 추가 (관리 권한)"
+        usermod -aG "$RUN_GROUP" "$ADMIN_USER"
+    fi
+fi
+
 # 서비스 정의 (서비스명:디렉토리:Python버전:앱모듈)
 # phase5_web.sh에서 생성하는 실제 서비스 이름과 일치
 # Python 버전:
@@ -198,11 +208,13 @@ setup_venv() {
         echo "    → 패키지 설치 중 (Python ${actual_version})..."
         echo "    → Wheels 경로: $wheels_dir"
 
-        # logs 디렉토리 생성 + 기존 파일 소유권도 강제 정렬
-        # (이전 실행이 다른 계정이었다면 잔여 파일이 RUN_USER 가 아님 → PermissionError)
+        # logs 디렉토리 생성 + 소유권/그룹쓰기 강제
+        # 그룹 g+w 부여 → ADMIN_USER (RUN_GROUP에 추가됨) 도 편집/삭제 가능
         mkdir -p "$full_path/logs"
         chown -R "$RUN_USER:$RUN_GROUP" "$full_path/logs"
-        chmod -R u+rwX,g+rX "$full_path/logs"
+        chmod -R u+rwX,g+rwX "$full_path/logs"
+        # 새로 만드는 파일도 그룹 권한 상속 (setgid)
+        chmod g+s "$full_path/logs"
 
         if [ -d "$wheels_dir" ]; then
             # wheels 디렉토리 내용 확인
