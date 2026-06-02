@@ -244,14 +244,13 @@ setup_venv() {
         local _bootstrap_wheels="${WHEELS_BASE}/python${_bootstrap_actual_ver}"
         if [ -d "$_bootstrap_wheels" ]; then
             echo "    → 빌드 의존성 부트스트랩 (setuptools/wheel) ..."
-            # NOTE: pip 자기 자신 업그레이드는 venv 깨질 위험 → 빼고 setuptools/wheel 만
-            # 'python -m pip' 형식 사용 (venv/bin/pip 호출보다 안전)
+            # set -e 가 켜져있어서 pip 실패 시 그자리 종료 → || true 로 막고 rc 캡처
             local _bootstrap_log=$(mktemp)
+            local _boot_rc=0
             sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-index --find-links="$_bootstrap_wheels" \
-                setuptools wheel > "$_bootstrap_log" 2>&1
-            local _boot_rc=$?
-            tail -5 "$_bootstrap_log" | sed 's/^/      /'
-            if [ $_boot_rc -eq 0 ]; then
+                setuptools wheel > "$_bootstrap_log" 2>&1 || _boot_rc=$?
+            tail -8 "$_bootstrap_log" 2>/dev/null | sed 's/^/      /'
+            if [ "$_boot_rc" -eq 0 ]; then
                 echo "      ✓ setuptools/wheel 준비 완료"
             else
                 echo "      ⚠ 부트스트랩 실패 (exit=$_boot_rc) — sdist 빌드 없으면 무시 가능"
