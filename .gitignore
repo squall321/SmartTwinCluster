@@ -131,3 +131,5 @@ offline_packages_2404/dist/stc-offline-*/
 !offline_packages_2404/python_wheels/python3.12/wheel-*.whl
 !offline_packages_2404/python_wheels/python3.13/setuptools-*.whl
 !offline_packages_2404/python_wheels/python3.13/wheel-*.whl
+!offline_packages_2404/python_wheels/python3.12/packaging-*.whl
+!offline_packages_2404/python_wheels/python3.13/packaging-*.whl

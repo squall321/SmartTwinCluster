@@ -243,24 +243,28 @@ setup_venv() {
         local _bootstrap_actual_ver=$("$full_path/venv/bin/python" --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "$py_version")
         local _bootstrap_wheels="${WHEELS_BASE}/python${_bootstrap_actual_ver}"
         if [ -d "$_bootstrap_wheels" ]; then
-            echo "    → 빌드 의존성 부트스트랩 (setuptools/wheel) ..."
-            # pip 26.x 가 --find-links 에서 py3-none-any 휠 인식 못 하는 경우 있음
-            # → 직접 파일 경로 지정으로 우회 (--find-links 안 거침)
+            echo "    → 빌드 의존성 부트스트랩 (setuptools/wheel/packaging) ..."
+            # 핵심 패키지 모두 직접 파일 경로로 지정 (pip 26 의존성 해결 함정 회피)
             local _setup_whl=$(ls "$_bootstrap_wheels"/setuptools-*.whl 2>/dev/null | sort -V | tail -1)
             local _wheel_whl=$(ls "$_bootstrap_wheels"/wheel-*.whl 2>/dev/null | sort -V | tail -1)
+            local _pkg_whl=$(ls "$_bootstrap_wheels"/packaging-*.whl 2>/dev/null | sort -V | tail -1)
             local _bootstrap_log=$(mktemp)
             local _boot_rc=0
-            if [ -n "$_setup_whl" ] && [ -n "$_wheel_whl" ]; then
-                # 직접 파일 경로 (find-links 함정 회피)
-                sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install \
-                    "$_setup_whl" "$_wheel_whl" > "$_bootstrap_log" 2>&1 || _boot_rc=$?
+            local _files=()
+            [ -n "$_pkg_whl" ]   && _files+=("$_pkg_whl")
+            [ -n "$_setup_whl" ] && _files+=("$_setup_whl")
+            [ -n "$_wheel_whl" ] && _files+=("$_wheel_whl")
+            if [ ${#_files[@]} -ge 2 ]; then
+                # 직접 파일 경로 + --no-deps (find-links 거치지 않고 명시 파일만)
+                sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-deps \
+                    "${_files[@]}" > "$_bootstrap_log" 2>&1 || _boot_rc=$?
             else
                 sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-index --find-links="$_bootstrap_wheels" \
-                    setuptools wheel > "$_bootstrap_log" 2>&1 || _boot_rc=$?
+                    setuptools wheel packaging > "$_bootstrap_log" 2>&1 || _boot_rc=$?
             fi
             tail -8 "$_bootstrap_log" 2>/dev/null | sed 's/^/      /'
             if [ "$_boot_rc" -eq 0 ]; then
-                echo "      ✓ setuptools/wheel 준비 완료"
+                echo "      ✓ setuptools/wheel/packaging 준비 완료"
             else
                 echo "      ⚠ 부트스트랩 실패 (exit=$_boot_rc) — sdist 빌드 없으면 무시 가능"
             fi
