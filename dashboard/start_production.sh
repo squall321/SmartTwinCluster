@@ -484,13 +484,60 @@ else
 fi
 echo ""
 
-# ==================== 7. Nginx 재시작 ====================
-echo -e "${BLUE}[7/7] Nginx 재시작...${NC}"
+# ==================== 7. Nginx 도메인 반영 + 재시작 ====================
+echo -e "${BLUE}[7/7] Nginx 도메인 반영 + 재시작...${NC}"
+
+# yaml 의 web.public_url(도메인/IP) 을 읽어 nginx server_name 에 자동 반영
+_YAML="$SCRIPT_DIR/../my_multihead_cluster.yaml"
+[ -f "$_YAML" ] || _YAML="$SCRIPT_DIR/../my_multihead_cluster_2.yaml"
+DOMAIN=$(python3 -c "
+import yaml
+try:
+    c = yaml.safe_load(open('$_YAML')) or {}
+    u = (c.get('web', {}) or {}).get('public_url', '') or ''
+    u = u.replace('https://','').replace('http://','').strip()
+    print(u)
+except Exception: pass
+" 2>/dev/null)
+
+if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "localhost" ] && [ "$DOMAIN" != "127.0.0.1" ]; then
+    echo "  → 도메인/공개주소: $DOMAIN"
+    # 활성 nginx site config 들에서 server_name 갱신 (도메인 + localhost 유지)
+    _changed=0
+    for _conf in /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf; do
+        [ -f "$_conf" ] || continue
+        # hpc/auth/web 관련 conf 만 (기본 default 제외)
+        grep -qE "auth|hpc|web_services|dashboard|portal" "$_conf" 2>/dev/null || continue
+        if grep -qE "server_name" "$_conf" 2>/dev/null; then
+            # 이미 도메인 있으면 스킵
+            if ! grep -qE "server_name[^;]*\b$DOMAIN\b" "$_conf" 2>/dev/null; then
+                sudo cp "$_conf" "${_conf}.bak.$(date +%s)" 2>/dev/null
+                # server_name 라인에 도메인을 맨 앞에 추가 (기존 토큰 보존)
+                sudo sed -i -E "s|(server_name)[[:space:]]+([^;]*);|\1 $DOMAIN \2;|" "$_conf"
+                # placeholder 도 치환
+                sudo sed -i "s|{{DOMAIN}}|$DOMAIN|g; s|{{PUBLIC_URL}}|$DOMAIN|g" "$_conf"
+                _changed=1
+                echo "    ✓ server_name 갱신: $(basename "$_conf")"
+            fi
+        fi
+    done
+    # X-Frame-Options DENY 가 남아있으면 SAMEORIGIN 으로 (VNC iframe 허용)
+    if grep -rqE "X-Frame-Options[^;]*DENY" /etc/nginx/ 2>/dev/null; then
+        sudo find /etc/nginx -type f \( -name '*.conf' -o -path '*/sites-*/*' -o -path '*/snippets/*' \) \
+            -exec sudo sed -i 's|X-Frame-Options DENY|X-Frame-Options SAMEORIGIN|g; s|X-Frame-Options "DENY"|X-Frame-Options "SAMEORIGIN"|g' {} + 2>/dev/null
+        echo "    ✓ X-Frame-Options DENY → SAMEORIGIN (VNC iframe 허용)"
+        _changed=1
+    fi
+    [ "$_changed" = "1" ] && echo "  → nginx config 갱신됨" || echo "  → 이미 도메인 반영됨 (변경 없음)"
+else
+    echo "  → web.public_url 미설정/localhost — nginx server_name 갱신 스킵"
+fi
+
 if sudo nginx -t > /dev/null 2>&1; then
     sudo systemctl reload nginx
     echo -e "${GREEN}✅ Nginx 재시작 완료${NC}"
 else
-    echo -e "${RED}❌ Nginx 설정 오류${NC}"
+    echo -e "${RED}❌ Nginx 설정 오류 — 백업으로 복원 가능 (.bak.*)${NC}"
     sudo nginx -t
 fi
 echo ""
