@@ -611,3 +611,64 @@ echo "  sudo systemctl restart dashboard_backend"
 echo "  journalctl -u websocket_service -f"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# ==================== 자동 진단 (문제 발생 시 그대로 복사해서 분석 의뢰) ====================
+echo "════════════════════════════════════════════════════════════════"
+echo "🩺 자동 진단 (문제 시 아래 블록 통째로 복사)"
+echo "════════════════════════════════════════════════════════════════"
+
+echo ""
+echo "── [1] 포트 LISTEN 상태 (안 떠있으면 502 원인) ──"
+for _p in 3010:frontend 4430:auth_backend 4431:auth_frontend 5010:dashboard_be \
+          5011:websocket 8001:cae 8002:vnc 5000:kooCAE_web 5001:kooCAE_auto \
+          7000:saml_idp 9090:prometheus 9100:node_exporter; do
+    _port="${_p%%:*}"; _name="${_p##*:}"
+    if sudo ss -tlnp 2>/dev/null | grep -q ":${_port} "; then
+        echo "  ✓ $_port ($_name) LISTEN"
+    else
+        echo "  ✗ $_port ($_name) 안 떠있음"
+    fi
+done
+
+echo ""
+echo "── [2] systemd 서비스 상태 ──"
+for service in "${BACKEND_SERVICES[@]}"; do
+    _st=$(systemctl is-active "$service" 2>/dev/null || echo unknown)
+    _sub=$(systemctl show -p SubState --value "$service" 2>/dev/null)
+    echo "  $service: $_st ($_sub)"
+done
+
+echo ""
+echo "── [3] nginx 활성 라우팅 (location / proxy_pass / server_name) ──"
+sudo nginx -T 2>/dev/null | grep -nE "server_name |location [/~]|proxy_pass|X-Frame-Options" \
+    | grep -vE "#|server_name_in_redirect|server_names_hash" | head -30
+
+echo ""
+echo "── [4] nginx 설정 테스트 ──"
+sudo nginx -t 2>&1 | sed 's/^/  /'
+
+echo ""
+echo "── [5] 핵심 엔드포인트 HTTP 응답 코드 (502/404 확인) ──"
+for _path in / /dashboard/ /vnc/ /auth/ /cae/; do
+    _code=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "http://localhost${_path}" 2>/dev/null || echo "ERR")
+    echo "  http://localhost${_path}  → $_code"
+done
+
+echo ""
+echo "── [6] nginx 에러 로그 마지막 12줄 ──"
+sudo tail -12 /var/log/nginx/error.log 2>/dev/null | sed 's/^/  /' || echo "  (에러 로그 없음)"
+
+echo ""
+echo "── [7] 활성 nginx conf 파일 + vncproxy/도메인 유무 ──"
+for _c in /etc/nginx/conf.d/*.conf; do
+    [ -f "$_c" ] || continue
+    case "$_c" in *.disabled*|*.bak*) continue;; esac
+    _vnc=$(grep -qE "vncproxy" "$_c" 2>/dev/null && echo "vncproxy✓" || echo "vncproxy✗")
+    _sn=$(grep -oE "server_name [^;]+;" "$_c" 2>/dev/null | head -1)
+    echo "  $(basename "$_c"): $_vnc | $_sn"
+done
+
+echo "════════════════════════════════════════════════════════════════"
+echo "🩺 진단 끝 — 위 [1]~[7] 블록을 복사해서 문제 분석 요청"
+echo "════════════════════════════════════════════════════════════════"
