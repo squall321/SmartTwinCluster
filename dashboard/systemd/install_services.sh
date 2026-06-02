@@ -147,6 +147,69 @@ echo "  오프라인 wheels: $WHEELS_BASE"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+################################################################################
+# [사전 점검] 환경 진단 — 설치 실패 원인을 미리 보여줌
+################################################################################
+preflight_check() {
+    echo -e "${BLUE}[사전 점검] 오프라인 설치 환경 진단${NC}"
+    local PROBLEM=0
+
+    # 1) pip.conf / 환경변수가 온라인 index 강제하는지 (오프라인 설치 방해)
+    local pipconf_found=""
+    for _pc in /etc/pip.conf "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf"; do
+        [ -f "$_pc" ] && pipconf_found+="$_pc "
+    done
+    if [ -n "$pipconf_found" ]; then
+        echo -e "  ${YELLOW}⚠ pip.conf 발견: $pipconf_found${NC}"
+        grep -HiE "index-url|extra-index|no-index|find-links" $pipconf_found 2>/dev/null | sed 's/^/      /'
+    else
+        echo -e "  ${GREEN}✓${NC} pip.conf 없음 (오프라인 설치 방해 없음)"
+    fi
+    [ -n "${PIP_INDEX_URL:-}${PIP_EXTRA_INDEX_URL:-}" ] && {
+        echo -e "  ${YELLOW}⚠ PIP_INDEX_URL 환경변수 설정됨${NC}"; PROBLEM=1; }
+
+    # 2) Python 버전별 venv pip 버전 + wheels 디렉토리 핵심 패키지 확인
+    for _pyv in 3.12 3.13; do
+        local _wd="${WHEELS_BASE}/python${_pyv}"
+        if [ ! -d "$_wd" ]; then
+            echo -e "  ${RED}✗${NC} python${_pyv} wheels 디렉토리 없음: $_wd"
+            PROBLEM=1; continue
+        fi
+        local _cnt=$(ls "$_wd"/*.whl 2>/dev/null | wc -l)
+        # 빌드 부트스트랩 3종 존재 여부
+        local _miss=""
+        ls "$_wd"/setuptools-*.whl &>/dev/null || _miss+="setuptools "
+        ls "$_wd"/wheel-*.whl      &>/dev/null || _miss+="wheel "
+        ls "$_wd"/packaging-*.whl  &>/dev/null || _miss+="packaging "
+        ls "$_wd"/pip-*.whl        &>/dev/null || _miss+="pip "
+        if [ -n "$_miss" ]; then
+            echo -e "  ${RED}✗${NC} python${_pyv}: wheel ${_cnt}개, 부트스트랩 누락: ${RED}${_miss}${NC}"
+            PROBLEM=1
+        else
+            echo -e "  ${GREEN}✓${NC} python${_pyv}: wheel ${_cnt}개, 부트스트랩(setuptools/wheel/packaging/pip) 완비"
+        fi
+        # 시스템에 해당 python 있는지
+        command -v "python${_pyv}" &>/dev/null \
+            && echo -e "      python${_pyv}: $(python${_pyv} --version 2>&1)" \
+            || { echo -e "  ${RED}✗${NC} python${_pyv} 인터프리터 없음"; PROBLEM=1; }
+    done
+
+    # 3) 인터넷 차단 여부 (오프라인 환경이면 정상)
+    if timeout 2 bash -c "</dev/tcp/8.8.8.8/53" 2>/dev/null; then
+        echo -e "  ${YELLOW}ℹ${NC} 인터넷 연결됨 (온라인 폴백 가능)"
+    else
+        echo -e "  ${YELLOW}ℹ${NC} 인터넷 차단 (완전 오프라인 — 모든 패키지가 wheels에 있어야 함)"
+    fi
+
+    if [ "$PROBLEM" -ne 0 ]; then
+        echo -e "  ${RED}⚠ 위 문제로 설치 실패 가능 — 계속 진행하지만 주의${NC}"
+    else
+        echo -e "  ${GREEN}✓ 사전 점검 통과${NC}"
+    fi
+    echo ""
+}
+preflight_check
+
 # 상태만 확인
 if [ "$STATUS_ONLY" = true ]; then
     echo -e "${BLUE}[서비스 상태]${NC}"
@@ -195,6 +258,43 @@ echo ""
 # 2. venv 설정 및 패키지 설치
 ################################################################################
 echo -e "${BLUE}[2/5] Python venv 설정 및 패키지 설치...${NC}"
+
+# pip 설치 실패 시 자동 원인 진단 — 어느 패키지가 wheels 에 없는지 콕 집어줌
+diagnose_pip_failure() {
+    local log="$1" req="$2" wd="$3"
+    # 1) pip 이 실제로 거부/누락 보고한 패키지 추출
+    local failed_pkgs
+    failed_pkgs=$(grep -oiE "(Could not find a version that satisfies the requirement|No matching distribution found for) [^ ]+" "$log" 2>/dev/null \
+        | sed -E 's/.*(requirement|for) //' | sort -u)
+    # online 시도 흔적 (오프라인인데 인터넷 가려 함 = --no-index 안 먹은 신호)
+    if grep -qiE "Temporary failure in name resolution|/simple/" "$log" 2>/dev/null; then
+        echo -e "      ${YELLOW}▸ pip 이 온라인(PyPI)로 접속 시도함 → --no-index 무시되거나 빌드격리 환경${NC}"
+    fi
+    if grep -qiE "ModuleNotFoundError: No module named 'setuptools'|Cannot import 'setuptools.build_meta'" "$log" 2>/dev/null; then
+        echo -e "      ${YELLOW}▸ sdist 빌드에 setuptools 필요 → 부트스트랩 미적용 or sdist-only 패키지 존재${NC}"
+    fi
+    # 2) 각 미해결 패키지가 wheels 에 정말 없는지 자동 점검
+    if [ -n "$failed_pkgs" ]; then
+        echo -e "      ${RED}미해결 패키지:${NC}"
+        while IFS= read -r spec; do
+            [ -z "$spec" ] && continue
+            local pkg=$(echo "$spec" | sed -E 's/[<>=!~].*//' | tr -d ' ')
+            local ver=$(echo "$spec" | grep -oP '==\K[^ ;,]+' | head -1)
+            local pl=$(echo "$pkg" | tr 'A-Z' 'a-z')
+            local pu=$(echo "$pkg" | tr '-' '_'); local plu=$(echo "$pl" | tr '-' '_')
+            local whl=$(ls "$wd"/${pkg}-*.whl "$wd"/${pl}-*.whl "$wd"/${pu}-*.whl "$wd"/${plu}-*.whl 2>/dev/null | head -1)
+            local sd=$(ls "$wd"/${pkg}-*.tar.gz "$wd"/${pl}-*.tar.gz "$wd"/${pu}-*.tar.gz "$wd"/${plu}-*.tar.gz 2>/dev/null | head -1)
+            if [ -n "$whl" ]; then
+                echo -e "        ${YELLOW}$spec${NC}: wheel 있음 ($(basename "$whl")) → 버전핀 불일치 가능"
+            elif [ -n "$sd" ]; then
+                echo -e "        ${RED}$spec${NC}: sdist 만 있음 ($(basename "$sd")) → 빌드 필요(C확장이면 dev패키지+컴파일)"
+            else
+                echo -e "        ${RED}$spec${NC}: wheels 에 아예 없음 → VM 에서 받아 추가 필요"
+            fi
+        done <<< "$failed_pkgs"
+    fi
+    echo -e "      로그: $log (tail -30 으로 전체 확인)"
+}
 
 setup_venv() {
     local service_dir="$1"
@@ -307,21 +407,14 @@ setup_venv() {
 
             # 오프라인 설치 — --no-build-isolation 로 PEP 517 격리환경의 wheel 부재 회피
             # (격리환경은 --find-links 못 봐서 'wheel' 패키지 못 찾음 → 빌드 실패)
-            if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$wheels_dir" \
+            if sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-index --find-links="$wheels_dir" \
                     --no-build-isolation -r "$full_path/requirements.txt" > "$full_path/logs/pip_install.log" 2>&1; then
                 echo -e "    ${GREEN}✓ 오프라인 설치 완료${NC}"
             else
-                # 온라인 fallback
-                echo -e "    ${YELLOW}⚠ 오프라인 실패, 온라인 시도...${NC}"
-                echo "    → pip 로그 마지막 10줄:"
-                tail -10 "$full_path/logs/pip_install.log" 2>/dev/null | sed 's/^/      /'
-                if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install -r "$full_path/requirements.txt" >> "$full_path/logs/pip_install.log" 2>&1; then
-                    echo -e "    ${GREEN}✓ 온라인 설치 완료${NC}"
-                else
-                    echo -e "    ${RED}❌ 설치 실패 (로그: $full_path/logs/pip_install.log)${NC}"
-                    tail -20 "$full_path/logs/pip_install.log" 2>/dev/null | sed 's/^/      /'
-                    return 1
-                fi
+                # 실패 즉시 자동 원인 진단 (온라인 시도 안 함 — 오프라인 환경이므로)
+                echo -e "    ${RED}❌ 오프라인 설치 실패 — 자동 원인 진단:${NC}"
+                diagnose_pip_failure "$full_path/logs/pip_install.log" "$full_path/requirements.txt" "$wheels_dir"
+                return 1
             fi
         else
             # 온라인 설치
