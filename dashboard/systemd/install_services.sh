@@ -244,12 +244,27 @@ setup_venv() {
         local _bootstrap_wheels="${WHEELS_BASE}/python${_bootstrap_actual_ver}"
         if [ -d "$_bootstrap_wheels" ]; then
             echo "    → 빌드 의존성 부트스트랩 (pip/setuptools/wheel) ..."
-            if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$_bootstrap_wheels" \
-                    --upgrade pip setuptools wheel 2>&1 | tail -5 | sed 's/^/      /'; then
+            local _bootstrap_log=$(mktemp)
+            sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$_bootstrap_wheels" \
+                --upgrade pip setuptools wheel > "$_bootstrap_log" 2>&1
+            local _boot_rc=$?
+            tail -5 "$_bootstrap_log" | sed 's/^/      /'
+            if [ $_boot_rc -eq 0 ]; then
                 echo "      ✓ pip/setuptools/wheel 준비 완료"
             else
-                echo "      ⚠ 부트스트랩 일부 실패 (계속 진행)"
+                echo "      ❌ 부트스트랩 실패 (exit=$_boot_rc) — wheel/setuptools 없이는 sdist 빌드 실패함"
+                # wheel/setuptools 만 따로 시도 (pip 빼고)
+                sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$_bootstrap_wheels" \
+                    setuptools wheel > "$_bootstrap_log" 2>&1
+                local _retry_rc=$?
+                tail -3 "$_bootstrap_log" | sed 's/^/        /'
+                if [ $_retry_rc -eq 0 ]; then
+                    echo "      ✓ setuptools/wheel 만 재시도 성공"
+                else
+                    echo "      ❌ 재시도도 실패 — 본 설치 깨질 가능성 큼"
+                fi
             fi
+            rm -f "$_bootstrap_log"
         fi
     fi
 
