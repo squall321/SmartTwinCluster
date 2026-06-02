@@ -224,6 +224,12 @@ setup_venv() {
             rm -rf "$full_path/venv"
         fi
 
+        # 서비스 디렉토리 자체에 RUN_USER 가 쓸 수 있도록 그룹쓰기 부여
+        # (koopark 소유인 채로 그룹만 stcx로 → stcx 가 venv 생성 가능, koopark 도 작업 가능)
+        chgrp "$RUN_GROUP" "$full_path"
+        chmod g+rwx "$full_path"
+        chmod g+s "$full_path"   # 새로 생기는 venv 도 group=$RUN_GROUP 상속
+
         # venv 생성 (실제 사용자로)
         sudo -u "$RUN_USER" $python_cmd -m venv "$full_path/venv"
 
