@@ -231,6 +231,18 @@ setup_venv() {
             echo -e "    ${RED}❌ venv 생성 실패${NC}"
             return 1
         fi
+
+        # 빌드 의존성 부트스트랩 — pip/setuptools/wheel 을 오프라인 wheels 에서 먼저 설치
+        # (이게 없으면 일부 패키지가 빌드 의존성 해결 못해 ERROR: No matching distribution for 'wheel')
+        local _bootstrap_actual_ver=$("$full_path/venv/bin/python" --version 2>&1 | grep -oP 'Python \K\d+\.\d+' || echo "$py_version")
+        local _bootstrap_wheels="${WHEELS_BASE}/python${_bootstrap_actual_ver}"
+        if [ -d "$_bootstrap_wheels" ]; then
+            echo "    → 빌드 의존성 부트스트랩 (pip/setuptools/wheel) ..."
+            sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$_bootstrap_wheels" \
+                --upgrade pip setuptools wheel >/dev/null 2>&1 \
+                && echo "      ✓ pip/setuptools/wheel 준비 완료" \
+                || echo "      ⚠ 부트스트랩 일부 실패 (계속 진행)"
+        fi
     fi
 
     # 패키지 설치
