@@ -125,3 +125,9 @@ offline_packages_2404/host_packages.txt
 my_*.yaml
 offline_packages_2404/.drive-sync.env
 offline_packages_2404/dist/stc-offline-*/
+
+# 부트스트랩 필수 wheel (작아서 git 트래킹) — install_services.sh 가 직접 경로로 호출
+!offline_packages_2404/python_wheels/python3.12/setuptools-*.whl
+!offline_packages_2404/python_wheels/python3.12/wheel-*.whl
+!offline_packages_2404/python_wheels/python3.13/setuptools-*.whl
+!offline_packages_2404/python_wheels/python3.13/wheel-*.whl
