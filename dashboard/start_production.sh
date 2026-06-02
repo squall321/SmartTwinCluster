@@ -502,21 +502,49 @@ except Exception: pass
 
 if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "localhost" ] && [ "$DOMAIN" != "127.0.0.1" ]; then
     echo "  → 도메인/공개주소: $DOMAIN"
-    # 활성 conf 에 VNC 라우팅(vncproxy) 이 없으면 phase5 완성 템플릿으로 전체 재생성
-    # (start_production 단독 실행 시 phase0 placeholder 가 active 일 수 있음 → VNC 404 방지)
-    _ACTIVE_CONF=/etc/nginx/conf.d/auth-portal.conf
-    if [ ! -f "$_ACTIVE_CONF" ] || ! grep -q 'vncproxy' "$_ACTIVE_CONF" 2>/dev/null; then
-        echo "  → 활성 nginx conf 에 VNC 라우팅 없음 → 전체 템플릿 재생성"
+
+    # SSO 모드 읽기 — 어느 nginx 템플릿이 정본인지 결정
+    #   SSO on  → auth-portal.conf (/ → 4431 auth_frontend)
+    #   SSO off → hpc-portal.conf  (/ → 3010 frontend)
+    SSO_ENABLED=$(python3 -c "
+import yaml
+try:
+    c = yaml.safe_load(open('$_YAML')) or {}
+    print(str((c.get('sso') or {}).get('enabled', False)).lower())
+except Exception: print('false')
+" 2>/dev/null)
+    if [ "$SSO_ENABLED" = "true" ]; then
+        _ACTIVE_CONF=/etc/nginx/conf.d/auth-portal.conf
+        _OTHER_CONF=/etc/nginx/conf.d/hpc-portal.conf
         _TPL="$SCRIPT_DIR/nginx/auth-portal.conf"
+        _SN_FROM="server_name auth.hpc.local;"
+    else
+        _ACTIVE_CONF=/etc/nginx/conf.d/hpc-portal.conf
+        _OTHER_CONF=/etc/nginx/conf.d/auth-portal.conf
+        _TPL="$SCRIPT_DIR/nginx/hpc-portal.conf"
+        _SN_FROM="server_name localhost;"
+    fi
+    echo "  → SSO=$SSO_ENABLED → 정본 conf: $(basename "$_ACTIVE_CONF")"
+
+    # 충돌 방지: 반대편 conf 가 active 면 비활성화 (server_name 중복 → 502 유발)
+    if [ -f "$_OTHER_CONF" ]; then
+        sudo mv "$_OTHER_CONF" "${_OTHER_CONF}.disabled_$(date +%s)" 2>/dev/null \
+            && echo "    ✓ 충돌 conf 비활성화: $(basename "$_OTHER_CONF")"
+    fi
+
+    # 정본 conf 에 VNC 라우팅 없거나 파일 없으면 템플릿으로 재생성
+    if [ ! -f "$_ACTIVE_CONF" ] || ! grep -q 'vncproxy' "$_ACTIVE_CONF" 2>/dev/null; then
+        echo "  → $(basename "$_ACTIVE_CONF") 재생성 (VNC 라우팅 + 도메인)"
         if [ -f "$_TPL" ]; then
             _PROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
             sudo bash -c "sed \
+                -e 's|$_SN_FROM|server_name $DOMAIN localhost;|g' \
                 -e 's|server_name auth.hpc.local;|server_name $DOMAIN localhost;|g' \
                 -e 's|server_name _;|server_name $DOMAIN localhost;|g' \
                 -e 's|/home/koopark/claude/KooSlurmInstallAutomationRefactory/|$_PROOT/|g' \
                 -e 's|{{DOMAIN}}|$DOMAIN|g' -e 's|{{PUBLIC_URL}}|$DOMAIN|g' \
                 '$_TPL' > '$_ACTIVE_CONF'"
-            echo "    ✓ auth-portal.conf 재생성 (도메인 + VNC 라우팅 포함)"
+            echo "    ✓ $(basename "$_ACTIVE_CONF") 재생성 완료"
         else
             echo "    ⚠ 템플릿 없음: $_TPL"
         fi
