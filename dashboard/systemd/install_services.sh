@@ -41,14 +41,46 @@ if [ -f "$WHEELS_TARBALL" ] && [ ! -d "$WHEELS_BASE/python3.12" ]; then
     echo -e "${GREEN}✓ 압축 해제 완료${NC}"
 fi
 
-# 실행 사용자 (sudo로 실행 시 실제 사용자)
-RUN_USER="${SUDO_USER:-$(whoami)}"
-RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
-
-# 관리자(install 실행한 사람)와 서비스 실행 계정 분리 시
-# 관리자도 logs 등에 접근 가능하게 RUN_USER 그룹에 추가
+# 관리자 (install 실행 계정)
 ADMIN_USER="${SUDO_USER:-$(whoami)}"
-if [ "$ADMIN_USER" != "$RUN_USER" ] && id "$ADMIN_USER" &>/dev/null && id "$RUN_USER" &>/dev/null; then
+
+# 서비스 실행 계정 결정 우선순위:
+#   1. 환경변수 SERVICE_USER (명시 지정 시)
+#   2. yaml 의 users.ssh_user
+#   3. 폴백: ADMIN_USER
+RUN_USER=""
+if [ -n "${SERVICE_USER:-}" ]; then
+    RUN_USER="$SERVICE_USER"
+else
+    # yaml 경로 후보
+    for _yaml in \
+        "${CLUSTER_YAML:-}" \
+        "$SCRIPT_DIR/../../my_multihead_cluster.yaml" \
+        "/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml"; do
+        [ -n "$_yaml" ] && [ -f "$_yaml" ] || continue
+        RUN_USER=$(python3 -c "
+import yaml,sys
+try:
+    c=yaml.safe_load(open('$_yaml'))
+    u=(c.get('users',{}) or {}).get('ssh_user','') or ''
+    print(u)
+except Exception: pass
+" 2>/dev/null)
+        [ -n "$RUN_USER" ] && break
+    done
+    # yaml에서도 못 찾으면 ADMIN_USER 폴백
+    [ -z "$RUN_USER" ] && RUN_USER="$ADMIN_USER"
+fi
+# 결정된 계정이 존재하는지 검증, 없으면 ADMIN_USER 폴백
+if ! id "$RUN_USER" &>/dev/null; then
+    echo "  ⚠️  SERVICE_USER='$RUN_USER' 가 시스템에 없음 → ADMIN_USER 폴백"
+    RUN_USER="$ADMIN_USER"
+fi
+RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")
+echo "  → ADMIN_USER=$ADMIN_USER, SERVICE_USER=$RUN_USER (group=$RUN_GROUP)"
+
+# ADMIN_USER 가 RUN_USER 와 다르면 RUN_GROUP 에 추가 (관리 권한 부여)
+if [ "$ADMIN_USER" != "$RUN_USER" ] && id "$ADMIN_USER" &>/dev/null; then
     if ! id -nG "$ADMIN_USER" | tr ' ' '\n' | grep -qx "$RUN_GROUP"; then
         echo "  → $ADMIN_USER 를 $RUN_GROUP 그룹에 추가 (관리 권한)"
         usermod -aG "$RUN_GROUP" "$ADMIN_USER"
