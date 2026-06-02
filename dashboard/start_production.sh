@@ -502,6 +502,25 @@ except Exception: pass
 
 if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "localhost" ] && [ "$DOMAIN" != "127.0.0.1" ]; then
     echo "  → 도메인/공개주소: $DOMAIN"
+    # 활성 conf 에 VNC 라우팅(vncproxy) 이 없으면 phase5 완성 템플릿으로 전체 재생성
+    # (start_production 단독 실행 시 phase0 placeholder 가 active 일 수 있음 → VNC 404 방지)
+    _ACTIVE_CONF=/etc/nginx/conf.d/auth-portal.conf
+    if [ ! -f "$_ACTIVE_CONF" ] || ! grep -q 'vncproxy' "$_ACTIVE_CONF" 2>/dev/null; then
+        echo "  → 활성 nginx conf 에 VNC 라우팅 없음 → 전체 템플릿 재생성"
+        _TPL="$SCRIPT_DIR/nginx/auth-portal.conf"
+        if [ -f "$_TPL" ]; then
+            _PROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+            sudo bash -c "sed \
+                -e 's|server_name auth.hpc.local;|server_name $DOMAIN localhost;|g' \
+                -e 's|server_name _;|server_name $DOMAIN localhost;|g' \
+                -e 's|/home/koopark/claude/KooSlurmInstallAutomationRefactory/|$_PROOT/|g' \
+                -e 's|{{DOMAIN}}|$DOMAIN|g' -e 's|{{PUBLIC_URL}}|$DOMAIN|g' \
+                '$_TPL' > '$_ACTIVE_CONF'"
+            echo "    ✓ auth-portal.conf 재생성 (도메인 + VNC 라우팅 포함)"
+        else
+            echo "    ⚠ 템플릿 없음: $_TPL"
+        fi
+    fi
     # 활성 nginx site config 들에서 server_name 갱신 (도메인 + localhost 유지)
     _changed=0
     for _conf in /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf; do

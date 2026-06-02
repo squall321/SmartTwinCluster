@@ -2861,7 +2861,7 @@ configure_nginx() {
 
                 sed -e "s|/home/koopark/claude/KooSlurmInstallAutomationRefactory/|$PROJECT_ROOT/|g" \
                     -e "s|/home/[^/]\+/claude/[^/]\+/|$PROJECT_ROOT/|g" \
-                    -e "s|server_name auth.hpc.local;|server_name $server_hostname;|g" \
+                    -e "s|server_name auth.hpc.local;|server_name $server_hostname localhost;|g" \
                     "$nginx_template" > "$nginx_conf"
                 log_success "Generated $nginx_conf from template (HTTPS with SSO, server_name: $server_hostname)"
             elif [[ -f "$nginx_conf" ]]; then
