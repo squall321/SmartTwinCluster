@@ -168,6 +168,24 @@ preflight_check() {
     [ -n "${PIP_INDEX_URL:-}${PIP_EXTRA_INDEX_URL:-}" ] && {
         echo -e "  ${YELLOW}⚠ PIP_INDEX_URL 환경변수 설정됨${NC}"; PROBLEM=1; }
 
+    # 1-b) 프록시 설정 (오프라인 설치 시 pip 이 프록시 통해 PyPI 가려다 실패/지연)
+    local _proxy_vars=""
+    for _pv in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY; do
+        [ -n "${!_pv:-}" ] && _proxy_vars+="$_pv=${!_pv} "
+    done
+    if [ -n "$_proxy_vars" ]; then
+        echo -e "  ${YELLOW}⚠ 프록시 환경변수 설정됨 → 오프라인 설치 방해 가능:${NC}"
+        echo "      $_proxy_vars" | tr ' ' '\n' | grep -v '^$' | sed 's/^/      /'
+    fi
+    # pip.conf 안의 proxy 지시자
+    if [ -n "$pipconf_found" ]; then
+        grep -HiE "^\s*proxy\s*=" $pipconf_found 2>/dev/null | sed 's/^/      pip.conf proxy: /'
+    fi
+    # apt/wget 프록시 (시스템 전역 — 누가 박아둔 흔적)
+    for _ap in /etc/apt/apt.conf.d/*proxy* /etc/environment /etc/wgetrc; do
+        [ -f "$_ap" ] && grep -liE "proxy" "$_ap" 2>/dev/null | sed 's/^/      시스템 프록시 흔적: /'
+    done
+
     # 2) Python 버전별 venv pip 버전 + wheels 디렉토리 핵심 패키지 확인
     for _pyv in 3.12 3.13; do
         local _wd="${WHEELS_BASE}/python${_pyv}"
@@ -354,12 +372,16 @@ setup_venv() {
             [ -n "$_pkg_whl" ]   && _files+=("$_pkg_whl")
             [ -n "$_setup_whl" ] && _files+=("$_setup_whl")
             [ -n "$_wheel_whl" ] && _files+=("$_wheel_whl")
+            # 프록시/index 환경변수 차단 후 직접 파일 경로 설치 (--no-deps)
+            local _PIP_ENV=(env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY
+                -u all_proxy -u ALL_PROXY -u PIP_INDEX_URL -u PIP_EXTRA_INDEX_URL
+                PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1)
             if [ ${#_files[@]} -ge 2 ]; then
-                # 직접 파일 경로 + --no-deps (find-links 거치지 않고 명시 파일만)
-                sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-deps \
+                sudo -u "$RUN_USER" "${_PIP_ENV[@]}" "$full_path/venv/bin/python" -m pip install --no-deps \
                     "${_files[@]}" > "$_bootstrap_log" 2>&1 || _boot_rc=$?
             else
-                sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-index --find-links="$_bootstrap_wheels" \
+                sudo -u "$RUN_USER" "${_PIP_ENV[@]}" PIP_FIND_LINKS="$_bootstrap_wheels" \
+                    "$full_path/venv/bin/python" -m pip install \
                     setuptools wheel packaging > "$_bootstrap_log" 2>&1 || _boot_rc=$?
             fi
             tail -8 "$_bootstrap_log" 2>/dev/null | sed 's/^/      /'
@@ -405,10 +427,19 @@ setup_venv() {
                 echo -e "    ${YELLOW}⚠ Flask wheel 없음!${NC}"
             fi
 
-            # 오프라인 설치 — --no-build-isolation 로 PEP 517 격리환경의 wheel 부재 회피
-            # (격리환경은 --find-links 못 봐서 'wheel' 패키지 못 찾음 → 빌드 실패)
-            if sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-index --find-links="$wheels_dir" \
-                    --no-build-isolation -r "$full_path/requirements.txt" > "$full_path/logs/pip_install.log" 2>&1; then
+            # 오프라인 설치 — 프록시/index 환경변수 완전 차단해서 100% 로컬 강제
+            #  - env -u 로 proxy/PIP_INDEX 류 제거 (누가 시스템에 박아둔 프록시 무력화)
+            #  - PIP_NO_INDEX=1, PIP_FIND_LINKS 명시 (플래그 + env 이중 강제)
+            #  - PIP_NO_BUILD_ISOLATION=1 (sdist 빌드 시 venv 의 setuptools 사용)
+            if sudo -u "$RUN_USER" env \
+                    -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+                    -u all_proxy -u ALL_PROXY -u PIP_INDEX_URL -u PIP_EXTRA_INDEX_URL \
+                    PIP_NO_INDEX=1 \
+                    PIP_FIND_LINKS="$wheels_dir" \
+                    PIP_NO_BUILD_ISOLATION=1 \
+                    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+                    "$full_path/venv/bin/python" -m pip install \
+                    -r "$full_path/requirements.txt" > "$full_path/logs/pip_install.log" 2>&1; then
                 echo -e "    ${GREEN}✓ 오프라인 설치 완료${NC}"
             else
                 # 실패 즉시 자동 원인 진단 (온라인 시도 안 함 — 오프라인 환경이므로)
