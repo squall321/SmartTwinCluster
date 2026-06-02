@@ -244,10 +244,12 @@ setup_venv() {
         local _bootstrap_wheels="${WHEELS_BASE}/python${_bootstrap_actual_ver}"
         if [ -d "$_bootstrap_wheels" ]; then
             echo "    → 빌드 의존성 부트스트랩 (pip/setuptools/wheel) ..."
-            sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$_bootstrap_wheels" \
-                --upgrade pip setuptools wheel >/dev/null 2>&1 \
-                && echo "      ✓ pip/setuptools/wheel 준비 완료" \
-                || echo "      ⚠ 부트스트랩 일부 실패 (계속 진행)"
+            if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$_bootstrap_wheels" \
+                    --upgrade pip setuptools wheel 2>&1 | tail -5 | sed 's/^/      /'; then
+                echo "      ✓ pip/setuptools/wheel 준비 완료"
+            else
+                echo "      ⚠ 부트스트랩 일부 실패 (계속 진행)"
+            fi
         fi
     fi
 
@@ -284,8 +286,10 @@ setup_venv() {
                 echo -e "    ${YELLOW}⚠ Flask wheel 없음!${NC}"
             fi
 
-            # 오프라인 설치
-            if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$wheels_dir" -r "$full_path/requirements.txt" > "$full_path/logs/pip_install.log" 2>&1; then
+            # 오프라인 설치 — --no-build-isolation 로 PEP 517 격리환경의 wheel 부재 회피
+            # (격리환경은 --find-links 못 봐서 'wheel' 패키지 못 찾음 → 빌드 실패)
+            if sudo -u "$RUN_USER" "$full_path/venv/bin/pip" install --no-index --find-links="$wheels_dir" \
+                    --no-build-isolation -r "$full_path/requirements.txt" > "$full_path/logs/pip_install.log" 2>&1; then
                 echo -e "    ${GREEN}✓ 오프라인 설치 완료${NC}"
             else
                 # 온라인 fallback
