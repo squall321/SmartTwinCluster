@@ -244,11 +244,20 @@ setup_venv() {
         local _bootstrap_wheels="${WHEELS_BASE}/python${_bootstrap_actual_ver}"
         if [ -d "$_bootstrap_wheels" ]; then
             echo "    → 빌드 의존성 부트스트랩 (setuptools/wheel) ..."
-            # set -e 가 켜져있어서 pip 실패 시 그자리 종료 → || true 로 막고 rc 캡처
+            # pip 26.x 가 --find-links 에서 py3-none-any 휠 인식 못 하는 경우 있음
+            # → 직접 파일 경로 지정으로 우회 (--find-links 안 거침)
+            local _setup_whl=$(ls "$_bootstrap_wheels"/setuptools-*.whl 2>/dev/null | sort -V | tail -1)
+            local _wheel_whl=$(ls "$_bootstrap_wheels"/wheel-*.whl 2>/dev/null | sort -V | tail -1)
             local _bootstrap_log=$(mktemp)
             local _boot_rc=0
-            sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-index --find-links="$_bootstrap_wheels" \
-                setuptools wheel > "$_bootstrap_log" 2>&1 || _boot_rc=$?
+            if [ -n "$_setup_whl" ] && [ -n "$_wheel_whl" ]; then
+                # 직접 파일 경로 (find-links 함정 회피)
+                sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install \
+                    "$_setup_whl" "$_wheel_whl" > "$_bootstrap_log" 2>&1 || _boot_rc=$?
+            else
+                sudo -u "$RUN_USER" "$full_path/venv/bin/python" -m pip install --no-index --find-links="$_bootstrap_wheels" \
+                    setuptools wheel > "$_bootstrap_log" 2>&1 || _boot_rc=$?
+            fi
             tail -8 "$_bootstrap_log" 2>/dev/null | sed 's/^/      /'
             if [ "$_boot_rc" -eq 0 ]; then
                 echo "      ✓ setuptools/wheel 준비 완료"
