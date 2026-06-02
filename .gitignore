@@ -133,3 +133,6 @@ offline_packages_2404/dist/stc-offline-*/
 !offline_packages_2404/python_wheels/python3.13/wheel-*.whl
 !offline_packages_2404/python_wheels/python3.12/packaging-*.whl
 !offline_packages_2404/python_wheels/python3.13/packaging-*.whl
+# SAML 인증용 — manylinux 자체번들 wheel (sdist 빌드 회피, ABI 정합)
+!offline_packages_2404/python_wheels/python3.12/xmlsec-*.whl
+!offline_packages_2404/python_wheels/python3.12/lxml-6*.whl

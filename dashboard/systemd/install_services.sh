@@ -427,20 +427,26 @@ setup_venv() {
                 echo -e "    ${YELLOW}⚠ Flask wheel 없음!${NC}"
             fi
 
-            # 오프라인 설치 — 프록시/index 환경변수 완전 차단해서 100% 로컬 강제
-            #  - env -u 로 proxy/PIP_INDEX 류 제거 (누가 시스템에 박아둔 프록시 무력화)
-            #  - PIP_NO_INDEX=1, PIP_FIND_LINKS 명시 (플래그 + env 이중 강제)
-            #  - PIP_NO_BUILD_ISOLATION=1 (sdist 빌드 시 venv 의 setuptools 사용)
+            # 오프라인 설치 — 100% wheel 강제, sdist 컴파일 절대 금지 (영구 해결)
+            #  - env -u proxy/PIP_INDEX : 시스템에 박힌 프록시/인덱스 무력화
+            #  - PIP_NO_INDEX=1          : PyPI 차단
+            #  - find-links 절대경로     : pip 25/26 공통 — 상대경로면 'from versions: none'
+            #  - --only-binary=:all:     : sdist 빌드 금지. 빌드의존성 부재로 인한
+            #                              whack-a-mole 원천 차단. 누락 wheel 은 VM 패키징
+            #                              단계에서 잡으라는 명시적 실패로 전환.
+            #  - PIP_NO_BUILD_ISOLATION  : 안전벨트
+            local _abs_wheels="$(cd "$wheels_dir" && pwd)"
             if sudo -u "$RUN_USER" env \
                     -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
                     -u all_proxy -u ALL_PROXY -u PIP_INDEX_URL -u PIP_EXTRA_INDEX_URL \
                     PIP_NO_INDEX=1 \
-                    PIP_FIND_LINKS="$wheels_dir" \
+                    PIP_FIND_LINKS="$_abs_wheels" \
                     PIP_NO_BUILD_ISOLATION=1 \
                     PIP_DISABLE_PIP_VERSION_CHECK=1 \
                     "$full_path/venv/bin/python" -m pip install \
+                    --only-binary=:all: \
                     -r "$full_path/requirements.txt" > "$full_path/logs/pip_install.log" 2>&1; then
-                echo -e "    ${GREEN}✓ 오프라인 설치 완료${NC}"
+                echo -e "    ${GREEN}✓ 오프라인 설치 완료 (100% wheel)${NC}"
             else
                 # 실패 즉시 자동 원인 진단 (온라인 시도 안 함 — 오프라인 환경이므로)
                 echo -e "    ${RED}❌ 오프라인 설치 실패 — 자동 원인 진단:${NC}"
