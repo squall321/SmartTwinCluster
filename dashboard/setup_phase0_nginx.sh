@@ -125,7 +125,7 @@ ssl_dhparam /etc/ssl/certs/dhparam.pem;
 
 # Security Headers
 add_header Strict-Transport-Security "max-age=63072000" always;
-add_header X-Frame-Options DENY always;
+add_header X-Frame-Options SAMEORIGIN always;
 add_header X-Content-Type-Options nosniff always;
 add_header X-XSS-Protection "1; mode=block" always;
 EOF

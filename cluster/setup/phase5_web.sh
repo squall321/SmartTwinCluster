@@ -2803,6 +2803,8 @@ configure_nginx() {
                 sed -e "s|/home/koopark/claude/KooSlurmInstallAutomationRefactory/|$PROJECT_ROOT/|g" \
                     -e "s|/home/[^/]\+/claude/[^/]\+/|$PROJECT_ROOT/|g" \
                     -e "s|server_name localhost;|server_name $server_hostname localhost;|g" \
+                    -e "s|{{DOMAIN}}|$server_hostname|g" \
+                    -e "s|{{PUBLIC_URL}}|$server_hostname|g" \
                     "$nginx_template" > "$nginx_conf"
                 log_success "Generated $nginx_conf (server_name: $server_hostname localhost)"
             else
@@ -3168,7 +3170,9 @@ ssl_session_cache shared:SSL:10m;
 ssl_session_tickets off;
 ssl_dhparam /etc/ssl/certs/dhparam.pem;
 add_header Strict-Transport-Security "max-age=63072000" always;
-add_header X-Frame-Options DENY always;
+# SAMEORIGIN: 같은 도메인 iframe 허용 (VNC/noVNC 가 대시보드 iframe 안에서 동작)
+# DENY 면 VNC 콘솔이 'Refused to display in a frame' 로 안 뜸
+add_header X-Frame-Options SAMEORIGIN always;
 add_header X-Content-Type-Options nosniff always;
 add_header X-XSS-Protection "1; mode=block" always;
 EOF
