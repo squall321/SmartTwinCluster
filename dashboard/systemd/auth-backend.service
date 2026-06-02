@@ -5,14 +5,14 @@ Wants=redis.service
 
 [Service]
 Type=simple
-User=koopark
-Group=koopark
-WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430
-Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
+User=__SERVICE_USER__   # placeholder — install_services.sh가 동적 치환
+Group=__SERVICE_GROUP__
+WorkingDirectory=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430
+Environment="PATH=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
 Environment="HOME=/home/koopark"
 Environment="SLURM_BIN_DIR=/usr/local/slurm/bin"
-EnvironmentFile=-/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/.env
-ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/venv/bin/gunicorn -c gunicorn_config.py app:app
+EnvironmentFile=-__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/.env
+ExecStart=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/venv/bin/gunicorn -c gunicorn_config.py app:app
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
 RestartSec=5
@@ -20,8 +20,8 @@ KillMode=mixed
 TimeoutStopSec=30
 
 # Logging
-StandardOutput=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/logs/gunicorn.log
-StandardError=append:/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/logs/gunicorn_error.log
+StandardOutput=append:__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/logs/gunicorn.log
+StandardError=append:__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/auth_portal_4430/logs/gunicorn_error.log
 
 [Install]
 WantedBy=multi-user.target

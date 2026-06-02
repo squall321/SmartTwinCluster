@@ -44,31 +44,32 @@ fi
 # 관리자 (install 실행 계정)
 ADMIN_USER="${SUDO_USER:-$(whoami)}"
 
-# 서비스 실행 계정 결정 우선순위:
+# 서비스 실행 계정 결정 우선순위 (phase5_web.sh 와 정렬):
 #   1. 환경변수 SERVICE_USER (명시 지정 시)
-#   2. yaml 의 users.ssh_user
-#   3. 폴백: ADMIN_USER
+#   2. yaml 의 web_services.service_user  (canonical, phase5_web.sh 와 동일)
+#   3. yaml 의 users.ssh_user             (대체 필드)
+#   4. 폴백: ADMIN_USER
 RUN_USER=""
 if [ -n "${SERVICE_USER:-}" ]; then
     RUN_USER="$SERVICE_USER"
 else
-    # yaml 경로 후보
     for _yaml in \
         "${CLUSTER_YAML:-}" \
         "$SCRIPT_DIR/../../my_multihead_cluster.yaml" \
         "/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml"; do
         [ -n "$_yaml" ] && [ -f "$_yaml" ] || continue
         RUN_USER=$(python3 -c "
-import yaml,sys
+import yaml
 try:
-    c=yaml.safe_load(open('$_yaml'))
-    u=(c.get('users',{}) or {}).get('ssh_user','') or ''
+    c = yaml.safe_load(open('$_yaml')) or {}
+    # 1) web_services.service_user 우선
+    u = ((c.get('web_services') or {}).get('service_user') or
+         (c.get('users') or {}).get('ssh_user') or '')
     print(u)
 except Exception: pass
 " 2>/dev/null)
         [ -n "$RUN_USER" ] && break
     done
-    # yaml에서도 못 찾으면 ADMIN_USER 폴백
     [ -z "$RUN_USER" ] && RUN_USER="$ADMIN_USER"
 fi
 # 결정된 계정이 존재하는지 검증, 없으면 ADMIN_USER 폴백
@@ -240,13 +241,18 @@ setup_venv() {
         echo "    → 패키지 설치 중 (Python ${actual_version})..."
         echo "    → Wheels 경로: $wheels_dir"
 
-        # logs 디렉토리 생성 + 소유권/그룹쓰기 강제
-        # 그룹 g+w 부여 → ADMIN_USER (RUN_GROUP에 추가됨) 도 편집/삭제 가능
+        # logs 디렉토리 생성 + 소유권/그룹쓰기 강제 + setgid
         mkdir -p "$full_path/logs"
         chown -R "$RUN_USER:$RUN_GROUP" "$full_path/logs"
         chmod -R u+rwX,g+rwX "$full_path/logs"
-        # 새로 만드는 파일도 그룹 권한 상속 (setgid)
         chmod g+s "$full_path/logs"
+
+        # 공용 /var/log/web_services/ 도 RUN_USER 그룹 쓰기 + setgid
+        if [ -d /var/log/web_services ]; then
+            chown -R "$RUN_USER:$RUN_GROUP" /var/log/web_services 2>/dev/null || true
+            chmod -R u+rwX,g+rwX /var/log/web_services 2>/dev/null || true
+            chmod g+s /var/log/web_services 2>/dev/null || true
+        fi
 
         if [ -d "$wheels_dir" ]; then
             # wheels 디렉토리 내용 확인
