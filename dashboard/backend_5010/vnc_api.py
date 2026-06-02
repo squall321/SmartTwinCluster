@@ -276,36 +276,47 @@ DEFAULT_VIZ_NODE = VIZ_NODES[0]['hostname'] if VIZ_NODES else 'viz-node001'
 
 # 외부 접근용 IP 주소 - 동적으로 감지
 def get_external_ip():
-    """Get external IP from environment, YAML config, or system detection."""
-    # 1. 환경변수에서 먼저 확인
+    """외부 접속 주소(도메인 또는 IP) 결정.
+    우선순위: 환경변수 EXTERNAL_IP > yaml web.public_url(도메인 발급 시 여기) >
+              nodes.controllers[현재호스트].public_ip > 시스템 IP > localhost
+    """
+    # 1. 환경변수
     if os.getenv('EXTERNAL_IP'):
         return os.getenv('EXTERNAL_IP')
 
-    # 2. YAML 설정 파일에서 확인
-    yaml_paths = [
+    # 2. YAML — web.public_url 이 정본 (도메인 stcx.sec.samsung.net 등이 여기 들어감)
+    yaml_paths = []
+    if os.getenv('CLUSTER_YAML'):
+        yaml_paths.append(os.getenv('CLUSTER_YAML'))
+    yaml_paths += [
         os.path.join(os.path.dirname(__file__), '..', '..', 'my_multihead_cluster.yaml'),
         '/home/koopark/claude/KooSlurmInstallAutomationRefactory/my_multihead_cluster.yaml',
     ]
     for yaml_path in yaml_paths:
-        if os.path.exists(yaml_path):
-            try:
-                import yaml
-                with open(yaml_path) as f:
-                    config = yaml.safe_load(f)
-                    # controllers 섹션에서 현재 호스트의 public_ip 가져오기
-                    controllers = config.get('controllers', [])
-                    hostname = subprocess.getoutput('hostname').strip()
-                    for ctrl in controllers:
-                        if ctrl.get('hostname') == hostname and ctrl.get('public_ip'):
-                            return ctrl['public_ip']
-                    # network 섹션에서 public_ip 가져오기
-                    public_ip = config.get('network', {}).get('public_ip')
-                    if public_ip:
-                        return public_ip
-            except Exception:
-                pass
+        if not yaml_path or not os.path.exists(yaml_path):
+            continue
+        try:
+            import yaml
+            with open(yaml_path) as f:
+                config = yaml.safe_load(f) or {}
+            # (a) web.public_url — 도메인/공개 IP 정본
+            pub = ((config.get('web') or {}).get('public_url') or '').strip()
+            pub = pub.replace('https://', '').replace('http://', '').rstrip('/')
+            if pub and pub not in ('localhost', '127.0.0.1'):
+                return pub
+            # (b) nodes.controllers 의 현재 호스트 public_ip
+            hostname = subprocess.getoutput('hostname').strip()
+            for ctrl in (config.get('nodes', {}) or {}).get('controllers', []) or []:
+                if ctrl.get('hostname') == hostname and ctrl.get('public_ip'):
+                    return ctrl['public_ip']
+            # (c) network.public_ip (구버전 호환)
+            np = (config.get('network', {}) or {}).get('public_ip')
+            if np:
+                return np
+        except Exception:
+            pass
 
-    # 3. 시스템에서 기본 네트워크 인터페이스 IP 감지
+    # 3. 시스템 기본 인터페이스 IP
     try:
         result = subprocess.getoutput("hostname -I | awk '{print $1}'").strip()
         if result and result != '127.0.0.1':
@@ -313,7 +324,7 @@ def get_external_ip():
     except Exception:
         pass
 
-    # 4. Fallback - localhost
+    # 4. Fallback
     return 'localhost'
 
 EXTERNAL_IP = get_external_ip()
