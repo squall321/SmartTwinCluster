@@ -265,7 +265,8 @@ print((c.get('cluster_info') or {}).get('ssh_password',''))
         local target="${ssh_user}@${ip}"
         local _rf=""; [[ "$RESET" == true ]] && _rf=" --reset"
         if [[ "$DRY_RUN" == true ]]; then
-            echo "  [dry-run] $target ← scp(스크립트+parser+config) + ssh 'sudo bash /tmp/setup_redis_from_yaml.sh --config /tmp/redis_cfg.yaml --remote --node-ip $ip$_rf'"
+            local _rd="/tmp/redis_setup_${ip//./_}"
+            echo "  [dry-run] $target ← (원격 기존 /tmp 정리) + scp 스크립트+parser+config → $_rd/ + ssh 'sudo bash $_rd/setup_redis_from_yaml.sh --config $_rd/redis_cfg.yaml --remote --node-ip $ip$_rf'"
             okc=$((okc+1)); continue
         fi
         # 키 우선 프로브 → 실패 시 sshpass -e 폴백 (install_apptainer_all_nodes.sh 골드패턴)
@@ -279,14 +280,18 @@ print((c.get('cluster_info') or {}).get('ssh_password',''))
             err "  ✗ [$ip] SSH 인증 불가 (키/비번 모두 실패)"; failc=$((failc+1)); continue
         fi
         log "  → $ip 배포 중..."
+        # 이전 배포(phase2 등)가 /tmp 에 root 소유로 남긴 파일을 먼저 정리 →
+        # 'scp: /tmp/parser.py: permission denied' 회피. 노드별 유니크 디렉토리 사용.
+        local rdir="/tmp/redis_setup_${ip//./_}"
+        $SSH "$target" "sudo rm -rf '$rdir' /tmp/setup_redis_from_yaml.sh /tmp/parser.py /tmp/redis_cfg.yaml 2>/dev/null; mkdir -p '$rdir'" >/dev/null 2>&1
         # 에러를 숨기지 않음 — 복사 실패 시 진짜 원인(권한/SFTP/인증)을 보여준다.
         local _scperr
-        _scperr=$($SCP "$SELF" "$target:/tmp/setup_redis_from_yaml.sh" 2>&1) \
-          && _scperr=$($SCP "$PARSER" "$target:/tmp/parser.py" 2>&1) \
-          && _scperr=$($SCP "$CONFIG_FILE" "$target:/tmp/redis_cfg.yaml" 2>&1) || {
+        _scperr=$($SCP "$SELF" "$target:$rdir/setup_redis_from_yaml.sh" 2>&1) \
+          && _scperr=$($SCP "$PARSER" "$target:$rdir/parser.py" 2>&1) \
+          && _scperr=$($SCP "$CONFIG_FILE" "$target:$rdir/redis_cfg.yaml" 2>&1) || {
             err "  ✗ [$ip] 파일 복사 실패: $_scperr"; failc=$((failc+1)); continue; }
         local rflag=""; [[ "$RESET" == true ]] && rflag="--reset"
-        if $SSH "$target" "sudo bash /tmp/setup_redis_from_yaml.sh --config /tmp/redis_cfg.yaml --remote --node-ip $ip $rflag" 2>&1 | sed 's/^/    /'; then
+        if $SSH "$target" "sudo bash $rdir/setup_redis_from_yaml.sh --config $rdir/redis_cfg.yaml --remote --node-ip $ip $rflag" 2>&1 | sed 's/^/    /'; then
             ok "  ✓ [$ip] 배포 완료"; okc=$((okc+1))
         else
             err "  ✗ [$ip] 원격 실행 실패"; failc=$((failc+1))
