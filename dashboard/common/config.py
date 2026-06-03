@@ -48,6 +48,26 @@ REDIS_PORT = int(_env_or_file('REDIS_PORT', 6379))
 REDIS_PASSWORD = _env_or_file('REDIS_PASSWORD', None)
 REDIS_DB = int(_env_or_file('REDIS_DB', 0))
 
+# Sentinel(HA) 설정 — REDIS_SENTINEL_HOSTS 가 있으면 Sentinel 모드, 없으면 단일 Redis(하위호환).
+# 형식: "host1:26379,host2:26379,host3:26379" (포트 생략 시 26379)
+REDIS_SENTINEL_HOSTS = _env_or_file('REDIS_SENTINEL_HOSTS', None)
+REDIS_MASTER_NAME = _env_or_file('REDIS_MASTER_NAME', 'mymaster')
+
+
+def _parse_sentinel_hosts(raw):
+    """'h1:26379,h2,h3:26379' → [(h1,26379),(h2,26379),(h3,26379)]"""
+    out = []
+    for h in (raw or '').split(','):
+        h = h.strip()
+        if not h:
+            continue
+        if ':' in h:
+            host, port = h.rsplit(':', 1)
+            out.append((host, int(port)))
+        else:
+            out.append((h, 26379))
+    return out
+
 # Connection pool settings
 REDIS_MAX_CONNECTIONS = int(os.getenv('REDIS_MAX_CONNECTIONS', 50))
 REDIS_SOCKET_TIMEOUT = int(os.getenv('REDIS_SOCKET_TIMEOUT', 5))
@@ -99,15 +119,33 @@ def get_redis_client() -> redis.Redis:
     global _redis_client
 
     if _redis_client is None:
-        pool = get_redis_pool()
-        _redis_client = redis.Redis(connection_pool=pool)
+        if REDIS_SENTINEL_HOSTS:
+            # Sentinel(HA) 모드: master_for() 는 단일 master 연결을 주므로
+            # 기존 단일키/멀티키 연산이 그대로 동작하고 failover 시 자동 재해석된다.
+            from redis.sentinel import Sentinel
+            sentinel = Sentinel(
+                _parse_sentinel_hosts(REDIS_SENTINEL_HOSTS),
+                sentinel_kwargs={'password': REDIS_PASSWORD} if REDIS_PASSWORD else {},
+                password=REDIS_PASSWORD or None,
+                socket_timeout=REDIS_SOCKET_TIMEOUT,
+                socket_connect_timeout=REDIS_SOCKET_CONNECT_TIMEOUT,
+            )
+            _redis_client = sentinel.master_for(
+                REDIS_MASTER_NAME, db=REDIS_DB,
+                decode_responses=True, password=REDIS_PASSWORD or None,
+            )
+        else:
+            pool = get_redis_pool()
+            _redis_client = redis.Redis(connection_pool=pool)
 
         # Test connection
         try:
             _redis_client.ping()
         except redis.ConnectionError as e:
+            _target = (f"sentinel {REDIS_SENTINEL_HOSTS} (master={REDIS_MASTER_NAME})"
+                       if REDIS_SENTINEL_HOSTS else f"{REDIS_HOST}:{REDIS_PORT}")
             raise redis.ConnectionError(
-                f"Failed to connect to Redis at {REDIS_HOST}:{REDIS_PORT}. "
+                f"Failed to connect to Redis at {_target}. "
                 f"Make sure Redis is running and accessible. Error: {e}"
             )
 

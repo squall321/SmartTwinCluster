@@ -26,6 +26,9 @@ class Config:
     REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
     REDIS_DB = int(os.getenv('REDIS_DB', '0'))
     REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
+    # Sentinel(HA): REDIS_SENTINEL_HOSTS 있으면 Sentinel, 없으면 단일 Redis(하위호환)
+    REDIS_SENTINEL_HOSTS = os.getenv('REDIS_SENTINEL_HOSTS', '')
+    REDIS_MASTER_NAME = os.getenv('REDIS_MASTER_NAME', 'mymaster')
 
     # ==========================================================================
     # SSO Configuration (SAML or OIDC)

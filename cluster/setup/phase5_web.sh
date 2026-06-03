@@ -513,6 +513,11 @@ load_config() {
         REDIS_PASSWORD=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('environment', {}).get('REDIS_PASSWORD', ''))" 2>/dev/null)
     fi
 
+    # Redis Sentinel(HA) — environment.REDIS_SENTINEL_HOSTS 있으면 클라이언트가 Sentinel 로 연결.
+    # 없으면 빈값 → 클라이언트는 단일 Redis(REDIS_HOST)로 동작(하위호환).
+    REDIS_SENTINEL_HOSTS=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('environment', {}).get('REDIS_SENTINEL_HOSTS', ''))" 2>/dev/null)
+    REDIS_MASTER_NAME=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('environment', {}).get('REDIS_MASTER_NAME', '') or 'mymaster')" 2>/dev/null)
+
     local raw_session_secret=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_PATH')); print(c.get('web_services', {}).get('session_secret', ''))")
     SESSION_SECRET=$(resolve_env_var "$raw_session_secret")
 
@@ -827,6 +832,8 @@ DB_HOST=${DB_VIP}
 DB_USER=${DB_USER}
 DB_PASSWORD=${DB_PASSWORD}
 REDIS_PASSWORD=${REDIS_PASSWORD}
+REDIS_SENTINEL_HOSTS=${REDIS_SENTINEL_HOSTS}
+REDIS_MASTER_NAME=${REDIS_MASTER_NAME}
 JWT_SECRET=${JWT_SECRET}
 SESSION_SECRET=${SESSION_SECRET}
 EOF
@@ -955,6 +962,8 @@ setup_redis_session_management() {
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+REDIS_SENTINEL_HOSTS=${REDIS_SENTINEL_HOSTS}
+REDIS_MASTER_NAME=${REDIS_MASTER_NAME:-mymaster}
 DEFAULT_SESSION_TTL=7200
 
 # Slurm Configuration
@@ -996,6 +1005,18 @@ EOF
                 elif [[ -n "$REDIS_PASSWORD" && "$REDIS_PASSWORD" != "changeme" ]]; then
                     # Update existing REDIS_PASSWORD if YAML provides a real value
                     sed -i "s/^REDIS_PASSWORD=.*/REDIS_PASSWORD=${REDIS_PASSWORD}/" "$service_dir/.env"
+                    needs_update=true
+                fi
+
+                # Redis Sentinel(HA) 키 — yaml environment 값으로 추가/갱신(없으면 빈값=단일모드)
+                if ! grep -q "^REDIS_SENTINEL_HOSTS=" "$service_dir/.env"; then
+                    echo "REDIS_SENTINEL_HOSTS=${REDIS_SENTINEL_HOSTS}" >> "$service_dir/.env"
+                    needs_update=true
+                else
+                    sed -i "s|^REDIS_SENTINEL_HOSTS=.*|REDIS_SENTINEL_HOSTS=${REDIS_SENTINEL_HOSTS}|" "$service_dir/.env"
+                fi
+                if ! grep -q "^REDIS_MASTER_NAME=" "$service_dir/.env"; then
+                    echo "REDIS_MASTER_NAME=${REDIS_MASTER_NAME:-mymaster}" >> "$service_dir/.env"
                     needs_update=true
                 fi
 

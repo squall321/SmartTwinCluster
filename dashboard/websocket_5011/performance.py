@@ -16,15 +16,28 @@ logger = logging.getLogger(__name__)
 
 # Redis 연결 (없으면 None)
 try:
-    redis_client = redis.Redis(
-        host=os.getenv('REDIS_HOST', 'localhost'),
-        port=int(os.getenv('REDIS_PORT', 6379)),
-        db=int(os.getenv('REDIS_DB', 0)),
-        password=os.getenv('REDIS_PASSWORD', None) or None,
-        decode_responses=True,
-        socket_connect_timeout=2,
-        socket_timeout=2
-    )
+    _sentinel_hosts = os.getenv('REDIS_SENTINEL_HOSTS', '')
+    if _sentinel_hosts:
+        # Sentinel(HA): master_for() 가 단일 master 연결을 주므로 캐시 keys/delete 그대로 동작.
+        from redis.sentinel import Sentinel
+        _hosts = [(h.rsplit(':', 1)[0], int(h.rsplit(':', 1)[1]) if ':' in h else 26379)
+                  for h in _sentinel_hosts.split(',') if h.strip()]
+        _pw = os.getenv('REDIS_PASSWORD', None) or None
+        redis_client = Sentinel(
+            _hosts, sentinel_kwargs={'password': _pw} if _pw else {},
+            password=_pw, socket_connect_timeout=2, socket_timeout=2,
+        ).master_for(os.getenv('REDIS_MASTER_NAME', 'mymaster'),
+                     db=int(os.getenv('REDIS_DB', 0)), decode_responses=True, password=_pw)
+    else:
+        redis_client = redis.Redis(
+            host=os.getenv('REDIS_HOST', 'localhost'),
+            port=int(os.getenv('REDIS_PORT', 6379)),
+            db=int(os.getenv('REDIS_DB', 0)),
+            password=os.getenv('REDIS_PASSWORD', None) or None,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2
+        )
     # 연결 테스트
     redis_client.ping()
     REDIS_AVAILABLE = True

@@ -24,15 +24,32 @@ class JWTHandler:
         """Lazy Redis connection with fallback"""
         if self._redis_client is None:
             try:
-                self._redis_client = redis.Redis(
-                    host=Config.REDIS_HOST,
-                    port=Config.REDIS_PORT,
-                    db=Config.REDIS_DB,
-                    password=Config.REDIS_PASSWORD if Config.REDIS_PASSWORD else None,
-                    decode_responses=True,
-                    socket_connect_timeout=2,
-                    socket_timeout=2
-                )
+                if Config.REDIS_SENTINEL_HOSTS:
+                    # Sentinel(HA) 모드: master_for() 가 현재 master 연결을 주고 failover 시 자동 재해석.
+                    from redis.sentinel import Sentinel
+                    _hosts = [(h.rsplit(':', 1)[0], int(h.rsplit(':', 1)[1]) if ':' in h else 26379)
+                              for h in Config.REDIS_SENTINEL_HOSTS.split(',') if h.strip()]
+                    _pw = Config.REDIS_PASSWORD or None
+                    _sentinel = Sentinel(
+                        _hosts,
+                        sentinel_kwargs={'password': _pw} if _pw else {},
+                        password=_pw,
+                        socket_connect_timeout=2, socket_timeout=2,
+                    )
+                    self._redis_client = _sentinel.master_for(
+                        Config.REDIS_MASTER_NAME, db=Config.REDIS_DB,
+                        decode_responses=True, password=_pw,
+                    )
+                else:
+                    self._redis_client = redis.Redis(
+                        host=Config.REDIS_HOST,
+                        port=Config.REDIS_PORT,
+                        db=Config.REDIS_DB,
+                        password=Config.REDIS_PASSWORD if Config.REDIS_PASSWORD else None,
+                        decode_responses=True,
+                        socket_connect_timeout=2,
+                        socket_timeout=2
+                    )
                 # Test connection
                 self._redis_client.ping()
                 self._redis_available = True

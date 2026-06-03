@@ -20,6 +20,9 @@ REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
 REDIS_SOCKET_TIMEOUT = int(os.getenv('REDIS_SOCKET_TIMEOUT', 2))
 REDIS_SOCKET_CONNECT_TIMEOUT = int(os.getenv('REDIS_SOCKET_CONNECT_TIMEOUT', 2))
 CACHE_ENABLED = os.getenv('CACHE_ENABLED', 'true').lower() == 'true'
+# Sentinel(HA): REDIS_SENTINEL_HOSTS 있으면 Sentinel, 없으면 단일 Redis(하위호환)
+REDIS_SENTINEL_HOSTS = os.getenv('REDIS_SENTINEL_HOSTS', '')
+REDIS_MASTER_NAME = os.getenv('REDIS_MASTER_NAME', 'mymaster')
 
 # ==================== Connection Pool ====================
 # 연결 풀을 사용하여 성능 향상 및 연결 재사용
@@ -36,18 +39,31 @@ def initialize_redis():
         return
 
     try:
-        redis_pool = ConnectionPool(
-            host=REDIS_HOST,
-            port=REDIS_PORT,
-            db=REDIS_DB,
-            password=REDIS_PASSWORD,
-            decode_responses=True,
-            socket_connect_timeout=REDIS_SOCKET_CONNECT_TIMEOUT,
-            socket_timeout=REDIS_SOCKET_TIMEOUT,
-            max_connections=50  # 최대 연결 수
-        )
+        if REDIS_SENTINEL_HOSTS:
+            # Sentinel(HA): master_for() 가 단일 master 연결을 주므로 캐시 연산 그대로 동작.
+            from redis.sentinel import Sentinel
+            _hosts = [(h.rsplit(':', 1)[0], int(h.rsplit(':', 1)[1]) if ':' in h else 26379)
+                      for h in REDIS_SENTINEL_HOSTS.split(',') if h.strip()]
+            _pw = REDIS_PASSWORD or None
+            redis_client = Sentinel(
+                _hosts, sentinel_kwargs={'password': _pw} if _pw else {},
+                password=_pw,
+                socket_connect_timeout=REDIS_SOCKET_CONNECT_TIMEOUT,
+                socket_timeout=REDIS_SOCKET_TIMEOUT,
+            ).master_for(REDIS_MASTER_NAME, db=REDIS_DB, decode_responses=True, password=_pw)
+        else:
+            redis_pool = ConnectionPool(
+                host=REDIS_HOST,
+                port=REDIS_PORT,
+                db=REDIS_DB,
+                password=REDIS_PASSWORD,
+                decode_responses=True,
+                socket_connect_timeout=REDIS_SOCKET_CONNECT_TIMEOUT,
+                socket_timeout=REDIS_SOCKET_TIMEOUT,
+                max_connections=50  # 최대 연결 수
+            )
 
-        redis_client = redis.Redis(connection_pool=redis_pool)
+            redis_client = redis.Redis(connection_pool=redis_pool)
 
         # 연결 테스트
         redis_client.ping()
