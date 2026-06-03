@@ -12,7 +12,18 @@
 
 ## 1. yaml 수정 (운영서버의 my_*.yaml)
 
-### (A) `redis:` 섹션 — `cluster` → `sentinel`
+**코드가 실제로 읽는 yaml 키는 4개뿐**이다. sentinel 세부값(quorum/master/포트)은
+스크립트가 노드 수로 자동 계산하므로 yaml 에 적지 않아도 된다.
+
+| yaml 키 | 용도 | 자동결정값 |
+|---------|------|-----------|
+| `redis.type` | sentinel / standalone 선택 | — |
+| `environment.REDIS_PASSWORD` | Redis 비번 | — |
+| `nodes.controllers[].services.redis: true` | Redis 노드 지정 | controllers[0]=master, 나머지=replica |
+| `environment.REDIS_SENTINEL_HOSTS` | 클라이언트 Sentinel 연결 | (없으면 단일모드) |
+| `environment.REDIS_MASTER_NAME` | master 이름 | 기본 `mymaster` |
+
+### (A) `redis:` 섹션 — `type` 만 `sentinel` 로
 
 **Before:**
 ```yaml
@@ -20,13 +31,6 @@ redis:
   enabled: true
   type: cluster
   cluster:
-    port: 6379
-    password: "${REDIS_PASSWORD}"
-    cluster_mode: true
-    replicas: 0
-    nodes: auto
-    cluster_node_timeout: 5000
-    appendonly: yes
     ...
 ```
 
@@ -34,36 +38,26 @@ redis:
 ```yaml
 redis:
   enabled: true
-  type: sentinel               # cluster → sentinel
-  sentinel:
-    port: 6379                 # 데이터 포트
-    sentinel_port: 26379       # Sentinel 포트 (노드간 개방 필요)
-    password: "${REDIS_PASSWORD}"
-    master_name: mymaster      # 클라이언트 REDIS_MASTER_NAME 과 반드시 일치
-    quorum: 2                  # sentinel 3개 중 2개 동의 시 failover
-    down_after_ms: 5000
-    failover_timeout_ms: 10000
-    parallel_syncs: 1
-    appendonly: yes
-    appendfsync: everysec
-    maxmemory: 4gb
-    maxmemory_policy: allkeys-lru
+  type: sentinel        # ← cluster 에서 이것만 바꾸면 됨 (세부 cluster: 블록은 무시됨)
 ```
-> `controllers[0]` (= services.redis:true 인 첫 노드)이 **Primary** 가 됨.
-> 나머지 redis 노드는 자동으로 Replica.
+> master/replica/quorum 은 스크립트가 자동 결정:
+> - **master = controllers[0]** (services.redis:true 첫 노드 = 10.179.100.25)
+> - **replica = 나머지** redis 노드 (10.179.100.24, 10.179.100.50)
+> - **quorum = 노드수/2+1 = 2**, sentinel 포트 26379, master_name `mymaster`
 
 ### (B) `environment:` 섹션 — 클라이언트가 읽을 키 2개 추가
 
 ```yaml
 environment:
   ...
-  REDIS_PASSWORD: "SmartTwinCluster321!"     # 운영 실제 Redis 비번
+  REDIS_PASSWORD: "SmartTwinCluster321!"     # 운영 실제 Redis 비번 (이미 있음, 값 확인)
   REDIS_SENTINEL_HOSTS: "10.179.100.25:26379,10.179.100.24:26379,10.179.100.50:26379"
-  REDIS_MASTER_NAME: "mymaster"
+  REDIS_MASTER_NAME: "mymaster"              # (생략 가능 — 기본 mymaster)
   ...
 ```
 > `REDIS_SENTINEL_HOSTS` 가 **있으면** 클라이언트가 Sentinel 로 연결,
 > **없으면** 기존 단일 Redis(`REDIS_HOST`)로 동작 (하위호환 — 개발머신은 안 건드림).
+> 노드 IP/포트(26379)는 운영서버 redis 노드에 맞게 작성.
 
 ---
 
