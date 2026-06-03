@@ -402,6 +402,17 @@ else
 fi
 echo ""
 
+# ==================== 4.5 VNC 작업 디렉토리 권한 보장 ====================
+# VNC 잡은 system_user(stcx 등)로 실행됨. /shared/logs, /scratch/vnc_* 가
+# root 소유면 sbatch --output 못쓰고 apptainer build --sandbox 도 실패 → 잡 exit 1.
+# 모든 사용자 쓰기 가능하게 1777(sticky) 적용 (헤드 + 잡 도는 viz 노드 양쪽).
+echo -e "${BLUE}[4.5] VNC 작업 디렉토리 권한 보장...${NC}"
+for _d in /shared/logs /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs; do
+    sudo mkdir -p "$_d" 2>/dev/null || true
+    sudo chmod 1777 "$_d" 2>/dev/null && echo "  ✓ $_d (1777)" || echo "  ⚠ $_d 권한설정 실패"
+done
+echo ""
+
 # ==================== 5. Backend 서비스 시작 (systemd) ====================
 echo -e "${BLUE}[5/7] Backend 서비스 시작 (systemd)...${NC}"
 
