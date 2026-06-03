@@ -805,11 +805,16 @@ else
 
         mkdir -p "$MOUNT_POINT"/{frontend_builds,slurm/{state,logs,spool},uploads,config}
         mkdir -p "$MOUNT_POINT"/{templates/{official,community,user},logs,jobs,apptainer/metadata}
+        # VNC 웹 로그인 사용자별 영속 홈 베이스 (web_user 별 하위디렉토리, vnc_api.py VNC_HOME_BASE)
+        mkdir -p "$MOUNT_POINT/vnc_home"
 
         # Set permissions for shared directories
         # logs and jobs need to be writable by all users (for Slurm jobs)
         chmod 1777 "$MOUNT_POINT/logs" 2>/dev/null || true   # sticky bit + rwx for all
         chmod 1777 "$MOUNT_POINT/jobs" 2>/dev/null || true   # sticky bit + rwx for all
+        # vnc_home: VNC 잡(서비스계정 stcx)이 web_user 별 하위디렉토리를 mkdir 하므로 1777
+        # (sticky) — 한 사용자 잡이 다른 사용자 홈을 지우지 못하게 sticky 유지
+        chmod 1777 "$MOUNT_POINT/vnc_home" 2>/dev/null || true
         chmod 755 "$MOUNT_POINT/templates" 2>/dev/null || true
         chmod 755 "$MOUNT_POINT/uploads" 2>/dev/null || true
 

@@ -4,6 +4,7 @@ GPU 기반 원격 데스크톱 세션 생성 및 관리
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -131,6 +132,7 @@ NOVNC_PORT_OFFSET = 1000  # noVNC 포트 = VNC 포트 + 1000
 # VNC 이미지 및 작업 디렉토리 경로 (새 구조)
 VNC_IMAGES_DIR = "/opt/apptainers"           # 읽기 전용 이미지 저장소
 VNC_SANDBOXES_DIR = "/scratch/vnc_sandboxes" # 쓰기 가능 샌드박스
+VNC_HOME_BASE = "/mnt/gluster/vnc_home"      # 영속 공유 홈 베이스(GlusterFS 마운트, /shared 심볼릭 아님). phase0_storage.sh에서 chmod 1777 생성.
 VNC_SESSIONS_DIR = "/scratch/vnc_sessions"   # 세션 데이터
 VNC_LOG_DIR = "/scratch/vnc_logs"            # 로그 — 노드 로컬(항상 존재, [4.5]에서 1777).
                                              # /shared(GlusterFS 심볼릭)는 마운트 실패 시 #SBATCH
@@ -565,8 +567,24 @@ def _detect_gpu_type():
     return None
 
 
-def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0, partition='viz'):
-    """VNC 세션용 Slurm Job 스크립트 생성"""
+def _sanitize_web_user(raw):
+    """JWT 유래 web_user 를 셸 경로/인스턴스명에 박기 전에 검증+정제.
+    허용: [A-Za-z0-9._-] 1~32자. 빈값/'.'/'..'/선행점 거부. 안전치 못하면 None(→400)."""
+    if not raw or not isinstance(raw, str):
+        return None
+    if not re.fullmatch(r'[A-Za-z0-9._-]{1,32}', raw):
+        return None
+    if raw in ('.', '..') or raw.startswith('.'):
+        return None
+    return raw
+
+
+def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0, partition='viz'):
+    """VNC 세션용 Slurm Job 스크립트 생성
+
+    username = 시스템 사용자(YAML ssh_user) — Slurm/SSH 식별용(sbatch 프로세스 소유자).
+    web_user = 웹 로그인 사용자(JWT sub, sanitize 완료) — sandbox/instance/home 격리 키.
+    """
 
     display_num = vnc_port - 5900
 
@@ -587,7 +605,7 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
     nv_flag = "--nv" if gpu_count > 0 else ""
 
     script = f"""#!/bin/bash
-#SBATCH --job-name=vnc-{username}
+#SBATCH --job-name=vnc-{web_user}
 #SBATCH --partition={partition}
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
@@ -595,15 +613,15 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
 {gpu_line}
 #SBATCH --time={duration_hours}:00:00
 #SBATCH --chdir=/tmp
-#SBATCH --output={VNC_LOG_DIR}/vnc-{username}-%j.out
-#SBATCH --error={VNC_LOG_DIR}/vnc-{username}-%j.err
+#SBATCH --output={VNC_LOG_DIR}/vnc-{web_user}-%j.out
+#SBATCH --error={VNC_LOG_DIR}/vnc-{web_user}-%j.err
 
 # 로그 디렉토리 생성
 mkdir -p {VNC_LOG_DIR}
 
 echo "========================================"
 echo "VNC Session Starting"
-echo "User: {username}"
+echo "User: {web_user} (system_user: {username})"
 echo "Session ID: {session_id}"
 echo "VNC Port: {vnc_port}"
 echo "noVNC Port: {novnc_port}"
@@ -618,12 +636,12 @@ echo "========================================"
 
 # 사용자+이미지별 Sandbox 디렉토리 (viz-node에 저장)
 SANDBOX_BASE={VNC_SANDBOXES_DIR}
-USER_SANDBOX=$SANDBOX_BASE/{username}_{image_id}
-INSTANCE_NAME="vnc-{username}-{image_id}"
+USER_SANDBOX=$SANDBOX_BASE/{web_user}_{image_id}
+INSTANCE_NAME="vnc-{web_user}-{image_id}"
 
 # Sandbox가 존재하지 않으면 생성
 if [ ! -d "$USER_SANDBOX" ]; then
-    echo "Creating user sandbox for {username}..."
+    echo "Creating user sandbox for {web_user}..."
     mkdir -p $SANDBOX_BASE
     apptainer build --sandbox $USER_SANDBOX {sif_image_path}
     echo "Sandbox created at $USER_SANDBOX"
@@ -659,14 +677,27 @@ if apptainer instance list | grep -q $INSTANCE_NAME; then
     sleep 2
 fi
 
-# 사용자별 홈 디렉토리 설정
-USER_HOME_DIR="/home/{username}"
-echo "Setting up user home directory: $USER_HOME_DIR"
-mkdir -p $USER_SANDBOX$USER_HOME_DIR
+# 사용자별 영속 홈 디렉토리 (GlusterFS 공유 마운트 → 재로그인/재부팅 후에도 보존)
+USER_HOME_DIR="/home/{web_user}"
+PERSIST_HOME="{VNC_HOME_BASE}/{web_user}"
+echo "Setting up user home directory: $USER_HOME_DIR (persist src: $PERSIST_HOME)"
+# /mnt/gluster 가 실제 마운트돼 있을 때만 영속 홈 사용. 실패 시 노드-로컬로 폴백(비영속).
+if mountpoint -q /mnt/gluster 2>/dev/null; then
+    mkdir -p "$PERSIST_HOME" 2>/dev/null
+fi
+if [ -d "$PERSIST_HOME" ] && touch "$PERSIST_HOME/.vnc_write_test" 2>/dev/null; then
+    rm -f "$PERSIST_HOME/.vnc_write_test" 2>/dev/null || true
+    HOME_BIND_SRC="$PERSIST_HOME"
+    echo "Using PERSISTENT home: $PERSIST_HOME"
+else
+    HOME_BIND_SRC="$USER_SANDBOX$USER_HOME_DIR"
+    mkdir -p "$HOME_BIND_SRC"
+    echo "WARNING: {VNC_HOME_BASE} unavailable — NODE-LOCAL home (NON-PERSISTENT): $HOME_BIND_SRC"
+fi
 
 # Apptainer Instance 시작 (지속적 실행, 사용자 홈 디렉토리 바인드)
 echo "Starting apptainer instance: $INSTANCE_NAME"
-apptainer instance start --writable {nv_flag} --home $USER_SANDBOX$USER_HOME_DIR:$USER_HOME_DIR $USER_SANDBOX $INSTANCE_NAME
+apptainer instance start --writable {nv_flag} --home $HOME_BIND_SRC:$USER_HOME_DIR $USER_SANDBOX $INSTANCE_NAME
 _START_RC=$?
 
 # instance start 가 실패했으면 즉시 명확히 죽는다 (watchdog 의 모호한 exit 1 대신 진짜 원인 출력).
@@ -688,7 +719,7 @@ apptainer exec instance://$INSTANCE_NAME /bin/bash -c "rm -rf /tmp/.ICE-unix/* /
 # Instance 내부에서 VNC + Desktop 시작 (이미지별 스크립트 사용)
 echo "Starting VNC + {desktop_env} using {start_script} script..."
 # GNOME은 D-Bus, systemd 등 환경변수가 필요하므로 --cleanenv 대신 --env로 필요한 변수만 설정
-apptainer exec --env "VNC_PORT={vnc_port},VNC_GEOMETRY={geometry},DISPLAY=:{display_num},XDG_RUNTIME_DIR=/tmp/runtime-root" instance://$INSTANCE_NAME /bin/bash -c "{start_script} {display_num}" > /tmp/vnc_{username}_{display_num}.log 2>&1 &
+apptainer exec --env "VNC_PORT={vnc_port},VNC_GEOMETRY={geometry},DISPLAY=:{display_num},XDG_RUNTIME_DIR=/tmp/runtime-root" instance://$INSTANCE_NAME /bin/bash -c "{start_script} {display_num}" > /tmp/vnc_{web_user}_{display_num}.log 2>&1 &
 
 sleep 10
 echo 'VNC server and {desktop_env} started in instance'
@@ -733,8 +764,10 @@ echo "VNC Session Terminated (Sandbox preserved for reuse)"
     return script
 
 
-def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0, partition='viz'):
-    """Slurm Job 제출. Returns (job_id, warning_message)"""
+def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0, partition='viz'):
+    """Slurm Job 제출. Returns (job_id, warning_message)
+
+    username = 시스템 사용자(sbatch 실행 식별), web_user = 웹 사용자(격리 키, sanitize 완료)."""
 
     if MOCK_MODE:
         mock_job_id = random.randint(10000, 99999)
@@ -745,7 +778,7 @@ def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duratio
 
     # 실제 Slurm Job 제출
     job_script = generate_vnc_job_script(
-        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count, partition
+        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count, partition
     )
 
     # 임시 파일에 스크립트 저장
@@ -767,7 +800,7 @@ def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duratio
 
         # GPU 없이 재생성
         job_script = generate_vnc_job_script(
-            username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, gpu_count=0
+            username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0
         )
         with open(script_path, 'w') as f:
             f.write(job_script)
@@ -953,6 +986,11 @@ def create_vnc_session():
     # 웹 로그인 사용자(admin 등)가 아닌 실제 시스템 사용자 사용
     system_user = get_default_system_user()
     web_user = user['username']  # 웹 로그인 사용자 (감사 추적용)
+    # web_user 는 JWT sub(또는 SSO 비활성 시 'admin')이며 셸 경로/인스턴스명에 박히므로
+    # 경로순회/셸인젝션 방지를 위해 반드시 sanitize 후 사용한다.
+    web_user = _sanitize_web_user(web_user)
+    if not web_user:
+        return jsonify({'error': 'Invalid or missing user identity'}), 400
 
     print(f"🔍 [VNC CREATE] JWT user: {user}")
     print(f"🔍 [VNC CREATE] web_user: {web_user}, system_user: {system_user}")
@@ -983,7 +1021,7 @@ def create_vnc_session():
     # Slurm Job 제출 (시스템 사용자로 실행)
     try:
         job_id, gpu_warning = submit_vnc_job(
-            system_user,  # YAML의 ssh_user 사용
+            system_user,  # YAML의 ssh_user 사용 (sbatch 실행 식별)
             session_id,
             vnc_port,
             novnc_port,
@@ -993,6 +1031,7 @@ def create_vnc_session():
             image_config['start_script'],
             image_config['desktop_env'],
             image_id,
+            web_user,  # 웹 사용자 격리 키 (sandbox/instance/home)
             gpu_count,
             partition
         )
@@ -1006,8 +1045,9 @@ def create_vnc_session():
     session_data = {
         'session_id': session_id,
         'job_id': job_id,
-        'username': system_user,  # 시스템 사용자 (VNC 실행용)
-        'web_user': web_user,     # 웹 로그인 사용자 (감사 추적용)
+        'username': web_user,       # 소유권/격리 키 (웹 로그인 사용자) — 권한검사 기준
+        'system_user': system_user, # 시스템 사용자 (sbatch/SSH 실행 식별)
+        'web_user': web_user,       # 웹 로그인 사용자 (감사 추적용, username과 동일)
         'email': user.get('email', ''),
         'image_id': image_id,
         'image_name': image_config['name'],
@@ -1263,8 +1303,11 @@ def reset_vnc_sandbox(session_id):
             subprocess.run([SCANCEL, str(job_id)], capture_output=True)
 
     # Sandbox 삭제 (viz-node에서 실행)
-    username = session['username']
-    sandbox_path = f"{VNC_SANDBOXES_DIR}/{username}"
+    # 잡 스크립트는 {web_user}_{image_id} 로 sandbox를 만든다(generate_vnc_job_script).
+    # 동일 규칙으로 삭제해야 실제 디렉토리와 일치한다(기존엔 image_id 누락+system_user라 불일치).
+    sandbox_owner = session.get('web_user') or session['username']
+    sandbox_image = session.get('image_id', '')
+    sandbox_path = f"{VNC_SANDBOXES_DIR}/{sandbox_owner}_{sandbox_image}"
 
     try:
         if MOCK_MODE:
