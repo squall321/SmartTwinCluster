@@ -124,6 +124,12 @@ offline_packages_2404/host_packages.txt
 # 클러스터 설정 파일 (노드 IP/비밀번호 포함 — git 제외)
 my_*.yaml
 offline_packages_2404/.drive-sync.env
+
+# 대시보드 서비스 .env (JWT_SECRET_KEY/REDIS_PASSWORD/SSH_KEY 등 시크릿 — git 제외)
+# pull 이 운영서버 .env 를 덮어쓰지 않도록 추적 제외. 포맷은 *.env.example 참고.
+dashboard/**/.env
+# 자동 생성 백업 디렉토리 (옛 시크릿 포함)
+dashboard/*.backup_*/
 offline_packages_2404/dist/stc-offline-*/
 
 # 부트스트랩 필수 wheel (작아서 git 트래킹) — install_services.sh 가 직접 경로로 호출
