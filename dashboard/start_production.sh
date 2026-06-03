@@ -436,7 +436,10 @@ for service in "${BACKEND_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
             || { echo "  → $service: (미설치 — 스킵)"; continue; }
     fi
     echo -n "  → $service: "
-    if sudo systemctl start "$service" 2>/dev/null; then
+    # start 가 아니라 restart — Restart=always 가 [1] stop 후 옛 코드로 자동
+    # 재기동했을 수 있어, 새 코드/config(.env, vnc_api.py) 확실히 반영하려면
+    # 프로세스 완전 교체(restart) 필요.
+    if sudo systemctl restart "$service" 2>/dev/null; then
         sleep 2
         if systemctl is-active --quiet "$service"; then
             echo -e "${GREEN}✓ 실행 중${NC}"
@@ -927,20 +930,33 @@ else
                     scontrol show job "$_jid" 2>/dev/null | grep -oE "(JobState|Reason|ExitCode)=[^ ]+" | sed 's/^/    /'
                 # sbatch --output 로그 (vnc_api: /shared/logs/vnc-<user>-<jobid>.out/.err)
                 # username 은 system_user(yaml ssh_user) — 패턴으로 jobid 매칭
-                echo "    잡 출력 로그 (/shared/logs/vnc-*-${_jid}.out/.err):"
+                echo "    잡 출력 로그 (vnc-*-${_jid}.out/.err):"
                 _found_log=0
-                for _lg in /shared/logs/vnc-*-${_jid}.err /shared/logs/vnc-*-${_jid}.out \
-                           "/scratch/vnc_sessions/$_sid"/*.log "/scratch/vnc_sessions/$_sid"/*.out \
-                           "slurm-${_jid}.out"; do
+                # vnc_api VNC_LOG_DIR=/scratch/vnc_logs (신) + /shared/logs(구) 둘 다
+                for _lg in /scratch/vnc_logs/vnc-*-${_jid}.err /scratch/vnc_logs/vnc-*-${_jid}.out \
+                           /shared/logs/vnc-*-${_jid}.err /shared/logs/vnc-*-${_jid}.out \
+                           "/scratch/vnc_sessions/$_sid"/*.log "slurm-${_jid}.out"; do
                     if [ -f "$_lg" ]; then
                         echo "      ── $_lg ──"
-                        sudo tail -20 "$_lg" 2>/dev/null | sed 's/^/      /'
+                        sudo tail -25 "$_lg" 2>/dev/null | sed 's/^/      /'
                         _found_log=1
                     fi
                 done
-                [ "$_found_log" = "0" ] && echo "      (로그 파일 없음 — /shared/logs 마운트/권한 확인)"
+                # 잡 노드 로컬 로그도 (ssh)
+                if [ "$_found_log" = "0" ] && [ -n "${_jnode:-}" ] && [ "$_jnode" != "None" ]; then
+                    echo "      잡 노드($_jnode) 로그:"
+                    ssh -o BatchMode=yes -o ConnectTimeout=5 "$_jnode" \
+                        "tail -25 /scratch/vnc_logs/vnc-*-${_jid}.err /scratch/vnc_logs/vnc-*-${_jid}.out 2>/dev/null" 2>/dev/null | sed 's/^/      /' && _found_log=1
+                fi
+                [ "$_found_log" = "0" ] && echo "      (로그 파일 없음)"
                 # 디렉토리 존재/권한 (잡 실패 흔한 원인)
-                echo "    경로 점검: $(for d in /shared/logs /scratch/vnc_sandboxes /scratch/vnc_sessions; do [ -d "$d" ] && echo "$d(O,$(stat -c %U "$d" 2>/dev/null))" || echo "$d(없음)"; done | tr '\n' ' ')"
+                echo "    경로 점검(헤드기준 — 잡은 viz노드서 실행, 노드권한은 [4.5] 참고):"
+                echo "      $(for d in /scratch/vnc_logs /scratch/vnc_sandboxes /scratch/vnc_sessions; do [ -d "$d" ] && echo "$d($(stat -c %a "$d" 2>/dev/null),$(stat -c %U "$d" 2>/dev/null))" || echo "$d(없음)"; done | tr '\n' ' ')"
+                # 잡이 실제 떨어진 노드의 sandbox 권한 (있으면)
+                _jnode=$(sacct -n -j "$_jid" --format=NodeList 2>/dev/null | head -1 | tr -d ' ')
+                if [ -n "$_jnode" ] && [ "$_jnode" != "None" ]; then
+                    echo "      잡 노드($_jnode) /scratch/vnc_sandboxes: $(ssh -o BatchMode=yes -o ConnectTimeout=5 "$_jnode" 'stat -c %a /scratch/vnc_sandboxes 2>/dev/null || echo 없음' 2>/dev/null || echo 'ssh실패')"
+                fi
             fi
             # 4) 세션 상세 (novnc_url) + ready 확인
             sleep 3
