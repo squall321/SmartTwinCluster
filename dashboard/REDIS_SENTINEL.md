@@ -31,6 +31,8 @@ redis:
   enabled: true
   type: cluster
   cluster:
+    maxmemory: 4gb
+    appendonly: yes
     ...
 ```
 
@@ -38,8 +40,17 @@ redis:
 ```yaml
 redis:
   enabled: true
-  type: sentinel        # ← cluster 에서 이것만 바꾸면 됨 (세부 cluster: 블록은 무시됨)
+  type: sentinel        # ← cluster 에서 이것만 바꾸면 됨
+  options:              # 튜닝 옵션(선택) — setup_redis 스크립트가 redis.conf 에 반영
+    maxmemory: 4gb
+    maxmemory_policy: allkeys-lru
+    appendonly: yes
+    appendfsync: everysec
 ```
+> **튜닝 옵션은 어디 둬도 읽힘** (폴백 순서: `redis.options.X` → `redis.X` →
+> `redis.cluster.X` → `redis.sentinel.X`). 기존 `cluster:` 아래 값도 그대로 적용되므로
+> 굳이 옮기지 않아도 됨. 생략 시 기본값(maxmemory 무제한, allkeys-lru, appendonly yes,
+> everysec) 적용. **이 옵션들은 이제 실제 redis.conf 에 반영된다(yaml=단일소스).**
 > master/replica/quorum 은 스크립트가 자동 결정:
 > - **master = controllers[0]** (services.redis:true 첫 노드 = 10.179.100.25)
 > - **replica = 나머지** redis 노드 (10.179.100.24, 10.179.100.50)

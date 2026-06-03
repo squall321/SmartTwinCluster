@@ -72,6 +72,24 @@ REDIS_TYPE=$(python3 "$PARSER" --config "$CONFIG_FILE" --get redis.type 2>/dev/n
 REDIS_PASSWORD=$(python3 "$PARSER" --config "$CONFIG_FILE" --get environment.REDIS_PASSWORD 2>/dev/null)
 [[ -z "$REDIS_PASSWORD" || "$REDIS_PASSWORD" == "None" ]] && { err "environment.REDIS_PASSWORD 없음"; exit 1; }
 
+# redis 튜닝 옵션: yaml 의 여러 위치에서 폴백으로 읽음 (type 무관하게 일관).
+# 우선순위: redis.options.<key> → redis.<key> → redis.cluster.<key> → redis.sentinel.<key>
+# 비어있으면 기본값 사용. yaml 에 적은 값이 실제 redis.conf 에 반영됨(yaml = 단일소스).
+yaml_redis_opt() {
+    local key="$1" default="$2" v
+    for path in "redis.options.$key" "redis.$key" "redis.cluster.$key" "redis.sentinel.$key"; do
+        v=$(python3 "$PARSER" --config "$CONFIG_FILE" --get "$path" 2>/dev/null)
+        [[ -n "$v" && "$v" != "None" ]] && { echo "$v"; return; }
+    done
+    echo "$default"
+}
+OPT_MAXMEMORY=$(yaml_redis_opt maxmemory "")              # 예 4gb (비면 미설정 = 무제한)
+OPT_MAXMEMORY_POLICY=$(yaml_redis_opt maxmemory_policy "allkeys-lru")
+OPT_APPENDONLY=$(yaml_redis_opt appendonly "yes")        # True/yes → yes
+OPT_APPENDFSYNC=$(yaml_redis_opt appendfsync "everysec")
+# python True/False → redis yes/no 정규화
+[[ "$OPT_APPENDONLY" =~ ^([Tt]rue|yes|YES)$ ]] && OPT_APPENDONLY="yes" || { [[ "$OPT_APPENDONLY" =~ ^([Ff]alse|no|NO)$ ]] && OPT_APPENDONLY="no"; }
+
 REDIS_CONTROLLERS=$(python3 "$PARSER" --config "$CONFIG_FILE" --service redis 2>/dev/null)
 TOTAL=$(echo "$REDIS_CONTROLLERS" | jq '. | length' 2>/dev/null)
 [[ -z "$TOTAL" || "$TOTAL" == "0" ]] && { err "redis 노드(services.redis:true) 없음"; exit 1; }
@@ -127,7 +145,7 @@ set_conf() {
     fi
 }
 
-# ---- 2) 공통 redis.conf (requirepass/masterauth/bind) — 전 노드 ----
+# ---- 2) 공통 redis.conf (requirepass/masterauth/bind + yaml 튜닝옵션) — 전 노드 ----
 configure_redis_common() {
     log "redis.conf 기본 설정 (requirepass/masterauth/bind)..."
     set_conf "requirepass" "$REDIS_PASSWORD"
@@ -135,6 +153,12 @@ configure_redis_common() {
     set_conf "bind" "0.0.0.0"
     set_conf "protected-mode" "no"
     set_conf "cluster-enabled" "no"
+    # yaml 튜닝 옵션 반영 (yaml = 단일소스)
+    [[ -n "$OPT_MAXMEMORY" ]] && set_conf "maxmemory" "$OPT_MAXMEMORY"
+    set_conf "maxmemory-policy" "$OPT_MAXMEMORY_POLICY"
+    set_conf "appendonly" "$OPT_APPENDONLY"
+    set_conf "appendfsync" "$OPT_APPENDFSYNC"
+    log "  옵션: maxmemory=${OPT_MAXMEMORY:-무제한} policy=$OPT_MAXMEMORY_POLICY appendonly=$OPT_APPENDONLY appendfsync=$OPT_APPENDFSYNC"
     ok "  공통 설정 완료"
 }
 
