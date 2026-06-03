@@ -494,7 +494,7 @@ if [ -n "$PROMETHEUS_SYSTEMD" ]; then
 
     # 1) 확실히 정지 (systemd + 잔여 프로세스)
     sudo systemctl stop "$PROMETHEUS_SYSTEMD" 2>/dev/null || true
-    sudo pkill -9 -f "prometheus.*--config" 2>/dev/null || true
+    { sudo pkill -9 -f "prometheus.*--config" 2>/dev/null; true; } </dev/null 2>/dev/null || true
     sleep 1
 
     if [ -d "$_PROM_DATA" ]; then
@@ -803,6 +803,31 @@ if command -v squeue &>/dev/null; then
 fi
 # /opt/apptainers VNC sif 이미지 존재 (잡 게이트)
 echo "  /opt/apptainers VNC sif: $(ls /opt/apptainers/vnc_*.sif 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ' || echo '없음')"
+
+# Redis 연결 상태 — VNC 세션 저장에 필수. false 면 진짜 에러까지 자동 출력
+_redis_ok=$(curl -s --max-time 5 http://localhost:5010/api/vnc/health 2>/dev/null \
+    | python3 -c 'import sys,json; print(json.load(sys.stdin).get("redis_available"))' 2>/dev/null)
+echo "  Redis 연결 (vnc 세션 저장용): redis_available=$_redis_ok"
+if [ "$_redis_ok" != "True" ] && [ "$_redis_ok" != "true" ]; then
+    echo "    ✗ Redis 연결 실패 — 원인 자동 진단:"
+    # 1) redis 서버 직접 ping (비번 .env 에서)
+    _rpw=$(grep -oP '^REDIS_PASSWORD=\K.*' "$SCRIPT_DIR/backend_5010/.env" 2>/dev/null)
+    _rhost=$(grep -oP '^REDIS_HOST=\K.*' "$SCRIPT_DIR/backend_5010/.env" 2>/dev/null); _rhost="${_rhost:-localhost}"
+    _rport=$(grep -oP '^REDIS_PORT=\K.*' "$SCRIPT_DIR/backend_5010/.env" 2>/dev/null); _rport="${_rport:-6379}"
+    echo "      .env: HOST=$_rhost PORT=$_rport PW=$([ -n "$_rpw" ] && echo '설정됨' || echo '없음')"
+    if command -v redis-cli &>/dev/null; then
+        echo -n "      redis-cli ping (비번O): "
+        redis-cli -h "$_rhost" -p "$_rport" ${_rpw:+-a "$_rpw"} ping 2>&1 | head -1
+        echo -n "      redis-cli ping (비번X): "
+        redis-cli -h "$_rhost" -p "$_rport" ping 2>&1 | head -1
+    fi
+    # 2) systemd redis 상태
+    echo "      redis 서비스: $(systemctl is-active redis-server 2>/dev/null || systemctl is-active redis 2>/dev/null || echo unknown)"
+    # 3) vnc_api 가 찍은 진짜 에러 (Redis not available: <원인>)
+    echo "      vnc_api 에러 로그:"
+    sudo journalctl -u dashboard_backend --since "10 min ago" --no-pager 2>/dev/null \
+        | grep -iE "Redis not available|RedisSession|VNC Redis|redis.*error|cluster" | tail -4 | sed 's/^/        /'
+fi
 
 echo ""
 echo "── [9] 실패 서비스 journalctl 마지막 5줄 (active 아닌 것만) ──"
