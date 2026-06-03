@@ -40,6 +40,7 @@ PARSER="$PROJECT_ROOT/cluster/config/parser.py"
 CONFIG_FILE=""
 DRY_RUN=false
 RESET=false
+NODE_IP=""              # 현재 노드 IP 수동 지정(자동감지 실패/dry-run 시)
 REDIS_PORT=6379
 SENTINEL_PORT=26379
 MASTER_NAME="mymaster"
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
         --config) CONFIG_FILE="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --reset) RESET=true; shift ;;
+        --node-ip) NODE_IP="$2"; shift 2 ;;
         -h|--help) grep '^#' "$0" | sed 's/^#//;s/^!.*//' | head -32; exit 0 ;;
         *) err "Unknown: $1"; exit 1 ;;
     esac
@@ -108,8 +110,11 @@ TOTAL=$(echo "$REDIS_CONTROLLERS" | jq '. | length' 2>/dev/null)
 
 MASTER_IP=$(echo "$REDIS_CONTROLLERS" | jq -r '.[0].ip_address')
 
-# 현재 노드 IP (yaml controllers 중 내 IP) — parser --current 우선, 없으면 hostname -I 교집합
-CURRENT_IP=$(python3 "$PARSER" --config "$CONFIG_FILE" --current 2>/dev/null | jq -r '.ip_address // empty' 2>/dev/null)
+# 현재 노드 IP: --node-ip 수동지정 > parser --current > hostname -I 교집합
+CURRENT_IP="$NODE_IP"
+if [[ -z "$CURRENT_IP" ]]; then
+    CURRENT_IP=$(python3 "$PARSER" --config "$CONFIG_FILE" --current 2>/dev/null | jq -r '.ip_address // empty' 2>/dev/null)
+fi
 if [[ -z "$CURRENT_IP" || "$CURRENT_IP" == "None" ]]; then
     for ip in $(hostname -I 2>/dev/null); do
         if echo "$REDIS_CONTROLLERS" | jq -e --arg ip "$ip" '.[] | select(.ip_address==$ip)' &>/dev/null; then

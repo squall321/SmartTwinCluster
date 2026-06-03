@@ -74,6 +74,26 @@ environment:
 
 ## 2. Redis 노드 구성 (각 노드에서 실행)
 
+### 먼저 dry-run (실제 변경 없이 미리보기 — 강력 권장)
+
+```bash
+cd ~/claude/KooSlurmInstallAutomationRefactory
+
+# 각 노드에서. IP 자동감지 안 되면 --node-ip 로 그 노드 IP 지정.
+sudo ./cluster/setup/setup_redis_from_yaml.sh \
+     --config my_multihead_cluster.yaml --node-ip 10.179.100.25 --dry-run
+```
+출력에서 확인할 것:
+- `ROLE=master` (또는 replica) — 노드 역할이 맞는지
+- `master=10.179.100.25 | quorum=2` — Primary/정족수
+- redis.conf 에 들어갈 옵션들 (`maxmemory 4gb`, `appendonly yes` ...)
+- replica 면 `replicaof 10.179.100.25 6379 (영속)`
+- `sentinel monitor mymaster 10.179.100.25 6379 2`
+
+`[dry-run]` 으로만 출력되고 **실제 파일/서비스는 안 건드림**. 의도대로면 아래 실제 적용.
+
+### 실제 적용 (master 노드부터)
+
 전체 재설치 없이 **Redis 만** yaml 보고 (재)셋업. master 노드부터:
 
 ```bash

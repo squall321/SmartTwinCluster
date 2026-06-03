@@ -1,0 +1,80 @@
+# ============================================================================
+# Redis Sentinel(HA) 설정 예제 — setup_redis_from_yaml.sh 용
+# ----------------------------------------------------------------------------
+# 이 파일은 "참고용 예제"다. 실제로는 운영 my_*.yaml 의 redis/environment/nodes
+# 섹션에 아래 내용을 반영해서 쓴다. (setup_redis_from_yaml.sh --config <my_*.yaml>)
+#
+# 옵션 설명: dashboard/REDIS_OPTIONS.md
+# 적용 절차: dashboard/REDIS_SENTINEL.md
+#
+# ── dry-run (실제 변경 없이 무엇이 적용될지 미리보기) ──────────────────────
+#   # 각 노드에서, 자기 IP 가 자동감지 안 되면 --node-ip 로 지정:
+#   sudo ./cluster/setup/setup_redis_from_yaml.sh \
+#        --config my_multihead_cluster.yaml --node-ip 10.179.100.25 --dry-run
+#   → "redis.conf 에 echo '...' >> ", "ROLE=master/replica", "sentinel monitor ..."
+#     등이 [dry-run] 으로만 출력되고 실제 파일/서비스는 안 건드림.
+#   IP 자동감지가 되면 --node-ip 생략 가능.
+#
+# ── 실제 적용 (Primary 노드부터) ──────────────────────────────────────────
+#   sudo ./cluster/setup/setup_redis_from_yaml.sh --config my_*.yaml --reset   # .25
+#   sudo ./cluster/setup/setup_redis_from_yaml.sh --config my_*.yaml --reset   # .24
+#   sudo ./cluster/setup/setup_redis_from_yaml.sh --config my_*.yaml --reset   # .50
+#
+# 검증됨: parser 로 14개 옵션 전부 읽힘 + role/quorum 자동결정 + dry-run 양쪽 role 확인.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# nodes — 어느 controller 가 Redis 노드인지 (services.redis: true)
+#   첫 redis 노드 = Primary, 나머지 = Replica (자동)
+# ----------------------------------------------------------------------------
+nodes:
+  controllers:
+    - hostname: icn102-0407-h19
+      ip_address: 10.179.100.25
+      services:
+        redis: true               # → Primary (services.redis:true 첫 노드)
+    - hostname: icn102-0407-h18
+      ip_address: 10.179.100.24
+      services:
+        redis: true               # → Replica
+    - hostname: icn102-0410-h13
+      ip_address: 10.179.100.50
+      services:
+        redis: true               # → Replica
+
+# ----------------------------------------------------------------------------
+# redis — 토폴로지 + 튜닝 옵션 (전부 redis.conf/sentinel.conf 에 반영됨)
+#   생략한 옵션은 기본값 적용. 최소한 type 만 sentinel 이면 동작.
+# ----------------------------------------------------------------------------
+redis:
+  enabled: true                   # Redis 사용
+  type: sentinel                  # sentinel = 1 Primary + N Replica + N Sentinel (HA)
+                                  # standalone = 단일 Redis (replica/sentinel 없음)
+  options:
+    # ---- 메모리 ----
+    maxmemory: 4gb                # 최대 메모리 (생략 시 무제한)
+    maxmemory_policy: allkeys-lru # 초과 시 LRU 제거 — 세션/캐시 권장
+    # ---- 영속성 ----
+    appendonly: yes               # AOF: 쓰기 파일 기록 → 재시작 후 복구
+    appendfsync: everysec         # 1초마다 fsync (균형, 최대 1초 손실)
+    save: "900 1 300 10 60 10000" # RDB 스냅샷 규칙 (빈값이면 RDB 비활성)
+    # ---- 연결 ----
+    maxclients: 10000             # 동시 클라이언트 최대
+    timeout: 0                    # idle 클라 안 끊음
+    tcp_keepalive: 300            # 죽은 연결 감지(초)
+    # ---- Sentinel (type: sentinel 일 때) ----
+    sentinel_port: 26379          # Sentinel 포트 (노드간 26379 개방 필요)
+    master_name: mymaster         # ★ environment.REDIS_MASTER_NAME 과 일치 ★
+    quorum: 2                     # failover 정족수 (생략 시 노드수/2+1 자동)
+    down_after_ms: 5000           # master 무응답 N ms → down 판정
+    failover_timeout_ms: 10000    # failover 타임아웃
+    parallel_syncs: 1             # failover 후 동시 재동기화 replica 수
+
+# ----------------------------------------------------------------------------
+# environment — 대시보드 클라이언트가 읽는 값
+# ----------------------------------------------------------------------------
+environment:
+  REDIS_PASSWORD: "SmartTwinCluster321!"   # Redis 비번 (requirepass/masterauth/sentinel auth-pass 공용)
+  REDIS_SENTINEL_HOSTS: "10.179.100.25:26379,10.179.100.24:26379,10.179.100.50:26379"
+                                           # 있으면 클라가 Sentinel 로 연결, 없으면 단일 Redis
+  REDIS_MASTER_NAME: "mymaster"            # 위 master_name 과 일치해야 함
