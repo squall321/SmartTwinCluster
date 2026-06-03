@@ -142,7 +142,63 @@ log "이 노드: $CURRENT_IP → ROLE=$ROLE"
 echo ""
 
 REDIS_CONF="/etc/redis/redis.conf"
-[[ -f "$REDIS_CONF" ]] || { err "$REDIS_CONF 없음 — redis-server 미설치?"; exit 1; }
+
+# ---- 0) redis-server 미설치면 오프라인 우선 설치 (phase2 install_redis 패턴 차용) ----
+# replica 노드는 sentinel 경로에서 아무도 redis 를 설치 안 해줬을 수 있다.
+# 노드 홈($HOME)의 offline_packages[_2404]/apt_packages/redis-server_*.deb 를
+# local APT repo(deb [trusted=yes] file://)로 설치(오프라인 우선), 없으면 online 폴백.
+ensure_redis_installed() {
+    if command -v redis-server &>/dev/null; then
+        return 0
+    fi
+    log "redis-server 미설치 → 설치 시도 (오프라인 우선)..."
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "  [dry-run] redis-server redis-tools 설치 (offline deb 우선 → online apt 폴백)"
+        return 0
+    fi
+    # OFFLINE_PKG_DIR 결정: detect_os.sh 가 있으면 source 후 $HOME 기준, 없으면 직접 탐색
+    local off=""
+    for du in "$SCRIPT_DIR/../utils/detect_os.sh" "$SCRIPT_DIR/detect_os.sh" "/tmp/detect_os.sh"; do
+        [[ -f "$du" ]] && { source "$du"; break; }
+    done
+    if declare -f detect_os_version &>/dev/null && declare -f set_offline_pkg_dir &>/dev/null; then
+        detect_os_version 2>/dev/null
+        set_offline_pkg_dir "$HOME" 2>/dev/null
+        off="$OFFLINE_PKG_DIR"
+    fi
+    # 폴백: detect_os 없으면 $HOME 의 디렉토리 직접 추정
+    if [[ -z "$off" ]]; then
+        if [[ -d "$HOME/offline_packages_2404/apt_packages" ]]; then off="$HOME/offline_packages_2404"
+        elif [[ -d "$HOME/offline_packages/apt_packages" ]]; then off="$HOME/offline_packages"; fi
+    fi
+    local apt_pkgs="$off/apt_packages"
+    if [[ -n "$off" ]] && ls "$apt_pkgs"/redis-server_*.deb &>/dev/null; then
+        log "  오프라인 패키지 발견($apt_pkgs) → local APT repo 설치"
+        # Packages 인덱스 없으면 생성
+        [[ -f "$apt_pkgs/Packages.gz" || -f "$apt_pkgs/Packages" ]] || {
+            command -v dpkg-scanpackages &>/dev/null && \
+            ( cd "$apt_pkgs" && dpkg-scanpackages . /dev/null > Packages 2>/dev/null && gzip -k -f Packages 2>/dev/null ) || true
+        }
+        echo "deb [trusted=yes] file://$apt_pkgs ./" | sudo tee /etc/apt/sources.list.d/offline-redis.list >/dev/null
+        sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/offline-redis.list \
+            -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends redis-server redis-tools 2>/dev/null \
+            || sudo apt-get install -f -y 2>/dev/null || true
+    else
+        warn "  오프라인 redis deb 없음($apt_pkgs) → online apt 폴백"
+        sudo apt-get update 2>/dev/null || true
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server redis-tools 2>/dev/null || true
+    fi
+    if command -v redis-server &>/dev/null; then
+        ok "  redis-server 설치 완료"
+    else
+        err "  redis-server 설치 실패 — 노드에 오프라인 패키지가 없거나(phase10 미배포) online 불가"
+        exit 1
+    fi
+}
+ensure_redis_installed
+
+[[ -f "$REDIS_CONF" ]] || { err "$REDIS_CONF 없음 — redis 설치됐는데 conf 미생성? 패키지 확인"; exit 1; }
 
 # ---- 1) cluster 잔재 정리 (cluster-enabled yes → no, nodes.conf 제거) ----
 cleanup_cluster() {
@@ -290,6 +346,9 @@ print((c.get('cluster_info') or {}).get('ssh_password',''))
           && _scperr=$($SCP "$PARSER" "$target:$rdir/parser.py" 2>&1) \
           && _scperr=$($SCP "$CONFIG_FILE" "$target:$rdir/redis_cfg.yaml" 2>&1) || {
             err "  ✗ [$ip] 파일 복사 실패: $_scperr"; failc=$((failc+1)); continue; }
+        # detect_os.sh 도 같이 전송 → 원격 노드에서 오프라인 패키지 경로 결정에 사용
+        local _detos="$SCRIPT_DIR/../utils/detect_os.sh"
+        [[ -f "$_detos" ]] && $SCP "$_detos" "$target:$rdir/detect_os.sh" >/dev/null 2>&1 || true
         local rflag=""; [[ "$RESET" == true ]] && rflag="--reset"
         if $SSH "$target" "sudo bash $rdir/setup_redis_from_yaml.sh --config $rdir/redis_cfg.yaml --remote --node-ip $ip $rflag" 2>&1 | sed 's/^/    /'; then
             ok "  ✓ [$ip] 배포 완료"; okc=$((okc+1))
