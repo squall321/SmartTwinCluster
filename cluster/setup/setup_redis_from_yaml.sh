@@ -87,8 +87,20 @@ OPT_MAXMEMORY=$(yaml_redis_opt maxmemory "")              # 예 4gb (비면 미�
 OPT_MAXMEMORY_POLICY=$(yaml_redis_opt maxmemory_policy "allkeys-lru")
 OPT_APPENDONLY=$(yaml_redis_opt appendonly "yes")        # True/yes → yes
 OPT_APPENDFSYNC=$(yaml_redis_opt appendfsync "everysec")
+OPT_MAXCLIENTS=$(yaml_redis_opt maxclients "10000")
+OPT_TIMEOUT=$(yaml_redis_opt timeout "0")                # idle 클라 끊기 (0=안끊음)
+OPT_TCP_KEEPALIVE=$(yaml_redis_opt tcp_keepalive "300")
+OPT_SAVE=$(yaml_redis_opt save "")                       # RDB 스냅샷 규칙 (예 "900 1 300 10")
 # python True/False → redis yes/no 정규화
 [[ "$OPT_APPENDONLY" =~ ^([Tt]rue|yes|YES)$ ]] && OPT_APPENDONLY="yes" || { [[ "$OPT_APPENDONLY" =~ ^([Ff]alse|no|NO)$ ]] && OPT_APPENDONLY="no"; }
+
+# ---- Sentinel 옵션 (yaml 우선, 없으면 기본값) ----
+OPT_SENTINEL_PORT=$(yaml_redis_opt sentinel_port "26379"); SENTINEL_PORT="$OPT_SENTINEL_PORT"
+OPT_MASTER_NAME=$(yaml_redis_opt master_name "mymaster"); MASTER_NAME="$OPT_MASTER_NAME"
+OPT_DOWN_AFTER=$(yaml_redis_opt down_after_ms "5000")
+OPT_FAILOVER_TIMEOUT=$(yaml_redis_opt failover_timeout_ms "10000")
+OPT_PARALLEL_SYNCS=$(yaml_redis_opt parallel_syncs "1")
+OPT_QUORUM=$(yaml_redis_opt quorum "")                   # 비면 N/2+1 자동
 
 REDIS_CONTROLLERS=$(python3 "$PARSER" --config "$CONFIG_FILE" --service redis 2>/dev/null)
 TOTAL=$(echo "$REDIS_CONTROLLERS" | jq '. | length' 2>/dev/null)
@@ -107,7 +119,7 @@ if [[ -z "$CURRENT_IP" || "$CURRENT_IP" == "None" ]]; then
 fi
 [[ -z "$CURRENT_IP" ]] && { err "현재 노드 IP 를 yaml redis 노드에서 못 찾음 (hostname -I 와 redis 노드 IP 교집합 없음)"; exit 1; }
 
-QUORUM=$(( TOTAL / 2 + 1 ))
+if [[ -n "$OPT_QUORUM" && "$OPT_QUORUM" != "None" ]]; then QUORUM="$OPT_QUORUM"; else QUORUM=$(( TOTAL / 2 + 1 )); fi
 if [[ "$CURRENT_IP" == "$MASTER_IP" ]]; then ROLE="master"; else ROLE="replica"; fi
 
 echo ""
@@ -158,7 +170,11 @@ configure_redis_common() {
     set_conf "maxmemory-policy" "$OPT_MAXMEMORY_POLICY"
     set_conf "appendonly" "$OPT_APPENDONLY"
     set_conf "appendfsync" "$OPT_APPENDFSYNC"
-    log "  옵션: maxmemory=${OPT_MAXMEMORY:-무제한} policy=$OPT_MAXMEMORY_POLICY appendonly=$OPT_APPENDONLY appendfsync=$OPT_APPENDFSYNC"
+    set_conf "maxclients" "$OPT_MAXCLIENTS"
+    set_conf "timeout" "$OPT_TIMEOUT"
+    set_conf "tcp-keepalive" "$OPT_TCP_KEEPALIVE"
+    [[ -n "$OPT_SAVE" && "$OPT_SAVE" != "None" ]] && set_conf "save" "$OPT_SAVE"
+    log "  옵션: maxmemory=${OPT_MAXMEMORY:-무제한}/$OPT_MAXMEMORY_POLICY appendonly=$OPT_APPENDONLY/$OPT_APPENDFSYNC maxclients=$OPT_MAXCLIENTS timeout=$OPT_TIMEOUT keepalive=$OPT_TCP_KEEPALIVE"
     ok "  공통 설정 완료"
 }
 
@@ -196,9 +212,9 @@ requirepass $REDIS_PASSWORD
 
 sentinel monitor $MASTER_NAME $MASTER_IP $REDIS_PORT $QUORUM
 sentinel auth-pass $MASTER_NAME $REDIS_PASSWORD
-sentinel down-after-milliseconds $MASTER_NAME 5000
-sentinel parallel-syncs $MASTER_NAME 1
-sentinel failover-timeout $MASTER_NAME 10000
+sentinel down-after-milliseconds $MASTER_NAME $OPT_DOWN_AFTER
+sentinel parallel-syncs $MASTER_NAME $OPT_PARALLEL_SYNCS
+sentinel failover-timeout $MASTER_NAME $OPT_FAILOVER_TIMEOUT
 sentinel deny-scripts-reconfig yes
 sentinel announce-ip $CURRENT_IP
 sentinel announce-port $SENTINEL_PORT
