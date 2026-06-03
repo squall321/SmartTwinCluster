@@ -776,11 +776,10 @@ if command -v sinfo &>/dev/null; then
 else
     echo "  sinfo 없음 (slurm PATH 확인 필요)"
 fi
-# VNC 백엔드 엔드포인트 원문 (파싱 안 하고 그대로 — 에러면 에러 보임)
-echo "  /api/vnc/config 응답:"
-curl -s --max-time 5 http://localhost:5010/api/vnc/config 2>&1 | head -c 400 | sed 's/^/    /'; echo
-echo "  /api/vnc/images 응답:"
-curl -s --max-time 5 http://localhost:5010/api/vnc/images 2>&1 | head -c 300 | sed 's/^/    /'; echo
+# VNC 백엔드 엔드포인트 (vnc_api.py 실제 라우트: /health /images /nodes /sessions)
+echo "  /api/vnc/health: $(curl -s --max-time 5 http://localhost:5010/api/vnc/health 2>&1 | head -c 120)"
+echo "  /api/vnc/images: $(curl -s --max-time 5 http://localhost:5010/api/vnc/images 2>&1 | python3 -c 'import sys,json; d=json.load(sys.stdin); print(str(len(d.get("images",[])))+"개 이미지")' 2>/dev/null || echo '응답이상')"
+echo "  /api/vnc/nodes:  $(curl -s --max-time 5 http://localhost:5010/api/vnc/nodes 2>&1 | head -c 150)"
 # 활성 VNC 세션의 터널 포트가 controller localhost 에 LISTEN 중인가
 echo "  noVNC 터널 포트 LISTEN (68xx/69xx):"
 _tp=$(sudo ss -ltnp 2>/dev/null | grep -oE ":6[89][0-9][0-9] " | sort -u | tr '\n' ' ')
