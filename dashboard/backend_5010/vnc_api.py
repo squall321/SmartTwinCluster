@@ -132,7 +132,9 @@ NOVNC_PORT_OFFSET = 1000  # noVNC 포트 = VNC 포트 + 1000
 VNC_IMAGES_DIR = "/opt/apptainers"           # 읽기 전용 이미지 저장소
 VNC_SANDBOXES_DIR = "/scratch/vnc_sandboxes" # 쓰기 가능 샌드박스
 VNC_SESSIONS_DIR = "/scratch/vnc_sessions"   # 세션 데이터
-VNC_LOG_DIR = "/shared/logs"                 # 로그 (공유 스토리지, job_logs_api ALT_LOGS_DIR과 일치)
+VNC_LOG_DIR = "/scratch/vnc_logs"            # 로그 — 노드 로컬(항상 존재, [4.5]에서 1777).
+                                             # /shared(GlusterFS 심볼릭)는 마운트 실패 시 #SBATCH
+                                             # --output 못써서 잡 exit 1 하므로 로컬 경로 사용.
 
 # Health check용 기본 SIF 이미지 경로
 SIF_IMAGE_PATH = f"{VNC_IMAGES_DIR}/vnc_desktop.sif"
