@@ -401,6 +401,32 @@ def check_image_exists(sif_path, node=None, partition='viz'):
 check_image_exists_on_remote_node = check_image_exists
 
 
+def _is_local_node(node):
+    """node(IP 또는 hostname) 가 이 백엔드가 도는 controller 자신인지 판정.
+    controller==viz 동일 물리호스트 환경에서 self-SSH 터널 실패 회피용."""
+    try:
+        import socket
+        # 로컬 호스트네임 + 모든 로컬 IP 수집
+        local_names = {socket.gethostname(), socket.getfqdn(), 'localhost', '127.0.0.1'}
+        try:
+            local_ips = subprocess.getoutput("hostname -I").split()
+            local_names.update(local_ips)
+        except Exception:
+            pass
+        if str(node) in local_names:
+            return True
+        # node 가 hostname 이면 IP 로 해석해서 비교
+        try:
+            node_ip = socket.gethostbyname(str(node))
+            if node_ip in local_names:
+                return True
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False
+
+
 def create_ssh_tunnel(node, remote_port, local_port, session_id):
     """
     SSH 포트포워딩 터널 생성
@@ -412,6 +438,19 @@ def create_ssh_tunnel(node, remote_port, local_port, session_id):
     자동으로 viz-node:remote_port로 포워딩됨
     """
     try:
+        # node 가 controller 자신(백엔드가 도는 호스트)이면 SSH 터널 불필요.
+        # websockify 가 이미 localhost:remote_port 에 떠있고, /vncproxy 는 controller
+        # localhost 로 프록시하므로 local_port==remote_port 면 그대로 도달 가능.
+        # (controller==viz 동일 물리호스트 환경 — bare ssh self-tunnel 실패 회피)
+        if _is_local_node(node):
+            if str(local_port) == str(remote_port):
+                print(f"ℹ️  {node} 는 controller 자신 — SSH 터널 불필요 (localhost:{remote_port} 직접 사용)")
+                SSH_TUNNEL_PIDS[session_id] = None
+                return None
+            else:
+                # 포트가 다르면 로컬 포트포워딩만 (socat 대신 ssh localhost 로 가볍게)
+                print(f"ℹ️  {node} 는 controller 자신 — 로컬 포트포워딩 {local_port}→{remote_port}")
+
         # SSH 터널 명령어 (-f: 백그라운드, -N: 명령 실행 안함, -T: TTY 할당 안함, -g: 외부 접속 허용)
         # SSH 키 경로 포함
         cmd = [SSH]
@@ -428,7 +467,7 @@ def create_ssh_tunnel(node, remote_port, local_port, session_id):
             '-o', 'ServerAliveInterval=60',     # Keep-alive 60초
             '-o', 'ServerAliveCountMax=3',      # 3번 실패 시 종료
             '-L', f'0.0.0.0:{local_port}:localhost:{remote_port}',  # 포트포워딩 (모든 인터페이스에서 접속 가능)
-            node
+            f'{get_default_system_user()}@{node}'  # 접속성 체크(1061)와 동일한 user@host 형식으로 통일
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)

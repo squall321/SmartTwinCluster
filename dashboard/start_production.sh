@@ -89,6 +89,30 @@ BACKEND_SERVICES=(
     "cae_automation"
 )
 
+# 모니터링 데몬 (phase5_web.sh가 systemd로 생성·enable함)
+# step6 의 전용 로직(446~484행)이 기동을 담당하므로 BACKEND_SERVICES 에 넣지 않음
+# (넣으면 step5 와 step6 가 이중 기동). 여기서는 상태/진단 표시용으로만 사용.
+MONITORING_SERVICES=(
+    "prometheus"
+    "node_exporter"
+)
+
+# 선택적 데몬 — systemd 에 설치돼있으면 시작, 없으면 조용히 스킵
+#   cae_service(8001): CAE 보조 서비스 (npm dev)
+#   saml_idp(7000):    SSO on 일 때만 (아래에서 yaml sso.enabled 보고 조건부 포함)
+OPTIONAL_SERVICES=(
+    "cae_service"
+)
+# yaml sso.enabled 면 saml_idp 도 선택적 시작 대상에 추가
+_SSO=$(python3 -c "
+import yaml
+try:
+    c=yaml.safe_load(open('$SCRIPT_DIR/../my_multihead_cluster.yaml')) or {}
+    print(str((c.get('sso') or {}).get('enabled', False)).lower())
+except Exception: print('false')
+" 2>/dev/null)
+[ "$_SSO" = "true" ] && OPTIONAL_SERVICES+=("saml_idp")
+
 echo "=========================================="
 echo "🚀 HPC Cluster Production 모드 시작 (systemd)"
 echo "=========================================="
@@ -99,12 +123,17 @@ echo -e "${BLUE}[1/7] 기존 백그라운드 프로세스 정리...${NC}"
 
 # systemd로 관리되는 모든 서비스 먼저 중지 (상태 일관성 보장)
 echo "  → systemd 백엔드 서비스 중지..."
-for service in "${BACKEND_SERVICES[@]}"; do
+for service in "${BACKEND_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
     if systemctl is-active --quiet "$service" 2>/dev/null; then
         echo "    $service 중지 중..."
         sudo systemctl stop "$service" 2>/dev/null || true
     fi
 done
+# SSO off 인데 saml_idp 가 떠있으면 중지 (불필요하게 7000 점유)
+if [ "$_SSO" != "true" ] && systemctl is-active --quiet "saml_idp" 2>/dev/null; then
+    echo "    saml_idp 중지 (SSO off — 불필요)..."
+    sudo systemctl stop "saml_idp" 2>/dev/null || true
+fi
 
 echo "  → systemd 모니터링 서비스 중지..."
 for svc_name in "node_exporter" "prometheus-node-exporter" "node-exporter"; do
@@ -269,11 +298,12 @@ check_frontend_needs_build() {
     return 1  # 빌드 불필요
 }
 
-# 프론트엔드 디렉토리 목록
+# 프론트엔드 디렉토리 목록 (build_all_frontends.sh 의 실제 디렉토리명과 일치)
 FRONTEND_DIRS=(
     "frontend_3010"
     "auth_portal_4431"
-    "kooCAEWeb"
+    "kooCAEWeb_5173"
+    "moonlight_frontend_8003"
 )
 
 NEEDS_BUILD=false
@@ -380,22 +410,25 @@ echo -e "${BLUE}[5/7] Backend 서비스 시작 (systemd)...${NC}"
 echo "  → systemd 데몬 리로드..."
 sudo systemctl daemon-reload 2>/dev/null || true
 
-for service in "${BACKEND_SERVICES[@]}"; do
+# 필수 백엔드 + 선택적 데몬(설치된 것만) 모두 시작
+for service in "${BACKEND_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
+    # 선택적 서비스는 systemd 에 설치 안 됐으면 스킵
+    if [[ " ${OPTIONAL_SERVICES[*]} " == *" $service "* ]]; then
+        systemctl list-unit-files "${service}.service" &>/dev/null \
+            || { echo "  → $service: (미설치 — 스킵)"; continue; }
+    fi
     echo -n "  → $service: "
-
-    # 서비스 시작 (Step 1에서 이미 중지됨)
     if sudo systemctl start "$service" 2>/dev/null; then
         sleep 2
         if systemctl is-active --quiet "$service"; then
             echo -e "${GREEN}✓ 실행 중${NC}"
         else
             echo -e "${RED}✗ 시작 실패${NC}"
-            echo "    journalctl -u $service -n 10"
+            sudo journalctl -u "$service" -n 5 --no-pager 2>/dev/null | tail -5 | sed 's/^/      /'
         fi
     else
         echo -e "${RED}✗ 시작 실패${NC}"
-        # 실패 원인 출력
-        journalctl -u "$service" -n 5 --no-pager 2>/dev/null || true
+        sudo journalctl -u "$service" -n 5 --no-pager 2>/dev/null | tail -5 | sed 's/^/      /'
     fi
 done
 echo ""
@@ -453,6 +486,18 @@ for svc_name in "prometheus" "prometheus-server"; do
 done
 
 if [ -n "$PROMETHEUS_SYSTEMD" ]; then
+    # data 디렉토리 root 오염 정리 (과거 root 실행 잔재 → 시작 실패 원인)
+    _PROM_DATA="$SCRIPT_DIR/prometheus_9090/data"
+    if [ -d "$_PROM_DATA" ]; then
+        # systemd 서비스 실행 계정으로 소유권 정렬
+        _PROM_USER=$(systemctl show -p User --value "$PROMETHEUS_SYSTEMD" 2>/dev/null)
+        [ -z "$_PROM_USER" ] && _PROM_USER="$RUN_USER"
+        sudo chown -R "${_PROM_USER}:${_PROM_USER}" "$_PROM_DATA" 2>/dev/null || true
+        # 삭제대기 손상 블록 정리
+        sudo find "$_PROM_DATA" -maxdepth 1 -type d -name "*.tmp-for-deletion" -exec rm -rf {} + 2>/dev/null || true
+    fi
+    sudo rm -f "$SCRIPT_DIR/prometheus_9090/.prometheus.pid" 2>/dev/null || true
+
     # systemd 서비스로 관리됨 - 시작 (Step 1에서 이미 중지됨)
     echo -n "  → Prometheus ($PROMETHEUS_SYSTEMD): "
     if sudo systemctl start "$PROMETHEUS_SYSTEMD" 2>/dev/null; then
@@ -550,14 +595,16 @@ except Exception: print('false')
         fi
     fi
     # 활성 nginx site config 들에서 server_name 갱신 (도메인 + localhost 유지)
+    # DOMAIN 을 정규식에 안전하게 쓰기 위해 메타문자 이스케이프 (IP의 '.' 등)
+    _DOMAIN_RE=$(printf '%s' "$DOMAIN" | sed 's/[.[\*^$/]/\\&/g')
     _changed=0
     for _conf in /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf; do
         [ -f "$_conf" ] || continue
         # hpc/auth/web 관련 conf 만 (기본 default 제외)
         grep -qE "auth|hpc|web_services|dashboard|portal" "$_conf" 2>/dev/null || continue
         if grep -qE "server_name" "$_conf" 2>/dev/null; then
-            # 이미 도메인 있으면 스킵
-            if ! grep -qE "server_name[^;]*\b$DOMAIN\b" "$_conf" 2>/dev/null; then
+            # 이미 도메인 있으면 도메인 삽입은 스킵하되, 아래 '_' 정리는 항상 수행
+            if ! grep -qE "server_name[^;]*(^|[[:space:]])${_DOMAIN_RE}([[:space:]]|;)" "$_conf" 2>/dev/null; then
                 sudo cp "$_conf" "${_conf}.bak.$(date +%s)" 2>/dev/null
                 # server_name 라인에 도메인을 맨 앞에 추가 (기존 토큰 보존)
                 sudo sed -i -E "s|(server_name)[[:space:]]+([^;]*);|\1 $DOMAIN \2;|" "$_conf"
@@ -565,6 +612,16 @@ except Exception: print('false')
                 sudo sed -i "s|{{DOMAIN}}|$DOMAIN|g; s|{{PUBLIC_URL}}|$DOMAIN|g" "$_conf"
                 _changed=1
                 echo "    ✓ server_name 갱신: $(basename "$_conf")"
+            fi
+            # bare catch-all '_' 토큰 정리 (server_name <도메인> _; → server_name <도메인>;)
+            # default_server 는 listen 지시어가 담당하므로 server_name 의 '_' 는 불필요/혼란.
+            if grep -qE "server_name[^;]*[[:space:]]_[[:space:]]*;|server_name[[:space:]]+_[[:space:]]*;" "$_conf" 2>/dev/null; then
+                # 1) 다른 토큰과 함께 있는 '_' 제거:  server_name a b _ ;  → server_name a b;
+                sudo sed -i -E "s|(server_name[^;]*[^[:space:]_])[[:space:]]+_([[:space:]]*;)|\1\2|g" "$_conf"
+                # 2) '_' 만 단독으로 남은 경우 도메인으로 치환:  server_name _;  → server_name <도메인> localhost;
+                sudo sed -i -E "s|(server_name)[[:space:]]+_[[:space:]]*;|\1 $DOMAIN localhost;|g" "$_conf"
+                _changed=1
+                echo "    ✓ server_name 의 bare '_' 정리: $(basename "$_conf")"
             fi
         fi
     done
@@ -624,7 +681,7 @@ echo "  ● CAE Frontend:     http://$PUBLIC_URL/cae/"
 echo "  ● Moonlight:        http://$PUBLIC_URL/moonlight/"
 echo ""
 echo "📊 Backend Services (systemd):"
-for service in "${BACKEND_SERVICES[@]}"; do
+for service in "${BACKEND_SERVICES[@]}" "${MONITORING_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
     status=$(systemctl is-active "$service" 2>/dev/null || echo "unknown")
     if [ "$status" = "active" ]; then
         echo -e "  ${GREEN}●${NC} $service: $status"
@@ -661,7 +718,7 @@ done
 
 echo ""
 echo "── [2] systemd 서비스 상태 ──"
-for service in "${BACKEND_SERVICES[@]}"; do
+for service in "${BACKEND_SERVICES[@]}" "${MONITORING_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
     _st=$(systemctl is-active "$service" 2>/dev/null || echo unknown)
     _sub=$(systemctl show -p SubState --value "$service" 2>/dev/null)
     echo "  $service: $_st ($_sub)"
@@ -697,6 +754,50 @@ for _c in /etc/nginx/conf.d/*.conf; do
     echo "  $(basename "$_c"): $_vnc | $_sn"
 done
 
+echo ""
+echo "── [8] VNC 체인 (viz 노드/이미지/파티션/터널) ──"
+# viz 파티션 상태
+if command -v sinfo &>/dev/null; then
+    echo "  viz 파티션: $(sinfo -h -p viz -o '%a %D nodes %t' 2>/dev/null | head -1 || echo '없음/조회불가')"
+else
+    echo "  sinfo 없음 (slurm PATH 확인)"
+fi
+# VNC 백엔드 config 엔드포인트 (DEFAULT_VIZ_NODE / sif)
+_vcfg=$(curl -s --max-time 5 http://localhost:5010/api/vnc/config 2>/dev/null)
+if [ -n "$_vcfg" ]; then
+    echo "  /api/vnc/config: $(echo "$_vcfg" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("default_node="+str(d.get("default_node","?")), "images="+str(len(d.get("images",[]))))' 2>/dev/null || echo '파싱실패')"
+else
+    echo "  ✗ /api/vnc/config 응답없음 (dashboard_backend 5010 확인)"
+fi
+# 활성 VNC 세션의 터널 포트가 controller localhost 에 LISTEN 중인가
+echo "  noVNC 터널 포트 LISTEN (69xx/68xx):"
+sudo ss -ltnp 2>/dev/null | grep -oE ":6[89][0-9][0-9] " | sort -u | tr '\n' ' ' | sed 's/^/    /'
+echo ""
+# 최근 VNC 잡
+if command -v squeue &>/dev/null; then
+    echo "  실행중 VNC 잡: $(squeue -h -n vnc_session -o '%i %t %N' 2>/dev/null | head -3 | tr '\n' '|' || echo '없음')"
+fi
+
+echo ""
+echo "── [9] 실패 서비스 journalctl 마지막 5줄 (active 아닌 것만) ──"
+for service in "${BACKEND_SERVICES[@]}" "${MONITORING_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
+    _st=$(systemctl is-active "$service" 2>/dev/null || echo unknown)
+    if [ "$service" = "saml_idp" ] || [ "$service" = "cae_service" ]; then
+        # 설치 안 됐으면 스킵
+        systemctl list-unit-files "${service}.service" &>/dev/null || continue
+    fi
+    if [ "$_st" != "active" ]; then
+        echo "  ▸ $service ($_st):"
+        sudo journalctl -u "$service" -n 5 --no-pager 2>/dev/null | tail -5 | sed 's/^/      /'
+    fi
+done
+
+echo ""
+echo "── [10] dashboard_backend 최근 VNC/터널 로그 ──"
+sudo journalctl -u dashboard_backend -n 100 --no-pager 2>/dev/null \
+    | grep -iE "tunnel|vnc|novnc|image.*not|sbatch|partition" | tail -8 | sed 's/^/  /' \
+    || echo "  (관련 로그 없음)"
+
 echo "════════════════════════════════════════════════════════════════"
-echo "🩺 진단 끝 — 위 [1]~[7] 블록을 복사해서 문제 분석 요청"
+echo "🩺 진단 끝 — 위 [1]~[10] 블록을 복사해서 문제 분석 요청"
 echo "════════════════════════════════════════════════════════════════"
