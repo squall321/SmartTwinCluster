@@ -899,16 +899,22 @@ else
                 # scontrol: 상세 (실행 전 거부 이유)
                 command -v scontrol &>/dev/null && \
                     scontrol show job "$_jid" 2>/dev/null | grep -oE "(JobState|Reason|ExitCode)=[^ ]+" | sed 's/^/    /'
-                # sbatch 스크립트 출력 로그 (apptainer/이미지 에러)
-                for _lg in "/scratch/vnc_sessions/$_sid"/*.log "/scratch/vnc_sessions/$_sid"/*.out \
-                           "/shared/logs/${_sid}"* "/shared/logs/vnc-"*"${_jid}"* \
-                           "$HOME/vnc-${_jid}"*.out "slurm-${_jid}.out"; do
+                # sbatch --output 로그 (vnc_api: /shared/logs/vnc-<user>-<jobid>.out/.err)
+                # username 은 system_user(yaml ssh_user) — 패턴으로 jobid 매칭
+                echo "    잡 출력 로그 (/shared/logs/vnc-*-${_jid}.out/.err):"
+                _found_log=0
+                for _lg in /shared/logs/vnc-*-${_jid}.err /shared/logs/vnc-*-${_jid}.out \
+                           "/scratch/vnc_sessions/$_sid"/*.log "/scratch/vnc_sessions/$_sid"/*.out \
+                           "slurm-${_jid}.out"; do
                     if [ -f "$_lg" ]; then
-                        echo "    잡 로그 ($_lg) 마지막 10줄:"
-                        tail -10 "$_lg" 2>/dev/null | sed 's/^/      /'
-                        break
+                        echo "      ── $_lg ──"
+                        sudo tail -20 "$_lg" 2>/dev/null | sed 's/^/      /'
+                        _found_log=1
                     fi
                 done
+                [ "$_found_log" = "0" ] && echo "      (로그 파일 없음 — /shared/logs 마운트/권한 확인)"
+                # 디렉토리 존재/권한 (잡 실패 흔한 원인)
+                echo "    경로 점검: $(for d in /shared/logs /scratch/vnc_sandboxes /scratch/vnc_sessions; do [ -d "$d" ] && echo "$d(O,$(stat -c %U "$d" 2>/dev/null))" || echo "$d(없음)"; done | tr '\n' ' ')"
             fi
             # 4) 세션 상세 (novnc_url) + ready 확인
             sleep 3

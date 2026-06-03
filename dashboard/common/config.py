@@ -10,21 +10,43 @@ from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables.
-# 인자 없는 load_dotenv() 는 CWD 의 .env 만 봐서, 서비스마다 CWD 가 달라
-# REDIS_PASSWORD 를 못 읽어 NOAUTH 로 Redis 연결 실패하는 문제가 있었음.
-# 각 서비스의 .env 를 명시적으로 탐색해서 로드.
+# 인자 없는 load_dotenv() 는 CWD 의 .env 만 봐서 REDIS_PASSWORD 를 못 읽고
+# NOAUTH 로 Redis 연결 실패하는 문제가 있었음.
 _DASHBOARD_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../dashboard
-for _envname in ('backend_5010', 'auth_portal_4430', 'common'):
-    _envp = os.path.join(_DASHBOARD_DIR, _envname, '.env')
+_ENV_CANDIDATES = [
+    os.path.join(_DASHBOARD_DIR, n, '.env')
+    for n in ('backend_5010', 'auth_portal_4430', 'common')
+]
+for _envp in _ENV_CANDIDATES:
     if os.path.exists(_envp):
         load_dotenv(_envp, override=False)
-load_dotenv(override=False)  # CWD 의 .env 도 (위 값 우선)
+load_dotenv(override=False)  # CWD 의 .env 도
+
+# .env 파일에서 KEY 값을 직접 파싱 (systemd 가 빈 환경변수를 주입하면
+# load_dotenv(override=False) 가 못 덮어쓰므로, 환경변수가 비어있으면 파일에서 직접 읽음)
+def _env_or_file(key, default=None):
+    val = os.getenv(key)
+    if val:  # 비어있지 않으면 그대로
+        return val
+    for _envp in _ENV_CANDIDATES:
+        if not os.path.exists(_envp):
+            continue
+        try:
+            for line in open(_envp):
+                line = line.strip()
+                if line.startswith(f"{key}=") and not line.startswith("#"):
+                    v = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if v:
+                        return v
+        except Exception:
+            pass
+    return default
 
 # Redis connection settings
-REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
-REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
-REDIS_DB = int(os.getenv('REDIS_DB', 0))
+REDIS_HOST = _env_or_file('REDIS_HOST', 'localhost')
+REDIS_PORT = int(_env_or_file('REDIS_PORT', 6379))
+REDIS_PASSWORD = _env_or_file('REDIS_PASSWORD', None)
+REDIS_DB = int(_env_or_file('REDIS_DB', 0))
 
 # Connection pool settings
 REDIS_MAX_CONNECTIONS = int(os.getenv('REDIS_MAX_CONNECTIONS', 50))
