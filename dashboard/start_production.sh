@@ -402,15 +402,23 @@ else
 fi
 echo ""
 
-# ==================== 4.5 VNC 작업 디렉토리 권한 보장 ====================
-# VNC 잡은 system_user(stcx 등)로 실행됨. /shared/logs, /scratch/vnc_* 가
-# root 소유면 sbatch --output 못쓰고 apptainer build --sandbox 도 실패 → 잡 exit 1.
-# 모든 사용자 쓰기 가능하게 1777(sticky) 적용 (헤드 + 잡 도는 viz 노드 양쪽).
+# ==================== 4.5 VNC 작업 디렉토리 권한 보장 (헤드 + viz 노드) ====================
+# VNC 잡은 system_user(stcx)로 viz 노드에서 실행됨. 노드 로컬 /scratch/vnc_*
+# 가 root 소유면 apptainer build --sandbox 실패 → 잡 exit 1.
+# 헤드만 chmod 해선 안 되고 각 viz 노드에 SSH 로 적용해야 함.
 echo -e "${BLUE}[4.5] VNC 작업 디렉토리 권한 보장...${NC}"
+# 헤드 즉시 (공유 /shared/logs 포함)
 for _d in /shared/logs /scratch/vnc_sandboxes /scratch/vnc_sessions /scratch/vnc_logs; do
     sudo mkdir -p "$_d" 2>/dev/null || true
-    sudo chmod 1777 "$_d" 2>/dev/null && echo "  ✓ $_d (1777)" || echo "  ⚠ $_d 권한설정 실패"
+    sudo chmod 1777 "$_d" 2>/dev/null || true
 done
+# viz/hybrid 노드 전체 (전용 스크립트 — yaml 기반 SSH 1777)
+_FIXVNC="$SCRIPT_DIR/../fix_vnc_node_permissions.sh"
+if [ -f "$_FIXVNC" ]; then
+    bash "$_FIXVNC" --config "$SCRIPT_DIR/../my_multihead_cluster.yaml" --parallel 10 2>&1 | sed 's/^/  /'
+else
+    echo "  ⚠ fix_vnc_node_permissions.sh 없음 — 헤드만 적용됨 (viz 노드 권한 미보장)"
+fi
 echo ""
 
 # ==================== 5. Backend 서비스 시작 (systemd) ====================
