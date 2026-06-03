@@ -485,15 +485,27 @@ for svc_name in "prometheus" "prometheus-server"; do
 done
 
 if [ -n "$PROMETHEUS_SYSTEMD" ]; then
-    # data 디렉토리 root 오염 정리 (과거 root 실행 잔재 → 시작 실패 원인)
+    # data 디렉토리 권한 정리 — 반드시 prometheus 완전 정지 후 chown
+    # (실행 중이면 lock/queries.active 를 잡고 있어 chown/unlink permission denied)
     _PROM_DATA="$SCRIPT_DIR/prometheus_9090/data"
+    _PROM_USER=$(systemctl show -p User --value "$PROMETHEUS_SYSTEMD" 2>/dev/null)
+    [ -z "$_PROM_USER" ] && _PROM_USER="$RUN_USER"
+    _PROM_GROUP=$(id -gn "$_PROM_USER" 2>/dev/null || echo "$_PROM_USER")
+
+    # 1) 확실히 정지 (systemd + 잔여 프로세스)
+    sudo systemctl stop "$PROMETHEUS_SYSTEMD" 2>/dev/null || true
+    sudo pkill -9 -f "prometheus.*--config" 2>/dev/null || true
+    sleep 1
+
     if [ -d "$_PROM_DATA" ]; then
-        # systemd 서비스 실행 계정으로 소유권 정렬
-        _PROM_USER=$(systemctl show -p User --value "$PROMETHEUS_SYSTEMD" 2>/dev/null)
-        [ -z "$_PROM_USER" ] && _PROM_USER="$RUN_USER"
-        sudo chown -R "${_PROM_USER}:${_PROM_USER}" "$_PROM_DATA" 2>/dev/null || true
-        # 삭제대기 손상 블록 정리
-        sudo find "$_PROM_DATA" -maxdepth 1 -type d -name "*.tmp-for-deletion" -exec rm -rf {} + 2>/dev/null || true
+        # 2) data 전체 + lock/queries.active 명시 소유권 정렬 (서비스 계정)
+        sudo chown -R "${_PROM_USER}:${_PROM_GROUP}" "$_PROM_DATA" 2>/dev/null || true
+        # 잡고 있던 lock/queries.active 가 못 바뀌면 삭제 (재생성됨)
+        sudo rm -f "$_PROM_DATA/lock" "$_PROM_DATA/queries.active" 2>/dev/null || true
+        # 손상/삭제대기 블록 정리
+        sudo find "$_PROM_DATA" -maxdepth 2 -name "*.tmp-for-deletion" -exec rm -rf {} + 2>/dev/null || true
+        # wal/chunks_head 도 서비스 계정 소유 보장
+        sudo chown -R "${_PROM_USER}:${_PROM_GROUP}" "$_PROM_DATA"/wal "$_PROM_DATA"/chunks_head 2>/dev/null || true
     fi
     sudo rm -f "$SCRIPT_DIR/prometheus_9090/.prometheus.pid" 2>/dev/null || true
 
