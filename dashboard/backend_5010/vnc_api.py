@@ -616,6 +616,10 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
 #SBATCH --output={VNC_LOG_DIR}/vnc-{web_user}-%j.out
 #SBATCH --error={VNC_LOG_DIR}/vnc-{web_user}-%j.err
 
+# PATH 명시 — slurm 비대화형 잡은 빈 PATH 로 실행될 수 있어 mkdir/hostname/apptainer
+# 등 기본명령조차 'command not found'(rc=127)로 실패한다. apptainer 는 /usr/local/bin.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 # 로그 디렉토리 생성
 mkdir -p {VNC_LOG_DIR}
 
