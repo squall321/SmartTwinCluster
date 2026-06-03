@@ -921,6 +921,35 @@ else
             # GONE(RUNNING 못 됨) 또는 ExitCode 가 0:0 이 아니면(=비정상 종료) 실패 진단 출력
             if [ "$_state" != "R" ] || { [ -n "$_exitcode" ] && [ "$_exitcode" != "0:0" ]; }; then
                 echo "  ✗ 잡 비정상 (state=$_state exitcode=${_exitcode:-?}) — 실패 이유 자동 진단:"
+                # 잡이 실제 떨어진 노드 (sacct NodeList, 없으면 squeue %N 폴백) — ssh 로그 긁기에 먼저 필요
+                _jnode=$(sacct -n -j "$_jid" --format=NodeList 2>/dev/null | grep -vE 'None|^\s*$' | head -1 | tr -d ' ')
+                [ -z "$_jnode" ] && _jnode=$(squeue -h -j "$_jid" -o '%N' 2>/dev/null | head -1 | tr -d ' ')
+                # --- cluster yaml + ssh 비번(cluster_info.ssh_password) + 잡노드 hostname→ip|ssh_user 해석 ---
+                _JYAML="$SCRIPT_DIR/../my_multihead_cluster.yaml"
+                [ -f "$_JYAML" ] || _JYAML="$SCRIPT_DIR/../my_multihead_cluster_2.yaml"
+                export SSHPASS=$(python3 -c "
+import yaml
+c=yaml.safe_load(open('$_JYAML')) or {}
+print((c.get('cluster_info') or {}).get('ssh_password',''))
+" 2>/dev/null)
+                _jtarget=""
+                if [ -n "$_jnode" ] && [ "$_jnode" != "None" ]; then
+                    _ji=$(python3 -c "
+import yaml,sys
+c=yaml.safe_load(open('$_JYAML')) or {}
+n=c.get('nodes',{}) or {}
+hn='$_jnode'
+for v in n.values():
+    if isinstance(v,list):
+        for x in v:
+            if isinstance(x,dict) and x.get('hostname')==hn:
+                print('%s|%s'%(x.get('ip_address') or hn, x.get('ssh_user','koopark'))); sys.exit()
+print('%s|koopark'%hn)
+" 2>/dev/null)
+                    _jip=${_ji%%|*}; _juser=${_ji##*|}
+                    [ -z "$_jip" ] && _jip="$_jnode"; [ -z "$_juser" ] && _juser="koopark"
+                    _jtarget="${_juser}@${_jip}"
+                fi
                 # sacct: 종료 상태 + 코드
                 if command -v sacct &>/dev/null; then
                     echo "    sacct: $(sacct -n -j "$_jid" --format=State%20,ExitCode,Reason%40 2>/dev/null | head -2 | tr '\n' '|')"
@@ -942,20 +971,48 @@ else
                         _found_log=1
                     fi
                 done
-                # 잡 노드 로컬 로그도 (ssh)
-                if [ "$_found_log" = "0" ] && [ -n "${_jnode:-}" ] && [ "$_jnode" != "None" ]; then
-                    echo "      잡 노드($_jnode) 로그:"
-                    ssh -o BatchMode=yes -o ConnectTimeout=5 "$_jnode" \
-                        "tail -25 /scratch/vnc_logs/vnc-*-${_jid}.err /scratch/vnc_logs/vnc-*-${_jid}.out 2>/dev/null" 2>/dev/null | sed 's/^/      /' && _found_log=1
+                # 잡 노드 로컬 로그도 (ssh) — /scratch 는 노드-로컬이라 헤드엔 없음. 원격 잡노드를 직접 긁는다.
+                if [ "$_found_log" = "0" ] && [ -n "$_jtarget" ]; then
+                    _SSHO="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
+                    # key-first 프로브 → 실패 시 sshpass -e 폴백 (절대 sshpass -p 금지)
+                    _SSH="ssh -n $_SSHO"
+                    if ! ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$_jtarget" "echo OK" &>/dev/null; then
+                        if [ -n "$SSHPASS" ] && command -v sshpass &>/dev/null; then
+                            _SSH="sshpass -e ssh -n $_SSHO -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+                        else
+                            echo "      잡 노드($_jnode) SSH 인증 불가"; _SSH=""
+                        fi
+                    fi
+                    if [ -n "$_SSH" ]; then
+                        echo "      잡 노드($_jnode -> $_jtarget) 로그:"
+                        # 원격: 파일별 [ -f ] 체크 후 plain tail → sudo -n → echo PW|sudo -S 3단 폴백.
+                        # glob 은 heredoc 안에서 \$_g 로 원격 확장(헤드 아닌 노드에서 username 세그먼트 매칭).
+                        # .err 만 있고 .out 없는 정상케이스에서도 읽히도록 ls 단일가드 대신 파일별 순회.
+                        _out=$($_SSH "$_jtarget" "
+_any=0
+for _g in /scratch/vnc_logs/vnc-*-${_jid}.err /scratch/vnc_logs/vnc-*-${_jid}.out; do
+  for _f in \$_g; do
+    [ -f \"\$_f\" ] || continue
+    echo \"── \$_f ──\"
+    tail -25 \"\$_f\" 2>/dev/null || sudo -n tail -25 \"\$_f\" 2>/dev/null || echo '$SSHPASS' | sudo -S -p '' tail -25 \"\$_f\" 2>/dev/null
+    _any=1
+  done
+done
+[ \"\$_any\" = \"0\" ] && echo '(로그 파일 없음)'
+" 2>/dev/null)
+                        if [ -n "$_out" ]; then
+                            echo "$_out" | sed 's/^/      /'
+                            echo "$_out" | grep -q '로그 파일 없음' || _found_log=1
+                        fi
+                    fi
                 fi
                 [ "$_found_log" = "0" ] && echo "      (로그 파일 없음)"
                 # 디렉토리 존재/권한 (잡 실패 흔한 원인)
                 echo "    경로 점검(헤드기준 — 잡은 viz노드서 실행, 노드권한은 [4.5] 참고):"
                 echo "      $(for d in /scratch/vnc_logs /scratch/vnc_sandboxes /scratch/vnc_sessions; do [ -d "$d" ] && echo "$d($(stat -c %a "$d" 2>/dev/null),$(stat -c %U "$d" 2>/dev/null))" || echo "$d(없음)"; done | tr '\n' ' ')"
-                # 잡이 실제 떨어진 노드의 sandbox 권한 (있으면)
-                _jnode=$(sacct -n -j "$_jid" --format=NodeList 2>/dev/null | head -1 | tr -d ' ')
-                if [ -n "$_jnode" ] && [ "$_jnode" != "None" ]; then
-                    echo "      잡 노드($_jnode) /scratch/vnc_sandboxes: $(ssh -o BatchMode=yes -o ConnectTimeout=5 "$_jnode" 'stat -c %a /scratch/vnc_sandboxes 2>/dev/null || echo 없음' 2>/dev/null || echo 'ssh실패')"
+                # 잡이 실제 떨어진 노드의 sandbox 권한 (있으면) — 위에서 해석한 $_SSH/$_jtarget 재사용
+                if [ -n "$_jtarget" ] && [ -n "${_SSH:-}" ]; then
+                    echo "      잡 노드($_jnode) /scratch/vnc_sandboxes: $($_SSH "$_jtarget" 'stat -c %a /scratch/vnc_sandboxes 2>/dev/null || echo 없음' 2>/dev/null || echo 'ssh실패')"
                 fi
             fi
             # 4) 세션 상세 (novnc_url) + ready 확인
