@@ -21,17 +21,25 @@ if [ ! -z "$PID" ]; then
     echo -e "${GREEN}✅ 포트 ${PORT} 정리 완료${NC}"
 fi
 
-# PID 파일로 기록된 프로세스도 종료
-[ -f ".prometheus.pid" ] && kill $(cat .prometheus.pid) 2>/dev/null && rm -f .prometheus.pid
+# PID 파일로 기록된 프로세스도 종료 (root 소유 잔재면 sudo 폴백)
+if [ -f ".prometheus.pid" ]; then
+    kill "$(cat .prometheus.pid 2>/dev/null)" 2>/dev/null || true
+    rm -f .prometheus.pid 2>/dev/null || sudo rm -f .prometheus.pid 2>/dev/null || true
+fi
 
 mkdir -p data
 
 # WAL 및 손상 데이터 정리 (시작 전)
+# 과거 root 로 실행된 흔적(.tmp-for-deletion, lock)이 koopark 으로 못 지워지면 sudo 폴백
 echo -e "${YELLOW}WAL 데이터 정리 중...${NC}"
 rm -rf data/wal/* 2>/dev/null || true
 rm -rf data/chunks_head/* 2>/dev/null || true
-rm -f data/lock 2>/dev/null || true
-find data -type d -name "*.tmp-for-deletion" -exec rm -rf {} + 2>/dev/null || true
+rm -f data/lock 2>/dev/null || sudo rm -f data/lock 2>/dev/null || true
+find data -maxdepth 1 -type d -name "*.tmp-for-deletion" -exec rm -rf {} + 2>/dev/null || true
+# 남은 root 소유 .tmp-for-deletion 은 sudo 로 정리
+if find data -maxdepth 1 -type d -name "*.tmp-for-deletion" 2>/dev/null | grep -q .; then
+    sudo find data -maxdepth 1 -type d -name "*.tmp-for-deletion" -exec rm -rf {} + 2>/dev/null || true
+fi
 echo -e "${GREEN}✅ WAL 정리 완료${NC}"
 
 nohup ./prometheus --config.file=prometheus.yml --storage.tsdb.path=./data > prometheus.log 2>&1 &

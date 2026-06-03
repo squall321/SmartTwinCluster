@@ -889,9 +889,16 @@ else
                 sleep 2
             done
             echo "  잡 상태: ${_state:-알수없음} ($(squeue -h -j "$_jid" -o '%N %R' 2>/dev/null | head -1))"
-            # 잡이 RUNNING 안 되고 사라졌으면(GONE) 실패 이유 자동 출력
-            if [ "$_state" != "R" ]; then
-                echo "  ✗ 잡이 RUNNING 못 됨 — 실패 이유 자동 진단:"
+            # sacct 최종 종료코드 — RUNNING 까지 갔다가 watchdog 의 exit 1 로 죽는
+            # 케이스(--nv/instance start 실패)는 _state=R 이어도 ExitCode=1:0 으로 잡힌다.
+            _exitcode=""
+            if command -v sacct &>/dev/null; then
+                _exitcode=$(sacct -n -j "${_jid}.batch" --format=ExitCode 2>/dev/null | head -1 | tr -d ' ')
+                [ -z "$_exitcode" ] && _exitcode=$(sacct -n -j "$_jid" --format=ExitCode 2>/dev/null | grep -vE '^\s*$' | tail -1 | tr -d ' ')
+            fi
+            # GONE(RUNNING 못 됨) 또는 ExitCode 가 0:0 이 아니면(=비정상 종료) 실패 진단 출력
+            if [ "$_state" != "R" ] || { [ -n "$_exitcode" ] && [ "$_exitcode" != "0:0" ]; }; then
+                echo "  ✗ 잡 비정상 (state=$_state exitcode=${_exitcode:-?}) — 실패 이유 자동 진단:"
                 # sacct: 종료 상태 + 코드
                 if command -v sacct &>/dev/null; then
                     echo "    sacct: $(sacct -n -j "$_jid" --format=State%20,ExitCode,Reason%40 2>/dev/null | head -2 | tr '\n' '|')"

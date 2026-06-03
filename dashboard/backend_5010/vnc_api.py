@@ -578,6 +578,12 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
         else:
             gpu_line = f"#SBATCH --gres=gpu:{gpu_count}"
 
+    # apptainer instance start 의 --nv 플래그.
+    # gpu_count==0 (GPU 없는 viz 노드)에서 --nv 를 박으면 nvidia-container-cli /
+    # libnvidia 를 못 찾아 instance start 가 실패하고, watchdog 가 'exit 1' 로 죽는다.
+    # gres 라인과 동일하게 GPU 요청이 있을 때만 --nv 를 넣는다.
+    nv_flag = "--nv" if gpu_count > 0 else ""
+
     script = f"""#!/bin/bash
 #SBATCH --job-name=vnc-{username}
 #SBATCH --partition={partition}
@@ -658,7 +664,20 @@ mkdir -p $USER_SANDBOX$USER_HOME_DIR
 
 # Apptainer Instance 시작 (지속적 실행, 사용자 홈 디렉토리 바인드)
 echo "Starting apptainer instance: $INSTANCE_NAME"
-apptainer instance start --writable --nv --home $USER_SANDBOX$USER_HOME_DIR:$USER_HOME_DIR $USER_SANDBOX $INSTANCE_NAME
+apptainer instance start --writable {nv_flag} --home $USER_SANDBOX$USER_HOME_DIR:$USER_HOME_DIR $USER_SANDBOX $INSTANCE_NAME
+_START_RC=$?
+
+# instance start 가 실패했으면 즉시 명확히 죽는다 (watchdog 의 모호한 exit 1 대신 진짜 원인 출력).
+# set -e 가 없으므로 명시적으로 검사: 종료코드 != 0 이거나 instance 목록에 안 보이면 실패.
+if [ $_START_RC -ne 0 ] || ! apptainer instance list 2>/dev/null | grep -q $INSTANCE_NAME; then
+    echo "ERROR: apptainer instance start failed (rc=$_START_RC) — instance '$INSTANCE_NAME' not running"
+    echo "  nv_flag='{nv_flag}' gpu_count={gpu_count}  (gpu_count=0 인데 --nv 가 들어갔다면 GPU 없는 노드에서 실패)"
+    echo "  현재 instance 목록:"
+    apptainer instance list 2>&1 | sed 's/^/    /'
+    echo "  --- apptainer instance start 로그 ($HOME/.apptainer/instances/logs) ---"
+    cat $HOME/.apptainer/instances/logs/$(hostname)/*/$INSTANCE_NAME.err 2>/dev/null | tail -30 | sed 's/^/    /'
+    exit 1
+fi
 
 # Instance 내부에서 세션 소켓 파일 정리 (매우 중요!)
 echo "Cleaning up session socket files inside instance..."
