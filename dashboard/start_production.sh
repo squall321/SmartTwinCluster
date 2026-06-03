@@ -896,12 +896,20 @@ elif ! command -v sbatch &>/dev/null; then
     echo "  (slurm 없음 — 스킵)"
 else
     # 1) SSO off mock 토큰 발급 (test/login) — 응답 키: token / access_token 둘 다 시도
-    _tok=$(curl -s --max-time 5 -X POST http://localhost:4430/auth/test/login \
-        -H "Content-Type: application/json" \
-        -d '{"username":"vnctest","groups":["HPC-Users","HPC-Admins","GPU-Users"]}' 2>/dev/null \
-        | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("token") or d.get("access_token") or "")' 2>/dev/null)
+    # auth_backend 가 막 재시작됐으면 5초 안에 응답 못 줄 수 있어 최대 3회 재시도.
+    _tok=""; _tlogin_code=""; _tlogin_body=""
+    for _t in 1 2 3; do
+        _tlogin_body=$(curl -s --max-time 8 -w '\n%{http_code}' -X POST http://localhost:4430/auth/test/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"vnctest","groups":["HPC-Users","HPC-Admins","GPU-Users"]}' 2>/dev/null)
+        _tlogin_code=$(echo "$_tlogin_body" | tail -1)
+        _tok=$(echo "$_tlogin_body" | sed '$d' | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("token") or d.get("access_token") or "")' 2>/dev/null)
+        [ -n "$_tok" ] && break
+        sleep 2
+    done
     if [ -z "$_tok" ]; then
-        echo "  ⚠ 토큰 발급 실패 (SSO on 이거나 test/login 막힘)"
+        echo "  ⚠ 토큰 발급 실패 (HTTP=$_tlogin_code) — SSO on(403)/test/login막힘/auth_backend 미기동"
+        echo "    응답: $(echo "$_tlogin_body" | sed '$d' | head -c 200)"
     else
         echo "  ✓ 테스트 토큰 발급됨"
         # 2) VNC 세션 생성 요청
