@@ -816,6 +816,67 @@ else
     echo "  (최근 5분 내 관련 로그 없음 — 정상이거나 VNC 미사용)"
 fi
 
+echo ""
+echo "── [11] VNC 실제 세션 제출 테스트 (자동 — 끝나면 정리) ──"
+if [ "${SKIP_VNC_TEST:-0}" = "1" ]; then
+    echo "  (SKIP_VNC_TEST=1 — 스킵)"
+elif ! command -v sbatch &>/dev/null; then
+    echo "  (slurm 없음 — 스킵)"
+else
+    # 1) SSO off mock 토큰 발급 (test/login)
+    _tok=$(curl -s --max-time 5 -X POST http://localhost:4430/auth/test/login \
+        -H "Content-Type: application/json" \
+        -d '{"username":"vnctest","groups":["HPC-Users","HPC-Admins"]}' 2>/dev/null \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token","") or json.load(sys.stdin).get("token",""))' 2>/dev/null)
+    if [ -z "$_tok" ]; then
+        # 토큰 형식 다를 수 있음 — 원문 확인
+        _resp=$(curl -s --max-time 5 -X POST http://localhost:4430/auth/test/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"vnctest","groups":["HPC-Users"]}' 2>/dev/null)
+        echo "  ⚠ 토큰 발급 실패 (SSO on 이거나 test/login 막힘). 응답: $(echo "$_resp" | head -c 150)"
+    else
+        echo "  ✓ 테스트 토큰 발급됨"
+        # 2) VNC 세션 생성 요청
+        _cr=$(curl -s --max-time 30 -X POST http://localhost:5010/api/vnc/sessions \
+            -H "Authorization: Bearer $_tok" -H "Content-Type: application/json" \
+            -d '{"image_id":"xfce4","geometry":"1280x720","duration_hours":1,"gpu_count":0}' 2>/dev/null)
+        _sid=$(echo "$_cr" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("session_id",""))' 2>/dev/null)
+        _jid=$(echo "$_cr" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("job_id",""))' 2>/dev/null)
+        if [ -z "$_sid" ]; then
+            echo "  ✗ 세션 생성 실패. 응답:"
+            echo "$_cr" | head -c 400 | sed 's/^/      /'; echo
+        else
+            echo "  ✓ 세션 생성: session=$_sid job=$_jid"
+            # 3) 잡이 RUNNING 될 때까지 최대 40초 대기
+            _state=""
+            for _i in $(seq 1 20); do
+                _state=$(squeue -h -j "$_jid" -o "%t" 2>/dev/null | head -1)
+                [ "$_state" = "R" ] && break
+                [ -z "$_state" ] && { _state="GONE"; break; }
+                sleep 2
+            done
+            echo "  잡 상태: ${_state:-알수없음} ($(squeue -h -j "$_jid" -o '%N %R' 2>/dev/null | head -1))"
+            # 4) 세션 상세 (novnc_url) + ready 확인
+            sleep 3
+            _det=$(curl -s --max-time 10 -H "Authorization: Bearer $_tok" \
+                "http://localhost:5010/api/vnc/sessions/$_sid" 2>/dev/null)
+            _nurl=$(echo "$_det" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("novnc_url","") or json.load(sys.stdin).get("session",{}).get("novnc_url",""))' 2>/dev/null)
+            echo "  novnc_url: ${_nurl:-(없음)}"
+            # 5) novnc_url 의 포트가 localhost 에 실제 응답하나
+            _np=$(echo "$_nurl" | grep -oE "/vncproxy/[0-9]+/" | grep -oE "[0-9]+")
+            if [ -n "$_np" ]; then
+                _hc=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:$_np/vnc.html" 2>/dev/null)
+                echo "  noVNC 포트 $_np 직접응답: $_hc $([ "$_hc" = "200" ] && echo '✓ VNC 접속 가능' || echo '✗ 터널/포트 문제')"
+            fi
+            # 6) 테스트 세션 정리 (잡 취소)
+            curl -s --max-time 10 -X DELETE -H "Authorization: Bearer $_tok" \
+                "http://localhost:5010/api/vnc/sessions/$_sid" >/dev/null 2>&1
+            scancel "$_jid" 2>/dev/null
+            echo "  ✓ 테스트 세션 정리됨 (job $_jid 취소)"
+        fi
+    fi
+fi
+
 echo "════════════════════════════════════════════════════════════════"
-echo "🩺 진단 끝 — 위 [1]~[10] 블록을 복사해서 문제 분석 요청"
+echo "🩺 진단 끝 — 위 [1]~[11] 블록을 복사해서 문제 분석 요청"
 echo "════════════════════════════════════════════════════════════════"
