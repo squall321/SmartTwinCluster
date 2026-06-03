@@ -250,7 +250,12 @@ c=yaml.safe_load(open('$CONFIG_FILE')) or {}
 print((c.get('cluster_info') or {}).get('ssh_password',''))
 " 2>/dev/null)
     command -v sshpass &>/dev/null || sudo apt-get install -y sshpass &>/dev/null || true
+    [[ -n "$SSHPW" ]] && export SSHPASS="$SSHPW"
+    # scp -O: 신버전 openssh scp 는 기본 SFTP 모드라 일부 호스트서 실패 → 레거시 SCP 프로토콜 강제
     local SSHO="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
+    # 복사할 이 스크립트의 절대경로 ($0 는 상대/원격이라 불안정 — install_apptainer_all_nodes.sh 패턴)
+    local SELF="$SCRIPT_DIR/setup_redis_from_yaml.sh"
+    [[ -f "$SELF" ]] || SELF="$0"
 
     log "나머지 redis 노드에 배포 (master 1회 실행 → 전 노드)..."
     local cnt=0 okc=0 failc=0
@@ -263,22 +268,23 @@ print((c.get('cluster_info') or {}).get('ssh_password',''))
             echo "  [dry-run] $target ← scp(스크립트+parser+config) + ssh 'sudo bash /tmp/setup_redis_from_yaml.sh --config /tmp/redis_cfg.yaml --remote --node-ip $ip$_rf'"
             okc=$((okc+1)); continue
         fi
-        # 키 우선 프로브 → 실패 시 sshpass -e 폴백 (sshpass -p 금지)
-        local SSH="ssh -n $SSHO" SCP="scp $SSHO"
-        if ! ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$target" "echo OK" &>/dev/null; then
-            if [[ -n "$SSHPW" ]] && command -v sshpass &>/dev/null; then
-                export SSHPASS="$SSHPW"
-                SSH="sshpass -e ssh -n $SSHO -o PreferredAuthentications=password -o PubkeyAuthentication=no"
-                SCP="sshpass -e scp $SSHO -o PreferredAuthentications=password -o PubkeyAuthentication=no"
-            else
-                err "  ✗ [$ip] SSH 인증 불가 (키/비번 모두 실패)"; failc=$((failc+1)); continue
-            fi
+        # 키 우선 프로브 → 실패 시 sshpass -e 폴백 (install_apptainer_all_nodes.sh 골드패턴)
+        local SSH SCP
+        if ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$target" "echo OK" &>/dev/null; then
+            SSH="ssh $SSHO"; SCP="scp -O $SSHO"
+        elif [[ -n "$SSHPW" ]] && command -v sshpass &>/dev/null; then
+            SSH="sshpass -e ssh $SSHO -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+            SCP="sshpass -e scp -O $SSHO -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+        else
+            err "  ✗ [$ip] SSH 인증 불가 (키/비번 모두 실패)"; failc=$((failc+1)); continue
         fi
         log "  → $ip 배포 중..."
-        $SCP "$0" "$target:/tmp/setup_redis_from_yaml.sh" >/dev/null 2>&1 \
-          && $SCP "$PARSER" "$target:/tmp/parser.py" >/dev/null 2>&1 \
-          && $SCP "$CONFIG_FILE" "$target:/tmp/redis_cfg.yaml" >/dev/null 2>&1 || {
-            err "  ✗ [$ip] 파일 복사 실패"; failc=$((failc+1)); continue; }
+        # 에러를 숨기지 않음 — 복사 실패 시 진짜 원인(권한/SFTP/인증)을 보여준다.
+        local _scperr
+        _scperr=$($SCP "$SELF" "$target:/tmp/setup_redis_from_yaml.sh" 2>&1) \
+          && _scperr=$($SCP "$PARSER" "$target:/tmp/parser.py" 2>&1) \
+          && _scperr=$($SCP "$CONFIG_FILE" "$target:/tmp/redis_cfg.yaml" 2>&1) || {
+            err "  ✗ [$ip] 파일 복사 실패: $_scperr"; failc=$((failc+1)); continue; }
         local rflag=""; [[ "$RESET" == true ]] && rflag="--reset"
         if $SSH "$target" "sudo bash /tmp/setup_redis_from_yaml.sh --config /tmp/redis_cfg.yaml --remote --node-ip $ip $rflag" 2>&1 | sed 's/^/    /'; then
             ok "  ✓ [$ip] 배포 완료"; okc=$((okc+1))
