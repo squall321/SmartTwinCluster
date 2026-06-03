@@ -889,6 +889,27 @@ else
                 sleep 2
             done
             echo "  잡 상태: ${_state:-알수없음} ($(squeue -h -j "$_jid" -o '%N %R' 2>/dev/null | head -1))"
+            # 잡이 RUNNING 안 되고 사라졌으면(GONE) 실패 이유 자동 출력
+            if [ "$_state" != "R" ]; then
+                echo "  ✗ 잡이 RUNNING 못 됨 — 실패 이유 자동 진단:"
+                # sacct: 종료 상태 + 코드
+                if command -v sacct &>/dev/null; then
+                    echo "    sacct: $(sacct -n -j "$_jid" --format=State%20,ExitCode,Reason%40 2>/dev/null | head -2 | tr '\n' '|')"
+                fi
+                # scontrol: 상세 (실행 전 거부 이유)
+                command -v scontrol &>/dev/null && \
+                    scontrol show job "$_jid" 2>/dev/null | grep -oE "(JobState|Reason|ExitCode)=[^ ]+" | sed 's/^/    /'
+                # sbatch 스크립트 출력 로그 (apptainer/이미지 에러)
+                for _lg in "/scratch/vnc_sessions/$_sid"/*.log "/scratch/vnc_sessions/$_sid"/*.out \
+                           "/shared/logs/${_sid}"* "/shared/logs/vnc-"*"${_jid}"* \
+                           "$HOME/vnc-${_jid}"*.out "slurm-${_jid}.out"; do
+                    if [ -f "$_lg" ]; then
+                        echo "    잡 로그 ($_lg) 마지막 10줄:"
+                        tail -10 "$_lg" 2>/dev/null | sed 's/^/      /'
+                        break
+                    fi
+                done
+            fi
             # 4) 세션 상세 (novnc_url) + ready 확인
             sleep 3
             _det=$(curl -s --max-time 10 -H "Authorization: Bearer $_tok" \
