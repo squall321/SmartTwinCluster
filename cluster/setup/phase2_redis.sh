@@ -484,7 +484,19 @@ determine_redis_mode() {
         return 0
     fi
 
-    # Auto-detect based on total Redis-enabled nodes
+    # yaml redis.type 우선 — 명시돼 있으면 노드개수 자동판단보다 우선한다.
+    # (sentinel/standalone/cluster). 미지정이면 아래 노드개수 폴백(기존 22.04 동작 보존).
+    local yaml_type
+    yaml_type=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get redis.type 2>/dev/null)
+    case "$yaml_type" in
+        sentinel|standalone|cluster)
+            MODE="$yaml_type"
+            log INFO "yaml redis.type='$yaml_type' → Mode: $MODE (노드개수 자동판단 무시)"
+            return 0
+            ;;
+    esac
+
+    # Auto-detect based on total Redis-enabled nodes (redis.type 미지정 시)
     if [[ $TOTAL_REDIS_NODES -ge 3 ]]; then
         MODE="cluster"
         log INFO "3+ Redis nodes detected → Cluster mode"
@@ -1014,7 +1026,19 @@ main() {
         if [[ "$MODE" == "cluster" ]]; then
             create_cluster
         elif [[ "$MODE" == "sentinel" ]]; then
-            setup_sentinel
+            # Sentinel 은 검증된 독립 스크립트(setup_redis_from_yaml.sh)에 위임한다.
+            # phase2 의 setup_sentinel 은 2노드 가정 + replicaof 비영속 + 자동배포
+            # 미지원이라, 3노드 영속 + master 1회 실행 자동배포를 갖춘 독립 스크립트로 일원화.
+            local _redis_setup="$SCRIPT_DIR/setup_redis_from_yaml.sh"
+            [[ -f "$_redis_setup" ]] || _redis_setup="/tmp/setup_redis_from_yaml.sh"  # 원격 폴백
+            if [[ -f "$_redis_setup" ]]; then
+                log INFO "Sentinel 구성 → setup_redis_from_yaml.sh 위임 (3노드 영속 + 자동배포)"
+                local _rflag=""; [[ "$RESET_REDIS" == "true" ]] && _rflag="--reset"
+                bash "$_redis_setup" --config "$CONFIG_FILE" $_rflag
+            else
+                log WARNING "setup_redis_from_yaml.sh 없음 → 기존 setup_sentinel 폴백(2노드 한정)"
+                setup_sentinel
+            fi
         else
             log INFO "Standalone mode - no cluster/sentinel setup needed"
         fi

@@ -35,12 +35,17 @@ err()  { echo -e "${RED}[ERROR]${NC} $1"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# parser 경로: 정상 위치 우선, 없으면 원격(/tmp) 폴백
 PARSER="$PROJECT_ROOT/cluster/config/parser.py"
+[[ -f "$PARSER" ]] || PARSER="$SCRIPT_DIR/parser.py"
+[[ -f "$PARSER" ]] || PARSER="/tmp/parser.py"
 
 CONFIG_FILE=""
 DRY_RUN=false
 RESET=false
 NODE_IP=""              # 현재 노드 IP 수동 지정(자동감지 실패/dry-run 시)
+NO_DEPLOY=false         # true 면 원격 배포 안 함 (이 노드만 설정)
+REMOTE=false            # 원격 노드에서 실행됨 표시 (재배포 방지)
 REDIS_PORT=6379
 SENTINEL_PORT=26379
 MASTER_NAME="mymaster"
@@ -51,7 +56,9 @@ while [[ $# -gt 0 ]]; do
         --dry-run) DRY_RUN=true; shift ;;
         --reset) RESET=true; shift ;;
         --node-ip) NODE_IP="$2"; shift 2 ;;
-        -h|--help) grep '^#' "$0" | sed 's/^#//;s/^!.*//' | head -32; exit 0 ;;
+        --no-deploy) NO_DEPLOY=true; shift ;;
+        --remote) REMOTE=true; NO_DEPLOY=true; shift ;;   # 원격: 배포 안 함
+        -h|--help) grep '^#' "$0" | sed 's/^#//;s/^!.*//' | head -36; exit 0 ;;
         *) err "Unknown: $1"; exit 1 ;;
     esac
 done
@@ -232,6 +239,58 @@ EOF
     ok "  Sentinel 기동"
 }
 
+# ---- 6) master 노드에서 나머지 redis 노드로 자동 배포 (master 1번 실행으로 끝) ----
+# phase2_redis.sh deploy_to_other_controllers 패턴 차용: 키 우선 → sshpass 폴백.
+deploy_to_replicas() {
+    local ssh_user; ssh_user=$(echo "$REDIS_CONTROLLERS" | jq -r '.[0].ssh_user // "koopark"')
+    # ssh 비번(폴백용) — cluster_info.ssh_password
+    local SSHPW; SSHPW=$(python3 -c "
+import yaml
+c=yaml.safe_load(open('$CONFIG_FILE')) or {}
+print((c.get('cluster_info') or {}).get('ssh_password',''))
+" 2>/dev/null)
+    command -v sshpass &>/dev/null || sudo apt-get install -y sshpass &>/dev/null || true
+    local SSHO="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
+
+    log "나머지 redis 노드에 배포 (master 1회 실행 → 전 노드)..."
+    local cnt=0 okc=0 failc=0
+    while IFS= read -r ip; do
+        [[ -z "$ip" || "$ip" == "$CURRENT_IP" ]] && continue   # 자신 제외
+        cnt=$((cnt+1))
+        local target="${ssh_user}@${ip}"
+        local _rf=""; [[ "$RESET" == true ]] && _rf=" --reset"
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "  [dry-run] $target ← scp(스크립트+parser+config) + ssh 'sudo bash /tmp/setup_redis_from_yaml.sh --config /tmp/redis_cfg.yaml --remote --node-ip $ip$_rf'"
+            okc=$((okc+1)); continue
+        fi
+        # 키 우선 프로브 → 실패 시 sshpass -e 폴백 (sshpass -p 금지)
+        local SSH="ssh -n $SSHO" SCP="scp $SSHO"
+        if ! ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$target" "echo OK" &>/dev/null; then
+            if [[ -n "$SSHPW" ]] && command -v sshpass &>/dev/null; then
+                export SSHPASS="$SSHPW"
+                SSH="sshpass -e ssh -n $SSHO -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+                SCP="sshpass -e scp $SSHO -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+            else
+                err "  ✗ [$ip] SSH 인증 불가 (키/비번 모두 실패)"; failc=$((failc+1)); continue
+            fi
+        fi
+        log "  → $ip 배포 중..."
+        $SCP "$0" "$target:/tmp/setup_redis_from_yaml.sh" >/dev/null 2>&1 \
+          && $SCP "$PARSER" "$target:/tmp/parser.py" >/dev/null 2>&1 \
+          && $SCP "$CONFIG_FILE" "$target:/tmp/redis_cfg.yaml" >/dev/null 2>&1 || {
+            err "  ✗ [$ip] 파일 복사 실패"; failc=$((failc+1)); continue; }
+        local rflag=""; [[ "$RESET" == true ]] && rflag="--reset"
+        if $SSH "$target" "sudo bash /tmp/setup_redis_from_yaml.sh --config /tmp/redis_cfg.yaml --remote --node-ip $ip $rflag" 2>&1 | sed 's/^/    /'; then
+            ok "  ✓ [$ip] 배포 완료"; okc=$((okc+1))
+        else
+            err "  ✗ [$ip] 원격 실행 실패"; failc=$((failc+1))
+        fi
+    done < <(echo "$REDIS_CONTROLLERS" | jq -r '.[].ip_address')
+    echo ""
+    ok "배포 완료 — 성공 $okc / 실패 $failc (총 $cnt 노드)"
+    [[ $failc -gt 0 ]] && warn "실패 노드는 수동으로 ssh 들어가 setup_redis_from_yaml.sh 실행 필요"
+}
+
 # ==================== 실행 ====================
 # cluster 잔재가 있거나 --reset 이면 정리
 if [[ "$RESET" == true ]] || grep -qE '^cluster-enabled\s+yes' "$REDIS_CONF" 2>/dev/null; then
@@ -261,10 +320,14 @@ esac
 echo ""
 ok "완료 — 이 노드($CURRENT_IP, $ROLE) Redis 설정 적용"
 echo ""
-if [[ "$ROLE" == "master" ]]; then
-    log "다음: 나머지 replica 노드들에서도 이 스크립트를 실행하세요."
-    echo "  ssh <replica> 'cd $PROJECT_ROOT && sudo ./cluster/setup/setup_redis_from_yaml.sh --config $CONFIG_FILE'"
+
+# master 노드 + 배포 허용 + sentinel 이면 → 나머지 노드 자동 배포 (master 1회 실행으로 끝)
+if [[ "$ROLE" == "master" && "$NO_DEPLOY" == false && "$REDIS_TYPE" == "sentinel" && "$TOTAL" -gt 1 ]]; then
+    deploy_to_replicas
 fi
-log "검증(master 노드에서):"
-echo "  redis-cli -p $SENTINEL_PORT -a '<PW>' --no-auth-warning SENTINEL ckquorum $MASTER_NAME"
-echo "  redis-cli -h $MASTER_IP -a '<PW>' --no-auth-warning INFO replication | grep -E 'role|connected_slaves'"
+
+if [[ "$REMOTE" == false ]]; then
+    log "검증(master 노드에서):"
+    echo "  redis-cli -p $SENTINEL_PORT -a '<PW>' --no-auth-warning SENTINEL ckquorum $MASTER_NAME"
+    echo "  redis-cli -h $MASTER_IP -a '<PW>' --no-auth-warning INFO replication | grep -E 'role|connected_slaves'"
+fi
