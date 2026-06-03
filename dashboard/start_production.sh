@@ -838,12 +838,25 @@ if [ "$_redis_ok" != "True" ] && [ "$_redis_ok" != "true" ]; then
     _rport=$(grep -oP '^REDIS_PORT=\K.*' "$SCRIPT_DIR/backend_5010/.env" 2>/dev/null); _rport="${_rport:-6379}"
     echo "      .env: HOST=$_rhost PORT=$_rport PW=$([ -n "$_rpw" ] && echo '설정됨' || echo '없음')"
     if command -v redis-cli &>/dev/null; then
-        echo -n "      redis-cli ping (비번O): "
-        redis-cli -h "$_rhost" -p "$_rport" ${_rpw:+-a "$_rpw"} ping 2>&1 | head -1
-        echo -n "      redis-cli ping (비번X): "
-        redis-cli -h "$_rhost" -p "$_rport" ping 2>&1 | head -1
+        # PONG 만 추려서 성공/실패 명확히 (Warning 줄 제거)
+        _p1=$(redis-cli -h "$_rhost" -p "$_rport" ${_rpw:+-a "$_rpw"} ping 2>/dev/null | grep -iE 'PONG|NOAUTH|WRONGPASS|error' | head -1)
+        echo "      redis-cli ping (.env 비번): ${_p1:-무응답}"
     fi
-    # 2) systemd redis 상태
+    # 2) 서버 실제 requirepass 와 .env 비번 직접 비교 (★ 진짜 원인: 둘이 다르면 그게 문제)
+    _real_pw=$(sudo grep -oP '^\s*requirepass\s+\K\S+' /etc/redis/redis.conf 2>/dev/null | tr -d '"'"'"\' | head -1)
+    if [ -n "$_real_pw" ]; then
+        if [ "$_real_pw" = "$_rpw" ]; then
+            echo "      requirepass 비교: ✓ .env 비번 == redis.conf requirepass (비번 일치 — 원인 다른데 있음)"
+        else
+            echo "      requirepass 비교: ✗ 불일치! redis.conf requirepass='${_real_pw}' ≠ .env REDIS_PASSWORD='${_rpw}'"
+            echo "        → 해결: .env 의 REDIS_PASSWORD 를 '${_real_pw}' 로 맞추고 dashboard_backend restart"
+            # 진짜 비번으로 ping 검증
+            echo "      redis-cli ping (redis.conf 비번): $(redis-cli -h "$_rhost" -p "$_rport" -a "$_real_pw" ping 2>/dev/null | grep -iE 'PONG|NOAUTH|WRONGPASS' | head -1)"
+        fi
+    else
+        echo "      requirepass 비교: redis.conf 에서 requirepass 못읽음 (sudo 권한 또는 다른 설정파일)"
+    fi
+    # 3) systemd redis 상태
     echo "      redis 서비스: $(systemctl is-active redis-server 2>/dev/null || systemctl is-active redis 2>/dev/null || echo unknown)"
     # 3) vnc_api 가 찍은 진짜 에러 (Redis not available: <원인>)
     echo "      vnc_api 에러 로그:"
@@ -1016,11 +1029,32 @@ done
                 fi
             fi
             # 4) 세션 상세 (novnc_url) + ready 확인
-            sleep 3
-            _det=$(curl -s --max-time 10 -H "Authorization: Bearer $_tok" \
-                "http://localhost:5010/api/vnc/sessions/$_sid" 2>/dev/null)
-            _nurl=$(echo "$_det" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("novnc_url","") or json.load(sys.stdin).get("session",{}).get("novnc_url",""))' 2>/dev/null)
+            # novnc_url 은 detail 핸들러가 잡 RUNNING 일 때만 채운다. 잡이 R 되고
+            # apptainer instance start(수십초)+VNC서버 기동까지 시간이 걸리므로
+            # novnc_url 이 채워질 때까지 최대 ~30초 폴링(없으면 원인 출력).
+            _det=""; _nurl=""
+            for _d in $(seq 1 10); do
+                _det=$(curl -s --max-time 10 -H "Authorization: Bearer $_tok" \
+                    "http://localhost:5010/api/vnc/sessions/$_sid" 2>/dev/null)
+                _nurl=$(echo "$_det" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("novnc_url") or (d.get("session") or {}).get("novnc_url") or "")' 2>/dev/null)
+                [ -n "$_nurl" ] && break
+                sleep 3
+            done
             echo "  novnc_url: ${_nurl:-(없음)}"
+            # novnc_url 이 안 채워졌으면 detail 응답에서 원인 단서 출력 (status/node/error)
+            if [ -z "$_nurl" ]; then
+                echo "$_det" | python3 -c '
+import sys,json
+try:
+    d=json.load(sys.stdin); s=d.get("session") or d
+    print("    detail status=%s node=%s error=%s redis=%s"%(
+        s.get("status"), s.get("node"), s.get("error"),
+        d.get("redis_available")))
+except Exception as e:
+    print("    detail 파싱 실패: %s / 원본: %s"%(e, sys.stdin.read()[:200] if hasattr(sys.stdin,"read") else ""))
+' 2>/dev/null || echo "    detail 원본: $(echo "$_det" | head -c 300)"
+                echo "    (novnc_url 없음 원인 후보: ① 잡 R 직후 VNC서버 기동 전 ② Redis false 라 멀티워커 세션 불일치 ③ SSH터널 생성 실패 — 위 error/redis 확인)"
+            fi
             # 5) novnc_url 의 포트가 localhost 에 실제 응답하나
             _np=$(echo "$_nurl" | grep -oE "/vncproxy/[0-9]+/" | grep -oE "[0-9]+")
             if [ -n "$_np" ]; then
