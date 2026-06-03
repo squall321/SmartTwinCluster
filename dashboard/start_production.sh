@@ -835,17 +835,13 @@ if [ "${SKIP_VNC_TEST:-0}" = "1" ]; then
 elif ! command -v sbatch &>/dev/null; then
     echo "  (slurm 없음 — 스킵)"
 else
-    # 1) SSO off mock 토큰 발급 (test/login)
+    # 1) SSO off mock 토큰 발급 (test/login) — 응답 키: token / access_token 둘 다 시도
     _tok=$(curl -s --max-time 5 -X POST http://localhost:4430/auth/test/login \
         -H "Content-Type: application/json" \
-        -d '{"username":"vnctest","groups":["HPC-Users","HPC-Admins"]}' 2>/dev/null \
-        | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token","") or json.load(sys.stdin).get("token",""))' 2>/dev/null)
+        -d '{"username":"vnctest","groups":["HPC-Users","HPC-Admins","GPU-Users"]}' 2>/dev/null \
+        | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("token") or d.get("access_token") or "")' 2>/dev/null)
     if [ -z "$_tok" ]; then
-        # 토큰 형식 다를 수 있음 — 원문 확인
-        _resp=$(curl -s --max-time 5 -X POST http://localhost:4430/auth/test/login \
-            -H "Content-Type: application/json" \
-            -d '{"username":"vnctest","groups":["HPC-Users"]}' 2>/dev/null)
-        echo "  ⚠ 토큰 발급 실패 (SSO on 이거나 test/login 막힘). 응답: $(echo "$_resp" | head -c 150)"
+        echo "  ⚠ 토큰 발급 실패 (SSO on 이거나 test/login 막힘)"
     else
         echo "  ✓ 테스트 토큰 발급됨"
         # 2) VNC 세션 생성 요청
