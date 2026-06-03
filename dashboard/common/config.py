@@ -9,8 +9,16 @@ import redis
 from typing import Optional
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (if exists)
-load_dotenv()
+# Load environment variables.
+# 인자 없는 load_dotenv() 는 CWD 의 .env 만 봐서, 서비스마다 CWD 가 달라
+# REDIS_PASSWORD 를 못 읽어 NOAUTH 로 Redis 연결 실패하는 문제가 있었음.
+# 각 서비스의 .env 를 명시적으로 탐색해서 로드.
+_DASHBOARD_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../dashboard
+for _envname in ('backend_5010', 'auth_portal_4430', 'common'):
+    _envp = os.path.join(_DASHBOARD_DIR, _envname, '.env')
+    if os.path.exists(_envp):
+        load_dotenv(_envp, override=False)
+load_dotenv(override=False)  # CWD 의 .env 도 (위 값 우선)
 
 # Redis connection settings
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
