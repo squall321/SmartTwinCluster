@@ -98,11 +98,10 @@ MONITORING_SERVICES=(
 )
 
 # 선택적 데몬 — systemd 에 설치돼있으면 시작, 없으면 조용히 스킵
-#   cae_service(8001): CAE 보조 서비스 (npm dev)
-#   saml_idp(7000):    SSO on 일 때만 (아래에서 yaml sso.enabled 보고 조건부 포함)
-OPTIONAL_SERVICES=(
-    "cae_service"
-)
+#   saml_idp(7000): SSO on 일 때만 (yaml sso.enabled 보고 조건부 포함)
+# 주: cae_service(8001) 는 index.html 만 있는 죽은 서비스(npm run dev 불가) — 제외.
+#     cae 는 nginx static(/cae/ → /var/www/html/cae)으로 동작하므로 8001 불필요.
+OPTIONAL_SERVICES=()
 # yaml sso.enabled 면 saml_idp 도 선택적 시작 대상에 추가
 _SSO=$(python3 -c "
 import yaml
@@ -741,8 +740,20 @@ for _path in / /dashboard/ /vnc/ /auth/ /cae/; do
 done
 
 echo ""
-echo "── [6] nginx 에러 로그 마지막 12줄 ──"
-sudo tail -12 /var/log/nginx/error.log 2>/dev/null | sed 's/^/  /' || echo "  (에러 로그 없음)"
+echo "── [6] nginx 에러 로그 (최근 5분만 — 옛 로그 제외) ──"
+_now_epoch=$(date +%s)
+_recent=$(sudo awk -v cutoff="$((_now_epoch - 300))" '
+    /^[0-9]{4}\/[0-9]{2}\/[0-9]{2}/ {
+        # 2026/06/03 00:16:05 형식 → epoch 비교
+        split($1, d, "/"); split($2, t, ":");
+        cmd="date -d \""d[1]"-"d[2]"-"d[3]" "$2"\" +%s 2>/dev/null"; cmd | getline ep; close(cmd);
+        if (ep+0 >= cutoff) print
+    }' /var/log/nginx/error.log 2>/dev/null | tail -10)
+if [ -n "$_recent" ]; then
+    echo "$_recent" | sed 's/^/  /'
+else
+    echo "  ✓ 최근 5분 내 nginx 에러 없음 (이전 에러는 무시)"
+fi
 
 echo ""
 echo "── [7] 활성 nginx conf 파일 + vncproxy/도메인 유무 ──"
@@ -755,48 +766,56 @@ for _c in /etc/nginx/conf.d/*.conf; do
 done
 
 echo ""
-echo "── [8] VNC 체인 (viz 노드/이미지/파티션/터널) ──"
-# viz 파티션 상태
+echo "── [8] VNC 체인 (viz 노드/이미지/엔드포인트/터널) ──"
+# viz 파티션: 상태별 노드 수 (idle 이 1개 이상이어야 잡 가능)
 if command -v sinfo &>/dev/null; then
-    echo "  viz 파티션: $(sinfo -h -p viz -o '%a %D nodes %t' 2>/dev/null | head -1 || echo '없음/조회불가')"
+    echo "  viz 파티션 상태별:"
+    sinfo -h -p viz -o "    %t: %D개 (%N)" 2>/dev/null | head -5
+    _viz_idle=$(sinfo -h -p viz -t idle -o "%D" 2>/dev/null | head -1)
+    echo "  → 잡 가능 idle 노드: ${_viz_idle:-0}개"
 else
-    echo "  sinfo 없음 (slurm PATH 확인)"
+    echo "  sinfo 없음 (slurm PATH 확인 필요)"
 fi
-# VNC 백엔드 config 엔드포인트 (DEFAULT_VIZ_NODE / sif)
-_vcfg=$(curl -s --max-time 5 http://localhost:5010/api/vnc/config 2>/dev/null)
-if [ -n "$_vcfg" ]; then
-    echo "  /api/vnc/config: $(echo "$_vcfg" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("default_node="+str(d.get("default_node","?")), "images="+str(len(d.get("images",[]))))' 2>/dev/null || echo '파싱실패')"
-else
-    echo "  ✗ /api/vnc/config 응답없음 (dashboard_backend 5010 확인)"
-fi
+# VNC 백엔드 엔드포인트 원문 (파싱 안 하고 그대로 — 에러면 에러 보임)
+echo "  /api/vnc/config 응답:"
+curl -s --max-time 5 http://localhost:5010/api/vnc/config 2>&1 | head -c 400 | sed 's/^/    /'; echo
+echo "  /api/vnc/images 응답:"
+curl -s --max-time 5 http://localhost:5010/api/vnc/images 2>&1 | head -c 300 | sed 's/^/    /'; echo
 # 활성 VNC 세션의 터널 포트가 controller localhost 에 LISTEN 중인가
-echo "  noVNC 터널 포트 LISTEN (69xx/68xx):"
-sudo ss -ltnp 2>/dev/null | grep -oE ":6[89][0-9][0-9] " | sort -u | tr '\n' ' ' | sed 's/^/    /'
-echo ""
-# 최근 VNC 잡
+echo "  noVNC 터널 포트 LISTEN (68xx/69xx):"
+_tp=$(sudo ss -ltnp 2>/dev/null | grep -oE ":6[89][0-9][0-9] " | sort -u | tr '\n' ' ')
+echo "    ${_tp:-(없음 — 활성 세션 없거나 터널 미생성)}"
+# 실행중 VNC 잡
 if command -v squeue &>/dev/null; then
-    echo "  실행중 VNC 잡: $(squeue -h -n vnc_session -o '%i %t %N' 2>/dev/null | head -3 | tr '\n' '|' || echo '없음')"
+    _vj=$(squeue -h -n vnc_session -o '%i %t %N' 2>/dev/null | head -3 | tr '\n' '|')
+    echo "  실행중 VNC 잡: ${_vj:-없음}"
 fi
+# /opt/apptainers VNC sif 이미지 존재 (잡 게이트)
+echo "  /opt/apptainers VNC sif: $(ls /opt/apptainers/vnc_*.sif 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ' || echo '없음')"
 
 echo ""
 echo "── [9] 실패 서비스 journalctl 마지막 5줄 (active 아닌 것만) ──"
+_any_fail=0
 for service in "${BACKEND_SERVICES[@]}" "${MONITORING_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
+    systemctl list-unit-files "${service}.service" &>/dev/null || continue
     _st=$(systemctl is-active "$service" 2>/dev/null || echo unknown)
-    if [ "$service" = "saml_idp" ] || [ "$service" = "cae_service" ]; then
-        # 설치 안 됐으면 스킵
-        systemctl list-unit-files "${service}.service" &>/dev/null || continue
-    fi
     if [ "$_st" != "active" ]; then
+        _any_fail=1
         echo "  ▸ $service ($_st):"
         sudo journalctl -u "$service" -n 5 --no-pager 2>/dev/null | tail -5 | sed 's/^/      /'
     fi
 done
+[ "$_any_fail" = "0" ] && echo "  ✓ 모든 서비스 active (실패 없음)"
 
 echo ""
-echo "── [10] dashboard_backend 최근 VNC/터널 로그 ──"
-sudo journalctl -u dashboard_backend -n 100 --no-pager 2>/dev/null \
-    | grep -iE "tunnel|vnc|novnc|image.*not|sbatch|partition" | tail -8 | sed 's/^/  /' \
-    || echo "  (관련 로그 없음)"
+echo "── [10] dashboard_backend 최근 5분 VNC/터널 로그 (옛 로그 제외) ──"
+_d10=$(sudo journalctl -u dashboard_backend --since "5 min ago" --no-pager 2>/dev/null \
+    | grep -iE "tunnel|vnc|novnc|image.*not|sbatch|partition|traceback|error" | tail -12)
+if [ -n "$_d10" ]; then
+    echo "$_d10" | sed 's/^/  /'
+else
+    echo "  (최근 5분 내 관련 로그 없음 — 정상이거나 VNC 미사용)"
+fi
 
 echo "════════════════════════════════════════════════════════════════"
 echo "🩺 진단 끝 — 위 [1]~[10] 블록을 복사해서 문제 분석 요청"
