@@ -71,7 +71,27 @@ patch_one() {
         [[ "$DRY_RUN" = "0" ]] && cp "$examplef" "$envf"
         src="$envf"
     else
-        return 0                          # .env / .env.example 둘 다 없으면 스킵
+        # .env / .env.example 둘 다 없음 → yaml 시크릿 + 표준 기본값으로 최소 .env 생성.
+        # (운영서버는 .env 가 gitignore 라 fresh checkout 에 없음 → websocket/auth 가
+        #  여기로 떨어짐. systemd EnvironmentFile=-.env 로 REDIS_PASSWORD 를 받으므로
+        #  .env 가 없으면 REDIS_PASSWORD=None → Redis 인증 실패. 반드시 만들어줘야 함.)
+        # yaml environment 엔 REDIS_PASSWORD/JWT_SECRET_KEY 만 있으므로
+        # HOST/PORT/DB/ALGORITHM 은 기존 .env 와 동일한 표준 기본값으로 채운다.
+        echo -e "  ${YELLOW}$envf / .env.example 둘 다 없음 → yaml 에서 최소 .env 생성${NC}"
+        if [[ "$DRY_RUN" = "1" ]]; then
+            echo "  [dry-run] $envf 신규 생성 (JWT_SECRET_KEY, REDIS_HOST/PORT/DB/PASSWORD)"
+            return 0
+        fi
+        cat > "$envf" <<EOF
+# 자동 생성됨: regenerate_env_from_yaml.sh (yaml environment + 표준 기본값)
+JWT_SECRET_KEY=${JWT_SECRET_KEY}
+JWT_ALGORITHM=HS256
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=${REDIS_PASSWORD}
+EOF
+        src="$envf"
     fi
 
     if [[ "$DRY_RUN" = "1" ]]; then
