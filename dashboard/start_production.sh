@@ -1310,93 +1310,92 @@ PYRFB
                 echo "    ── [websockify WS업그레이드] noVNC 포트 $_vnp (101=정상, 그외=WS핸들링 문제) ──"
                 $_vssh "$_vuser@$_vnode" "curl -s -o /dev/null -w 'HTTP %{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' http://127.0.0.1:$_vnp/websockify 2>/dev/null; echo" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
 
-                # ── (★ Target closed 최종판정) 컨트롤러 터널 경로 RFB-over-WebSocket 전구간 ──
-                # 브라우저 경로 = nginx → 컨트롤러 127.0.0.1:novnc_port(SSH터널) → 잡노드 websockify → Xtigervnc.
-                # 위 노드직접 테스트는 '터널' 구간을 건너뛴다. 여기서 컨트롤러 터널엔드에 직접
-                # RFB-over-WS 핸드셰이크를 끝까지 돌려 터널 너머로 RFB 가 흐르는지 확인 →
-                # ServerInit 도달=터널정상(범인 nginx) / WS close=터널or수명(브라우저 'Target closed' 재현).
+                # ── (★ Target closed 최종판정) 두 경로 RFB-over-WebSocket 전구간 비교 ──
+                # (A) 터널직접  127.0.0.1:novnc_port/websockify (평문)  = nginx 우회, 터널+websockify+Xtigervnc
+                # (B) nginx경로 wss://DOMAIN/vncproxy/novnc_port/websockify (TLS+HTTP1.1) = 브라우저와 100% 동일
+                # (B)도 ServerInit 도달=nginx 무죄(브라우저 문제는 세션수명/노VNC) / (B)만 실패=nginx 범인 확정.
+                # 순수파이썬 WS+RFB 클라이언트(가짜서버 검증완료). argv: host port path tls(0/1) [sni]
                 _WSRFB_B64=$(base64 -w0 <<'PYWSRFB'
-import socket, sys, struct, os
-host = "127.0.0.1"; port = int(sys.argv[1]); path = "/websockify"
+import socket, sys, struct, os, ssl
+host = sys.argv[1]; port = int(sys.argv[2]); path = sys.argv[3]
+use_tls = sys.argv[4] == "1"; sni = sys.argv[5] if len(sys.argv) > 5 else host
+hosthdr = sni if use_tls else "%s:%d" % (host, port)
 try:
-    s = socket.create_connection((host, port), timeout=6); s.settimeout(6)
+    raw = socket.create_connection((host, port), timeout=8)
+    if use_tls:
+        ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+        s = ctx.wrap_socket(raw, server_hostname=sni)
+    else:
+        s = raw
+    s.settimeout(8)
 except Exception as e:
-    print("WS x 터널포트 TCP 연결실패(%s) - 터널 죽음/미생성" % e); sys.exit(2)
-req = ("GET %s HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+    print("WS x 연결실패(%s)" % e); sys.exit(2)
+req = ("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
-       "Sec-WebSocket-Protocol: binary\r\n\r\n" % (path, host, port))
+       "Sec-WebSocket-Protocol: binary\r\n\r\n" % (path, hosthdr))
 s.sendall(req.encode())
 buf = b""
 while b"\r\n\r\n" not in buf:
     c = s.recv(4096)
-    if not c: print("WS x 업그레이드 응답없이 닫힘 - 터널 너머 websockify 무응답"); sys.exit(2)
+    if not c: print("WS x 업그레이드 응답없이 닫힘"); sys.exit(2)
     buf += c
 head, _, rest = buf.partition(b"\r\n\r\n")
 print("WS 업그레이드 응답:", head.split(b"\r\n")[0].decode(errors="replace"))
 if b"101" not in head.split(b"\r\n")[0]:
-    print("WS x 101 아님 -> 터널/websockify WS업그레이드 실패"); print(head.decode(errors="replace")[:400]); sys.exit(2)
+    print("WS x 101 아님 -> 이 경로 WS업그레이드 실패 (브라우저도 여기서 실패)")
+    print("   응답:", head.decode(errors="replace")[:300].replace(chr(10), " | ")); sys.exit(2)
 proto = None
 for line in head.split(b"\r\n"):
     if line.lower().startswith(b"sec-websocket-protocol:"): proto = line.split(b":", 1)[1].strip().decode()
 print("WS subprotocol 협상:", proto if proto else "(없음)")
 recvbuf = bytearray(rest); rfb_in = bytearray()
-def ws_send(data):
-    L = len(data); hdr = bytearray([0x82]); mask = os.urandom(4)
-    if L < 126: hdr.append(0x80 | L)
-    elif L < 65536: hdr.append(0x80 | 126); hdr += struct.pack(">H", L)
-    else: hdr.append(0x80 | 127); hdr += struct.pack(">Q", L)
-    hdr += mask
-    s.sendall(bytes(hdr) + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+def ws_send(d):
+    L = len(d); h = bytearray([0x82]); m = os.urandom(4)
+    if L < 126: h.append(0x80 | L)
+    elif L < 65536: h.append(0x80 | 126); h += struct.pack(">H", L)
+    else: h.append(0x80 | 127); h += struct.pack(">Q", L)
+    h += m; s.sendall(bytes(h) + bytes(b ^ m[i % 4] for i, b in enumerate(d)))
 def _fill(n):
     while len(recvbuf) < n:
         c = s.recv(4096)
         if not c: raise EOFError("WS 소켓 닫힘")
         recvbuf.extend(c)
-def ws_recv_frame():
-    _fill(2); b1 = recvbuf[1]; opcode = recvbuf[0] & 0x0f; masked = b1 & 0x80; L = b1 & 0x7f; idx = 2
-    if L == 126: _fill(4); L = struct.unpack(">H", bytes(recvbuf[2:4]))[0]; idx = 4
-    elif L == 127: _fill(10); L = struct.unpack(">Q", bytes(recvbuf[2:10]))[0]; idx = 10
-    mask = b""
-    if masked: _fill(idx + 4); mask = bytes(recvbuf[idx:idx + 4]); idx += 4
-    _fill(idx + L); payload = bytes(recvbuf[idx:idx + L])
-    if masked: payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-    del recvbuf[:idx + L]; return opcode, payload
-def rfb_read(n):
+def frame():
+    _fill(2); b1 = recvbuf[1]; op = recvbuf[0] & 0x0f; mk = b1 & 0x80; L = b1 & 0x7f; i = 2
+    if L == 126: _fill(4); L = struct.unpack(">H", bytes(recvbuf[2:4]))[0]; i = 4
+    elif L == 127: _fill(10); L = struct.unpack(">Q", bytes(recvbuf[2:10]))[0]; i = 10
+    m = b""
+    if mk: _fill(i + 4); m = bytes(recvbuf[i:i + 4]); i += 4
+    _fill(i + L); p = bytes(recvbuf[i:i + L])
+    if mk: p = bytes(b ^ m[j % 4] for j, b in enumerate(p))
+    del recvbuf[:i + L]; return op, p
+def rd(n):
     while len(rfb_in) < n:
-        op, pl = ws_recv_frame()
-        if op == 0x8: raise EOFError("서버가 WS close 프레임 전송(=브라우저 'Target closed' 재현)")
-        if op in (0x1, 0x2): rfb_in.extend(pl)
-    out = bytes(rfb_in[:n]); del rfb_in[:n]; return out
-def fail(step, e):
-    print("RFB x [%s] 실패: %s" % (step, e))
-    print("-> 터널/websockify 경로 RFB '%s' 단계 끊김 = 브라우저 'Target closed' 와 동일" % step); sys.exit(2)
-try: pv = rfb_read(12)
-except Exception as e: fail("ProtocolVersion수신", e)
+        op, p = frame()
+        if op == 0x8: raise EOFError("서버 WS close 프레임(=브라우저 'Target closed' 재현)")
+        if op in (0x1, 0x2): rfb_in.extend(p)
+    o = bytes(rfb_in[:n]); del rfb_in[:n]; return o
+def fail(step, e): print("RFB x [%s] 실패: %s -> 이 경로에서 'Target closed' 발생" % (step, e)); sys.exit(2)
+try: pv = rd(12)
+except Exception as e: fail("ProtocolVersion", e)
 print("RFB o ProtocolVersion:", pv)
-if not pv.startswith(b"RFB "): print("RFB x 배너 이상"); sys.exit(2)
+if not pv.startswith(b"RFB "): print("RFB x 배너이상"); sys.exit(2)
 try:
-    ws_send(pv); nb = rfb_read(1)[0]
+    ws_send(pv); nb = rd(1)[0]
     if nb == 0:
-        L = struct.unpack(">I", rfb_read(4))[0]; print("RFB x 거부:", rfb_read(L)); sys.exit(2)
-    types = rfb_read(nb); print("RFB o SecurityTypes:", list(types))
-    ws_send(b"\x01"); sr = struct.unpack(">I", rfb_read(4))[0]
-    if sr != 0: print("RFB x SecurityResult 실패", sr); sys.exit(2)
-    print("RFB o SecurityResult OK"); ws_send(b"\x01")
-    si = rfb_read(24); w, h = struct.unpack(">HH", si[:4])
-except Exception as e: fail("핸드셰이크진행", e)
-print("RFB ooo ServerInit %dx%d - 터널+websockify+Xtigervnc 전구간 RFB 정상!" % (w, h))
-print("=> 컨트롤러 터널경로 정상 -> 'Target closed' 는 nginx 계층(헤더/subprotocol/버퍼) 또는 세션수명")
-s.close()
+        L = struct.unpack(">I", rd(4))[0]; print("RFB x 거부:", rd(L)); sys.exit(2)
+    t = rd(nb); print("RFB o SecurityTypes:", list(t)); ws_send(b"\x01")
+    sr = struct.unpack(">I", rd(4))[0]
+    if sr != 0: print("RFB x SecurityResult", sr); sys.exit(2)
+    print("RFB o SecurityResult OK"); ws_send(b"\x01"); si = rd(24); w, h = struct.unpack(">HH", si[:4])
+except Exception as e: fail("핸드셰이크", e)
+print("RFB ooo ServerInit %dx%d - 이 경로 전구간 RFB 정상!" % (w, h)); s.close()
 PYWSRFB
 )
-                echo "    ── [터널 RFB-over-WS] 컨트롤러 127.0.0.1:$_vnp (nginx 가 붙는 바로 그 지점) 전구간 ──"
-                echo "$_WSRFB_B64" | base64 -d | python3 - "$_vnp" 2>&1 | tr -d '\r' | sed 's/^/      /'
-                echo "    ── [nginx WS프록시] /vncproxy/$_vnp/websockify (101=nginx WS프록시 정상) ──"
-                curl -sk -o /dev/null -w '      HTTP %{http_code}\n' --max-time 6 \
-                    -H "Host: ${DOMAIN:-localhost}" -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-                    -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' \
-                    -H 'Sec-WebSocket-Protocol: binary' \
-                    "https://127.0.0.1/vncproxy/$_vnp/websockify" 2>/dev/null || echo "      (nginx WS 테스트 실패)"
+                echo "    ── [A. 터널직접] 127.0.0.1:$_vnp/websockify (nginx 우회) ──"
+                echo "$_WSRFB_B64" | base64 -d | python3 - 127.0.0.1 "$_vnp" /websockify 0 2>&1 | tr -d '\r' | sed 's/^/      /'
+                echo "    ── [B. nginx경로] wss://${DOMAIN:-localhost}/vncproxy/$_vnp/websockify (브라우저와 100% 동일: TLS+HTTP1.1) ──"
+                echo "$_WSRFB_B64" | base64 -d | python3 - 127.0.0.1 443 "/vncproxy/$_vnp/websockify" 1 "${DOMAIN:-localhost}" 2>&1 | tr -d '\r' | sed 's/^/      /'
 
                 echo "    apptainer instance + VNC/websockify 로그 tail:"
                 $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- websockify 프로세스(ps) ---'; ps -ef | grep -E 'websockif[y]' || echo '  (websockify 프로세스 없음 → 기동 안됨/즉사)'; echo '--- 잡노드 /tmp 환경(noexec/private/권한 — 개발↔서버 차이 점검) ---'; mount 2>/dev/null | grep -E ' /tmp ' || echo '  (/tmp 별도 마운트 아님=루트와 공유)'; ls -ld /tmp /tmp/runtime-root 2>/dev/null; echo '--- 잡 .out (websockify 영역 도달여부) ---'; tail -25 /scratch/vnc_logs/vnc-*-${_jid}.out 2>/dev/null || echo '  (잡 .out 없음)'; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그파일 존재/권한 ---'; ls -la /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null || echo '  (websockify 로그파일 자체가 없음 → 기동 라인이 실행 안됨/옛코드)'; echo '--- websockify 로그 내용 ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그(start_vnc.sh=xfce4-session 출력) ---'; tail -10 /tmp/vnc_*_*.log 2>/dev/null; echo '--- Xtigervnc 서버 로그 (RFB 닫는 이유/세션크래시 — Target closed 핵심) ---'; tail -25 /tmp/Xtigervnc_*.log 2>/dev/null || echo '  (/tmp/Xtigervnc_*.log 없음)'; echo '--- xfce4-session/Xtigervnc 생존(instance 내부) ---'; for inst in \$(apptainer instance list 2>/dev/null | awk 'NR>1{print \$1}'); do echo \"  [\$inst]\"; apptainer exec instance://\$inst sh -c 'pgrep -a Xtigervnc; pgrep -a xfce4-session || echo \"    xfce4-session 죽음/없음\"' 2>/dev/null; done" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
