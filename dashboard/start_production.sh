@@ -1112,8 +1112,8 @@ print((c.get('nodes',{}).get('controllers') or [{}])[0].get('ssh_user','stcx'))
                     || { [ -n "$SSHPASS" ] && command -v sshpass &>/dev/null && _vssh="sshpass -e ssh -n $_vssho -o PreferredAuthentications=password -o PubkeyAuthentication=no"; }
                 echo "    잡 노드($_vnode) 실제 포트 LISTEN (vnc=$_vp novnc=$_vnp):"
                 $_vssh "$_vuser@$_vnode" "ss -ltn 2>/dev/null | grep -E ':($_vp|$_vnp)\b' || echo '      (vnc/novnc 포트 LISTEN 안됨 — 컨테이너 VNC서버 미기동)'" 2>/dev/null | sed 's/^/      /'
-                echo "    apptainer instance + VNC 로그 tail:"
-                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | sed 's/^/      /'
+                echo "    apptainer instance + VNC/websockify 로그 tail:"
+                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그 (novnc 미기동 원인) ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그 ---'; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | sed 's/^/      /'
                 # 컨트롤러에 터널 포트 떴나
                 echo "    컨트롤러 터널 포트($_vnp) LISTEN: $(ss -ltn 2>/dev/null | grep -qE ":$_vnp\b" && echo '✓ 떠있음' || echo '✗ 없음(SSH터널 미생성)')"
             fi

@@ -728,10 +728,37 @@ apptainer exec --env "VNC_PORT={vnc_port},VNC_GEOMETRY={geometry},DISPLAY=:{disp
 sleep 10
 echo 'VNC server and {desktop_env} started in instance'
 
-# noVNC websockify 시작 (호스트에서 실행)
+# noVNC websockify 시작 (컨테이너 안에서 — 로그를 남겨 실패 시 원인 추적)
 echo 'Starting noVNC websockify on port {novnc_port}...'
-apptainer exec instance://$INSTANCE_NAME websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port} &
+WS_LOG="{VNC_LOG_DIR}/websockify-{web_user}-{novnc_port}.log"
+# PATH 명시(컨테이너 안 비대화형이라 websockify 못 찾을 수 있음) + 로그 리다이렉트.
+# websockify 바이너리/모듈 둘 다 시도(이미지에 따라 명령형/python -m 형).
+apptainer exec instance://$INSTANCE_NAME /bin/bash -lc "
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\\$PATH
+if command -v websockify >/dev/null 2>&1; then
+  exec websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port}
+elif python3 -c 'import websockify' 2>/dev/null; then
+  exec python3 -m websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port}
+else
+  echo 'ERROR: websockify 없음 (command/python module 둘다) — 컨테이너에 websockify 미설치' >&2
+  exit 127
+fi
+" > "$WS_LOG" 2>&1 &
 WEBSOCKIFY_PID=$!
+
+# websockify 가 실제 포트를 LISTEN 할 때까지 대기(최대 ~15초). 안 뜨면 로그 출력.
+for _w in $(seq 1 15); do
+    if ss -ltn 2>/dev/null | grep -qE ":{novnc_port}\\b" || \
+       apptainer exec instance://$INSTANCE_NAME ss -ltn 2>/dev/null | grep -qE ":{novnc_port}\\b"; then
+        echo "noVNC websockify LISTEN on {novnc_port} (after ${{_w}}s)"
+        break
+    fi
+    sleep 1
+done
+if ! ss -ltn 2>/dev/null | grep -qE ":{novnc_port}\\b"; then
+    echo "ERROR: websockify 가 {novnc_port} 에 LISTEN 안함 — 로그:" >&2
+    tail -20 "$WS_LOG" 2>/dev/null | sed 's/^/    /' >&2
+fi
 
 echo 'noVNC websockify started'
 echo '========================================'
