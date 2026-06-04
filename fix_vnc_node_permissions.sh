@@ -114,29 +114,48 @@ fix_node() {
     else
         _SUDO="echo '$SSHPASS' | sudo -S -p ''"
     fi
-    $SSH "$target" "
+    # 원격 출력을 변수에 모아 한 번의 printf 로 atomic 출력 — 10개 병렬(&) 이 같은
+    # stdout 에 echo 두 줄씩 따로 쓰면 서로 끼어들어 계단현상(인터리빙)이 난다.
+    # CR(\r) 도 제거(원격 로그/tail 이 CRLF 인 경우 화면 깨짐 방지).
+    local _perm _rc
+    _perm=$($SSH "$target" "
         for d in $VNC_DIRS; do
             $_SUDO mkdir -p \$d 2>/dev/null || true
             $_SUDO chmod 1777 \$d 2>/dev/null || true
         done
-        echo '  권한:' \$(for d in /scratch/vnc_sandboxes /scratch/vnc_sessions; do stat -c '%a' \$d 2>/dev/null; done | tr '\n' ' ')
-    " 2>/dev/null && echo "  ✓ [$hn]" || echo "  ⚠ [$hn] 일부 실패"
+        for d in /scratch/vnc_sandboxes /scratch/vnc_sessions; do stat -c '%a' \$d 2>/dev/null; done | tr '\n' ' '
+    " 2>/dev/null | tr -d '\r')
+    _rc=$?
+    if [[ $_rc -eq 0 ]]; then
+        printf '  권한: %s\n  ✓ [%s]\n' "$_perm" "$hn"
+    else
+        printf '  ⚠ [%s] 일부 실패\n' "$hn"
+    fi
 }
 
 # 병렬 실행 () </dev/null & (stdin 보호 — feedback_bg_subshell_stdin)
-declare -a PIDS=()
+# 각 노드 출력은 별도 임시파일로 받고 wait 후 노드순서대로 한꺼번에 출력 →
+# 10병렬이 같은 stdout 에 동시쓰기해서 줄이 섞이는 인터리빙(계단현상)을 원천 제거.
+_OUTDIR=$(mktemp -d /tmp/fixvnc_out.XXXXXX)
+trap 'rm -rf "$_OUTDIR"' EXIT
+declare -a PIDS=() OUTS=() HNS=()
 SUCCESS=0; FAIL=0
+_idx=0
 while IFS='|' read -r hn ip user; do
     [[ -z "$hn" ]] && continue
-    while [[ ${#PIDS[@]} -ge $PARALLEL ]]; do
-        NEW=(); for p in "${PIDS[@]}"; do kill -0 "$p" 2>/dev/null && NEW+=("$p"); done
-        PIDS=("${NEW[@]}"); (( ${#PIDS[@]} >= PARALLEL )) && sleep 0.5
-    done
-    ( fix_node "$hn" "$ip" "$user" ) </dev/null &
-    PIDS+=("$!")
+    while [[ $(jobs -rp | wc -l) -ge $PARALLEL ]]; do sleep 0.3; done
+    _of="$_OUTDIR/$_idx"
+    ( fix_node "$hn" "$ip" "$user" >"$_of" 2>/dev/null ) </dev/null &
+    PIDS+=("$!"); OUTS+=("$_of"); HNS+=("$hn")
+    _idx=$((_idx+1))
 done < <(echo "$NODE_LIST")
 
-for p in "${PIDS[@]}"; do wait "$p" && SUCCESS=$((SUCCESS+1)) || FAIL=$((FAIL+1)); done
+# 제출 순서대로 wait + 출력(섞이지 않음). 성공/실패는 출력에 ✓/⚠ 로 집계.
+for i in "${!PIDS[@]}"; do
+    wait "${PIDS[$i]}"
+    cat "${OUTS[$i]}" 2>/dev/null
+    if grep -q '✓' "${OUTS[$i]}" 2>/dev/null; then SUCCESS=$((SUCCESS+1)); else FAIL=$((FAIL+1)); fi
+done
 
 echo ""
 ok "VNC 디렉토리 권한 완료 — 성공 추정 $SUCCESS / 실패 $FAIL (총 $TOTAL)"

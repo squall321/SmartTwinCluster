@@ -415,7 +415,7 @@ done
 # viz/hybrid 노드 전체 (전용 스크립트 — yaml 기반 SSH 1777)
 _FIXVNC="$SCRIPT_DIR/../fix_vnc_node_permissions.sh"
 if [ -f "$_FIXVNC" ]; then
-    bash "$_FIXVNC" --config "$SCRIPT_DIR/../my_multihead_cluster.yaml" --parallel 10 2>&1 | sed 's/^/  /'
+    bash "$_FIXVNC" --config "$SCRIPT_DIR/../my_multihead_cluster.yaml" --parallel 10 2>&1 | tr -d '\r' | sed 's/^/  /'
 else
     echo "  ⚠ fix_vnc_node_permissions.sh 없음 — 헤드만 적용됨 (viz 노드 권한 미보장)"
 fi
@@ -1237,9 +1237,9 @@ print((c.get('nodes',{}).get('controllers') or [{}])[0].get('ssh_user','stcx'))
                 ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$_vuser@$_vnode" "echo OK" &>/dev/null \
                     || { [ -n "$SSHPASS" ] && command -v sshpass &>/dev/null && _vssh="sshpass -e ssh -n $_vssho -o PreferredAuthentications=password -o PubkeyAuthentication=no"; }
                 echo "    잡 노드($_vnode) 실제 포트 LISTEN (vnc=$_vp novnc=$_vnp):"
-                $_vssh "$_vuser@$_vnode" "ss -ltn 2>/dev/null | grep -E ':($_vp|$_vnp)\b' || echo '      (vnc/novnc 포트 LISTEN 안됨 — 컨테이너 VNC서버 미기동)'" 2>/dev/null | sed 's/^/      /'
+                $_vssh "$_vuser@$_vnode" "ss -ltn 2>/dev/null | grep -E ':($_vp|$_vnp)\b' || echo '      (vnc/novnc 포트 LISTEN 안됨 — 컨테이너 VNC서버 미기동)'" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
                 echo "    apptainer instance + VNC/websockify 로그 tail:"
-                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- websockify 프로세스(ps) ---'; ps -ef | grep -E 'websockif[y]' || echo '  (websockify 프로세스 없음 → 기동 안됨/즉사)'; echo '--- 잡노드 /tmp 환경(noexec/private/권한 — 개발↔서버 차이 점검) ---'; mount 2>/dev/null | grep -E ' /tmp ' || echo '  (/tmp 별도 마운트 아님=루트와 공유)'; ls -ld /tmp /tmp/runtime-root 2>/dev/null; echo '--- 잡 .out (websockify 영역 도달여부) ---'; tail -25 /scratch/vnc_logs/vnc-*-${_jid}.out 2>/dev/null || echo '  (잡 .out 없음)'; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그파일 존재/권한 ---'; ls -la /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null || echo '  (websockify 로그파일 자체가 없음 → 기동 라인이 실행 안됨/옛코드)'; echo '--- websockify 로그 내용 ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그 ---'; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | sed 's/^/      /'
+                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- websockify 프로세스(ps) ---'; ps -ef | grep -E 'websockif[y]' || echo '  (websockify 프로세스 없음 → 기동 안됨/즉사)'; echo '--- 잡노드 /tmp 환경(noexec/private/권한 — 개발↔서버 차이 점검) ---'; mount 2>/dev/null | grep -E ' /tmp ' || echo '  (/tmp 별도 마운트 아님=루트와 공유)'; ls -ld /tmp /tmp/runtime-root 2>/dev/null; echo '--- 잡 .out (websockify 영역 도달여부) ---'; tail -25 /scratch/vnc_logs/vnc-*-${_jid}.out 2>/dev/null || echo '  (잡 .out 없음)'; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그파일 존재/권한 ---'; ls -la /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null || echo '  (websockify 로그파일 자체가 없음 → 기동 라인이 실행 안됨/옛코드)'; echo '--- websockify 로그 내용 ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그 ---'; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
                 # 잡이 실제 사용한 sbatch 스크립트로 옛/새 코드 명확 판정
                 # (백엔드 코드는 최신이어도 gunicorn 이 옛 generate_vnc_job_script 를
                 #  메모리에 들고 있으면 제출 sbatch 는 옛버전 → WS_LOG 헤더 유무로 확정)
