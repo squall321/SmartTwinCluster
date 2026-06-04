@@ -746,13 +746,27 @@ fi
 # noVNC websockify 시작 (컨테이너 안에서 — 로그를 남겨 실패 시 원인 추적)
 echo 'Starting noVNC websockify on port {novnc_port}...'
 WS_LOG="{VNC_LOG_DIR}/websockify-{web_user}-{novnc_port}.log"
+# 로그 디렉토리/파일을 기동 전에 무조건 만든다. 파일이 통째로 없으면
+# '기동 라인이 실행 안됨/옛코드'와 구분이 안 돼 진단이 헷갈렸다(파일 부재 = 혼란 신호).
+# 헤더를 먼저 써서 파일은 항상 존재 → 이후 apptainer exec 출력은 >> 로 append.
+mkdir -p "{VNC_LOG_DIR}" 2>/dev/null || true
+echo "=== websockify launch $(date '+%Y-%m-%d %H:%M:%S') cmd: apptainer exec --env PATH instance://$INSTANCE_NAME websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port} ===" > "$WS_LOG"
 # 검증된 방식: bash -lc 로 감싸지 않고 apptainer exec 가 websockify 를 직접 실행.
 # PATH 는 --env 로 주입(bash -lc 는 컨테이너에서 멈출 수 있어 로그조차 안 남던 원인).
 # 컨테이너는 호스트 네트워크를 공유하므로 novnc_port 가 노드에 그대로 LISTEN 된다.
 apptainer exec --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     instance://$INSTANCE_NAME \
-    websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port} > "$WS_LOG" 2>&1 &
+    websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port} >> "$WS_LOG" 2>&1 &
 WEBSOCKIFY_PID=$!
+echo "websockify backgrounded (pid=$WEBSOCKIFY_PID), log: $WS_LOG"
+
+# 짧게 쉰 뒤 프로세스가 살아있는지(kill -0) 즉시 확인 — 즉사하면 바로 사유 남긴다.
+sleep 2
+if ! kill -0 $WEBSOCKIFY_PID 2>/dev/null; then
+    echo "=== websockify process (pid=$WEBSOCKIFY_PID) DIED within 2s — see reason above ===" >> "$WS_LOG"
+    echo "ERROR: websockify 프로세스가 2초 내 죽음 (pid=$WEBSOCKIFY_PID) — 로그:" >&2
+    tail -20 "$WS_LOG" 2>/dev/null | sed 's/^/    /' >&2
+fi
 
 # websockify 가 실제 포트를 LISTEN 할 때까지 대기(최대 ~15초). 안 뜨면 로그 출력.
 for _w in $(seq 1 15); do
@@ -763,8 +777,15 @@ for _w in $(seq 1 15); do
     fi
     sleep 1
 done
+# 최종 판정: 포트 LISTEN 안 하면 프로세스 생사 + 로그를 함께 남긴다(타임아웃이어도 exit 안 함).
 if ! ss -ltn 2>/dev/null | grep -qE ":{novnc_port}\\b"; then
-    echo "ERROR: websockify 가 {novnc_port} 에 LISTEN 안함 — 로그:" >&2
+    if kill -0 $WEBSOCKIFY_PID 2>/dev/null; then
+        _wsalive="ALIVE(pid=$WEBSOCKIFY_PID)"
+    else
+        _wsalive="DEAD(pid=$WEBSOCKIFY_PID)"
+    fi
+    echo "=== websockify did NOT LISTEN on {novnc_port} after 15s — process $_wsalive ===" >> "$WS_LOG"
+    echo "ERROR: websockify 가 {novnc_port} 에 LISTEN 안함 — 프로세스 $_wsalive — 로그:" >&2
     tail -20 "$WS_LOG" 2>/dev/null | sed 's/^/    /' >&2
 fi
 
