@@ -154,6 +154,15 @@ VNC_IMAGES = {
         "icon": "🖥️",
         "default": True
     },
+    "xfce4_gpu": {
+        "name": "XFCE4 (GPU/VirtualGL)",
+        "description": "XFCE4 + VirtualGL GPU 가속 OpenGL (vglrun). 세션 생성 시 GPU 개수>=1 필요",
+        "sif_path": f"{VNC_IMAGES_DIR}/vnc_desktop_gpu.sif",
+        "start_script": "/opt/scripts/start_vnc.sh",
+        "desktop_env": "XFCE4",
+        "icon": "🎮",
+        "default": False
+    },
     "gnome": {
         "name": "GNOME Desktop",
         "description": "Full-featured Ubuntu GNOME desktop environment",
