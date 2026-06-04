@@ -1273,27 +1273,44 @@ if not pv.startswith(b"RFB "):
     print("RFB ✗ 배너가 'RFB ' 아님 → Xtigervnc 가 아니거나 비정상 출력"); sys.exit(2)
 try: s.sendall(pv)
 except Exception as e: fail("ProtocolVersion송신", e)
-try: sec = recv_n(s, 1)
-except Exception as e: fail("SecurityTypes수신", e)
-ntypes = sec[0]
-if ntypes == 0:
-    try:
-        L = struct.unpack(">I", recv_n(s, 4))[0]; reason = recv_n(s, L)
-        print("RFB ✗ 서버가 보안협상 거부: %r" % reason)
-    except Exception as e: fail("실패사유수신", e)
-    sys.exit(2)
-try: types = recv_n(s, ntypes)
-except Exception as e: fail("SecurityTypes목록수신", e)
-print("RFB ✓ SecurityTypes(%d): %r" % (ntypes, list(types)))
-if 1 not in types:
-    print("RFB ✗ None(1) 보안타입 미제공 %r → noVNC 인증불일치로 끊김" % list(types)); sys.exit(2)
-try: s.sendall(b"\x01")
-except Exception as e: fail("보안타입선택(None)송신", e)
-try: code = struct.unpack(">I", recv_n(s, 4))[0]
-except Exception as e: fail("SecurityResult수신", e)
-if code != 0:
-    print("RFB ✗ SecurityResult 실패(code=%d)" % code); sys.exit(2)
-print("RFB ✓ SecurityResult OK(None 인증통과)")
+if pv.startswith(b"RFB 003.003"):
+    # RFB 3.3: 서버가 4바이트 보안타입을 보냄(클라가 고르는게 아님). 0=실패(+사유), 1=None, 2=VNCAuth.
+    # TigerVNC 는 정상이면 3.8 을 제시함. 3.3 으로 내려온 것 자체가 '거부 모드' 신호.
+    try: st = struct.unpack(">I", recv_n(s, 4))[0]
+    except Exception as e: fail("[3.3]보안타입수신", e)
+    if st == 0:
+        try:
+            L = struct.unpack(">I", recv_n(s, 4))[0]; reason = recv_n(s, L) if 0 < L < 4096 else b"(len=%d)" % L
+        except Exception as e: reason = ("(사유수신실패:%s)" % e).encode()
+        print("RFB ✗ [3.3] 서버가 연결거부. 사유: %r" % reason)
+        print("→ 'Too many security failures' 류면 TigerVNC 블랙리스트(BlacklistThreshold/Timeout):")
+        print("   헬스체크 nc/재시도 등 미완료 연결이 임계치 초과 → 그 IP(localhost) 차단 → 브라우저도 'Target closed'")
+        sys.exit(2)
+    elif st == 1:
+        print("RFB ✓ [3.3] SecurityType=None — 인증없음 통과")
+    else:
+        print("RFB ✗ [3.3] 예상외 보안타입 %d (None 아님)" % st); sys.exit(2)
+else:
+    try: sec = recv_n(s, 1)
+    except Exception as e: fail("SecurityTypes수신", e)
+    ntypes = sec[0]
+    if ntypes == 0:
+        try:
+            L = struct.unpack(">I", recv_n(s, 4))[0]; reason = recv_n(s, L) if 0 < L < 4096 else b"(len=%d)" % L
+        except Exception as e: reason = ("(사유수신실패:%s)" % e).encode()
+        print("RFB ✗ [3.7+] 서버가 보안협상 거부. 사유: %r" % reason); sys.exit(2)
+    try: types = recv_n(s, ntypes)
+    except Exception as e: fail("SecurityTypes목록수신", e)
+    print("RFB ✓ SecurityTypes(%d): %r" % (ntypes, list(types)))
+    if 1 not in types:
+        print("RFB ✗ None(1) 보안타입 미제공 %r → noVNC 인증불일치로 끊김" % list(types)); sys.exit(2)
+    try: s.sendall(b"\x01")
+    except Exception as e: fail("보안타입선택(None)송신", e)
+    try: code = struct.unpack(">I", recv_n(s, 4))[0]
+    except Exception as e: fail("SecurityResult수신", e)
+    if code != 0:
+        print("RFB ✗ SecurityResult 실패(code=%d)" % code); sys.exit(2)
+    print("RFB ✓ SecurityResult OK(None 인증통과)")
 try: s.sendall(b"\x01")
 except Exception as e: fail("ClientInit송신", e)
 try:
@@ -1381,13 +1398,24 @@ except Exception as e: fail("ProtocolVersion", e)
 print("RFB o ProtocolVersion:", pv)
 if not pv.startswith(b"RFB "): print("RFB x 배너이상"); sys.exit(2)
 try:
-    ws_send(pv); nb = rd(1)[0]
-    if nb == 0:
-        L = struct.unpack(">I", rd(4))[0]; print("RFB x 거부:", rd(L)); sys.exit(2)
-    t = rd(nb); print("RFB o SecurityTypes:", list(t)); ws_send(b"\x01")
-    sr = struct.unpack(">I", rd(4))[0]
-    if sr != 0: print("RFB x SecurityResult", sr); sys.exit(2)
-    print("RFB o SecurityResult OK"); ws_send(b"\x01"); si = rd(24); w, h = struct.unpack(">HH", si[:4])
+    ws_send(pv)
+    if pv.startswith(b"RFB 003.003"):
+        st = struct.unpack(">I", rd(4))[0]
+        if st == 0:
+            L = struct.unpack(">I", rd(4))[0]; reason = rd(L) if 0 < L < 4096 else b"(len=%d)" % L
+            print("RFB x [3.3] 서버 연결거부. 사유:", repr(reason))
+            print("   -> 'Too many security failures' 면 TigerVNC 블랙리스트(연결과다 차단)"); sys.exit(2)
+        elif st == 1: print("RFB o [3.3] SecurityType=None 통과")
+        else: print("RFB x [3.3] 예상외 보안타입", st); sys.exit(2)
+    else:
+        nb = rd(1)[0]
+        if nb == 0:
+            L = struct.unpack(">I", rd(4))[0]; print("RFB x [3.7+] 서버 거부. 사유:", repr(rd(L) if 0 < L < 4096 else L)); sys.exit(2)
+        t = rd(nb); print("RFB o SecurityTypes:", list(t)); ws_send(b"\x01")
+        sr = struct.unpack(">I", rd(4))[0]
+        if sr != 0: print("RFB x SecurityResult", sr); sys.exit(2)
+        print("RFB o SecurityResult OK")
+    ws_send(b"\x01"); si = rd(24); w, h = struct.unpack(">HH", si[:4])
 except Exception as e: fail("핸드셰이크", e)
 print("RFB ooo ServerInit %dx%d - 이 경로 전구간 RFB 정상!" % (w, h)); s.close()
 PYWSRFB

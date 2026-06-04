@@ -1578,16 +1578,21 @@ def check_vnc_readiness(session_id):
             '-o', 'ConnectTimeout=2', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
         _suser = get_default_system_user()
 
-        # VNC 포트 (컨테이너가 호스트넷 공유 → 노드 localhost:vnc_port 에 LISTEN)
+        # ★ RFB 포트에 connect 금지 — ss 로 LISTEN 상태만 확인(연결 안함).
+        # nc -z 는 RFB 포트(Xtigervnc)에 TCP connect→즉시 close = '미완료 연결'.
+        # TigerVNC 는 이를 인증실패로 세어 BlacklistThreshold(기본5) 초과 시 그 IP(localhost)를
+        # 차단 → 이후 noVNC 실제 연결이 RFB 3.3 'Too many security failures' 로 거부('Target closed').
+        # 프론트가 ready 될 때까지 /ready 를 반복폴링하면 nc -z 가 누적돼 차단을 유발했다.
+        # ss 는 connect 하지 않으므로 블랙리스트를 건드리지 않는다. (컨테이너 호스트넷공유 → 노드 ss 에 보임)
         result = subprocess.run(
-            [SSH] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {vnc_port}'],
+            [SSH] + ssh_opts + [f'{_suser}@{node}', f"ss -ltn | grep -qE ':{vnc_port}\\b'"],
             capture_output=True, text=True, timeout=4
         )
         vnc_ready = result.returncode == 0
 
-        # noVNC(websockify) 포트
+        # noVNC(websockify) 포트 — 마찬가지로 ss 로 LISTEN 만 확인
         result_novnc = subprocess.run(
-            [SSH] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {novnc_port}'],
+            [SSH] + ssh_opts + [f'{_suser}@{node}', f"ss -ltn | grep -qE ':{novnc_port}\\b'"],
             capture_output=True, text=True, timeout=4
         )
         novnc_ready = result_novnc.returncode == 0
@@ -1635,6 +1640,8 @@ def vnc_health():
             'ready_slurm_refresh': ('get_job_status(job_id)' in _ready_src and 'save_vnc_session' in _ready_src),
             # /ready 의 ssh 호출이 절대경로 [SSH] 인지 (bare 'ssh' → systemd PATH 의존 FileNotFoundError 차단)
             'ready_ssh_abspath': ('[SSH]' in _ready_src and "['ssh']" not in _ready_src),
+            # /ready 가 RFB 포트에 nc -z(연결) 안하고 ss(LISTEN확인)만 — TigerVNC 블랙리스트 차단 회피
+            'ready_no_rfb_connect': ('ss -ltn' in _ready_src and 'nc -z -w1 localhost' not in _ready_src),
         }
     except Exception:
         _code_markers = {}
