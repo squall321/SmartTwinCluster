@@ -10,6 +10,7 @@ import json
 import time
 import random
 import subprocess
+import shlex
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, g
 from middleware.jwt_middleware import jwt_required, group_required
@@ -582,7 +583,82 @@ def _sanitize_web_user(raw):
     return raw
 
 
-def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0, partition='viz'):
+def _resolve_vnc_data_mounts(groups, web_user):
+    """계정종류(JWT groups)별 데이터 마운트 정책 해석.
+
+    YAML 의 vnc.data_mounts 를 읽어 사용자 그룹에 맞는 바인드 목록을 만든다.
+    - 그룹 우선순위: YAML 기재 순서대로 첫 매칭(default 제외), 안 맞으면 'default'.
+    - mode: direct  → binds 를 그대로 (원래 경로 그대로 마운트, 예: 관리자 /data,/data2)
+    - mode: peruser → host_base/<web_user> 를 만들어 container 경로로 마운트 (예: /data2/user/<u>→/data)
+    Returns {'binds': ['host:cont',...], 'mkdirs': ['host',...], 'policy': name} 또는
+            None(설정 없음 → generate 가 기본 /data,/data2 동작 유지). web_user 는 sanitize 완료 전제.
+    """
+    try:
+        cfg = load_yaml_config() or {}
+    except Exception:
+        cfg = {}
+    dm = ((cfg.get('vnc') or {}).get('data_mounts')) or {}
+    if not dm:
+        return None
+    groups = groups or []
+    chosen_name, chosen = None, None
+    for gname, policy in dm.items():
+        if gname == 'default':
+            continue
+        if gname in groups:
+            chosen_name, chosen = gname, policy
+            break
+    if chosen is None:
+        chosen_name, chosen = 'default', dm.get('default')
+    if not isinstance(chosen, dict):
+        return None
+    mode = str(chosen.get('mode') or 'peruser').lower()
+    binds, mkdirs = [], []
+    if mode == 'direct':
+        for b in (chosen.get('binds') or []):
+            b = str(b)
+            binds.append(b if ':' in b else f'{b}:{b}')
+    else:  # peruser
+        base = str(chosen.get('host_base') or '/data2/user').rstrip('/')
+        cont = str(chosen.get('container') or '/data')
+        host_dir = f'{base}/{web_user}'
+        mkdirs.append(host_dir)
+        binds.append(f'{host_dir}:{cont}')
+    return {'binds': binds, 'mkdirs': mkdirs, 'policy': chosen_name}
+
+
+def _render_data_bind_script(data_mounts):
+    """data_mounts(_resolve_vnc_data_mounts 결과)를 sbatch 안에 들어갈 bash 로 렌더링.
+    None 이면 기본 동작(/data,/data2 존재 시 그대로 바인드)."""
+    if not data_mounts or not (data_mounts.get('binds') or data_mounts.get('mkdirs')):
+        return (
+            'DATA_BINDS=""\n'
+            'for _d in /data /data2; do\n'
+            '    if [ -d "$_d" ]; then mkdir -p "$USER_SANDBOX$_d" 2>/dev/null || true; '
+            'DATA_BINDS="$DATA_BINDS --bind $_d:$_d"; fi\n'
+            'done\n'
+            '[ -n "$DATA_BINDS" ] && echo "Data binds:$DATA_BINDS" || echo "No /data or /data2 on this node"'
+        )
+    lines = ['DATA_BINDS=""', f'echo "Data-mount 정책: {data_mounts.get("policy", "?")}"']
+    for d in data_mounts.get('mkdirs', []):
+        dq = shlex.quote(d)
+        # 공유 NFS 에 per-user 디렉토리 생성. owner 권한으로 안되면 sudo -n 폴백.
+        lines.append(f'mkdir -p {dq} 2>/dev/null || sudo -n mkdir -p {dq} 2>/dev/null || true')
+    for b in data_mounts.get('binds', []):
+        host, _, cont = b.partition(':')
+        cont = cont or host
+        hq = shlex.quote(host)
+        cq = shlex.quote(cont)
+        bq = shlex.quote(b)
+        lines.append(
+            f'if [ -d {hq} ]; then mkdir -p "$USER_SANDBOX"{cq} 2>/dev/null || true; '
+            f'DATA_BINDS="$DATA_BINDS --bind {bq}"; else echo "WARN: {host} 없음 — 바인드 스킵"; fi'
+        )
+    lines.append('[ -n "$DATA_BINDS" ] && echo "Data binds:$DATA_BINDS" || echo "(데이터 바인드 없음)"')
+    return '\n'.join(lines)
+
+
+def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0, partition='viz', data_mounts=None):
     """VNC 세션용 Slurm Job 스크립트 생성
 
     username = 시스템 사용자(YAML ssh_user) — Slurm/SSH 식별용(sbatch 프로세스 소유자).
@@ -606,6 +682,9 @@ def generate_vnc_job_script(username, session_id, vnc_port, novnc_port, geometry
     # libnvidia 를 못 찾아 instance start 가 실패하고, watchdog 가 'exit 1' 로 죽는다.
     # gres 라인과 동일하게 GPU 요청이 있을 때만 --nv 를 넣는다.
     nv_flag = "--nv" if gpu_count > 0 else ""
+
+    # 계정종류별 데이터 마운트 bash (f-string 에 {data_bind_script} 로 주입)
+    data_bind_script = _render_data_bind_script(data_mounts)
 
     script = f"""#!/bin/bash
 #SBATCH --job-name=vnc-{web_user}
@@ -711,17 +790,10 @@ else
     echo "WARNING: {VNC_HOME_BASE} unavailable — NODE-LOCAL home (NON-PERSISTENT): $HOME_BIND_SRC"
 fi
 
-# 공유 데이터 디렉토리 바인드: /data (및 있으면 /data2) 를 호스트 경로 그대로 컨테이너에 노출.
-# 존재하는 경로만 추가 — 없는 경로를 --bind 하면 instance start 가 실패한다.
-# writable 샌드박스라 컨테이너에 마운트포인트가 없을 수 있으니 미리 만들어 둔다.
-DATA_BINDS=""
-for _d in /data /data2; do
-    if [ -d "$_d" ]; then
-        mkdir -p "$USER_SANDBOX$_d" 2>/dev/null || true
-        DATA_BINDS="$DATA_BINDS --bind $_d:$_d"
-    fi
-done
-[ -n "$DATA_BINDS" ] && echo "Data binds:$DATA_BINDS" || echo "No /data or /data2 on this node"
+# 공유 데이터 디렉토리 바인드 (계정종류별 정책 — YAML vnc.data_mounts 로 결정).
+# 존재하는 경로만 --bind (없는 경로 bind 시 instance start 실패). writable 샌드박스라
+# 컨테이너 마운트포인트를 미리 생성. peruser 모드는 호스트에 per-user 디렉토리도 생성.
+{data_bind_script}
 
 # Apptainer Instance 시작 (지속적 실행, 사용자 홈 디렉토리 바인드)
 echo "Starting apptainer instance: $INSTANCE_NAME"
@@ -857,10 +929,11 @@ echo "VNC Session Terminated (Sandbox preserved for reuse)"
     return script
 
 
-def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0, partition='viz'):
+def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0, partition='viz', data_mounts=None):
     """Slurm Job 제출. Returns (job_id, warning_message)
 
-    username = 시스템 사용자(sbatch 실행 식별), web_user = 웹 사용자(격리 키, sanitize 완료)."""
+    username = 시스템 사용자(sbatch 실행 식별), web_user = 웹 사용자(격리 키, sanitize 완료).
+    data_mounts = 계정종류별 데이터 마운트 정책(_resolve_vnc_data_mounts 결과) 또는 None."""
 
     if MOCK_MODE:
         mock_job_id = random.randint(10000, 99999)
@@ -871,7 +944,7 @@ def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duratio
 
     # 실제 Slurm Job 제출
     job_script = generate_vnc_job_script(
-        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count, partition
+        username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count, partition, data_mounts
     )
 
     # 임시 파일에 스크립트 저장
@@ -893,7 +966,7 @@ def submit_vnc_job(username, session_id, vnc_port, novnc_port, geometry, duratio
 
         # GPU 없이 재생성
         job_script = generate_vnc_job_script(
-            username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0
+            username, session_id, vnc_port, novnc_port, geometry, duration_hours, sif_image_path, start_script, desktop_env, image_id, web_user, gpu_count=0, partition=partition, data_mounts=data_mounts
         )
         with open(script_path, 'w') as f:
             f.write(job_script)
@@ -1111,6 +1184,11 @@ def create_vnc_session():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+    # 계정종류(JWT groups)별 데이터 마운트 정책 해석 (YAML vnc.data_mounts)
+    data_mounts = _resolve_vnc_data_mounts(user.get('groups'), web_user)
+    if data_mounts:
+        print(f"🔍 [VNC CREATE] data_mounts(policy={data_mounts.get('policy')}): {data_mounts.get('binds')}")
+
     # Slurm Job 제출 (시스템 사용자로 실행)
     try:
         job_id, gpu_warning = submit_vnc_job(
@@ -1126,7 +1204,8 @@ def create_vnc_session():
             image_id,
             web_user,  # 웹 사용자 격리 키 (sandbox/instance/home)
             gpu_count,
-            partition
+            partition,
+            data_mounts
         )
     except Exception as e:
         return jsonify({'error': f'Job submission failed: {str(e)}'}), 500
