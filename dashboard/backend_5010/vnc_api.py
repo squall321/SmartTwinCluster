@@ -746,19 +746,12 @@ fi
 # noVNC websockify 시작 (컨테이너 안에서 — 로그를 남겨 실패 시 원인 추적)
 echo 'Starting noVNC websockify on port {novnc_port}...'
 WS_LOG="{VNC_LOG_DIR}/websockify-{web_user}-{novnc_port}.log"
-# PATH 명시(컨테이너 안 비대화형이라 websockify 못 찾을 수 있음) + 로그 리다이렉트.
-# websockify 바이너리/모듈 둘 다 시도(이미지에 따라 명령형/python -m 형).
-apptainer exec instance://$INSTANCE_NAME /bin/bash -lc "
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\\$PATH
-if command -v websockify >/dev/null 2>&1; then
-  exec websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port}
-elif python3 -c 'import websockify' 2>/dev/null; then
-  exec python3 -m websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port}
-else
-  echo 'ERROR: websockify 없음 (command/python module 둘다) — 컨테이너에 websockify 미설치' >&2
-  exit 127
-fi
-" > "$WS_LOG" 2>&1 &
+# 검증된 방식: bash -lc 로 감싸지 않고 apptainer exec 가 websockify 를 직접 실행.
+# PATH 는 --env 로 주입(bash -lc 는 컨테이너에서 멈출 수 있어 로그조차 안 남던 원인).
+# 컨테이너는 호스트 네트워크를 공유하므로 novnc_port 가 노드에 그대로 LISTEN 된다.
+apptainer exec --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    instance://$INSTANCE_NAME \
+    websockify --web=/opt/noVNC {novnc_port} localhost:{vnc_port} > "$WS_LOG" 2>&1 &
 WEBSOCKIFY_PID=$!
 
 # websockify 가 실제 포트를 LISTEN 할 때까지 대기(최대 ~15초). 안 뜨면 로그 출력.
