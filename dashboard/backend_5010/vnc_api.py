@@ -1603,6 +1603,20 @@ def check_vnc_readiness(session_id):
 def vnc_health():
     """VNC API Health Check"""
 
+    # 런타임에 메모리로 로드된 generate_vnc_job_script 의 코드 마커를 노출 →
+    # 잡 제출 없이 backend 가 새 코드인지(websockify 직접 exec + SESSION_MANAGER 차단)
+    # 즉시 검증 가능. ([8] 이 파일 grep 이 아니라 실제 실행코드를 확인하게 됨)
+    try:
+        import inspect
+        _src = inspect.getsource(generate_vnc_job_script)
+        _code_markers = {
+            'websockify_direct_exec': ('--env PATH' in _src and 'websockify --web' in _src),
+            'ws_log_header': ('=== websockify launch' in _src),
+            'session_manager_fix': ('SESSION_MANAGER=,DBUS' in _src),
+        }
+    except Exception:
+        _code_markers = {}
+
     return jsonify({
         'status': 'healthy',
         'mock_mode': MOCK_MODE,
@@ -1611,5 +1625,6 @@ def vnc_health():
         'sif_image_path': SIF_IMAGE_PATH,
         'sif_image_exists': os.path.exists(SIF_IMAGE_PATH),
         'sessions_dir': VNC_SESSIONS_DIR,
-        'sessions_dir_exists': os.path.exists(VNC_SESSIONS_DIR)
+        'sessions_dir_exists': os.path.exists(VNC_SESSIONS_DIR),
+        'code_markers': _code_markers
     }), 200

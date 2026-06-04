@@ -917,6 +917,16 @@ if [ -n "$_bpid" ]; then
         echo "  backend 프로세스: vnc_api.py 최신 수정 이후 시작됨 (코드 반영 OK)"
     fi
 fi
+# ★ 런타임 코드 검증 — 파일/시작시각이 아니라 메모리에 실제 로드된 코드를 확인.
+# /api/vnc/health 의 code_markers(inspect.getsource 로 노출)로 잡 제출 없이 판정.
+# preload 옛코드가 메모리에 남았으면 여기서 즉시 잡힌다(파일 grep 은 못 잡는 케이스).
+_cm=$(curl -s --max-time 5 http://localhost:5010/api/vnc/health 2>/dev/null \
+    | python3 -c 'import sys,json;d=json.load(sys.stdin);m=d.get("code_markers") or {};print("%d/%d"%(sum(1 for v in m.values() if v),len(m)) if m else "none")' 2>/dev/null)
+case "$_cm" in
+    3/3) echo "  ★ 런타임 코드(메모리): ✓ 완전최신 — websockify직접exec + WS_LOG헤더 + SESSION_MANAGER차단 모두 로드됨" ;;
+    none|"") echo "  ★ 런타임 코드(메모리): code_markers 없음 — vnc_api.py 가 health 마커 이전 버전(git pull 필요)" ;;
+    *) echo "  ★ 런타임 코드(메모리): ✗ 일부만($_cm) — backend 가 옛 코드 메모리 보유! 완전 재기동 필요 ([5] 재실행)" ;;
+esac
 
 # Redis 연결 상태 — VNC 세션 저장에 필수. false 면 진짜 에러까지 자동 출력
 _redis_ok=$(curl -s --max-time 5 http://localhost:5010/api/vnc/health 2>/dev/null \
