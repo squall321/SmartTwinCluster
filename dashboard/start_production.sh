@@ -920,12 +920,24 @@ fi
 # ★ 런타임 코드 검증 — 파일/시작시각이 아니라 메모리에 실제 로드된 코드를 확인.
 # /api/vnc/health 의 code_markers(inspect.getsource 로 노출)로 잡 제출 없이 판정.
 # preload 옛코드가 메모리에 남았으면 여기서 즉시 잡힌다(파일 grep 은 못 잡는 케이스).
+# 마커: ok=전부true / partial=일부만 / none=마커이전버전. 마커 개수 늘어도 안 깨지게 일반화.
+# 분자=분모면 ok. 빠진 마커명도 같이 출력(어느 수정이 메모리에 안 올라왔는지 즉시 확인).
 _cm=$(curl -s --max-time 5 http://localhost:5010/api/vnc/health 2>/dev/null \
-    | python3 -c 'import sys,json;d=json.load(sys.stdin);m=d.get("code_markers") or {};print("%d/%d"%(sum(1 for v in m.values() if v),len(m)) if m else "none")' 2>/dev/null)
+    | python3 -c '
+import sys,json
+try:
+    m=(json.load(sys.stdin).get("code_markers")) or {}
+except Exception:
+    m={}
+if not m: print("none")
+else:
+    miss=[k for k,v in m.items() if not v]
+    print("ok %d/%d"%(len(m),len(m)) if not miss else "partial %d/%d %s"%(len(m)-len(miss),len(m),",".join(miss)))
+' 2>/dev/null)
 case "$_cm" in
-    3/3) echo "  ★ 런타임 코드(메모리): ✓ 완전최신 — websockify직접exec + WS_LOG헤더 + SESSION_MANAGER차단 모두 로드됨" ;;
+    ok\ *)   echo "  ★ 런타임 코드(메모리): ✓ 완전최신 ${_cm#ok } — websockify직접exec + WS_LOG헤더 + SESSION_MANAGER차단 + /ready갱신 모두 로드됨" ;;
     none|"") echo "  ★ 런타임 코드(메모리): code_markers 없음 — vnc_api.py 가 health 마커 이전 버전(git pull 필요)" ;;
-    *) echo "  ★ 런타임 코드(메모리): ✗ 일부만($_cm) — backend 가 옛 코드 메모리 보유! 완전 재기동 필요 ([5] 재실행)" ;;
+    *)       echo "  ★ 런타임 코드(메모리): ✗ 일부만(${_cm#partial }) — backend 가 옛 코드 메모리 보유! 완전 재기동 필요 ([5] 재실행)" ;;
 esac
 
 # Redis 연결 상태 — VNC 세션 저장에 필수. false 면 진짜 에러까지 자동 출력
@@ -1195,9 +1207,9 @@ except Exception as e:
 import sys,json
 try:
     d=json.load(sys.stdin)
-    print("    /ready: ready=%s vnc_port_ready=%s novnc_port_ready=%s msg=%s"%(
+    print("    /ready: ready=%s vnc_port_ready=%s novnc_port_ready=%s reason=%s"%(
         d.get("ready"), d.get("vnc_port_ready"), d.get("novnc_port_ready"),
-        d.get("message") or d.get("error") or ""))
+        d.get("reason") or d.get("message") or d.get("error") or ""))
 except Exception as e:
     print("    /ready 파싱실패: %s"%(sys.stdin.read()[:150] if hasattr(sys.stdin,"read") else e))
 ' 2>/dev/null || echo "    /ready 응답: $(echo "$_rdy" | head -c 150)"

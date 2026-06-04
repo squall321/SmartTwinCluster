@@ -1533,6 +1533,23 @@ def check_vnc_readiness(session_id):
     if session['username'] != user['username'] and 'HPC-Admins' not in user.get('groups', []):
         return jsonify({'error': 'Permission denied'}), 403
 
+    # ── (★ 준비중 무한대기 근본수정) Slurm 으로 status/node 갱신 후 저장 ──
+    # 세션은 생성 시 status='pending', node=None 으로 저장되고, list/detail 을
+    # 호출해야만 squeue/scontrol 로 갱신된다. /ready 는 get_vnc_session(저장값)만 보던
+    # 탓에 잡이 실제 RUNNING 이고 포트가 다 떠도 영영 status='pending' → 즉시 not ready →
+    # 프론트 '준비중' 무한폴링. detail(1289~)과 동일하게 여기서도 갱신하고, detail 이
+    # 빠뜨린 '저장'까지 해서 다음 호출에도 반영되게 한다.
+    job_id = session.get('job_id')
+    if job_id:
+        status = get_job_status(job_id)
+        session['status'] = status.lower()
+        if status == 'RUNNING' and not session.get('node'):
+            node = get_job_node(job_id)
+            if node:
+                session['node'] = node
+        # 갱신된 status/node 를 메모리/Redis 에 반영 (detail 은 이걸 안 해서 매번 pending 으로 복귀)
+        save_vnc_session(session_id, session)
+
     # Status가 running이 아니면 not ready
     if session.get('status', '').lower() != 'running':
         return jsonify({
@@ -1609,10 +1626,13 @@ def vnc_health():
     try:
         import inspect
         _src = inspect.getsource(generate_vnc_job_script)
+        _ready_src = inspect.getsource(check_vnc_readiness)
         _code_markers = {
             'websockify_direct_exec': ('--env PATH' in _src and 'websockify --web' in _src),
             'ws_log_header': ('=== websockify launch' in _src),
             'session_manager_fix': ('SESSION_MANAGER=,DBUS' in _src),
+            # /ready 가 squeue/scontrol 로 status·node 를 갱신·저장하는지 (준비중 무한대기 수정)
+            'ready_slurm_refresh': ('get_job_status(job_id)' in _ready_src and 'save_vnc_session' in _ready_src),
         }
     except Exception:
         _code_markers = {}
