@@ -1193,7 +1193,7 @@ except Exception as e:
                     sleep 5
                 done
                 echo ""
-                echo "  noVNC 포트 $_np 직접응답: $_hc $([ "$_hc" = "200" ] && echo '✓ VNC 접속 가능 (화면 뜸)' || echo '✗ 80초 내 미응답 — 아래 진단 확인')"
+                echo "  noVNC 포트 $_np 직접응답: $_hc $([ "$_hc" = "200" ] && echo '✓ noVNC 웹페이지(정적) 응답 — ※실제 화면접속(RFB) 가능여부는 아래 [RFB 핸드셰이크]로 판정' || echo '✗ 80초 내 미응답 — 아래 진단 확인')"
             fi
 
             # ── (★) '준비중' 멈춤 자동 진단: /ready API + 잡노드 실제 포트 + 컨테이너 로그 ──
@@ -1238,8 +1238,80 @@ print((c.get('nodes',{}).get('controllers') or [{}])[0].get('ssh_user','stcx'))
                     || { [ -n "$SSHPASS" ] && command -v sshpass &>/dev/null && _vssh="sshpass -e ssh -n $_vssho -o PreferredAuthentications=password -o PubkeyAuthentication=no"; }
                 echo "    잡 노드($_vnode) 실제 포트 LISTEN (vnc=$_vp novnc=$_vnp):"
                 $_vssh "$_vuser@$_vnode" "ss -ltn 2>/dev/null | grep -E ':($_vp|$_vnp)\b' || echo '      (vnc/novnc 포트 LISTEN 안됨 — 컨테이너 VNC서버 미기동)'" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
+
+                # ── (★ 'Target closed' 자동진단) Xtigervnc 직접 RFB 핸드셰이크 ──
+                # 브라우저 에러 "Connection closed (code:1000, reason: Target closed)" =
+                #   websockify 가 target(localhost:vnc_port=Xtigervnc)에 붙었는데 그게 닫혔다는 뜻.
+                #   nc -z(LISTEN) / curl vnc.html(정적HTTP) 로는 절대 못잡는다(RFB 협상을 안하니까).
+                # 노드에서 진짜 RFB 핸드셰이크를 단계별로 돌려 어디서 끊는지/완전정상인지 이분한다.
+                #   - 중간에 끊김 → Xtigervnc/세션 문제 (어느 단계인지 + /tmp/Xtigervnc 로그가 이유)
+                #   - ServerInit 까지 성공 → Xtigervnc 정상, 버그는 websockify/nginx/WebSocket 계층
+                _RFBPROBE_B64=$(base64 -w0 <<'PYRFB'
+import socket, sys, struct
+port = int(sys.argv[1])
+def recv_n(s, n):
+    b = b""
+    while len(b) < n:
+        c = s.recv(n - len(b))
+        if not c:
+            raise EOFError("서버가 %d바이트 중 %d만 보내고 닫음" % (n, len(b)))
+        b += c
+    return b
+def fail(step, e):
+    print("RFB ✗ [%s] 에서 끊김/실패: %s" % (step, e))
+    print("→ Xtigervnc 가 RFB '%s' 단계에서 연결을 닫음 = 브라우저 'Target closed' 의 정체" % step)
+    print("→ 같은 잡의 /tmp/Xtigervnc_*.log (아래) 에서 서버측 사유 확인")
+    sys.exit(2)
+try:
+    s = socket.create_connection(("127.0.0.1", port), timeout=5); s.settimeout(5)
+except Exception as e:
+    print("RFB ✗ TCP 연결자체 실패(%s) — 포트는 LISTEN 인데 connect 안됨" % e); sys.exit(2)
+try: pv = recv_n(s, 12)
+except Exception as e: fail("ProtocolVersion수신", e)
+print("RFB ✓ ProtocolVersion: %r" % pv)
+if not pv.startswith(b"RFB "):
+    print("RFB ✗ 배너가 'RFB ' 아님 → Xtigervnc 가 아니거나 비정상 출력"); sys.exit(2)
+try: s.sendall(pv)
+except Exception as e: fail("ProtocolVersion송신", e)
+try: sec = recv_n(s, 1)
+except Exception as e: fail("SecurityTypes수신", e)
+ntypes = sec[0]
+if ntypes == 0:
+    try:
+        L = struct.unpack(">I", recv_n(s, 4))[0]; reason = recv_n(s, L)
+        print("RFB ✗ 서버가 보안협상 거부: %r" % reason)
+    except Exception as e: fail("실패사유수신", e)
+    sys.exit(2)
+try: types = recv_n(s, ntypes)
+except Exception as e: fail("SecurityTypes목록수신", e)
+print("RFB ✓ SecurityTypes(%d): %r" % (ntypes, list(types)))
+if 1 not in types:
+    print("RFB ✗ None(1) 보안타입 미제공 %r → noVNC 인증불일치로 끊김" % list(types)); sys.exit(2)
+try: s.sendall(b"\x01")
+except Exception as e: fail("보안타입선택(None)송신", e)
+try: code = struct.unpack(">I", recv_n(s, 4))[0]
+except Exception as e: fail("SecurityResult수신", e)
+if code != 0:
+    print("RFB ✗ SecurityResult 실패(code=%d)" % code); sys.exit(2)
+print("RFB ✓ SecurityResult OK(None 인증통과)")
+try: s.sendall(b"\x01")
+except Exception as e: fail("ClientInit송신", e)
+try:
+    si = recv_n(s, 24); w, h = struct.unpack(">HH", si[:4])
+except Exception as e: fail("ServerInit수신", e)
+print("RFB ✓✓✓ ServerInit 완료 — 화면 %dx%d. Xtigervnc 완전정상!" % (w, h))
+print("=> RFB 전구간 성공. 'Target closed' 는 Xtigervnc 아님 →")
+print("   websockify/nginx/WebSocket 계층 문제 (아래 websockify WS테스트 + 로그 확인)")
+s.close()
+PYRFB
+)
+                echo "    ── [RFB 핸드셰이크] Xtigervnc 직접검증 (localhost:$_vp) — 'Target closed' 원인 이분 ──"
+                $_vssh "$_vuser@$_vnode" "echo $_RFBPROBE_B64 | base64 -d | python3 - $_vp 2>&1" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
+                echo "    ── [websockify WS업그레이드] noVNC 포트 $_vnp (101=정상, 그외=WS핸들링 문제) ──"
+                $_vssh "$_vuser@$_vnode" "curl -s -o /dev/null -w 'HTTP %{http_code}' --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' http://127.0.0.1:$_vnp/websockify 2>/dev/null; echo" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
+
                 echo "    apptainer instance + VNC/websockify 로그 tail:"
-                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- websockify 프로세스(ps) ---'; ps -ef | grep -E 'websockif[y]' || echo '  (websockify 프로세스 없음 → 기동 안됨/즉사)'; echo '--- 잡노드 /tmp 환경(noexec/private/권한 — 개발↔서버 차이 점검) ---'; mount 2>/dev/null | grep -E ' /tmp ' || echo '  (/tmp 별도 마운트 아님=루트와 공유)'; ls -ld /tmp /tmp/runtime-root 2>/dev/null; echo '--- 잡 .out (websockify 영역 도달여부) ---'; tail -25 /scratch/vnc_logs/vnc-*-${_jid}.out 2>/dev/null || echo '  (잡 .out 없음)'; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그파일 존재/권한 ---'; ls -la /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null || echo '  (websockify 로그파일 자체가 없음 → 기동 라인이 실행 안됨/옛코드)'; echo '--- websockify 로그 내용 ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그 ---'; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
+                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- websockify 프로세스(ps) ---'; ps -ef | grep -E 'websockif[y]' || echo '  (websockify 프로세스 없음 → 기동 안됨/즉사)'; echo '--- 잡노드 /tmp 환경(noexec/private/권한 — 개발↔서버 차이 점검) ---'; mount 2>/dev/null | grep -E ' /tmp ' || echo '  (/tmp 별도 마운트 아님=루트와 공유)'; ls -ld /tmp /tmp/runtime-root 2>/dev/null; echo '--- 잡 .out (websockify 영역 도달여부) ---'; tail -25 /scratch/vnc_logs/vnc-*-${_jid}.out 2>/dev/null || echo '  (잡 .out 없음)'; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그파일 존재/권한 ---'; ls -la /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null || echo '  (websockify 로그파일 자체가 없음 → 기동 라인이 실행 안됨/옛코드)'; echo '--- websockify 로그 내용 ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그(start_vnc.sh=xfce4-session 출력) ---'; tail -10 /tmp/vnc_*_*.log 2>/dev/null; echo '--- Xtigervnc 서버 로그 (RFB 닫는 이유/세션크래시 — Target closed 핵심) ---'; tail -25 /tmp/Xtigervnc_*.log 2>/dev/null || echo '  (/tmp/Xtigervnc_*.log 없음)'; echo '--- xfce4-session/Xtigervnc 생존(instance 내부) ---'; for inst in \$(apptainer instance list 2>/dev/null | awk 'NR>1{print \$1}'); do echo \"  [\$inst]\"; apptainer exec instance://\$inst sh -c 'pgrep -a Xtigervnc; pgrep -a xfce4-session || echo \"    xfce4-session 죽음/없음\"' 2>/dev/null; done" 2>/dev/null | tr -d '\r' | sed 's/^/      /'
                 # 잡이 실제 사용한 sbatch 스크립트로 옛/새 코드 명확 판정
                 # (백엔드 코드는 최신이어도 gunicorn 이 옛 generate_vnc_job_script 를
                 #  메모리에 들고 있으면 제출 sbatch 는 옛버전 → WS_LOG 헤더 유무로 확정)
