@@ -172,9 +172,9 @@ ensure_redis_installed() {
         elif [[ -d "$HOME/offline_packages/apt_packages" ]]; then off="$HOME/offline_packages"; fi
     fi
     local apt_pkgs="$off/apt_packages"
+    # 우선순위 1: 노드 홈의 전체 apt_packages (phase10 배포분) → local APT repo
     if [[ -n "$off" ]] && ls "$apt_pkgs"/redis-server_*.deb &>/dev/null; then
-        log "  오프라인 패키지 발견($apt_pkgs) → local APT repo 설치"
-        # Packages 인덱스 없으면 생성
+        log "  노드 오프라인 패키지 발견($apt_pkgs) → local APT repo 설치"
         [[ -f "$apt_pkgs/Packages.gz" || -f "$apt_pkgs/Packages" ]] || {
             command -v dpkg-scanpackages &>/dev/null && \
             ( cd "$apt_pkgs" && dpkg-scanpackages . /dev/null > Packages 2>/dev/null && gzip -k -f Packages 2>/dev/null ) || true
@@ -184,15 +184,22 @@ ensure_redis_installed() {
             -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" 2>/dev/null || true
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends redis-server redis-tools 2>/dev/null \
             || sudo apt-get install -f -y 2>/dev/null || true
+    # 우선순위 2: 헤드가 보낸 redis deb 세트 ($SCRIPT_DIR/redis_debs — deploy_to_replicas 가 scp)
+    elif ls "$SCRIPT_DIR/redis_debs"/*.deb &>/dev/null; then
+        log "  헤드 전송 redis deb 세트 발견($SCRIPT_DIR/redis_debs) → dpkg 설치"
+        # 같은 디렉토리의 deb 로 의존성 해결: apt-get install ./*.deb (로컬 deb 직접)
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$SCRIPT_DIR/redis_debs"/*.deb 2>/dev/null \
+            || { sudo dpkg -i "$SCRIPT_DIR/redis_debs"/*.deb 2>/dev/null; sudo apt-get install -f -y 2>/dev/null; } || true
+    # 우선순위 3: online apt (폐쇄망이면 실패 — 최후)
     else
-        warn "  오프라인 redis deb 없음($apt_pkgs) → online apt 폴백"
+        warn "  노드/헤드 오프라인 redis deb 모두 없음 → online apt 폴백(폐쇄망이면 실패)"
         sudo apt-get update 2>/dev/null || true
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server redis-tools 2>/dev/null || true
     fi
     if command -v redis-server &>/dev/null; then
         ok "  redis-server 설치 완료"
     else
-        err "  redis-server 설치 실패 — 노드에 오프라인 패키지가 없거나(phase10 미배포) online 불가"
+        err "  redis-server 설치 실패 — 노드/헤드에 오프라인 패키지 없음 + online 불가"
         exit 1
     fi
 }
@@ -313,6 +320,27 @@ print((c.get('cluster_info') or {}).get('ssh_password',''))
     local SELF="$SCRIPT_DIR/setup_redis_from_yaml.sh"
     [[ -f "$SELF" ]] || SELF="$0"
 
+    # 헤드의 redis deb 세트 준비 (노드에 오프라인 패키지 없을 때 폴백용 — 작게 redis+의존성만).
+    # 헤드엔 오프라인 패키지가 반드시 있으므로, online 폴백 대신 이 deb 를 노드로 보낸다.
+    local _headoff=""
+    for du in "$SCRIPT_DIR/../utils/detect_os.sh" "/tmp/detect_os.sh"; do
+        [[ -f "$du" ]] && { source "$du"; break; }
+    done
+    if declare -f set_offline_pkg_dir &>/dev/null; then
+        declare -f detect_os_version &>/dev/null && detect_os_version 2>/dev/null
+        set_offline_pkg_dir "$PROJECT_ROOT" 2>/dev/null; _headoff="$OFFLINE_PKG_DIR"
+    fi
+    [[ -z "$_headoff" ]] && { [[ -d "$PROJECT_ROOT/offline_packages_2404/apt_packages" ]] && _headoff="$PROJECT_ROOT/offline_packages_2404" || _headoff="$PROJECT_ROOT/offline_packages"; }
+    local _headapt="$_headoff/apt_packages"
+    # redis + 의존성 deb 목록 (헤드 apt_packages 에서 패턴 수집)
+    local _redisdebs=""
+    if ls "$_headapt"/redis-server_*.deb &>/dev/null; then
+        _redisdebs=$(ls "$_headapt"/{redis-server,redis-tools,libjemalloc2,liblua5.1-0,liblzf1,libatomic1,libssl3,lua-bitop,lua-cjson,lsb-base}_*.deb 2>/dev/null)
+        log "헤드 redis deb 세트 준비됨 ($(echo "$_redisdebs" | grep -c .)개, $_headapt) — 노드 패키지 없을 때 폴백 전송"
+    else
+        warn "헤드 apt_packages 에 redis deb 없음($_headapt) — 노드 자체 패키지에 의존"
+    fi
+
     log "나머지 redis 노드에 배포 (master 1회 실행 → 전 노드)..."
     local cnt=0 okc=0 failc=0
     while IFS= read -r ip; do
@@ -349,6 +377,18 @@ print((c.get('cluster_info') or {}).get('ssh_password',''))
         # detect_os.sh 도 같이 전송 → 원격 노드에서 오프라인 패키지 경로 결정에 사용
         local _detos="$SCRIPT_DIR/../utils/detect_os.sh"
         [[ -f "$_detos" ]] && $SCP "$_detos" "$target:$rdir/detect_os.sh" >/dev/null 2>&1 || true
+        # 노드에 오프라인 패키지(홈)가 없으면 → 헤드 redis deb 세트를 전송(online 폴백 대신).
+        # 헤드엔 패키지가 반드시 있으므로 폐쇄망에서도 redis 설치 가능.
+        if [[ -n "$_redisdebs" ]]; then
+            if ! $SSH "$target" "ls \$HOME/offline_packages*/apt_packages/redis-server_*.deb" &>/dev/null; then
+                log "    [$ip] 노드에 오프라인 redis 없음 → 헤드 deb 세트 전송(~1.5MB)"
+                $SSH "$target" "mkdir -p $rdir/redis_debs" >/dev/null 2>&1
+                local _df
+                for _df in $_redisdebs; do
+                    $SCP "$_df" "$target:$rdir/redis_debs/" >/dev/null 2>&1 || warn "      deb 전송 실패: $(basename "$_df")"
+                done
+            fi
+        fi
         local rflag=""; [[ "$RESET" == true ]] && rflag="--reset"
         if $SSH "$target" "sudo bash $rdir/setup_redis_from_yaml.sh --config $rdir/redis_cfg.yaml --remote --node-ip $ip $rflag" 2>&1 | sed 's/^/    /'; then
             ok "  ✓ [$ip] 배포 완료"; okc=$((okc+1))
