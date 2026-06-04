@@ -829,11 +829,26 @@ echo "  /opt/apptainers VNC sif: $(ls /opt/apptainers/vnc_*.sif 2>/dev/null | xa
 # ── vnc_api.py 코드 반영 여부 (실행중 백엔드가 최신 websockify 코드인가) ──
 # websockify '준비중' 수정이 운영에 반영됐는지 자동확인. bash -lc 제거 여부로 판별.
 _vapi="$SCRIPT_DIR/backend_5010/vnc_api.py"
-if grep -q "apptainer exec --env PATH=.*websockify --web" "$_vapi" 2>/dev/null; then
-    echo "  vnc_api.py 코드: ✓ 최신(websockify 직접 exec) — git pull 반영됨"
-elif grep -q 'bash -lc' "$_vapi" 2>/dev/null && grep -q 'websockify' "$_vapi" 2>/dev/null; then
-    echo "  vnc_api.py 코드: ✗ 옛버전(websockify 가 bash -lc 래핑) — git pull 필요!"
-fi
+# 멀티라인 판정: websockify 직전 줄에 '--env PATH'(새) 인가 'bash -lc'(옛) 인가.
+# (한 줄 grep 은 역슬래시 줄바꿈을 못 잡아 오탐 → 파이썬으로 블록 검사)
+_codever=$(python3 -c "
+src=open('$_vapi').read()
+import re
+# websockify 기동 블록 추출(echo Starting ~ WEBSOCKIFY_PID)
+m=re.search(r'Starting noVNC websockify.*?WEBSOCKIFY_PID', src, re.S)
+blk=m.group(0) if m else ''
+if '--env PATH' in blk and 'websockify --web' in blk:
+    print('NEW')
+elif 'bash -lc' in blk:
+    print('OLD')
+else:
+    print('UNKNOWN')
+" 2>/dev/null)
+case "$_codever" in
+    NEW) echo "  vnc_api.py 코드: ✓ 최신(websockify 직접 exec, --env PATH) — 반영됨" ;;
+    OLD) echo "  vnc_api.py 코드: ✗ 옛버전(bash -lc 래핑) — git pull 필요!" ;;
+    *)   echo "  vnc_api.py 코드: ? 판별불가 (websockify 블록 형태 확인 필요)" ;;
+esac
 # 실행중 backend 프로세스 시작시각 vs vnc_api.py 수정시각 (restart 누락 감지)
 _bpid=$(pgrep -f 'gunicorn.*app:app' 2>/dev/null | head -1)
 if [ -n "$_bpid" ]; then
