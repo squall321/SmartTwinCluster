@@ -42,16 +42,16 @@ cd dashboard/vnc_sandbox
 ## 2) 배포 (★ 필수)
 
 `/opt/apptainers` 는 **노드-로컬**입니다. 빌드한 `.sif` 를 **모든 viz 노드**에 복사해야 합니다.
+전용 배포 스크립트(viz노드 YAML 자동 enumerate + 키→sshpass 폴백 + 병렬 + md5 검증/스킵):
 
 ```bash
-# 방법1: 레지스트리 배포 스크립트
-dashboard/setup_apptainer_registry.sh        # (배포 로직 확인 후 사용)
-
-# 방법2: 수동
-for n in icn401-0401-h06 icn401-0401-h07 ... ; do
-    scp -O /opt/apptainers/vnc_desktop_gpu.sif "$n":/opt/apptainers/
-done
+cd dashboard/vnc_sandbox
+./deploy_vnc_image_to_viz.sh                 # 기본: vnc_desktop_gpu.sif → 모든 viz 노드 /opt/apptainers
+#   옵션: --sif PATH  --parallel N  --config YAML  --nodes-file FILE
 ```
+
+> **빌드+배포 한번에**: `./build_vnc_gpu_sandbox.sh --deploy`
+> (root 소유 /opt/apptainers 라 /tmp 경유 후 sudo mv. NOPASSWD sudo 또는 ssh_password 사용.)
 
 ## 3) 백엔드 반영
 

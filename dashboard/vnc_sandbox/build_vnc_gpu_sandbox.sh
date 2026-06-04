@@ -15,6 +15,10 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# --deploy : 빌드 성공 후 viz 노드로 자동 배포 (deploy_vnc_image_to_viz.sh)
+DEPLOY=0
+for _a in "$@"; do [ "$_a" = "--deploy" ] && DEPLOY=1; done
+
 # OS 감지 — 24.04이면 _2404.def
 PROJECT_ROOT_DETECT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 if [ -f "${PROJECT_ROOT_DETECT}/cluster/utils/detect_os.sh" ]; then
@@ -66,16 +70,23 @@ if [ "${BUILD_RC:-1}" -eq 0 ] && [ -f "$SIF_PATH" ]; then
     echo "  apptainer exec --nv $SIF_PATH vglrun -d egl glxinfo | grep 'OpenGL renderer'"
     echo "    → 'NVIDIA ...' 면 GPU 렌더 성공 (llvmpipe 면 소프트웨어)"
     echo
-    echo "── 배포 (★ /opt/apptainers 는 노드-로컬 → 모든 viz 노드로 복사 필요) ──"
-    echo "  방법1) dashboard/setup_apptainer_registry.sh 로 일괄 배포"
-    echo "  방법2) 수동: 각 viz 노드로"
-    echo "         for n in <viz노드들>; do scp -O $SIF_PATH \$n:$IMAGES_DIR/; done"
+    echo "── 배포 (★ /opt/apptainers 노드-로컬 → 모든 viz 노드로 복사) ──"
+    if [ "$DEPLOY" = "1" ]; then
+        echo "  --deploy 지정됨 → viz 노드 일괄 배포 실행..."
+        echo
+        "$SCRIPT_DIR/deploy_vnc_image_to_viz.sh" --sif "$SIF_PATH"
+        _DRC=$?
+    else
+        echo "  viz 노드 일괄 배포:"
+        echo "    $SCRIPT_DIR/deploy_vnc_image_to_viz.sh --sif $SIF_PATH"
+        echo "  (빌드시 --deploy 플래그로 빌드+배포 한번에)"
+        _DRC=0
+    fi
     echo
     echo "── 백엔드 활성화 ──"
-    echo "  vnc_api.py VNC_IMAGES 에 'xfce4_gpu' 항목이 이미 있음(이 PR). 배포 후"
-    echo "  dashboard/start_production.sh 재기동하면 웹 이미지 목록에 'XFCE4 (GPU)' 노출."
-    echo "  사용 시 GPU 개수>=1 로 세션 생성해야 --nv 가 붙어 GPU 사용."
-    exit 0
+    echo "  VNC_IMAGES['xfce4_gpu'] 등록됨 → 배포 후 dashboard/start_production.sh 재기동하면"
+    echo "  웹 이미지 목록에 'XFCE4 (GPU/VirtualGL)' 노출. GPU 개수>=1 로 세션 생성해야 --nv 적용."
+    exit ${_DRC:-0}
 else
     echo "❌ 빌드 실패 — 로그 확인: $LOG_FILE"
     exit 1
