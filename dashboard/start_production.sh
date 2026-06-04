@@ -826,6 +826,28 @@ fi
 # /opt/apptainers VNC sif 이미지 존재 (잡 게이트)
 echo "  /opt/apptainers VNC sif: $(ls /opt/apptainers/vnc_*.sif 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ' || echo '없음')"
 
+# ── vnc_api.py 코드 반영 여부 (실행중 백엔드가 최신 websockify 코드인가) ──
+# websockify '준비중' 수정이 운영에 반영됐는지 자동확인. bash -lc 제거 여부로 판별.
+_vapi="$SCRIPT_DIR/backend_5010/vnc_api.py"
+if grep -q "apptainer exec --env PATH=.*websockify --web" "$_vapi" 2>/dev/null; then
+    echo "  vnc_api.py 코드: ✓ 최신(websockify 직접 exec) — git pull 반영됨"
+elif grep -q 'bash -lc' "$_vapi" 2>/dev/null && grep -q 'websockify' "$_vapi" 2>/dev/null; then
+    echo "  vnc_api.py 코드: ✗ 옛버전(websockify 가 bash -lc 래핑) — git pull 필요!"
+fi
+# 실행중 backend 프로세스 시작시각 vs vnc_api.py 수정시각 (restart 누락 감지)
+_bpid=$(pgrep -f 'gunicorn.*app:app' 2>/dev/null | head -1)
+if [ -n "$_bpid" ]; then
+    _bstart=$(ps -o lstart= -p "$_bpid" 2>/dev/null)
+    _vmod=$(stat -c '%y' "$_vapi" 2>/dev/null | cut -d. -f1)
+    _bepoch=$(date -d "$_bstart" +%s 2>/dev/null || echo 0)
+    _vepoch=$(stat -c '%Y' "$_vapi" 2>/dev/null || echo 0)
+    if [ "$_vepoch" -gt "$_bepoch" ] 2>/dev/null; then
+        echo "  ⚠ backend 프로세스가 vnc_api.py 수정보다 먼저 시작됨 → 옛 코드로 동작중! (vnc_api 수정:$_vmod) sudo systemctl restart dashboard_backend"
+    else
+        echo "  backend 프로세스: vnc_api.py 최신 수정 이후 시작됨 (코드 반영 OK)"
+    fi
+fi
+
 # Redis 연결 상태 — VNC 세션 저장에 필수. false 면 진짜 에러까지 자동 출력
 _redis_ok=$(curl -s --max-time 5 http://localhost:5010/api/vnc/health 2>/dev/null \
     | python3 -c 'import sys,json; print(json.load(sys.stdin).get("redis_available"))' 2>/dev/null)
@@ -1113,7 +1135,13 @@ print((c.get('nodes',{}).get('controllers') or [{}])[0].get('ssh_user','stcx'))
                 echo "    잡 노드($_vnode) 실제 포트 LISTEN (vnc=$_vp novnc=$_vnp):"
                 $_vssh "$_vuser@$_vnode" "ss -ltn 2>/dev/null | grep -E ':($_vp|$_vnp)\b' || echo '      (vnc/novnc 포트 LISTEN 안됨 — 컨테이너 VNC서버 미기동)'" 2>/dev/null | sed 's/^/      /'
                 echo "    apptainer instance + VNC/websockify 로그 tail:"
-                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그 (novnc 미기동 원인) ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그 ---'; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | sed 's/^/      /'
+                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그파일 존재/권한 ---'; ls -la /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null || echo '  (websockify 로그파일 자체가 없음 → 기동 라인이 실행 안됨/옛코드)'; echo '--- websockify 로그 내용 ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그 ---'; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | sed 's/^/      /'
+                # 잡이 실제 사용한 sbatch 스크립트의 websockify 줄 (옛/새 코드 즉시 판별)
+                _jscript=$(ls -t /tmp/vnc_job_*.sh 2>/dev/null | head -1)
+                if [ -n "$_jscript" ]; then
+                    echo "      ── 실제 sbatch($_jscript) 의 websockify 기동 줄 ──"
+                    grep -nE 'websockify|bash -lc|--env PATH' "$_jscript" 2>/dev/null | head -4 | sed 's/^/        /'
+                fi
                 # 컨트롤러에 터널 포트 떴나
                 echo "    컨트롤러 터널 포트($_vnp) LISTEN: $(ss -ltn 2>/dev/null | grep -qE ":$_vnp\b" && echo '✓ 떠있음' || echo '✗ 없음(SSH터널 미생성)')"
             fi
