@@ -440,20 +440,64 @@ for service in "${BACKEND_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
     # 캐싱한다. systemctl restart 만으로는 옛 마스터/잔존 워커가 안 죽고 옛
     # generate_vnc_job_script 가 그대로 남는 사례가 있어, 완전 종료 + .pyc 캐시
     # 제거 후 start 로 새 코드를 강제 로드한다(VNC '준비중' 반복의 근본 원인).
+    # dashboard_backend 는 gunicorn preload_app=True 라 마스터가 app(vnc_api 포함)을
+    # 메모리에 import 해두고 워커에 fork 한다(reload=False). 코드 갱신 = 마스터 교체가
+    # 유일 경로다. systemctl restart 만으로는 옛 마스터/잔존 워커가 안 죽고 옛
+    # generate_vnc_job_script 가 메모리에 남는 사례가 있다(VNC '준비중' 반복 근본원인).
+    # → reset-failed → stop → gunicorn 완전소멸 확인 → pyc 제거 → (respawn 됐으면 재차
+    # 소멸) → start(restart 아님) 로 새 코드를 무조건 import 시킨다.
+    _svc_started_fresh=0
     if [ "$service" = "dashboard_backend" ]; then
+        # 설치된 유닛은 Restart=always 라, pkill -9(SIGKILL)는 비정상종료로 간주돼
+        # RestartSec 후 systemd 가 옛 마스터를 되살릴 수 있다. reset-failed 로 재기동
+        # 카운터를 비우고 stop 으로 유닛을 inactive 화한다(stop 중에는 Restart 무시).
+        sudo systemctl reset-failed "$service" 2>/dev/null || true
         sudo systemctl stop "$service" 2>/dev/null || true
-        sudo pkill -9 -f 'backend_5010.*gunicorn|gunicorn.*app:app' 2>/dev/null || true
+        # gunicorn 마스터/워커가 완전히 죽을 때까지 확인(최대 10초). pgrep break 조건과
+        # pkill 대상 패턴을 동일 ERE('gunicorn.*app:app')로 통일 — 0개 될 때까지 반복해야
+        # 옛 preload 메모리코드가 확실히 사라진다.
+        for _k in $(seq 1 10); do
+            if ! pgrep -f 'gunicorn.*app:app' >/dev/null 2>&1; then break; fi
+            sudo pkill -9 -f 'gunicorn.*app:app' 2>/dev/null || true
+            sleep 1
+        done
         # 바이트코드 캐시 제거 (옛 .pyc 가 import 되는 것 방지)
         sudo find "$SCRIPT_DIR/backend_5010" "$SCRIPT_DIR/common" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
-        sleep 1
+        # SIGKILL→systemd-respawn 레이스 차단: start 전에 혹시 systemd 가 이미 옛 마스터를
+        # 되살렸으면(active) start 가 no-op 이 되어 옛 코드가 남는다. 그땐 한 번 더
+        # 완전히 죽이고서 start 한다(이미 inactive 면 그대로 진행).
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            sudo systemctl reset-failed "$service" 2>/dev/null || true
+            sudo systemctl stop "$service" 2>/dev/null || true
+            for _k in $(seq 1 10); do
+                if ! pgrep -f 'gunicorn.*app:app' >/dev/null 2>&1; then break; fi
+                sudo pkill -9 -f 'gunicorn.*app:app' 2>/dev/null || true
+                sleep 1
+            done
+        fi
+        # 완전히 죽은 상태에서 start → 마스터가 새로 import = 새 코드 보장
+        if sudo systemctl start "$service" 2>/dev/null; then _svc_started_fresh=1; fi
     fi
-    # start 가 아니라 restart — Restart=always 가 [1] stop 후 옛 코드로 자동
-    # 재기동했을 수 있어, 새 코드/config(.env, vnc_api.py) 확실히 반영하려면
-    # 프로세스 완전 교체(restart) 필요.
-    if sudo systemctl restart "$service" 2>/dev/null; then
+    if [ "$_svc_started_fresh" = "1" ] || sudo systemctl restart "$service" 2>/dev/null; then
         sleep 2
         if systemctl is-active --quiet "$service"; then
             echo -e "${GREEN}✓ 실행 중${NC}"
+            # dashboard_backend: 새로 뜬 마스터가 정말 새 코드를 import 했는지 자가검증.
+            # 마스터 시작시각이 vnc_api.py 수정시각 이후면(방금 stop→kill→start 했으니 항상
+            # 그래야 정상) OK. 그렇지 않으면 옛 마스터가 살아남은 것 → 경고.
+            if [ "$service" = "dashboard_backend" ]; then
+                _vp="$SCRIPT_DIR/backend_5010/vnc_api.py"
+                _np=$(pgrep -f 'gunicorn.*app:app' 2>/dev/null | head -1)
+                if [ -n "$_np" ]; then
+                    _ne=$(date -d "$(ps -o lstart= -p "$_np" 2>/dev/null)" +%s 2>/dev/null || echo 0)
+                    _ve=$(stat -c '%Y' "$_vp" 2>/dev/null || echo 0)
+                    if [ "$_ne" -ge "$_ve" ] 2>/dev/null; then
+                        echo -e "      ${GREEN}↳ 새 마스터(PID $_np)가 vnc_api.py 이후 시작 — 새 코드 로드 확인${NC}"
+                    else
+                        echo -e "      ${RED}↳ 옛 마스터(PID $_np)가 살아있음 — 새 코드 미반영! 재기동 시퀀스 재확인 필요${NC}"
+                    fi
+                fi
+            fi
         else
             echo -e "${RED}✗ 시작 실패${NC}"
             sudo journalctl -u "$service" -n 5 --no-pager 2>/dev/null | tail -5 | sed 's/^/      /'
@@ -1179,16 +1223,20 @@ print((c.get('nodes',{}).get('controllers') or [{}])[0].get('ssh_user','stcx'))
                 #  메모리에 들고 있으면 제출 sbatch 는 옛버전 → WS_LOG 헤더 유무로 확정)
                 _jscript=$(ls -t /tmp/vnc_job_*.sh 2>/dev/null | head -1)
                 if [ -n "$_jscript" ]; then
-                    echo "      ── 실제 제출 sbatch($_jscript) websockify 블록 (옛/새 판정) ──"
-                    if grep -q 'echo "=== websockify launch' "$_jscript" 2>/dev/null; then
-                        echo "        ✓ 새 코드(WS_LOG 헤더 선기록 있음) — 백엔드가 최신 함수로 sbatch 생성"
+                    echo "      ── 실제 제출 sbatch($_jscript) 새코드 마커 판정 ──"
+                    # 최신 코드의 두 마커: WS_LOG 헤더(websockify 수정) + SESSION_MANAGER=(XFCE 검은화면 수정)
+                    _has_wslog=$(grep -qc 'echo "=== websockify launch' "$_jscript" 2>/dev/null && echo 1 || echo 0)
+                    _has_sm=$(grep -qc 'SESSION_MANAGER=,DBUS' "$_jscript" 2>/dev/null && echo 1 || echo 0)
+                    if [ "$_has_wslog" = "1" ] && [ "$_has_sm" = "1" ]; then
+                        echo "        ✓ 완전 최신 코드 (WS_LOG 헤더 + SESSION_MANAGER 차단 둘 다) — 백엔드 새코드 확정"
+                    elif [ "$_has_wslog" = "1" ]; then
+                        echo "        △ WS_LOG 는 있으나 SESSION_MANAGER 차단 없음 — vnc_api.py 가 cf735e8 이전 (git pull 필요)"
                     elif grep -q 'bash -lc' "$_jscript" 2>/dev/null; then
-                        echo "        ✗ 옛 코드(bash -lc 래핑) — 백엔드가 옛 generate_vnc_job_script 메모리 보유!"
-                        echo "          → sudo systemctl restart dashboard_backend (단순 stop/start 로 안 풀리면 kill 후 재기동)"
+                        echo "        ✗ 옛 코드(bash -lc) — 백엔드가 옛 generate_vnc_job_script 메모리 보유 (이번 [5] 완전재기동으로 풀려야 함)"
                     else
-                        echo "        ? WS_LOG 헤더도 bash -lc 도 없음 — websockify 실행줄 직접 확인:"
+                        echo "        ? 마커 불일치 — 실행줄 직접 확인:"
                     fi
-                    grep -nE 'websockify|WS_LOG=|--env PATH|bash -lc|kill -0' "$_jscript" 2>/dev/null | head -10 | sed 's/^/          /'
+                    grep -nE 'websockify|WS_LOG=|--env PATH|SESSION_MANAGER|bash -lc' "$_jscript" 2>/dev/null | head -10 | sed 's/^/          /'
                 fi
                 # 컨트롤러에 터널 포트 떴나
                 echo "    컨트롤러 터널 포트($_vnp) LISTEN: $(ss -ltn 2>/dev/null | grep -qE ":$_vnp\b" && echo '✓ 떠있음' || echo '✗ 없음(SSH터널 미생성)')"
