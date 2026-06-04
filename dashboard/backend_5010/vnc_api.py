@@ -33,7 +33,7 @@ except Exception as e:
 
 # Slurm 명령어 및 시스템 명령어 (절대 경로)
 try:
-    from slurm_commands import SBATCH, SCANCEL, SQUEUE, SCONTROL, SSH, KILL, RM
+    from slurm_commands import SBATCH, SCANCEL, SQUEUE, SCONTROL, SSH, KILL, RM, PS
     from slurm_commands import SSH_KEY_PATH as SLURM_SSH_KEY_PATH
     from slurm_commands import get_ssh_opts as slurm_get_ssh_opts
     SLURM_AVAILABLE = True
@@ -45,6 +45,7 @@ except ImportError:
     SSH = '/usr/bin/ssh'
     KILL = '/bin/kill'
     RM = '/bin/rm'
+    PS = '/usr/bin/ps' if os.path.exists('/usr/bin/ps') else '/bin/ps'
 
 # YAML에서 기본 SSH 사용자 조회 (VNC 세션용)
 try:
@@ -481,7 +482,9 @@ def create_ssh_tunnel(node, remote_port, local_port, session_id):
 
         # SSH 터널 프로세스 PID 찾기 (포트 기반)
         # ssh -f 는 PID를 직접 반환하지 않으므로, ps로 찾아야 함
-        ps_cmd = ['ps', 'aux']
+        # ★ bare 'ps' 금지 — systemd 서비스 PATH 에 없으면 FileNotFoundError('ps') 로
+        #    터널 PID 추적 실패('SSH tunnel creation failed'). 절대경로 PS 상수 사용.
+        ps_cmd = [PS, 'aux']
         ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)
 
         for line in ps_result.stdout.split('\n'):
@@ -708,9 +711,21 @@ else
     echo "WARNING: {VNC_HOME_BASE} unavailable — NODE-LOCAL home (NON-PERSISTENT): $HOME_BIND_SRC"
 fi
 
+# 공유 데이터 디렉토리 바인드: /data (및 있으면 /data2) 를 호스트 경로 그대로 컨테이너에 노출.
+# 존재하는 경로만 추가 — 없는 경로를 --bind 하면 instance start 가 실패한다.
+# writable 샌드박스라 컨테이너에 마운트포인트가 없을 수 있으니 미리 만들어 둔다.
+DATA_BINDS=""
+for _d in /data /data2; do
+    if [ -d "$_d" ]; then
+        mkdir -p "$USER_SANDBOX$_d" 2>/dev/null || true
+        DATA_BINDS="$DATA_BINDS --bind $_d:$_d"
+    fi
+done
+[ -n "$DATA_BINDS" ] && echo "Data binds:$DATA_BINDS" || echo "No /data or /data2 on this node"
+
 # Apptainer Instance 시작 (지속적 실행, 사용자 홈 디렉토리 바인드)
 echo "Starting apptainer instance: $INSTANCE_NAME"
-apptainer instance start --writable {nv_flag} --home $HOME_BIND_SRC:$USER_HOME_DIR $USER_SANDBOX $INSTANCE_NAME
+apptainer instance start --writable {nv_flag} $DATA_BINDS --home $HOME_BIND_SRC:$USER_HOME_DIR $USER_SANDBOX $INSTANCE_NAME
 _START_RC=$?
 
 # instance start 가 실패했으면 즉시 명확히 죽는다 (watchdog 의 모호한 exit 1 대신 진짜 원인 출력).

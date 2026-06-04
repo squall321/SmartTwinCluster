@@ -22,6 +22,7 @@ KILL = '/bin/kill'
 RM = '/bin/rm'
 DF = '/bin/df'
 LS = '/bin/ls'
+PS = '/usr/bin/ps' if os.path.exists('/usr/bin/ps') else '/bin/ps'
 
 # SSH 키 설정 (웹 서비스가 다른 사용자로 실행될 때를 위해)
 def get_ssh_key_path():
