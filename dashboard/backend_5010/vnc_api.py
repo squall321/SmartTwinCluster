@@ -728,6 +728,21 @@ apptainer exec --env "VNC_PORT={vnc_port},VNC_GEOMETRY={geometry},DISPLAY=:{disp
 sleep 10
 echo 'VNC server and {desktop_env} started in instance'
 
+# websockify 가 VNC 포트({vnc_port})에 붙기 전에 VNC 서버가 실제 LISTEN 하는지 확인.
+# (race: VNC 아직 안 떴는데 websockify 가 붙으려다 죽으면 novnc 포트 영영 안 뜸 → '준비중')
+echo 'Waiting for VNC server to LISTEN on {vnc_port}...'
+for _v in $(seq 1 30); do
+    if ss -ltn 2>/dev/null | grep -qE ":{vnc_port}\\b"; then
+        echo "VNC server LISTEN on {vnc_port} (after ${{_v}}s)"
+        break
+    fi
+    sleep 1
+done
+if ! ss -ltn 2>/dev/null | grep -qE ":{vnc_port}\\b"; then
+    echo "WARNING: VNC server 가 {vnc_port} 에 LISTEN 안함 (start_script 실패 가능) — /tmp 로그:" >&2
+    tail -20 /tmp/vnc_{web_user}_{display_num}.log 2>/dev/null | sed 's/^/    /' >&2
+fi
+
 # noVNC websockify 시작 (컨테이너 안에서 — 로그를 남겨 실패 시 원인 추적)
 echo 'Starting noVNC websockify on port {novnc_port}...'
 WS_LOG="{VNC_LOG_DIR}/websockify-{web_user}-{novnc_port}.log"
