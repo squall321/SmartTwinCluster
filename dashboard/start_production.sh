@@ -1112,10 +1112,22 @@ except Exception as e:
                 echo "    (novnc_url 없음 원인 후보: ① 잡 R 직후 VNC서버 기동 전 ② Redis false 라 멀티워커 세션 불일치 ③ SSH터널 생성 실패 — 위 error/redis 확인)"
             fi
             # 5) novnc_url 의 포트가 localhost 에 실제 응답하나
+            # ★ 잡이 websockify 줄까지 도달하는 데 시간이 걸린다:
+            #   start_script 시작 → sleep 10 → VNC LISTEN 대기(최대 30s) → websockify 기동.
+            #   즉 잡 R 직후 ~20~50초 후에야 noVNC 포트가 뜬다. 30초만 보고 포기하면
+            #   실제론 정상인데 '안됨'으로 오판(테스트 타이밍 문제). 최대 ~80초 폴링.
             _np=$(echo "$_nurl" | grep -oE "/vncproxy/[0-9]+/" | grep -oE "[0-9]+")
             if [ -n "$_np" ]; then
-                _hc=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:$_np/vnc.html" 2>/dev/null)
-                echo "  noVNC 포트 $_np 직접응답: $_hc $([ "$_hc" = "200" ] && echo '✓ VNC 접속 가능' || echo '✗ 터널/포트 문제')"
+                _hc="000"
+                echo -n "  noVNC 포트 $_np 응답 대기(최대 80초, websockify 기동까지): "
+                for _p in $(seq 1 16); do
+                    _hc=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:$_np/vnc.html" 2>/dev/null)
+                    [ "$_hc" = "200" ] && break
+                    echo -n "."
+                    sleep 5
+                done
+                echo ""
+                echo "  noVNC 포트 $_np 직접응답: $_hc $([ "$_hc" = "200" ] && echo '✓ VNC 접속 가능 (화면 뜸)' || echo '✗ 80초 내 미응답 — 아래 진단 확인')"
             fi
 
             # ── (★) '준비중' 멈춤 자동 진단: /ready API + 잡노드 실제 포트 + 컨테이너 로그 ──
