@@ -1236,7 +1236,7 @@ def list_vnc_sessions():
                         ssh_opts = get_ssh_opts()
                         check_cmd = f"nc -zv localhost {vnc_port}"
                         result = subprocess.run(
-                            ['ssh'] + ssh_opts + [f'{get_default_system_user()}@{node}', check_cmd],
+                            [SSH] + ssh_opts + [f'{get_default_system_user()}@{node}', check_cmd],
                             capture_output=True,
                             timeout=5
                         )
@@ -1580,14 +1580,14 @@ def check_vnc_readiness(session_id):
 
         # VNC 포트 (컨테이너가 호스트넷 공유 → 노드 localhost:vnc_port 에 LISTEN)
         result = subprocess.run(
-            ['ssh'] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {vnc_port}'],
+            [SSH] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {vnc_port}'],
             capture_output=True, text=True, timeout=4
         )
         vnc_ready = result.returncode == 0
 
         # noVNC(websockify) 포트
         result_novnc = subprocess.run(
-            ['ssh'] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {novnc_port}'],
+            [SSH] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {novnc_port}'],
             capture_output=True, text=True, timeout=4
         )
         novnc_ready = result_novnc.returncode == 0
@@ -1633,6 +1633,8 @@ def vnc_health():
             'session_manager_fix': ('SESSION_MANAGER=,DBUS' in _src),
             # /ready 가 squeue/scontrol 로 status·node 를 갱신·저장하는지 (준비중 무한대기 수정)
             'ready_slurm_refresh': ('get_job_status(job_id)' in _ready_src and 'save_vnc_session' in _ready_src),
+            # /ready 의 ssh 호출이 절대경로 [SSH] 인지 (bare 'ssh' → systemd PATH 의존 FileNotFoundError 차단)
+            'ready_ssh_abspath': ('[SSH]' in _ready_src and "['ssh']" not in _ready_src),
         }
     except Exception:
         _code_markers = {}
