@@ -1,0 +1,52 @@
+# ============================================================================
+# VNC 계정종류(그룹)별 데이터 마운트 정책 — 예제/레퍼런스
+# ============================================================================
+# 실제 적용: 운영의 my_multihead_cluster.yaml (gitignore 대상)에 아래 vnc: 섹션을
+#            그대로 복사해 넣으면 됩니다. backend 가 dashboard/start_production.sh 재기동 시
+#            로드합니다(/api/vnc/sessions 생성 시 로그인 그룹으로 정책 해석).
+#
+# 동작:
+#  - 로그인하면 JWT 의 groups(=계정종류)로 아래에서 첫 매칭 그룹 정책을 적용.
+#    (기재 순서 = 우선순위. 여러 그룹에 속하면 위에 적힌 것 우선.)
+#  - 어느 그룹에도 안 맞으면 default 적용.
+#  - mode: direct  → binds 의 "호스트경로:컨테이너경로" 를 그대로 마운트.
+#  - mode: peruser → host_base/<로그인계정> 디렉토리를 (없으면 생성) container 경로로 마운트.
+#                     즉 사용자마다 개인 폴더를 컨테이너 안에선 동일하게 /data 로 본다.
+#  - 존재하지 않는 호스트 경로는 자동 스킵(없는 경로 bind 시 컨테이너 기동 실패 방지).
+#  - 이 섹션이 없으면 → 기본동작: /data, /data2 가 노드에 있으면 그대로 바인드.
+#
+# quota: 현재는 "표시용"입니다. 마운트만 적용되고 용량제한은 아직 강제하지 않습니다.
+#        (NFS + 스토리지 서버 권한 없음 → 하드 project quota 보류. 추후 방식 정해지면 적용.)
+#
+# 운영 주의:
+#  - peruser 의 host_base(예: /data2/user) 부모 디렉토리가 VNC 잡 실행 시스템계정
+#    (YAML cluster_info.ssh_user, 예: stcx)으로 "쓰기 가능"해야 per-user 폴더가 생성됩니다.
+#    미리 만들어 두는 걸 권장: 예) sudo mkdir -p /data2/user && sudo chmod 1777 /data2/user
+#    (NFS root_squash 환경이면 sudo 폴백이 안 먹을 수 있으니 사전 생성/권한이 안전).
+# ============================================================================
+
+vnc:
+  data_mounts:
+    HPC-Admins:
+      mode: direct
+      binds:
+        - "/data:/data"
+        - "/data2:/data2"
+
+    CAEG-Users:
+      mode: peruser
+      host_base: /data2/user      # 여기에 <로그인계정> 하위 폴더 생성
+      container: /data            # 컨테이너 안에서 보이는 경로
+      quota: 10TB                 # (표시용 — 아직 미적용)
+
+    DX-Users:
+      mode: peruser
+      host_base: /data2/user
+      container: /data
+      quota: 1TB
+
+    default:                      # 위 그룹에 안 속한 모든 계정
+      mode: peruser
+      host_base: /data2/user
+      container: /data
+      quota: 1TB
