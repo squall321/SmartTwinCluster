@@ -655,8 +655,17 @@ else
     echo "Cleaning up old session files in sandbox..."
     rm -rf $USER_SANDBOX/tmp/.X*-lock 2>/dev/null || true
     rm -rf $USER_SANDBOX/tmp/.X11-unix/* 2>/dev/null || true
-    rm -rf $USER_SANDBOX/home/*/.cache/sessions/* 2>/dev/null || true
-    rm -rf $USER_SANDBOX/root/.cache/sessions/* 2>/dev/null || true
+    rm -rf $USER_SANDBOX/tmp/.ICE-unix/* 2>/dev/null || true
+    rm -rf $USER_SANDBOX/tmp/dbus-* 2>/dev/null || true
+    # xfce4-session 'Another session manager is already running' 재발 방지 —
+    # 재사용 sandbox 홈 안의 저장된 세션/세션락/xfconf 잔재 제거(영속 홈은 아래서 별도 처리).
+    for _shome in $USER_SANDBOX/home/* $USER_SANDBOX/root; do
+        rm -rf "$_shome/.cache/sessions"/* 2>/dev/null || true
+        rm -rf "$_shome/.config/xfce4/sessions"/* 2>/dev/null || true
+        rm -rf "$_shome/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml" 2>/dev/null || true
+        rm -rf "$_shome/.ICEauthority" 2>/dev/null || true
+        rm -rf "$_shome/.dbus" 2>/dev/null || true
+    done
 fi
 
 # 기존 Instance가 있으면 중지 (완전히 재시작)
@@ -717,13 +726,22 @@ if [ $_START_RC -ne 0 ] || ! apptainer instance list 2>/dev/null | grep -q $INST
 fi
 
 # Instance 내부에서 세션 소켓 파일 정리 (매우 중요!)
+# 런타임의 /tmp 는 호스트 /tmp 바인드라 sandbox 내부 /tmp 청소는 소용없음 → 여기서(instance 안) 청소.
+# 추가로 LIVE 홈($USER_HOME_DIR = 영속 홈 또는 노드-로컬)의 xfce 저장세션/세션락도 제거한다.
+# 'Another session manager is already running' 의 실제 원인인 ICE/세션 잔재를 확실히 없앤다.
+# 주의: 세션락/ICE 만 지운다 — 사용자 데이터(영속 홈)는 절대 건드리지 않는다.
 echo "Cleaning up session socket files inside instance..."
-apptainer exec instance://$INSTANCE_NAME /bin/bash -c "rm -rf /tmp/.ICE-unix/* /tmp/.X11-unix/* /tmp/.X*-lock 2>/dev/null || true"
+apptainer exec instance://$INSTANCE_NAME /bin/bash -c "rm -rf /tmp/.ICE-unix/* /tmp/.X11-unix/* /tmp/.X*-lock /tmp/dbus-* /tmp/runtime-root/* 2>/dev/null || true"
+apptainer exec instance://$INSTANCE_NAME /bin/bash -c 'rm -rf "$HOME/.cache/sessions"/* "$HOME/.config/xfce4/sessions"/* "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml" "$HOME/.ICEauthority" "$HOME/.dbus" 2>/dev/null || true'
 
 # Instance 내부에서 VNC + Desktop 시작 (이미지별 스크립트 사용)
 echo "Starting VNC + {desktop_env} using {start_script} script..."
-# GNOME은 D-Bus, systemd 등 환경변수가 필요하므로 --cleanenv 대신 --env로 필요한 변수만 설정
-apptainer exec --env "VNC_PORT={vnc_port},VNC_GEOMETRY={geometry},DISPLAY=:{display_num},XDG_RUNTIME_DIR=/tmp/runtime-root" instance://$INSTANCE_NAME /bin/bash -c "{start_script} {display_num}" > /tmp/vnc_{web_user}_{display_num}.log 2>&1 &
+# GNOME은 D-Bus, systemd 등 환경변수가 필요하므로 --cleanenv 대신 --env로 필요한 변수만 설정.
+# SESSION_MANAGER / DBUS_SESSION_BUS_ADDRESS 를 빈 값으로 강제 주입 — sbatch(호스트) 프로세스의
+# SESSION_MANAGER 가 컨테이너로 새면 startxfce4 -> xfce4-session 이 그 ICE 소켓을 보고
+# 'Another session manager is already running' 으로 죽는다. xfce start_vnc.sh 는 SESSION_MANAGER 를
+# unset 하지 않으므로(gnome 스크립트와 달리) 여기서 빈 값으로 덮어써 누수를 차단한다.
+apptainer exec --env "SESSION_MANAGER=,DBUS_SESSION_BUS_ADDRESS=,VNC_PORT={vnc_port},VNC_GEOMETRY={geometry},DISPLAY=:{display_num},XDG_RUNTIME_DIR=/tmp/runtime-root" instance://$INSTANCE_NAME /bin/bash -c "{start_script} {display_num}" > /tmp/vnc_{web_user}_{display_num}.log 2>&1 &
 
 sleep 10
 echo 'VNC server and {desktop_env} started in instance'
