@@ -436,6 +436,17 @@ for service in "${BACKEND_SERVICES[@]}" "${OPTIONAL_SERVICES[@]}"; do
             || { echo "  → $service: (미설치 — 스킵)"; continue; }
     fi
     echo -n "  → $service: "
+    # dashboard_backend 는 gunicorn preload_app=True 라 앱 코드를 마스터가 메모리에
+    # 캐싱한다. systemctl restart 만으로는 옛 마스터/잔존 워커가 안 죽고 옛
+    # generate_vnc_job_script 가 그대로 남는 사례가 있어, 완전 종료 + .pyc 캐시
+    # 제거 후 start 로 새 코드를 강제 로드한다(VNC '준비중' 반복의 근본 원인).
+    if [ "$service" = "dashboard_backend" ]; then
+        sudo systemctl stop "$service" 2>/dev/null || true
+        sudo pkill -9 -f 'backend_5010.*gunicorn|gunicorn.*app:app' 2>/dev/null || true
+        # 바이트코드 캐시 제거 (옛 .pyc 가 import 되는 것 방지)
+        sudo find "$SCRIPT_DIR/backend_5010" "$SCRIPT_DIR/common" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+        sleep 1
+    fi
     # start 가 아니라 restart — Restart=always 가 [1] stop 후 옛 코드로 자동
     # 재기동했을 수 있어, 새 코드/config(.env, vnc_api.py) 확실히 반영하려면
     # 프로세스 완전 교체(restart) 필요.
@@ -1151,11 +1162,21 @@ print((c.get('nodes',{}).get('controllers') or [{}])[0].get('ssh_user','stcx'))
                 $_vssh "$_vuser@$_vnode" "ss -ltn 2>/dev/null | grep -E ':($_vp|$_vnp)\b' || echo '      (vnc/novnc 포트 LISTEN 안됨 — 컨테이너 VNC서버 미기동)'" 2>/dev/null | sed 's/^/      /'
                 echo "    apptainer instance + VNC/websockify 로그 tail:"
                 $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- websockify 프로세스(ps) ---'; ps -ef | grep -E 'websockif[y]' || echo '  (websockify 프로세스 없음 → 기동 안됨/즉사)'; echo '--- 잡노드 /tmp 환경(noexec/private/권한 — 개발↔서버 차이 점검) ---'; mount 2>/dev/null | grep -E ' /tmp ' || echo '  (/tmp 별도 마운트 아님=루트와 공유)'; ls -ld /tmp /tmp/runtime-root 2>/dev/null; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; echo '--- websockify 로그파일 존재/권한 ---'; ls -la /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null || echo '  (websockify 로그파일 자체가 없음 → 기동 라인이 실행 안됨/옛코드)'; echo '--- websockify 로그 내용 ---'; tail -15 /scratch/vnc_logs/websockify-*-${_vnp}.log 2>/dev/null; echo '--- 컨테이너 내부 vnc 로그 ---'; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | sed 's/^/      /'
-                # 잡이 실제 사용한 sbatch 스크립트의 websockify 줄 (옛/새 코드 즉시 판별)
+                # 잡이 실제 사용한 sbatch 스크립트로 옛/새 코드 명확 판정
+                # (백엔드 코드는 최신이어도 gunicorn 이 옛 generate_vnc_job_script 를
+                #  메모리에 들고 있으면 제출 sbatch 는 옛버전 → WS_LOG 헤더 유무로 확정)
                 _jscript=$(ls -t /tmp/vnc_job_*.sh 2>/dev/null | head -1)
                 if [ -n "$_jscript" ]; then
-                    echo "      ── 실제 sbatch($_jscript) 의 websockify 기동 줄 ──"
-                    grep -nE 'websockify|bash -lc|--env PATH' "$_jscript" 2>/dev/null | head -4 | sed 's/^/        /'
+                    echo "      ── 실제 제출 sbatch($_jscript) websockify 블록 (옛/새 판정) ──"
+                    if grep -q 'echo "=== websockify launch' "$_jscript" 2>/dev/null; then
+                        echo "        ✓ 새 코드(WS_LOG 헤더 선기록 있음) — 백엔드가 최신 함수로 sbatch 생성"
+                    elif grep -q 'bash -lc' "$_jscript" 2>/dev/null; then
+                        echo "        ✗ 옛 코드(bash -lc 래핑) — 백엔드가 옛 generate_vnc_job_script 메모리 보유!"
+                        echo "          → sudo systemctl restart dashboard_backend (단순 stop/start 로 안 풀리면 kill 후 재기동)"
+                    else
+                        echo "        ? WS_LOG 헤더도 bash -lc 도 없음 — websockify 실행줄 직접 확인:"
+                    fi
+                    grep -nE 'websockify|WS_LOG=|--env PATH|bash -lc|kill -0' "$_jscript" 2>/dev/null | head -10 | sed 's/^/          /'
                 fi
                 # 컨트롤러에 터널 포트 떴나
                 echo "    컨트롤러 터널 포트($_vnp) LISTEN: $(ss -ltn 2>/dev/null | grep -qE ":$_vnp\b" && echo '✓ 떠있음' || echo '✗ 없음(SSH터널 미생성)')"
