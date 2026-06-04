@@ -1069,6 +1069,56 @@ except Exception as e:
                 _hc=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:$_np/vnc.html" 2>/dev/null)
                 echo "  noVNC 포트 $_np 직접응답: $_hc $([ "$_hc" = "200" ] && echo '✓ VNC 접속 가능' || echo '✗ 터널/포트 문제')"
             fi
+
+            # ── (★) '준비중' 멈춤 자동 진단: /ready API + 잡노드 실제 포트 + 컨테이너 로그 ──
+            # 프론트는 novnc_url 있어도 /ready=true 가 돼야 화면을 띄운다(App.tsx).
+            # ready 가 false 인데 화면 안 뜨면 여기서 어느 단계인지 자동으로 짚는다.
+            echo "  ── 준비중(ready) 체인 자동검증 ──"
+            # /ready API 결과 (vnc_port_ready / novnc_port_ready)
+            _rdy=$(curl -s --max-time 8 -H "Authorization: Bearer $_tok" \
+                "http://localhost:5010/api/vnc/sessions/$_sid/ready" 2>/dev/null)
+            echo "$_rdy" | python3 -c '
+import sys,json
+try:
+    d=json.load(sys.stdin)
+    print("    /ready: ready=%s vnc_port_ready=%s novnc_port_ready=%s msg=%s"%(
+        d.get("ready"), d.get("vnc_port_ready"), d.get("novnc_port_ready"),
+        d.get("message") or d.get("error") or ""))
+except Exception as e:
+    print("    /ready 파싱실패: %s"%(sys.stdin.read()[:150] if hasattr(sys.stdin,"read") else e))
+' 2>/dev/null || echo "    /ready 응답: $(echo "$_rdy" | head -c 150)"
+            # 잡 노드(viz)의 실제 포트 LISTEN 을 ssh 로 직접 확인 → /ready 가 틀린건지 VNC가 안뜬건지 구분
+            _vp=$(echo "$_det" | python3 -c 'import sys,json; d=json.load(sys.stdin); s=d.get("session") or d; print(s.get("vnc_port",""))' 2>/dev/null)
+            _vnp=$(echo "$_det" | python3 -c 'import sys,json; d=json.load(sys.stdin); s=d.get("session") or d; print(s.get("novnc_port",""))' 2>/dev/null)
+            _vnode=$(squeue -h -j "$_jid" -o '%N' 2>/dev/null | head -1 | tr -d ' ')
+            if [ -n "$_vnode" ] && [ "$_vnode" != "None" ]; then
+                # 잡 노드 ssh user = yaml ssh_user (stcx). 키→sshpass 폴백.
+                _vuser=$(python3 -c "
+import yaml,sys
+c=yaml.safe_load(open('$SCRIPT_DIR/../my_multihead_cluster.yaml')) or {}
+n=c.get('nodes',{}) or {}
+hn='$_vnode'
+for v in n.values():
+    if isinstance(v,list):
+        for x in v:
+            if isinstance(x,dict) and x.get('hostname')==hn:
+                print(x.get('ssh_user','stcx')); sys.exit()
+print((c.get('nodes',{}).get('controllers') or [{}])[0].get('ssh_user','stcx'))
+" 2>/dev/null)
+                export SSHPASS=$(python3 -c "import yaml;c=yaml.safe_load(open('$SCRIPT_DIR/../my_multihead_cluster.yaml')) or {};print((c.get('cluster_info') or {}).get('ssh_password',''))" 2>/dev/null)
+                _vssho="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR"
+                _vssh="ssh -n $_vssho"
+                ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$_vuser@$_vnode" "echo OK" &>/dev/null \
+                    || { [ -n "$SSHPASS" ] && command -v sshpass &>/dev/null && _vssh="sshpass -e ssh -n $_vssho -o PreferredAuthentications=password -o PubkeyAuthentication=no"; }
+                echo "    잡 노드($_vnode) 실제 포트 LISTEN (vnc=$_vp novnc=$_vnp):"
+                $_vssh "$_vuser@$_vnode" "ss -ltn 2>/dev/null | grep -E ':($_vp|$_vnp)\b' || echo '      (vnc/novnc 포트 LISTEN 안됨 — 컨테이너 VNC서버 미기동)'" 2>/dev/null | sed 's/^/      /'
+                echo "    apptainer instance + VNC 로그 tail:"
+                $_vssh "$_vuser@$_vnode" "apptainer instance list 2>/dev/null | tail -3; echo '--- vnc 로그 ---'; tail -12 /scratch/vnc_logs/vnc-*-${_jid}.err 2>/dev/null; tail -8 /tmp/vnc_*_*.log 2>/dev/null" 2>/dev/null | sed 's/^/      /'
+                # 컨트롤러에 터널 포트 떴나
+                echo "    컨트롤러 터널 포트($_vnp) LISTEN: $(ss -ltn 2>/dev/null | grep -qE ":$_vnp\b" && echo '✓ 떠있음' || echo '✗ 없음(SSH터널 미생성)')"
+            fi
+            echo "  ── 판정: 포트 LISTEN✗=컨테이너VNC미기동 / 포트O+ready✗=ready체크(lsof/ssh)버그 / 터널✗=SSH터널실패 ──"
+
             # 6) 테스트 세션 정리 (잡 취소)
             curl -s --max-time 10 -X DELETE -H "Authorization: Bearer $_tok" \
                 "http://localhost:5010/api/vnc/sessions/$_sid" >/dev/null 2>&1

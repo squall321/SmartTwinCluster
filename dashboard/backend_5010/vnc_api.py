@@ -1480,31 +1480,26 @@ def check_vnc_readiness(session_id):
     # VNC 포트 체크 (SSH를 통해 원격 노드에서 확인)
     try:
         # SSH 키 옵션 생성
-        ssh_key_opt = f"-i {SSH_KEY_PATH}" if SSH_KEY_PATH else ""
+        # list_vnc_sessions(1158~)와 동일한 검증된 패턴 사용 — get_ssh_opts() + system_user@node + nc.
+        # 기존엔 'ssh {node} lsof'(user 미지정 + lsof 미설치/권한 문제)라 잡 노드 포트가 떠도
+        # 영영 not ready → 프론트 '준비중' 무한대기. system_user(stcx)로 nc 포트체크로 통일.
+        ssh_opts = get_ssh_opts() if callable(get_ssh_opts) else [
+            '-o', 'ConnectTimeout=2', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
+        _suser = get_default_system_user()
 
-        # lsof로 VNC 포트가 listening하는지 확인 (빠른 체크)
-        check_cmd = f"ssh {ssh_key_opt} -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o BatchMode=yes {node} 'lsof -i :{vnc_port} | grep LISTEN' 2>/dev/null"
+        # VNC 포트 (컨테이너가 호스트넷 공유 → 노드 localhost:vnc_port 에 LISTEN)
         result = subprocess.run(
-            check_cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=2
+            ['ssh'] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {vnc_port}'],
+            capture_output=True, text=True, timeout=4
         )
+        vnc_ready = result.returncode == 0
 
-        vnc_ready = result.returncode == 0 and 'LISTEN' in result.stdout
-
-        # noVNC 포트도 체크 (빠른 체크)
-        check_novnc_cmd = f"ssh {ssh_key_opt} -o ConnectTimeout=1 -o StrictHostKeyChecking=no -o BatchMode=yes {node} 'lsof -i :{novnc_port} | grep LISTEN' 2>/dev/null"
+        # noVNC(websockify) 포트
         result_novnc = subprocess.run(
-            check_novnc_cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=2
+            ['ssh'] + ssh_opts + [f'{_suser}@{node}', f'nc -z -w1 localhost {novnc_port}'],
+            capture_output=True, text=True, timeout=4
         )
-
-        novnc_ready = result_novnc.returncode == 0 and 'LISTEN' in result_novnc.stdout
+        novnc_ready = result_novnc.returncode == 0
 
         ready = vnc_ready and novnc_ready
 
