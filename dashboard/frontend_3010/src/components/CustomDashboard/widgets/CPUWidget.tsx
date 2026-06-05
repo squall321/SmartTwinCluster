@@ -23,13 +23,12 @@ const CPUWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) =>
     // Production mode: try real API
     if (mode === 'production') {
       try {
-        const response = await apiGet('/api/prometheus/query', {
-          query: '100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)'
-        });
-        
-        if (response?.data?.result?.[0]?.value) {
-          const usage = parseFloat(response.data.result[0].value[1]);
-          setCpuUsage(usage);
+        // 클러스터 전체 평균 CPU (Slurm CPULoad 기반 — 전 노드).
+        // 기존엔 Prometheus node_cpu 였으나 node_exporter 가 헤드노드만 떠있어 헤드만 표시됐음.
+        const response: any = await apiGet('/api/prometheus/cluster_cpu');
+
+        if (response && typeof response.cpu_percent === 'number') {
+          setCpuUsage(response.cpu_percent);
           setUsingMockData(false);
           setError(null);
           setLoading(false);

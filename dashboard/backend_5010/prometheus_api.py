@@ -7,7 +7,14 @@ from flask import Blueprint, request, jsonify
 import requests
 import os
 import random
+import subprocess
 from datetime import datetime, timedelta
+
+# Slurm sinfo 절대경로 (systemd PATH 제한 대비)
+try:
+    from slurm_commands import SINFO
+except ImportError:
+    SINFO = '/usr/bin/sinfo'
 
 # Create Blueprint
 prometheus_bp = Blueprint('prometheus', __name__, url_prefix='/api/prometheus')
@@ -374,6 +381,49 @@ def instant_query():
         return jsonify({'status': 'error', 'error': 'Failed to query Prometheus', 'data': {'result': []}}), 503
 
     return jsonify(data)
+
+# ============================================
+# GET /api/prometheus/cluster_cpu
+# 클러스터 전체 평균 CPU 사용률 (Slurm 기반)
+# ============================================
+@prometheus_bp.route('/cluster_cpu', methods=['GET'])
+def cluster_cpu():
+    """클러스터 전체 노드 평균 CPU 사용률(%).
+
+    node_exporter 가 헤드노드에만 떠있어 Prometheus(node_cpu_*) 로는 헤드 CPU 만
+    보였다(Custom Dashboard 가 헤드만 표시한 원인). node_exporter 를 전노드 배포하는
+    대신, Slurm sinfo 의 CPULoad(%O)/CPUs(%c) 로 노드별 사용률을 구해 평균낸다(전노드).
+      노드 CPU% = min(100, CPULoad / CPUs * 100),  클러스터값 = 응답노드 평균.
+    Returns {cpu_percent, node_count, source}.
+    """
+    if MOCK_MODE:
+        return jsonify({'cpu_percent': round(45 + random.random() * 30, 1),
+                        'node_count': 0, 'source': 'mock'})
+    try:
+        # -N: 노드별, -h: 헤더없음. %n=hostname %O=CPULoad %c=CPUs/node
+        r = subprocess.run([SINFO, '-h', '-N', '-o', '%n|%O|%c'],
+                           capture_output=True, text=True, timeout=8)
+        nodes = {}  # hostname -> cpu% (파티션 중복 노드 dedupe)
+        for line in r.stdout.splitlines():
+            parts = line.split('|')
+            if len(parts) < 3:
+                continue
+            host, load, cpus = parts[0].strip(), parts[1].strip(), parts[2].strip()
+            if not host or host in nodes:
+                continue
+            try:
+                lf = float(load); ci = int(cpus)   # CPULoad=N/A(다운/미응답) → except 로 제외
+            except ValueError:
+                continue
+            if ci > 0:
+                nodes[host] = min(100.0, max(0.0, lf / ci * 100.0))
+        if nodes:
+            avg = sum(nodes.values()) / len(nodes)
+            return jsonify({'cpu_percent': round(avg, 1), 'node_count': len(nodes),
+                            'source': 'slurm-cpuload'})
+        return jsonify({'cpu_percent': 0, 'node_count': 0, 'source': 'slurm-cpuload'})
+    except Exception as e:
+        return jsonify({'error': str(e), 'cpu_percent': 0, 'node_count': 0, 'source': 'slurm-cpuload'}), 200
 
 # ============================================
 # GET /api/prometheus/query_range
