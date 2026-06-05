@@ -19,20 +19,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY=0
 for _a in "$@"; do [ "$_a" = "--deploy" ] && DEPLOY=1; done
 
-# OS 감지 — 24.04이면 _2404.def
-PROJECT_ROOT_DETECT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-if [ -f "${PROJECT_ROOT_DETECT}/cluster/utils/detect_os.sh" ]; then
-    source "${PROJECT_ROOT_DETECT}/cluster/utils/detect_os.sh"
-    detect_os_version
-fi
-if [[ "$OS_VERSION" == "24.04" || "$OS_CODENAME" == "noble" ]]; then
-    DEF_FILE="$SCRIPT_DIR/vnc_desktop_gpu_2404.def"
-else
-    DEF_FILE="$SCRIPT_DIR/vnc_desktop_gpu.def"
-fi
+# 변이 선택: 기본 light(ubuntu, CUDA없음). --variant cuda_runtime|cuda_dev 로 무거운 베이스.
+# light 는 22.04 단일(컨테이너는 호스트OS 독립이라 24.04 노드서도 동작). cuda_dev 만 _2404 존재.
+VARIANT="light"
+for _a in "$@"; do case "$_a" in --variant=*) VARIANT="${_a#--variant=}";; esac; done
+case "$VARIANT" in
+    light)        DEF_FILE="$SCRIPT_DIR/vnc_desktop_gpu.def";              SIF_NAME="vnc_desktop_gpu.sif" ;;
+    cuda_runtime) DEF_FILE="$SCRIPT_DIR/vnc_desktop_gpu_cuda_runtime.def"; SIF_NAME="vnc_desktop_gpu_cuda_runtime.sif" ;;
+    cuda_dev)     DEF_FILE="$SCRIPT_DIR/vnc_desktop_gpu_cuda_dev.def";      SIF_NAME="vnc_desktop_gpu_cuda_dev.sif" ;;
+    *) echo "ERROR: 알 수 없는 --variant '$VARIANT' (light|cuda_runtime|cuda_dev)"; exit 1 ;;
+esac
 
 IMAGES_DIR="${VNC_IMAGES_DIR:-/opt/apptainers}"
-SIF_PATH="$IMAGES_DIR/vnc_desktop_gpu.sif"
+SIF_PATH="$IMAGES_DIR/$SIF_NAME"
 LOG_FILE="$SCRIPT_DIR/build_gpu.log"
 
 echo "=== VNC GPU(VirtualGL) Build ==="

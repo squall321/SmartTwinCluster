@@ -1,8 +1,8 @@
 Bootstrap: docker
-From: ubuntu:22.04
+From: nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 # ============================================================================
-# VNC Desktop + VirtualGL (GPU 가속 OpenGL) — Ubuntu 22.04 (plain, CUDA 없음 / VirtualGL OpenGL 전용)
+# VNC Desktop + VirtualGL (GPU 가속 OpenGL) — Ubuntu 22.04
 # ----------------------------------------------------------------------------
 # 기존 vnc_desktop.def 와 동일한 XFCE4 + TigerVNC + noVNC 스택에
 #   - VirtualGL (vglrun: GL 앱을 GPU 에서 렌더 후 VNC 화면으로 전송)

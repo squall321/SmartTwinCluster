@@ -155,9 +155,27 @@ VNC_IMAGES = {
         "default": True
     },
     "xfce4_gpu": {
-        "name": "XFCE4 (GPU/VirtualGL)",
-        "description": "XFCE4 + VirtualGL GPU 가속 OpenGL (vglrun). 세션 생성 시 GPU 개수>=1 필요",
+        "name": "XFCE4 (GPU)",
+        "description": "XFCE4 + VirtualGL GPU 가속 OpenGL (vglrun). 경량(CUDA 없음). 세션 생성 시 GPU 개수>=1 필요",
         "sif_path": f"{VNC_IMAGES_DIR}/vnc_desktop_gpu.sif",
+        "start_script": "/opt/scripts/start_vnc.sh",
+        "desktop_env": "XFCE4",
+        "icon": "🎮",
+        "default": False
+    },
+    "xfce4_cuda_runtime": {
+        "name": "XFCE4 (GPU · CUDA runtime)",
+        "description": "XFCE4 + VirtualGL + CUDA 런타임. 데스크톱 viz앱이 CUDA compute 도 쓸 때. GPU 개수>=1 필요",
+        "sif_path": f"{VNC_IMAGES_DIR}/vnc_desktop_gpu_cuda_runtime.sif",
+        "start_script": "/opt/scripts/start_vnc.sh",
+        "desktop_env": "XFCE4",
+        "icon": "🎮",
+        "default": False
+    },
+    "xfce4_cuda_dev": {
+        "name": "XFCE4 (GPU · CUDA dev)",
+        "description": "XFCE4 + VirtualGL + CUDA 개발툴(nvcc 등). 컨테이너 안에서 CUDA 빌드까지 할 때. GPU 개수>=1 필요",
+        "sif_path": f"{VNC_IMAGES_DIR}/vnc_desktop_gpu_cuda_dev.sif",
         "start_script": "/opt/scripts/start_vnc.sh",
         "desktop_env": "XFCE4",
         "icon": "🎮",
@@ -179,6 +197,15 @@ VNC_IMAGES = {
         "start_script": "/opt/scripts/start_vnc_gnome.sh",
         "desktop_env": "GNOME",
         "icon": "🔧",
+        "default": False
+    },
+    "gnome_gpu": {
+        "name": "GNOME (GPU)",
+        "description": "GNOME + VirtualGL GPU 가속 OpenGL (vglrun). 경량(CUDA 없음). 세션 생성 시 GPU 개수>=1 필요",
+        "sif_path": f"{VNC_IMAGES_DIR}/vnc_gnome_gpu.sif",
+        "start_script": "/opt/scripts/start_vnc_gnome.sh",
+        "desktop_env": "GNOME",
+        "icon": "🎮",
         "default": False
     }
 }
