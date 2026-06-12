@@ -1,0 +1,166 @@
+template:
+  id: smarttwin-fullangle-drop
+  name: SmartTwin 전각도 낙하 (Full-Angle Drop)
+  description: >
+    KooChainRun 으로 전각도 낙하 DOE 캠페인을 실행합니다.
+    업로드한 모델(.k)에 대해 기본 26방향(6면+12모서리+8꼭짓점) 낙하를 수행하며,
+    scenario.json 을 직접 업로드하면 fibonacci 등 임의 각도 구성으로 바꿀 수 있습니다
+    (예제: /data/scenario/{26direction,6face,fibonacci-100,fibonacci-1000,fibonacci-10000}).
+    이 잡은 1-CPU 드라이버로, KooChainRun 이 자식 Slurm 잡들을 제출/관리합니다.
+    결과는 /data/single/<사용자>/<잡이름>_<잡ID>/ 에 저장됩니다.
+  category: simulation
+  version: 1.0.0
+  source: official
+  tags: [smarttwin, koochainrun, drop, fullangle, lsdyna, doe]
+  is_public: true
+
+slurm:
+  # partition 비움 = 클러스터 기본 파티션 (클러스터마다 이름이 달라 고정하지 않음)
+  partition: ""
+  nodes: 1
+  ntasks: 1
+  cpus_per_task: 2
+  mem: 4G
+  time: "167:00:00"   # 드라이버 잡 수명(자식 잡 대기 포함) — 7일 한도 내
+
+apptainer:
+  # 드라이버는 /data/SmartTwinPreprocessor/bin/KooChainRun(NFS)을 직접 실행.
+  # 실제 sif(SmartTwinPreprocessor/LSDyna)는 scenario.json environment 에 지정되어
+  # 자식 잡에서 쓰이므로, 대시보드 이미지 선택은 불필요(required: false).
+  image_selection:
+    mode: any
+    required: false
+  bind: []
+  env:
+    # 기본 각도 프리셋: /data/scenario/<ANGLE_PRESET>/scenario.json 사용
+    ANGLE_PRESET: "26direction"
+    # KooChainRun submit 자원 (자식 잡)
+    CHAIN_NODES: "2"
+    CHAIN_JOBS_PER_NODE: "2"
+    CHAIN_NCPU: "4"
+    # 완료 후 자동 후처리 (KooD3plotReader deep/sphere report)
+    CHAIN_POSTPROCESS: "true"
+
+files:
+  input_schema:
+    required:
+      - file_key: model_k
+        name: 모델 K 파일
+        description: LS-DYNA 입력 모델 (.k/.key) — scenario 의 %INPUTFILE% 로 주입됨
+        validation:
+          extensions: [.k, .key, .dyn]
+          max_size: 500MB
+    optional:
+      - file_key: scenario_json
+        name: scenario.json (선택)
+        description: >
+          업로드 시 프리셋 대신 이 시나리오 사용 (fibonacci 등 임의 구성).
+          /data/scenario/*/scenario.json 예제 참조. %INPUTFILE% 자리는 업로드한 모델로 치환됨.
+        validation:
+          extensions: [.json]
+          max_size: 1MB
+      - file_key: case_txt
+        name: 각도 케이스 파일 (선택)
+        description: case_txt_file 방식 사용 시 각도 목록(.txt) — scenario.json 에서 파일명으로 참조
+        validation:
+          extensions: [.txt]
+          max_size: 10MB
+
+script:
+  pre_exec: |
+    echo "========================================"
+    echo "SmartTwin Full-Angle Drop (KooChainRun)"
+    echo "Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)  User: $WEB_USER"
+    echo "Started: $(date)"
+    echo "========================================"
+
+    # 캠페인 작업+결과 디렉토리 = RESULT_DIR (/data/single/<user>/..., NFS 라 전 노드 가시)
+    RUN_DIR="$RESULT_DIR"
+    mkdir -p "$RUN_DIR" || { echo "ERROR: RUN_DIR 생성 실패: $RUN_DIR (/data/single 권한 확인)"; exit 1; }
+    cd "$RUN_DIR"
+
+    cp "$FILE_MODEL_K" ./
+    MODEL_FILE=$(basename "$FILE_MODEL_K")
+    echo "모델: $MODEL_FILE"
+
+    # 각도 케이스 파일(선택) — scenario.json 이 파일명으로 참조 가능
+    if [ -n "${FILE_CASE_TXT:-}" ] && [ -f "${FILE_CASE_TXT:-}" ]; then
+      cp "$FILE_CASE_TXT" ./
+      echo "케이스 파일: $(basename "$FILE_CASE_TXT")"
+    fi
+
+    # scenario.json: 업로드본 > 프리셋(/data/scenario/$ANGLE_PRESET)
+    if [ -n "${FILE_SCENARIO_JSON:-}" ] && [ -f "${FILE_SCENARIO_JSON:-}" ]; then
+      cp "$FILE_SCENARIO_JSON" scenario.json
+      echo "scenario: 업로드본 사용"
+    else
+      PRESET_DIR="/data/scenario/${ANGLE_PRESET:-26direction}"
+      if [ ! -f "$PRESET_DIR/scenario.json" ]; then
+        echo "ERROR: 각도 프리셋 없음: $PRESET_DIR/scenario.json"
+        echo "  사용가능: $(ls /data/scenario 2>/dev/null | tr '\n' ' ')"
+        exit 1
+      fi
+      cp "$PRESET_DIR/scenario.json" scenario.json
+      echo "scenario: 프리셋 $ANGLE_PRESET 사용"
+    fi
+
+    # 모델 파일명 주입(%INPUTFILE%) + 프로젝트명을 이 잡으로
+    sed -i "s|%INPUTFILE%|$MODEL_FILE|g" scenario.json
+    sed -i "0,/\"project_name\"/s|\"project_name\"[^,]*|\"project_name\": \"${SLURM_JOB_NAME}_${SLURM_JOB_ID}\"|" scenario.json
+    echo "--- scenario.json (앞 40줄) ---"
+    head -40 scenario.json
+
+  main_exec: |
+    cd "$RESULT_DIR"
+    KCR=/data/SmartTwinPreprocessor/bin/KooChainRun
+    [ -x "$KCR" ] || { echo "ERROR: KooChainRun 없음: $KCR (/data NFS 마운트 확인)"; exit 1; }
+
+    echo "=== KooChainRun prepare ==="
+    "$KCR" prepare scenario.json -o runner_config.json || { echo "ERROR: prepare 실패"; exit 1; }
+
+    echo "=== KooChainRun submit (nodes=$CHAIN_NODES jobs/node=$CHAIN_JOBS_PER_NODE ncpu=$CHAIN_NCPU) ==="
+    "$KCR" submit runner_config.json \
+        --nodes "$CHAIN_NODES" --jobs-per-node "$CHAIN_JOBS_PER_NODE" --ncpu-per-job "$CHAIN_NCPU" \
+        || { echo "ERROR: submit 실패 (이 노드에서 sbatch 가능한지 확인)"; "$KCR" diagnose . 2>/dev/null | tail -20; exit 1; }
+
+    # 자식 잡 이름 추출 (KooChainRun 이 생성한 slurm 스크립트에서) — 폴링 기준
+    sleep 30
+    CHILD_NAMES=$(find . -path '*slurm_scripts/*.sh' -exec grep -hoE '^#SBATCH --job-name=\S+' {} + 2>/dev/null \
+                  | sed 's/.*=//' | sort -u | paste -sd, -)
+    PROJ=$(sed -n 's/.*"project_name"[^"]*"\([^"]*\)".*/\1/p' runner_config.json | head -1)
+    echo "자식 잡 이름: ${CHILD_NAMES:-（미발견 — 프로젝트명 '$PROJ' 매칭으로 폴링)}"
+
+    echo "=== 자식 잡 완료 대기 (5분 간격) ==="
+    while :; do
+      if [ -n "$CHILD_NAMES" ]; then
+        ACTIVE=$(squeue -h -n "$CHILD_NAMES" 2>/dev/null | wc -l)
+      else
+        ACTIVE=$(squeue -h -u "$USER" -o '%j' 2>/dev/null | grep -c -- "$PROJ")
+      fi
+      [ "${ACTIVE:-0}" -eq 0 ] && break
+      echo "[$(date '+%F %T')] 실행/대기 중 자식 잡: $ACTIVE"
+      "$KCR" status runner_config.json 2>/dev/null | tail -6
+      sleep 300
+    done
+    echo "=== 자식 잡 전체 종료 ==="
+
+  post_exec: |
+    cd "$RESULT_DIR"
+    KCR=/data/SmartTwinPreprocessor/bin/KooChainRun
+
+    echo "=== KooChainRun collect ==="
+    "$KCR" collect runner_config.json "$RESULT_DIR/collected" \
+      || echo "WARN: collect 실패 — 원시 결과는 $RESULT_DIR 내 Run_* 에 존재"
+
+    if [ "${CHAIN_POSTPROCESS:-true}" = "true" ]; then
+      echo "=== KooChainRun postprocess (--all) ==="
+      "$KCR" postprocess runner_config.json --all || echo "WARN: postprocess 실패 (결과는 보존됨)"
+    fi
+
+    echo "=== 진단 요약 ==="
+    "$KCR" diagnose . 2>/dev/null | tail -20 || true
+
+    echo "========================================"
+    echo "완료: $(date)"
+    echo "결과 위치: $RESULT_DIR"
+    echo "========================================"

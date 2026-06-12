@@ -38,6 +38,35 @@ def get_apptainer_service():
     return ApptainerRegistryService(db_connection=db_conn, redis_client=None)
 
 
+# ── 자동 rescan (자가치유) ──
+# scan_all_partitions(파일시스템→DB 동기화)가 어디서도 호출되지 않아, 운영처럼
+# DB 가 비어있는 환경에서 이미지 목록이 영영 빈 배열이던 문제의 근본 수정.
+# 목록 조회 시 DB 가 비었거나 TTL 이 지났으면 스캔을 자동 수행한다.
+import time as _time
+_AUTO_SCAN = {'ts': 0.0}
+_AUTO_SCAN_TTL = 300  # 초 — 새 sif 배포 후 최대 5분 내 자동 반영
+
+
+def _ensure_images_fresh(service):
+    """DB 비어있거나 TTL 경과 시 파일시스템 스캔→DB 동기화. scan_info 반환(스캔 시)."""
+    try:
+        cursor = service.db.cursor()
+        cursor.execute("SELECT COUNT(*) FROM apptainer_images WHERE is_active = 1")
+        row_count = cursor.fetchone()[0]
+    except Exception:
+        row_count = 0
+    now = _time.time()
+    if row_count > 0 and (now - _AUTO_SCAN['ts']) < _AUTO_SCAN_TTL:
+        return None
+    stats = service.scan_all_partitions()
+    _AUTO_SCAN['ts'] = now
+    info = getattr(service, 'last_scan_info', {})
+    info['db_rows_before'] = row_count
+    info['scan_stats'] = stats
+    logger.info(f"Apptainer auto-rescan: {info}")
+    return info
+
+
 @apptainer_bp.route('/api/apptainer/images', methods=['GET'])
 def list_images():
     """
@@ -69,6 +98,9 @@ def list_images():
     try:
         service = get_apptainer_service()
 
+        # DB 비어있거나 오래됐으면 파일시스템 자동 rescan (운영 빈목록 자가치유)
+        scan_info = _ensure_images_fresh(service)
+
         # Query parameters
         partition = request.args.get('partition')
         image_type = request.args.get('type')
@@ -87,10 +119,14 @@ def list_images():
         if node:
             images = [img for img in images if img.get('node') == node]
 
-        return jsonify({
+        resp = {
             'images': images,
             'total': len(images)
-        }), 200
+        }
+        # 진단: 방금 스캔했으면 스캔 정보 동봉 (빈 목록 원인 즉시 확인용)
+        if scan_info is not None:
+            resp['scan_info'] = scan_info
+        return jsonify(resp), 200
 
     except Exception as e:
         logger.error(f"Failed to list images: {e}")

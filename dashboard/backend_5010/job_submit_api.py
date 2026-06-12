@@ -10,6 +10,7 @@ Job Submit API - 신규 Template 시스템 지원
 """
 
 import os
+import re
 import json
 import logging
 import tempfile
@@ -184,7 +185,8 @@ def record_job_submission(
     slurm_config: dict,
     apptainer_image: str,
     uploaded_files: dict,
-    script_path: str
+    script_path: str,
+    result_dir: str = None
 ) -> int:
     """
     Job 제출 이력 DB에 저장 (Phase 3)
@@ -208,8 +210,8 @@ def record_job_submission(
                 job_id, job_name, template_id, template_name, template_version,
                 user_id, partition, nodes, cpus, memory, time_limit,
                 apptainer_image, uploaded_files, script_path, script_hash,
-                status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')
+                result_dir, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')
         """, (
             job_id,
             job_name,
@@ -225,7 +227,8 @@ def record_job_submission(
             apptainer_image,
             json.dumps(uploaded_files),
             script_path,
-            script_hash
+            script_hash,
+            result_dir
         ))
 
         conn.commit()
@@ -619,6 +622,19 @@ def save_uploaded_file(file, max_size_mb=1000) -> str:
     return temp_path
 
 
+def _sanitize_web_user(raw) -> str:
+    """JWT 유래 사용자명을 결과 경로(/data/single/<user>)에 박기 전에 정제.
+    허용: [A-Za-z0-9._-] 1~32자, 선행점/./.. 거부. 안전치 못하면 'anonymous'."""
+    import re as _re
+    if not raw or not isinstance(raw, str):
+        return 'anonymous'
+    if not _re.fullmatch(r'[A-Za-z0-9._-]{1,32}', raw):
+        return 'anonymous'
+    if raw in ('.', '..') or raw.startswith('.'):
+        return 'anonymous'
+    return raw
+
+
 def generate_slurm_script(template: dict, job_config: dict) -> str:
     """
     Slurm 배치 스크립트 생성
@@ -645,7 +661,11 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
     # Slurm 헤더 생성
     script = "#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_config.get('job_name', template['template']['name'])}\n"
-    script += f"#SBATCH --partition={slurm_config['partition']}\n"
+    # partition 이 비어있으면 클러스터 기본 파티션 사용 (#SBATCH 줄 생략).
+    # 클러스터마다 파티션명이 다르므로(dev=normal, 운영=alpha 등) 템플릿이
+    # 특정 이름을 박으면 다른 클러스터에서 sbatch 가 invalid partition 으로 실패한다.
+    if slurm_config.get('partition'):
+        script += f"#SBATCH --partition={slurm_config['partition']}\n"
     script += f"#SBATCH --nodes={slurm_config['nodes']}\n"
     script += f"#SBATCH --ntasks={slurm_config['ntasks']}\n"
 
@@ -664,7 +684,7 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
 
     # Slurm 설정 변수
     script += "# --- Slurm 설정 변수 ---\n"
-    script += f"export JOB_PARTITION=\"{slurm_config['partition']}\"\n"
+    script += f"export JOB_PARTITION=\"{slurm_config.get('partition', '')}\"\n"
     script += f"export JOB_NODES={slurm_config['nodes']}\n"
     script += f"export JOB_NTASKS={slurm_config['ntasks']}\n"
     script += f"export JOB_CPUS_PER_TASK={slurm_config.get('cpus_per_task', 1)}\n"
@@ -677,10 +697,16 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
         script += f"export APPTAINER_IMAGE=\"{job_config['apptainer_image_path']}\"\n\n"
 
     # 작업 디렉토리
+    # 스크래치(WORK_DIR)는 기존대로 /shared/jobs/<id>, 결과(RESULT_DIR)는
+    # /data/single/<웹사용자>/<잡이름>_<id> — 개별 잡 결과를 웹사용자별 홈에 보관.
+    web_user = _sanitize_web_user(job_config.get('web_user', 'anonymous'))
+    safe_job = re.sub(r'[^A-Za-z0-9._-]', '_', str(job_config.get('job_name', 'job')))[:64]
     script += "# --- 작업 디렉토리 ---\n"
+    script += f"export WEB_USER=\"{web_user}\"\n"
     script += "export SLURM_SUBMIT_DIR=/shared/jobs/$SLURM_JOB_ID\n"
     script += "export WORK_DIR=\"$SLURM_SUBMIT_DIR\"\n"
-    script += "export RESULT_DIR=\"$WORK_DIR/results\"\n\n"
+    script += f"export SINGLE_BASE=\"/data/single/{web_user}\"\n"
+    script += f"export RESULT_DIR=\"$SINGLE_BASE/{safe_job}_$SLURM_JOB_ID\"\n\n"
 
     # Template의 추가 환경 변수
     apptainer_env = template.get('apptainer', {}).get('env', {})
@@ -969,8 +995,15 @@ def submit_job():
         slurm_overrides = json.loads(request.form.get('slurm_overrides', '{}'))
         job_name = request.form.get('job_name', template['template']['name'])
 
+        # 웹 로그인 사용자 — 결과를 /data/single/<web_user>/ 에 저장하기 위해
+        # 스크립트 생성 '전에' 추출한다 (기존엔 제출 후에야 추출해 경로에 못 씀).
+        # JWT sub(username). 경로에 박히므로 sanitize 필수.
+        web_user = _sanitize_web_user(
+            g.get('user', {}).get('username') or g.get('user', {}).get('id') or 'anonymous')
+
         log_info(request_id, 'script_generation_start', {
             'job_name': job_name,
+            'web_user': web_user,
             'slurm_overrides': slurm_overrides
         })
 
@@ -981,7 +1014,8 @@ def submit_job():
                     'apptainer_image_path': image['path'] if image else None,
                     'uploaded_files': uploaded_files,
                     'slurm_overrides': slurm_overrides,
-                    'job_name': job_name
+                    'job_name': job_name,
+                    'web_user': web_user
                 }
             )
             log_info(request_id, 'script_generated', {
@@ -1007,9 +1041,13 @@ def submit_job():
             }), 500
 
         # 7. Slurm 스크립트 저장
-        # 스크립트 저장 디렉토리 (영구 보관용)
-        SCRIPT_DIR = '/tmp/slurm_scripts'  # 실제 환경에서는 /shared/slurm_scripts 사용
-        os.makedirs(SCRIPT_DIR, exist_ok=True)
+        # 스크립트 저장 디렉토리 (영구 보관용) — /shared 우선, 없으면 /tmp 폴백
+        SCRIPT_DIR = '/shared/slurm_scripts' if os.path.isdir('/shared') else '/tmp/slurm_scripts'
+        try:
+            os.makedirs(SCRIPT_DIR, exist_ok=True)
+        except PermissionError:
+            SCRIPT_DIR = '/tmp/slurm_scripts'
+            os.makedirs(SCRIPT_DIR, exist_ok=True)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         script_filename = f"job_{job_name}_{timestamp}.sh"
@@ -1085,11 +1123,16 @@ def submit_job():
         log_info(request_id, 'db_record_start', {'job_id': job_id})
 
         try:
-            user_id = g.get('user', {}).get('id', 'anonymous')  # JWT에서 가져옴
+            # web_user 는 스크립트 생성 전에 이미 추출됨 (g.user 에 'id' 없음 — username 사용)
+            user_id = web_user
 
             # Slurm 설정 재구성 (generate_slurm_script에서 생성된 것과 동일)
             slurm_config = normalized_template['slurm'].copy()
             slurm_config.update(slurm_overrides)
+
+            # 결과 디렉토리 (스크립트의 RESULT_DIR 과 동일 규칙 — job_id 치환)
+            safe_job = re.sub(r'[^A-Za-z0-9._-]', '_', str(job_name))[:64]
+            result_dir = f"/data/single/{web_user}/{safe_job}_{job_id}"
 
             record_id = record_job_submission(
                 job_id=job_id,
@@ -1100,7 +1143,8 @@ def submit_job():
                 slurm_config=slurm_config,
                 apptainer_image=image['path'] if image else None,
                 uploaded_files=uploaded_files,
-                script_path=script_path
+                script_path=script_path,
+                result_dir=result_dir
             )
             log_info(request_id, 'db_recorded', {
                 'record_id': record_id,

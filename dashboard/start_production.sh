@@ -421,6 +421,34 @@ else
 fi
 echo ""
 
+# ==================== 4.6. 잡 제출 인프라 (템플릿/결과디렉토리) ====================
+echo -e "${BLUE}[4.6] 잡 제출 인프라 (템플릿 동기화 / /data/single)...${NC}"
+# repo 템플릿 → /shared/templates (백엔드 template_loader 가 읽는 위치).
+# init_template_storage.sh 는 디렉토리 구조만 만들고 복사는 안 해서, 템플릿을
+# git 으로 갱신해도 운영에 반영되지 않던 공백을 여기서 메움 (멱등: cp -u).
+if [ -d /shared/templates ] || sudo mkdir -p /shared/templates/official 2>/dev/null; then
+    sudo mkdir -p /shared/templates/official 2>/dev/null || true
+    if [ -d "$SCRIPT_DIR/templates/official" ]; then
+        sudo cp -ru "$SCRIPT_DIR/templates/official/." /shared/templates/official/ 2>/dev/null \
+            && echo "  ✓ 템플릿 동기화: $(find "$SCRIPT_DIR/templates/official" -name '*.yaml' | wc -l)개 → /shared/templates/official/" \
+            || echo "  ⚠ 템플릿 복사 실패 (/shared 권한 확인)"
+    fi
+else
+    echo "  ⚠ /shared/templates 생성 불가 — 템플릿 동기화 건너뜀"
+fi
+# 개별 잡 결과 저장소: /data/single/<웹사용자>/ (NFS, 전 노드 가시).
+# 잡은 compute 계정(stcx)으로 돌며 하위 디렉토리를 만들므로 1777 필요.
+if [ -d /data ]; then
+    sudo mkdir -p /data/single 2>/dev/null && sudo chmod 1777 /data/single 2>/dev/null \
+        && echo "  ✓ /data/single ($(stat -c '%a' /data/single 2>/dev/null))" \
+        || echo "  ⚠ /data/single 준비 실패"
+else
+    echo "  ⚠ /data 없음 — /data/single 건너뜀 (잡 결과는 RESULT_DIR mkdir 시점에 실패할 수 있음)"
+fi
+# 제출 스크립트 보관소
+sudo mkdir -p /shared/slurm_scripts 2>/dev/null && sudo chmod 1777 /shared/slurm_scripts 2>/dev/null || true
+echo ""
+
 # ==================== 5. Backend 서비스 시작 (systemd) ====================
 echo -e "${BLUE}[5/7] Backend 서비스 시작 (systemd)...${NC}"
 

@@ -168,12 +168,16 @@ class ApptainerRegistryService:
 
         images = []
         scanned_names = set()  # 중복 방지 (같은 이름 = 같은 이미지)
+        # 운영 진단용: 어떤 경로를 스캔했고 무엇이 나왔는지 (빈 목록 원인 자가보고)
+        self.last_scan_info = {'scanned_dirs': [], 'missing_dirs': [], 'json_count': 0, 'sif_fallback_count': 0}
 
         # Flat 구조: 모든 메타데이터 스캔 경로 순회
         for scan_dir in self.metadata_scan_paths:
             if not os.path.exists(scan_dir):
                 logger.debug(f"Directory not found, skipping: {scan_dir}")
+                self.last_scan_info['missing_dirs'].append(scan_dir)
                 continue
+            self.last_scan_info['scanned_dirs'].append(scan_dir)
 
             logger.info(f"Scanning metadata in: {scan_dir}")
 
@@ -220,9 +224,64 @@ class ApptainerRegistryService:
             except Exception as e:
                 logger.error(f"Failed to scan directory {scan_dir}: {e}")
 
+        self.last_scan_info['json_count'] = len(images)
+
+        # ── sif 직접발견 폴백 ──
+        # 운영 head 처럼 .sif 는 배포돼 있는데 metadata .json 이 없는 환경에서
+        # 목록이 빈 배열로 조용히 실패하던 문제의 근본 수정: json 없는 .sif 를
+        # 직접 발견해 최소 메타데이터로 등록한다(이름/경로/크기 + 이름기반 파티션 추정).
+        for scan_dir in self.metadata_scan_paths:
+            if not os.path.exists(scan_dir):
+                continue
+            try:
+                for filename in sorted(os.listdir(scan_dir)):
+                    if not filename.endswith('.sif') or filename in scanned_names:
+                        continue
+                    sif_path = os.path.join(scan_dir, filename)
+                    try:
+                        image = self._image_from_sif(sif_path, partition if partition else 'compute')
+                        if image and (partition is None or image.partition == partition):
+                            images.append(image)
+                            scanned_names.add(filename)
+                            self.last_scan_info['sif_fallback_count'] += 1
+                            logger.info(f"Discovered sif without metadata: {filename} (partition: {image.partition})")
+                    except Exception as e:
+                        logger.error(f"Failed to register sif {filename}: {e}")
+            except Exception as e:
+                logger.error(f"Failed sif-fallback scan in {scan_dir}: {e}")
+
+        if not images:
+            logger.warning(
+                f"No apptainer images found. scanned={self.last_scan_info['scanned_dirs']} "
+                f"missing={self.last_scan_info['missing_dirs']} — "
+                f"check APPTAINER_REGISTRY env and /opt/apptainers contents")
+
         partition_str = partition if partition else 'all'
-        logger.info(f"Partition {partition_str}: found {len(images)} images")
+        logger.info(f"Partition {partition_str}: found {len(images)} images "
+                    f"(json={self.last_scan_info['json_count']}, sif_fallback={self.last_scan_info['sif_fallback_count']})")
         return images
+
+    # 이름에 이 키워드가 있으면 viz 파티션으로 추정 (sif 폴백 등록용)
+    _VIZ_NAME_HINTS = ('vnc', 'gnome', 'desktop', 'sunshine', 'xfce', 'postprocessor', 'viz')
+
+    def _image_from_sif(self, sif_path: str, default_partition: str) -> Optional['ApptainerImage']:
+        """metadata .json 없이 .sif 파일 자체에서 최소 이미지 정보 합성."""
+        filename = os.path.basename(sif_path)
+        try:
+            size = os.path.getsize(sif_path)
+        except OSError:
+            size = 0
+        name_l = filename.lower()
+        part = 'viz' if any(h in name_l for h in self._VIZ_NAME_HINTS) else default_partition
+        return ApptainerImage(
+            id=filename.replace('.sif', '').replace(' ', '_').lower(),
+            name=filename,
+            path=os.path.join(self.runtime_base, filename),
+            partition=part,
+            type=part,
+            size=size,
+            description=f'{filename} (auto-discovered, no metadata)',
+        )
 
     def _load_image_from_metadata(self, json_path: str, default_partition: str) -> Optional[ApptainerImage]:
         """
