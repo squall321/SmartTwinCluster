@@ -447,6 +447,33 @@ else
 fi
 # 제출 스크립트 보관소
 sudo mkdir -p /shared/slurm_scripts 2>/dev/null && sudo chmod 1777 /shared/slurm_scripts 2>/dev/null || true
+
+# --- LS-DYNA 라이선스 서버 IP 동기화 (YAML 단일관리) ---
+# slurm_config.lsdyna_license.server (비면 controllers[0].ip_address=헤드노드) →
+# /data/scenario/*/scenario.json 과 동기화된 부분충격 템플릿의 LSTC_LICENSE_SERVER.
+_LYAML="$SCRIPT_DIR/../my_multihead_cluster.yaml"
+[ -f "$_LYAML" ] || _LYAML="$SCRIPT_DIR/../my_multihead_cluster_2.yaml"
+LSTC_SRV=$(python3 -c "
+import yaml
+c=yaml.safe_load(open('$_LYAML')) or {}
+s=((c.get('slurm_config') or {}).get('lsdyna_license') or {}).get('server') or ''
+if not s:
+    s=((c.get('nodes',{}).get('controllers') or [{}])[0].get('ip_address') or '')
+print(s.strip())
+" 2>/dev/null)
+if [ -n "$LSTC_SRV" ]; then
+    # 전각도 프리셋 (이미 검증된 IP 가 박혀 있던 곳)
+    for f in /data/scenario/*/scenario.json; do
+        [ -f "$f" ] || continue
+        sudo sed -i "s/\"LSTC_LICENSE_SERVER\":[[:space:]]*\"[^\"]*\"/\"LSTC_LICENSE_SERVER\": \"$LSTC_SRV\"/g" "$f" 2>/dev/null || true
+    done
+    # 부분충격 템플릿 플레이스홀더 (운영 위치)
+    _PI=/shared/templates/official/simulation/smarttwin-partial-impact.yaml
+    [ -f "$_PI" ] && sudo sed -i "s/%LSTC_LICENSE_SERVER%/$LSTC_SRV/g" "$_PI" 2>/dev/null || true
+    echo "  ✓ LS-DYNA 라이선스 서버 동기화: $LSTC_SRV"
+else
+    echo "  ⚠ LS-DYNA 라이선스 서버 IP 미해석 (YAML lsdyna_license.server / controllers[0].ip_address 확인)"
+fi
 echo ""
 
 # ==================== 5. Backend 서비스 시작 (systemd) ====================

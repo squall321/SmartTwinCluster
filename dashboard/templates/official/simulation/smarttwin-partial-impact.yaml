@@ -106,7 +106,7 @@ script:
         "lsdyna_apptainer_bind": "/data:/data,/shared:/shared",
         "lsdyna_apptainer_env": {
           "LSTC_FILE": "/opt/ls-dyna_license/LSTC_FILE",
-          "LSTC_LICENSE_SERVER": "10.179.100.25",
+          "LSTC_LICENSE_SERVER": "%LSTC_LICENSE_SERVER%",
           "FI_PROVIDER": "tcp",
           "I_MPI_FABRICS": "ofi",
           "LD_LIBRARY_PATH": "/opt/openmpi/lib"
@@ -140,6 +140,14 @@ script:
       }
     }
     SCENARIO_EOF
+    fi
+    # 라이선스 서버 플레이스홀더가 start_production 동기화로 안 채워졌으면 차단.
+    # (PH 를 변수로 조립 — 이 템플릿 자체가 sed 동기화 대상이라 리터럴로 쓰면 가드도 치환됨)
+    PH="%LSTC_LICENSE""_SERVER%"
+    if grep -q "$PH" scenario.json; then
+      echo "ERROR: LSTC_LICENSE_SERVER 미설정 ($PH 잔존)."
+      echo "  → YAML slurm_config.lsdyna_license.server 설정 후 start_production.sh 재실행 필요"
+      exit 1
     fi
     echo "--- scenario.json (앞 40줄) ---"
     head -40 scenario.json
