@@ -149,6 +149,9 @@ from yaml_node_loader import yaml_loader_bp
 # v5.2.0 신규 기능 Blueprint 임포트 (Job Logs API)
 from job_logs_api import job_logs_bp
 
+# 읽기전용 Slurm 관리 API (sdiag/sshare/sprio/sstat/scontrol)
+from slurm_admin_api import slurm_admin_bp
+
 app = Flask(__name__)
 CORS(app)
 
@@ -303,6 +306,10 @@ print("✅ YAML Node Loader API registered: /api/yaml")
 # v5.2.0 신규 기능 Blueprint 등록 (Job Logs API)
 app.register_blueprint(job_logs_bp)
 print("✅ Job Logs API registered: /api/jobs/<job_id>/logs")
+
+# 읽기전용 Slurm 관리 API 등록 (/api/slurm/diag, /fairshare, /partitions, /controller/ping, /jobs/priority, /jobs/<id>/stat)
+app.register_blueprint(slurm_admin_bp)
+print("✅ Slurm Admin API registered: /api/slurm/{diag,fairshare,partitions,controller/ping,jobs/priority,jobs/<id>/stat}")
 
 # Initialize template watcher (Hot Reload)
 try:

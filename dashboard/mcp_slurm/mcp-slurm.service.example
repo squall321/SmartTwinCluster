@@ -1,0 +1,30 @@
+# 참고용 systemd 유닛 예시 — Slurm 읽기전용 MCP 서버
+#
+# NOTE: 이 MCP 서버는 stdio 트랜스포트이므로 "보통은 MCP 클라이언트가 직접 spawn" 합니다.
+#       따라서 대개 systemd 서비스가 필요 없습니다 (.mcp.json 등록만으로 충분).
+#       항상 떠 있는 데몬 형태로 운영하고 싶을 때만 참고하세요.
+#
+# 본 예시는 dashboard/systemd/dashboard-backend.service 패턴을 본떴습니다
+# (User / WorkingDirectory / Environment=SLURM_BIN_DIR / ExecStart).
+# install_services.sh 가 __SERVICE_USER__ / __PROJECT_HOME__ 등 placeholder 를 치환합니다.
+
+[Unit]
+Description=Slurm Read-only MCP Server (stdio)
+After=network.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__   # placeholder — install_services.sh가 동적 치환
+Group=__SERVICE_GROUP__
+WorkingDirectory=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/mcp_slurm
+Environment="PATH=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
+Environment="HOME=/home/koopark"
+Environment="SLURM_BIN_DIR=/usr/local/slurm/bin"
+ExecStart=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/venv/bin/python server.py
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

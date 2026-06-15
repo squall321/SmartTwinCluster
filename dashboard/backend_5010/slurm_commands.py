@@ -122,6 +122,12 @@ SBATCH = os.path.join(SLURM_BIN_DIR, 'sbatch')
 SCANCEL = os.path.join(SLURM_BIN_DIR, 'scancel')
 SREPORT = os.path.join(SLURM_BIN_DIR, 'sreport')
 SRUN = os.path.join(SLURM_BIN_DIR, 'srun')
+SSHARE = os.path.join(SLURM_BIN_DIR, 'sshare')
+SPRIO = os.path.join(SLURM_BIN_DIR, 'sprio')
+SDIAG = os.path.join(SLURM_BIN_DIR, 'sdiag')
+SSTAT = os.path.join(SLURM_BIN_DIR, 'sstat')
+STRIGGER = os.path.join(SLURM_BIN_DIR, 'strigger')
+SCRONTAB = os.path.join(SLURM_BIN_DIR, 'scrontab')
 
 def run_slurm_command(command: List[str], timeout: int = 10, 
                       use_sudo: bool = False, check: bool = True) -> subprocess.CompletedProcess:
@@ -217,6 +223,41 @@ def get_sacctmgr(*args, use_sudo: bool = True, **kwargs) -> subprocess.Completed
 def get_sreport(*args, **kwargs) -> subprocess.CompletedProcess:
     """sreport 실행"""
     return run_slurm_command([SREPORT] + list(args), **kwargs)
+
+
+def get_sshare(*args, **kwargs) -> subprocess.CompletedProcess:
+    """sshare 실행"""
+    return run_slurm_command([SSHARE] + list(args), **kwargs)
+
+
+def get_sprio(*args, **kwargs) -> subprocess.CompletedProcess:
+    """sprio 실행"""
+    return run_slurm_command([SPRIO] + list(args), **kwargs)
+
+
+def get_sdiag(*args, **kwargs) -> subprocess.CompletedProcess:
+    """sdiag 실행"""
+    return run_slurm_command([SDIAG] + list(args), **kwargs)
+
+
+def get_sstat(*args, **kwargs) -> subprocess.CompletedProcess:
+    """sstat 실행"""
+    return run_slurm_command([SSTAT] + list(args), **kwargs)
+
+
+def get_srun(*args, **kwargs) -> subprocess.CompletedProcess:
+    """srun 실행"""
+    return run_slurm_command([SRUN] + list(args), **kwargs)
+
+
+def get_strigger(*args, **kwargs) -> subprocess.CompletedProcess:
+    """strigger 실행"""
+    return run_slurm_command([STRIGGER] + list(args), **kwargs)
+
+
+def get_scrontab(*args, **kwargs) -> subprocess.CompletedProcess:
+    """scrontab 실행"""
+    return run_slurm_command([SCRONTAB] + list(args), **kwargs)
 
 
 # 테스트 코드

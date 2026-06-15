@@ -1,0 +1,6 @@
+# Slurm 읽기전용 MCP 서버 의존성
+#
+# 공식 MCP Python SDK (FastMCP 포함).
+# 보수적 버전핀: 1.x 메이저 내 호환 범위.
+# FastMCP 는 mcp 1.2.0 부터 mcp.server.fastmcp 로 안정 제공됨.
+mcp>=1.2.0,<2.0.0
