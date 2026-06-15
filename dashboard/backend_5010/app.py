@@ -35,7 +35,7 @@ from slurm_config_manager import (
 # Slurm 명령어 경로 모듈 임포트
 try:
     from slurm_commands import (
-        get_sinfo, get_squeue, get_sacct, get_scontrol, 
+        get_sinfo, get_squeue, get_sacct, get_scontrol,
         get_sreport, SBATCH, SCANCEL, check_slurm_installation
     )
     # Slurm 설치 확인
@@ -1230,13 +1230,12 @@ def get_qos_list():
                 ])
             })
         else:
-            result = subprocess.run(
-                ['sacctmgr', 'show', 'qos', '-n', '-P'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
+            # bare 'sacctmgr' 는 systemd/gunicorn 의 제한된 PATH 에서 FileNotFoundError.
+            # slurm_commands 의 절대경로 래퍼 사용(show 는 조회라 sudo 불필요).
+            # 래퍼가 capture_output/text 를 내부 고정하므로 timeout/use_sudo/check 만 전달.
+            from slurm_commands import get_sacctmgr
+            result = get_sacctmgr('show', 'qos', '-n', '-P', use_sudo=False, check=True)
+
             qos_list = []
             for line in result.stdout.strip().split('\n'):
                 if line:

@@ -14,6 +14,7 @@ SLURM_BIN_DIR = os.getenv('SLURM_BIN_DIR', '/usr/local/slurm/bin')
 SACCT = os.path.join(SLURM_BIN_DIR, 'sacct')
 SINFO = os.path.join(SLURM_BIN_DIR, 'sinfo')
 SQUEUE = os.path.join(SLURM_BIN_DIR, 'squeue')
+SREPORT = os.path.join(SLURM_BIN_DIR, 'sreport')
 
 def run_slurm_command(command: List[str]) -> str:
     """Slurm 명령어 실행"""
@@ -121,9 +122,9 @@ def get_slurm_usage_by_user(start_date: datetime, end_date: datetime) -> List[Di
     start_str = start_date.strftime('%Y-%m-%d')
     end_str = end_date.strftime('%Y-%m-%d')
     
-    # sreport로 사용자별 사용량 수집
+    # sreport로 사용자별 사용량 수집 (절대경로 — systemd/gunicorn PATH 대응)
     command = [
-        'sreport',
+        SREPORT,
         'cluster',
         'UserUtilizationByAccount',
         'Start=' + start_str,
