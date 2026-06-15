@@ -15,6 +15,27 @@ interface JobTemplatesProps {
   onUseTemplate?: (template: Template) => void;
 }
 
+// v2 로더 응답(nested {template:{...}})을 이 화면의 flat Template 으로 매핑.
+// 카탈로그 표시/필터/정렬에 필요한 필드만 채우고 나머지는 안전한 기본값.
+const V2_CATEGORIES = ['ml', 'simulation', 'data', 'custom', 'compute', 'container'];
+const mapV2Template = (item: any): Template => {
+  const t = (item && item.template) ? item.template : (item || {});
+  const cat = V2_CATEGORIES.includes(t.category) ? t.category : 'custom';
+  return {
+    id: t.id || '',
+    name: t.display_name || t.name || t.id || '(이름 없음)',
+    description: t.description || '',
+    category: cat,
+    shared: t.is_public ?? true,
+    config: ({} as Template['config']),
+    created_by: t.source || 'official',
+    created_at: item?.last_modified || '',
+    updated_at: item?.last_modified || '',
+    usage_count: t.usage_count || 0,
+    tags: Array.isArray(t.tags) ? t.tags : [],
+  };
+};
+
 // 카테고리 count 계산
 const calculateCategoryCounts = (templates: Template[]) => {
   return TEMPLATE_CATEGORIES.map(cat => ({
@@ -46,14 +67,17 @@ const JobTemplates: React.FC<JobTemplatesProps> = ({ mode, onUseTemplate }) => {
         setTemplates(PREDEFINED_TEMPLATES);
         setCategories(calculateCategoryCounts(PREDEFINED_TEMPLATES));
       } else {
-        // Production 모드: API에서 템플릿 가져오기
+        // Production 모드: 파일 기반 official 템플릿 로더(v2)에서 가져오기.
+        // /api/jobs/templates(templates_api_v2)가 /shared/templates 의 official yaml 을 서빙한다.
+        // (구 /api/templates 는 별도 DB 만 봐서 official 파일템플릿이 안 보였음)
         try {
-          const data = await apiGet<{ templates: Template[] }>('/api/templates');
-          setTemplates(data.templates || []);
-          setCategories(calculateCategoryCounts(data.templates || []));
+          const data = await apiGet<{ templates: any[] }>('/api/jobs/templates');
+          const mapped = (data.templates || []).map(mapV2Template);
+          setTemplates(mapped);
+          setCategories(calculateCategoryCounts(mapped));
         } catch (apiError) {
           // API가 없으면 Mock 데이터로 Fallback
-          console.warn('API /api/templates not available, using predefined templates');
+          console.warn('API /api/jobs/templates not available, using predefined templates');
           setTemplates(PREDEFINED_TEMPLATES);
           setCategories(calculateCategoryCounts(PREDEFINED_TEMPLATES));
         }

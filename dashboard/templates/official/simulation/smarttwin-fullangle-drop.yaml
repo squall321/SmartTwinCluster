@@ -1,6 +1,7 @@
 template:
   id: smarttwin-fullangle-drop
   name: SmartTwin 전각도 낙하 (Full-Angle Drop)
+  display_name: SmartTwin 전각도 낙하 (Full-Angle Drop)
   description: >
     KooChainRun 으로 전각도 낙하 DOE 캠페인을 실행합니다.
     업로드한 모델(.k)에 대해 기본 26방향(6면+12모서리+8꼭짓점) 낙하를 수행하며,

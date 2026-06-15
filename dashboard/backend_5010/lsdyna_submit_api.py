@@ -15,12 +15,13 @@ import tempfile
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from middleware.jwt_middleware import jwt_required, permission_required
 
 # Blueprint setup
 lsdyna_submit_bp = Blueprint('lsdyna_submit', __name__, url_prefix='/api/slurm')
 
-# Database path
-DB_PATH = Path(__file__).parent / 'database' / 'dashboard.db'
+# Database path — job_submit_api 와 동일한 DATABASE_PATH 환경변수 사용(DB split-brain 해소)
+DB_PATH = Path(os.getenv('DATABASE_PATH', '/home/koopark/web_services/backend/dashboard.db'))
 
 def get_db_connection():
     """Get SQLite database connection"""
@@ -254,6 +255,8 @@ def generate_script_from_template(template, image, slurm_config, input_files, cu
 
 
 @lsdyna_submit_bp.route('/submit-lsdyna-jobs', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def submit_lsdyna_jobs():
     """
     LS-DYNA 작업 제출 (템플릿 통합)
@@ -284,8 +287,9 @@ def submit_lsdyna_jobs():
         }
     """
     try:
-        # Check if running in mock mode
-        mock_mode = os.getenv('MOCK_MODE', 'true').lower() == 'true'
+        # Check if running in mock mode (기본 false — env 로 명시할 때만 mock,
+        # 미설정 시 운영에서 실제 sbatch 제출되게)
+        mock_mode = os.getenv('MOCK_MODE', 'false').lower() == 'true'
 
         submitted_jobs = []
 

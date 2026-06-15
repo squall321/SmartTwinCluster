@@ -1,6 +1,7 @@
 template:
   id: lsdyna-r16-basic
   name: LS-DYNA R16 Basic Run
+  display_name: LS-DYNA R16 Basic Run
   description: LS-DYNA R16 기본 시뮬레이션 실행 템플릿
   category: simulation
   version: 1.0.0

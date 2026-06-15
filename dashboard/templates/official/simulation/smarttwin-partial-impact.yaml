@@ -1,6 +1,7 @@
 template:
   id: smarttwin-partial-impact
   name: SmartTwin 전위치 부분충격 (All-Position Partial Impact)
+  display_name: SmartTwin 전위치 부분충격 (All-Position Partial Impact)
   description: >
     KooChainRun(drop_weight_impact 모드)으로 전위치 부분충격 DOE 를 실행합니다.
     업로드한 모델(.k)의 범위를 자동 인식해 격자(기본 5x5) 위치마다 구형 임팩터

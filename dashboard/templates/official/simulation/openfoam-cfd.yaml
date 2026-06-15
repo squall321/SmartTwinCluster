@@ -1,6 +1,7 @@
 template:
   id: openfoam-cfd
   name: OpenFOAM CFD Simulation
+  display_name: OpenFOAM CFD Simulation
   description: 유체 역학 시뮬레이션 (Computational Fluid Dynamics)
   category: simulation
   version: 1.0.0

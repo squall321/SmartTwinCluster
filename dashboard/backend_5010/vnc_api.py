@@ -1361,16 +1361,19 @@ def list_vnc_sessions():
 
                     # VNC 포트 접속 가능 여부 체크 (원격 노드에서 확인)
                     try:
-                        import socket
-                        # SSH를 통해 원격 노드의 VNC 포트 체크
+                        # SSH로 원격 노드에서 포트 LISTEN 여부만 확인.
+                        # nc -z 로 RFB 포트(5900+)에 connect 하면 TigerVNC 가 'Too many
+                        # security failures'(RFB003.003)로 블랙리스트 → /sessions 폴링이
+                        # 누적돼 차단을 유발. /ready 와 동일하게 ss -ltn(LISTEN 확인,
+                        # 핸드셰이크 없음)으로 통일.
                         ssh_opts = get_ssh_opts()
-                        check_cmd = f"nc -zv localhost {vnc_port}"
+                        check_cmd = f"ss -ltn | grep -qE ':{vnc_port}\\b'"
                         result = subprocess.run(
                             [SSH] + ssh_opts + [f'{get_default_system_user()}@{node}', check_cmd],
                             capture_output=True,
                             timeout=5
                         )
-                        # nc 명령어는 성공 시 exit code 0 반환
+                        # grep -q 는 LISTEN 매칭 시 exit 0
                         if result.returncode == 0:
                             session['is_accessible'] = True
                         else:
