@@ -175,6 +175,15 @@ def generate_sso_env(config: dict, include_secrets: bool = True) -> str:
         "",
     ])
 
+    # Role Mapping (JWT 'role' 클레임)
+    # group_role_mapping/default_role 은 YAML sso 블록 안에 있음(role 정의 본체는 톱레벨 roles:).
+    lines.extend([
+        "# Group Role Mapping (JSON format) + default role",
+        f"SSO_ROLE_MAPPING='{json.dumps(sso.get('group_role_mapping', {}))}'",
+        f"SSO_DEFAULT_ROLE={sso.get('default_role', 'user')}",
+        "",
+    ])
+
     # Service URLs
     lines.extend([
         "# ============================================================================",

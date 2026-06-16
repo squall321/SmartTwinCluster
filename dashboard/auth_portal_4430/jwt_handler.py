@@ -86,12 +86,14 @@ class JWTHandler:
         """
         groups = user_info.get('groups', [])
         permissions = Config.get_permissions_for_groups(groups)
+        role = Config.get_role_for_groups(groups)
 
         payload = {
             'sub': user_info['username'],
             'email': user_info.get('email', ''),
             'groups': groups,
             'permissions': permissions,
+            'role': role,
             'iat': datetime.utcnow(),
             'exp': datetime.utcnow() + timedelta(hours=Config.JWT_EXPIRATION_HOURS),
             'iss': 'auth-portal'

@@ -62,7 +62,8 @@ FULL_ACCESS_USER = {
     'username': 'admin',
     'email': 'admin@local',
     'groups': ['admin', 'users', 'GPU-Users', 'HPC-Admins'],
-    'permissions': ['admin', 'user', 'read', 'write', 'execute', 'delete', 'dashboard', 'app', 'vnc', 'cae']
+    'permissions': ['admin', 'user', 'read', 'write', 'execute', 'delete', 'dashboard', 'app', 'vnc', 'cae'],
+    'role': 'admin'
 }
 
 
@@ -94,7 +95,8 @@ def verify_jwt_token(token: str) -> Optional[Dict]:
             'username': payload.get('sub'),
             'email': payload.get('email'),
             'groups': payload.get('groups', []),
-            'permissions': payload.get('permissions', [])
+            'permissions': payload.get('permissions', []),
+            'role': payload.get('role', 'user')
         }
 
     except jwt.ExpiredSignatureError:
@@ -149,7 +151,8 @@ def jwt_required(f):
                 'username': payload.get('sub'),
                 'email': payload.get('email'),
                 'groups': payload.get('groups', []),
-                'permissions': payload.get('permissions', [])
+                'permissions': payload.get('permissions', []),
+                'role': payload.get('role', 'user')
             }
 
             return f(*args, **kwargs)
@@ -294,7 +297,8 @@ def optional_jwt(f):
                     'username': payload.get('sub'),
                     'email': payload.get('email'),
                     'groups': payload.get('groups', []),
-                    'permissions': payload.get('permissions', [])
+                    'permissions': payload.get('permissions', []),
+                    'role': payload.get('role', 'user')
                 }
             except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
                 # 토큰이 유효하지 않으면 무시하고 진행
@@ -305,3 +309,73 @@ def optional_jwt(f):
         return f(*args, **kwargs)
 
     return decorated_function
+
+
+# ============================================================================
+# 권한모델 Phase3-A: role 기반 파티션 접근제어 (shadow 모드)
+# ============================================================================
+# YAML(SoT)의 roles.definitions 를 로드. _load_sso_config 와 동일한 경로해석 재사용.
+# 런타임 변경 미반영(재기동 필요) = SSO_ENABLED 와 동일 성질이라 일관.
+
+def _load_role_definitions():
+    """YAML roles.definitions(role -> allowed_partitions/allowed_qos/can_manage_nodes) 로드."""
+    try:
+        yaml_path_str = os.getenv('CLUSTER_CONFIG_PATH')
+        if yaml_path_str:
+            yaml_path = Path(yaml_path_str)
+        else:
+            yaml_path = Path(__file__).parent.parent.parent.parent / 'my_multihead_cluster.yaml'
+        if yaml_path.exists():
+            with open(yaml_path) as fp:
+                config = yaml.safe_load(fp) or {}
+                defs = (config.get('roles') or {}).get('definitions') or {}
+                if defs:
+                    print(f"[Role Config] Loaded {len(defs)} role definitions from {yaml_path}")
+                return defs
+    except Exception as e:
+        print(f"[Role Config] Error loading role definitions: {e}")
+    return {}
+
+ROLE_DEFINITIONS = _load_role_definitions()
+
+# 운영 판별: MOCK_MODE=false = production (app.py 와 동일 변수 재사용).
+IS_PROD = os.getenv('MOCK_MODE', 'true').lower() == 'false'
+
+# SSO-off 전권 가드: 운영에서 SSO 비활성이면 모든 요청이 admin 전권(인증 무력화).
+# 기동거부까진 하지 않고(기존 동작 보존) 모듈 로드 시 1회 경고만 출력.
+if IS_PROD and not SSO_ENABLED:
+    print(
+        "[SECURITY][WARNING] SSO_ENABLED=false + MOCK_MODE=false(production): "
+        "모든 요청이 FULL_ACCESS_USER(admin 전권)로 통과합니다 — 인증/인가가 무력화된 상태입니다. "
+        "운영에서는 sso.enabled=true 를 권장합니다."
+    )
+
+
+def partition_allowed(partition_arg='partition'):
+    """잡 제출 등에서 요청 파티션이 g.user.role 의 allowed_partitions 에 있는지 검사.
+
+    ★shadow 모드★: 위반해도 차단(403)하지 않고 WARN 로그만 남긴다(실트래픽으로 룰 검증).
+    실제 차단으로 전환하려면 아래 logger 경고 부분을 'return jsonify(...), 403' 으로 바꾸면 된다.
+
+    Args:
+        partition_arg: 요청 JSON body 또는 view kwarg 에서 파티션명을 읽을 키 이름.
+    """
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            user = g.get('user') or {}
+            role = user.get('role', 'user')
+            role_def = ROLE_DEFINITIONS.get(role) or {}
+            allowed = role_def.get('allowed_partitions', [])
+            # 요청 파티션 추출 (body 우선, 없으면 view kwarg). 없으면 클러스터 기본값 사용 → 통과.
+            body = request.get_json(silent=True) or {}
+            part = body.get(partition_arg) or kwargs.get(partition_arg)
+            if part and '*' not in allowed and part not in allowed:
+                print(
+                    f"[partition shadow] DENY-WOULD-BE user={user.get('username')} "
+                    f"role={role} partition={part} allowed={allowed} path={request.path}"
+                )
+            # shadow: 항상 통과
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator

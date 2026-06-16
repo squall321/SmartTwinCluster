@@ -169,6 +169,40 @@ class Config:
 
         return list(permissions)
 
+    # ==========================================================================
+    # Role-based claim (JWT 'role') — group→role 매핑
+    # ==========================================================================
+    ROLE_PRIORITY = {'admin': 3, 'poweruser': 2, 'user': 1}
+
+    @classmethod
+    def _get_role_mapping(cls):
+        """Get group->role mapping from environment (없으면 빈 dict = default_role)"""
+        mapping_json = os.getenv('SSO_ROLE_MAPPING', '')
+        if mapping_json:
+            try:
+                return json.loads(mapping_json)
+            except json.JSONDecodeError:
+                pass
+        return {}
+
+    @classmethod
+    def get_role_for_groups(cls, groups):
+        """Get highest-priority role for given groups (admin>poweruser>user, 없으면 default_role)"""
+        mapping = cls._get_role_mapping()
+        default_role = os.getenv('SSO_DEFAULT_ROLE', 'user')
+        best = default_role
+
+        for group in groups:
+            g = group
+            # CN= 형식에서 그룹명만 추출 재시도 (get_permissions_for_groups 와 동일 로직)
+            if g not in mapping and g.startswith('CN='):
+                g = g.split(',')[0].replace('CN=', '')
+            r = mapping.get(g)
+            if r and cls.ROLE_PRIORITY.get(r, 0) > cls.ROLE_PRIORITY.get(best, 0):
+                best = r
+
+        return best
+
     @classmethod
     def get_services_for_groups(cls, groups):
         """Get available services for given groups"""
