@@ -24,7 +24,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from werkzeug.utils import secure_filename
 from template_validator import TemplateValidator
-from middleware.jwt_middleware import jwt_required, permission_required
+from middleware.jwt_middleware import jwt_required, permission_required, ROLE_DEFINITIONS
 
 # 절대 경로 import (systemd 환경에서 PATH 제한으로 필요)
 from slurm_commands import SSH, SBATCH
@@ -434,7 +434,7 @@ def get_apptainer_image(image_id: str) -> dict:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM apptainer_images WHERE id = ? OR name LIKE ?", (image_id, f"%{image_id}%"))
+        cursor.execute("SELECT * FROM apptainer_images WHERE (id = ? OR name LIKE ?) AND is_active = 1", (image_id, f"%{image_id}%"))
         row = cursor.fetchone()
         conn.close()
 
@@ -512,7 +512,7 @@ def get_apptainer_image_by_name(image_name: str) -> dict:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM apptainer_images WHERE name = ? OR name LIKE ?", (image_name, f"%{image_name}%"))
+        cursor.execute("SELECT * FROM apptainer_images WHERE (name = ? OR name LIKE ?) AND is_active = 1", (image_name, f"%{image_name}%"))
         row = cursor.fetchone()
         conn.close()
 
@@ -635,6 +635,49 @@ def _sanitize_web_user(raw) -> str:
     return raw
 
 
+def _sbatch_account_qos_lines(web_role) -> str:
+    """role 기반 #SBATCH --account/--qos 줄 생성 (권한모델 2차 방어).
+
+    ★안전 게이트(기존동작 무중단)★:
+      - env SBATCH_INJECT_ACCOUNT 가 'true' 일 때만 주입. 기본 'false' = 무주입.
+        (association 이 아직 sacctmgr 에 없을 수 있어, 준비 전 sbatch 가
+         'Invalid account' 로 실패하는 회귀를 막기 위한 글로벌 킬스위치.)
+      - role 이 없거나 토큰이 불명확([A-Za-z0-9_-] 아님)이면 ★생략★(클러스터 기본).
+
+    매핑(단순/명확):
+      - account = role-<role>
+      - qos     = ROLE_DEFINITIONS[role].allowed_qos[0] (단, '*' = 무제한이면 생략).
+                  YAML 정의가 없으면 <role>_qos 폴백.
+    role 이 명확할 때만 주입, 불명확하면 무주입 = 기존동작(클러스터 기본).
+    """
+    if os.getenv('SBATCH_INJECT_ACCOUNT', 'false').lower() != 'true':
+        return ''
+
+    role = web_role if isinstance(web_role, str) else ''
+    # role 토큰이 명확할 때만(경로/계정명에 안전한 문자) 주입.
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,32}', role):
+        return ''
+
+    lines = f"#SBATCH --account=role-{role}\n"
+
+    # qos: YAML roles.definitions[role].allowed_qos[0] 우선. '*'(무제한)는 특정 qos 가
+    # 아니므로 생략하고 클러스터 기본 qos 사용. YAML 없으면 <role>_qos 폴백.
+    role_def = ROLE_DEFINITIONS.get(role) or {}
+    allowed_qos = role_def.get('allowed_qos') or []
+    qos = None
+    if allowed_qos:
+        first = allowed_qos[0]
+        if isinstance(first, str) and first and first != '*':
+            qos = first
+    else:
+        qos = f"{role}_qos"
+
+    if qos and re.fullmatch(r'[A-Za-z0-9_-]{1,32}', qos):
+        lines += f"#SBATCH --qos={qos}\n"
+
+    return lines
+
+
 def generate_slurm_script(template: dict, job_config: dict) -> str:
     """
     Slurm 배치 스크립트 생성
@@ -648,7 +691,8 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
                 'config': {'path': '/tmp/yyy.json', 'filename': 'config.json', 'size': 678}
             },
             'slurm_overrides': {'mem': '64G'},
-            'job_name': 'my_simulation'
+            'job_name': 'my_simulation',
+            'web_role': 'poweruser'  # role 기반 --account/--qos 주입(env SBATCH_INJECT_ACCOUNT=true 일 때만)
         }
 
     Returns:
@@ -666,6 +710,9 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
     # 특정 이름을 박으면 다른 클러스터에서 sbatch 가 invalid partition 으로 실패한다.
     if slurm_config.get('partition'):
         script += f"#SBATCH --partition={slurm_config['partition']}\n"
+    # role 기반 --account/--qos 주입 (권한모델 2차 방어; env SBATCH_INJECT_ACCOUNT 로 게이트).
+    # role 불명확/플래그 off 면 빈 문자열 = 무주입(기존 동작 = 클러스터 기본).
+    script += _sbatch_account_qos_lines(job_config.get('web_role'))
     script += f"#SBATCH --nodes={slurm_config['nodes']}\n"
     script += f"#SBATCH --ntasks={slurm_config['ntasks']}\n"
 
@@ -1001,9 +1048,14 @@ def submit_job():
         web_user = _sanitize_web_user(
             g.get('user', {}).get('username') or g.get('user', {}).get('id') or 'anonymous')
 
+        # 웹 로그인 사용자의 role — #SBATCH --account/--qos 주입(권한모델 2차 방어)에 사용.
+        # web_user 와 동일 패턴으로 g.user 에서 추출. 주입 게이트/검증은 generate_slurm_script 내부.
+        web_role = g.get('user', {}).get('role', 'user')
+
         log_info(request_id, 'script_generation_start', {
             'job_name': job_name,
             'web_user': web_user,
+            'web_role': web_role,
             'slurm_overrides': slurm_overrides
         })
 
@@ -1015,7 +1067,8 @@ def submit_job():
                     'uploaded_files': uploaded_files,
                     'slurm_overrides': slurm_overrides,
                     'job_name': job_name,
-                    'web_user': web_user
+                    'web_user': web_user,
+                    'web_role': web_role
                 }
             )
             log_info(request_id, 'script_generated', {
@@ -1277,13 +1330,18 @@ def preview_script():
         slurm_overrides = json.loads(request.form.get('slurm_overrides', '{}'))
         job_name = request.form.get('job_name', template['template']['name'])
 
+        # 미리보기가 실제 제출 스크립트와 동일한 #SBATCH 를 보이도록 role 도 전달
+        # (submit_job 과 동일 패턴). 주입 자체는 env SBATCH_INJECT_ACCOUNT 게이트.
+        web_role = g.get('user', {}).get('role', 'user')
+
         script = generate_slurm_script(
             template=normalized_template,
             job_config={
                 'apptainer_image_path': image['path'] if image else None,
                 'uploaded_files': {},  # 미리보기에서는 파일 없음
                 'slurm_overrides': slurm_overrides,
-                'job_name': job_name
+                'job_name': job_name,
+                'web_role': web_role
             }
         )
 

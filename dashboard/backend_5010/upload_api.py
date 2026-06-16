@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 import os
 import hashlib
 from datetime import datetime
+from middleware.jwt_middleware import jwt_required, permission_required
 
 # Create Blueprint
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/jobs')
@@ -147,6 +148,8 @@ def upload_file():
         }), 500
 
 @upload_bp.route('/delete-file', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def delete_file():
     """
     파일 삭제 API
@@ -254,6 +257,8 @@ def list_files(job_id):
         }), 500
 
 @upload_bp.route('/rename-job-dir', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def rename_job_dir():
     """
     임시 Job ID를 실제 Job ID로 변경

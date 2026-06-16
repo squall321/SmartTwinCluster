@@ -676,27 +676,86 @@ class ApptainerRegistryService:
         """
         stats = {partition: 0 for partition in self.partition_types}
         stats['unknown'] = 0  # partition 필드가 없는 경우
+        stats['deactivated'] = 0  # 이번 스캔에서 사라져 비활성화된 이미지 수
 
         try:
             # 전체 스캔 (partition=None)
             images = self.scan_partition_images(partition=None)
 
             # DB에 저장 및 파티션별 집계
+            # 발견분 UPSERT(is_active=1) 후, 발견된 id 집합을 모은다.
+            found_ids = set()
             for image in images:
                 if self._save_image_to_db(image):
+                    found_ids.add(image.id)
                     partition_key = image.partition if image.partition in self.partition_types else 'unknown'
                     stats[partition_key] = stats.get(partition_key, 0) + 1
 
-            total = sum(stats.values())
+            # 사라진 이미지 비활성화 (soft deactivate, 이력보존)
+            # sif 삭제/교체 시 옛 row 가 is_active=1 로 잔존해 존재하지 않는
+            # 이미지로 잡 제출되는 문제 방지. 발견 0건이면 스킵(안전장치).
+            stats['deactivated'] = self._deactivate_missing_images(found_ids)
+
+            total = sum(c for k, c in stats.items() if k != 'deactivated')
             logger.info(f"Scanned all partitions: {total} total images")
             for partition_name, count in stats.items():
-                if count > 0:
+                if partition_name != 'deactivated' and count > 0:
                     logger.info(f"  - {partition_name}: {count} images")
 
         except Exception as e:
             logger.error(f"Error scanning all partitions: {e}")
 
         return stats
+
+    def _deactivate_missing_images(self, found_ids: set) -> int:
+        """
+        이번 스캔에서 발견되지 않은 기존 DB row 들을 is_active=0 으로 soft deactivate.
+
+        삭제하지 않고 비활성화만 하여 이력을 보존한다. list_images / get_*_images
+        조회는 is_active=1 만 반환하므로, 사라진(.sif 삭제/교체) 이미지로의 잡 제출을
+        막는다.
+
+        안전장치: found_ids 가 비어 있으면(스캔 실패/0건 가능성) 전체 비활성화를 막기
+        위해 스킵하고 경고만 남긴다.
+
+        Args:
+            found_ids: 이번 스캔에서 DB 저장에 성공한 이미지 id 집합
+
+        Returns:
+            비활성화된(is_active 1→0) row 수
+        """
+        if not self.db:
+            logger.warning("No DB connection available; skip deactivate")
+            return 0
+
+        if not found_ids:
+            logger.warning(
+                "Scan found 0 images; skipping deactivate to avoid disabling "
+                "all images (possible scan error)")
+            return 0
+
+        try:
+            cursor = self.db.cursor()
+            placeholders = ','.join('?' for _ in found_ids)
+            now = datetime.now().isoformat()
+            # 현재 활성(is_active=1)이지만 이번 스캔에 없는 row 만 비활성화
+            cursor.execute(f'''
+                UPDATE apptainer_images
+                SET is_active = 0, updated_at = ?
+                WHERE is_active = 1 AND id NOT IN ({placeholders})
+            ''', (now, *found_ids))
+            deactivated = cursor.rowcount
+            self.db.commit()
+
+            if deactivated > 0:
+                logger.info(f"Deactivated {deactivated} missing image(s) (soft, is_active=0)")
+            return deactivated
+
+        except Exception as e:
+            logger.error(f"Failed to deactivate missing images: {e}")
+            if self.db:
+                self.db.rollback()
+            return 0
 
     def _save_image_to_db(self, image: ApptainerImage) -> bool:
         """

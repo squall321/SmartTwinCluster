@@ -35,7 +35,7 @@ def get_apptainer_image_by_id(image_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM apptainer_images WHERE id = ?", (image_id,))
+    cursor.execute("SELECT * FROM apptainer_images WHERE id = ? AND is_active = 1", (image_id,))
     row = cursor.fetchone()
     conn.close()
 
@@ -332,7 +332,7 @@ def submit_lsdyna_jobs():
 
                 conn = get_db_connection()
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM apptainer_images WHERE name LIKE ?", (f"%{image_id}%",))
+                cursor.execute("SELECT * FROM apptainer_images WHERE name LIKE ? AND is_active = 1", (f"%{image_id}%",))
                 image_row = cursor.fetchone()
                 conn.close()
 

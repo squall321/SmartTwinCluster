@@ -341,6 +341,10 @@ ROLE_DEFINITIONS = _load_role_definitions()
 # 운영 판별: MOCK_MODE=false = production (app.py 와 동일 변수 재사용).
 IS_PROD = os.getenv('MOCK_MODE', 'true').lower() == 'false'
 
+# 파티션 접근제어 enforce 토글: 기본 'false'=shadow(로그만+통과) 유지 → 무중단 배포.
+# PARTITION_ENFORCE=true 로 켜면 위반 요청을 403 으로 차단(코드 재배포 없이 env 토글).
+PARTITION_ENFORCE = os.getenv('PARTITION_ENFORCE', 'false').lower() == 'true'
+
 # SSO-off 전권 가드: 운영에서 SSO 비활성이면 모든 요청이 admin 전권(인증 무력화).
 # 기동거부까진 하지 않고(기존 동작 보존) 모듈 로드 시 1회 경고만 출력.
 if IS_PROD and not SSO_ENABLED:
@@ -354,8 +358,11 @@ if IS_PROD and not SSO_ENABLED:
 def partition_allowed(partition_arg='partition'):
     """잡 제출 등에서 요청 파티션이 g.user.role 의 allowed_partitions 에 있는지 검사.
 
-    ★shadow 모드★: 위반해도 차단(403)하지 않고 WARN 로그만 남긴다(실트래픽으로 룰 검증).
-    실제 차단으로 전환하려면 아래 logger 경고 부분을 'return jsonify(...), 403' 으로 바꾸면 된다.
+    ★shadow→enforce 전환 가능★: PARTITION_ENFORCE 환경변수로 동작 토글.
+    - PARTITION_ENFORCE=false (기본): shadow 모드 — 위반해도 차단하지 않고 'DENY-WOULD-BE'
+      WARN 로그만 남기고 통과(실트래픽으로 룰 검증). 이번 배포는 기존 동작 그대로 = 무중단.
+    - PARTITION_ENFORCE=true: enforce 모드 — 위반 시 'DENY' 로그 후 403 차단.
+    운영이 룰 검증 후 env 토글만으로(코드 재배포 없이) 차단 시작 가능.
 
     Args:
         partition_arg: 요청 JSON body 또는 view kwarg 에서 파티션명을 읽을 키 이름.
@@ -371,11 +378,23 @@ def partition_allowed(partition_arg='partition'):
             body = request.get_json(silent=True) or {}
             part = body.get(partition_arg) or kwargs.get(partition_arg)
             if part and '*' not in allowed and part not in allowed:
+                # enforce/shadow 공통으로 위반을 로그. prefix 로 모드 구분.
+                prefix = 'DENY' if PARTITION_ENFORCE else 'DENY-WOULD-BE'
                 print(
-                    f"[partition shadow] DENY-WOULD-BE user={user.get('username')} "
-                    f"role={role} partition={part} allowed={allowed} path={request.path}"
+                    f"[partition {'enforce' if PARTITION_ENFORCE else 'shadow'}] {prefix} "
+                    f"user={user.get('username')} role={role} partition={part} "
+                    f"allowed={allowed} path={request.path}"
                 )
-            # shadow: 항상 통과
+                if PARTITION_ENFORCE:
+                    # enforce: 위반 차단
+                    return jsonify({
+                        'success': False,
+                        'error': 'partition not allowed for your role',
+                        'role': role,
+                        'partition': part,
+                        'allowed_partitions': allowed,
+                    }), 403
+            # shadow(기본) 또는 위반 아님: 통과
             return f(*args, **kwargs)
         return wrapper
     return decorator
