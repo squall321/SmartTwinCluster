@@ -9,6 +9,9 @@ from datetime import datetime
 import logging
 import os
 
+# JWT 인증 미들웨어 (변경계 라우트 보호)
+from middleware.jwt_middleware import jwt_required, permission_required
+
 # 로거 설정
 logging.basicConfig(
     level=logging.INFO,
@@ -234,6 +237,8 @@ def get_node_detail(node_name):
 
 
 @node_bp.route('/nodes/drain', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def drain_node():
     """
     노드를 DRAIN 상태로 변경
@@ -298,6 +303,8 @@ def drain_node():
 
 
 @node_bp.route('/nodes/resume', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def resume_node():
     """
     노드를 RESUME 상태로 변경
@@ -358,6 +365,8 @@ def resume_node():
 
 
 @node_bp.route('/nodes/reboot', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
 def reboot_node():
     """
     노드를 재부팅
@@ -444,6 +453,182 @@ def reboot_node():
         logger.error(f"Error rebooting node: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@node_bp.route('/nodes/down', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
+def down_node():
+    """
+    노드를 DOWN 상태로 변경 (drain_node 복제, State=DOWN, reason 필수)
+    POST /api/nodes/down
+    Body: { "node_name": "cn01", "reason": "hardware failure", "dry_run": false }
+    """
+    try:
+        data = request.get_json()
+        if data is None:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid JSON or Content-Type. Expected application/json'
+            }), 400
+
+        node_name = data.get('node_name')
+        reason = data.get('reason')
+        dry_run = bool(data.get('dry_run', False))
+
+        if not node_name:
+            return jsonify({
+                'success': False,
+                'error': 'node_name is required'
+            }), 400
+
+        # DOWN 은 사유 필수
+        if not reason or not str(reason).strip():
+            return jsonify({
+                'success': False,
+                'error': 'reason is required for DOWN state'
+            }), 400
+
+        # 실제 실행될 scontrol 명령 (절대경로)
+        slurm_cmd = [SCONTROL_PATH, 'update', f'NodeName={node_name}',
+                     'State=DOWN', f'Reason="{reason}"']
+
+        # dry_run: 실제 실행 없이 명령 문자열만 반환
+        if dry_run:
+            return jsonify({
+                'success': True,
+                'dry_run': True,
+                'command': ' '.join(slurm_cmd),
+                'node_name': node_name,
+                'reason': reason,
+                'timestamp': datetime.now().isoformat()
+            })
+
+        if MOCK_MODE:
+            # Mock 모드에서는 성공으로 간주
+            logger.info(f"🎭 Mock: Setting node {node_name} DOWN with reason: {reason}")
+            success = True
+        else:
+            # 실제 Slurm 명령어 실행 (전체 경로 사용)
+            success, stdout, stderr = run_slurm_command(
+                slurm_cmd,
+                use_sudo=True  # 🔧 sudo 권한 사용
+            )
+
+            if not success:
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to set node DOWN',
+                    'details': stderr
+                }), 500
+
+        # 이력 기록
+        history_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'action': 'down',
+            'node_name': node_name,
+            'reason': reason,
+            'success': True
+        }
+        node_history.append(history_entry)
+
+        return jsonify({
+            'success': True,
+            'message': f'Node {node_name} set to DOWN successfully',
+            'node_name': node_name,
+            'reason': reason,
+            'mode': 'mock' if MOCK_MODE else 'production',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Error setting node DOWN: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@node_bp.route('/nodes/undrain', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
+def undrain_node():
+    """
+    노드 drain 사유만 해제 (State=UNDRAIN). 잡은 유지됨 (resume_node 복제)
+    POST /api/nodes/undrain
+    Body: { "node_name": "cn01", "dry_run": false }
+    """
+    try:
+        data = request.get_json()
+        if data is None:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid JSON or Content-Type. Expected application/json'
+            }), 400
+
+        node_name = data.get('node_name')
+        dry_run = bool(data.get('dry_run', False))
+
+        if not node_name:
+            return jsonify({
+                'success': False,
+                'error': 'node_name is required'
+            }), 400
+
+        # 실제 실행될 scontrol 명령 (절대경로)
+        slurm_cmd = [SCONTROL_PATH, 'update', f'NodeName={node_name}', 'State=UNDRAIN']
+
+        # dry_run: 실제 실행 없이 명령 문자열만 반환
+        if dry_run:
+            return jsonify({
+                'success': True,
+                'dry_run': True,
+                'command': ' '.join(slurm_cmd),
+                'node_name': node_name,
+                'timestamp': datetime.now().isoformat()
+            })
+
+        if MOCK_MODE:
+            # Mock 모드에서는 성공으로 간주
+            logger.info(f"🎭 Mock: Undraining node {node_name}")
+            success = True
+        else:
+            # 실제 Slurm 명령어 실행 (전체 경로 사용)
+            success, stdout, stderr = run_slurm_command(
+                slurm_cmd,
+                use_sudo=True  # 🔧 sudo 권한 사용
+            )
+
+            if not success:
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to undrain node',
+                    'details': stderr
+                }), 500
+
+        # 이력 기록
+        history_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'action': 'undrain',
+            'node_name': node_name,
+            'success': True
+        }
+        node_history.append(history_entry)
+
+        return jsonify({
+            'success': True,
+            'message': f'Node {node_name} undrained successfully',
+            'node_name': node_name,
+            'mode': 'mock' if MOCK_MODE else 'production',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Error undraining node: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)

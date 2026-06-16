@@ -309,7 +309,7 @@ print("✅ Job Logs API registered: /api/jobs/<job_id>/logs")
 
 # 읽기전용 Slurm 관리 API 등록 (/api/slurm/diag, /fairshare, /partitions, /controller/ping, /jobs/priority, /jobs/<id>/stat)
 app.register_blueprint(slurm_admin_bp)
-print("✅ Slurm Admin API registered: /api/slurm/{diag,fairshare,partitions,controller/ping,jobs/priority,jobs/<id>/stat}")
+print("✅ Slurm Admin API registered: /api/slurm/ read{diag,fairshare,partitions,controller/ping,jobs/priority,jobs/<id>/stat} + write{jobs/<id>/[requeue,requeuehold,priority,nice,top], PATCH jobs/<id>, partitions/<n>/state, PATCH partitions/<n>}")
 
 # Initialize template watcher (Hot Reload)
 try:
