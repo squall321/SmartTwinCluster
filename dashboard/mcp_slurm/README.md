@@ -71,11 +71,37 @@ MCP 서버는 **`SLURM_MCP_TOKEN` 환경변수의 토큰을 그대로 `Authoriza
 ## 실행법
 
 ```bash
-# 1) 의존성 설치 (오프라인 환경이면 사내 미러/휠 사용)
+# 1) 의존성 설치
+#  [오프라인 운영서 — 권장]  repo 동봉 wheel 로 venv 생성 + 설치 + 검증을 한 번에:
+./install_offline.sh                 # ./venv 생성 (OS/파이썬 버전 자동 감지)
+#  [인터넷 가능 환경]
 pip install -r requirements.txt
 
 # 2) 서버 실행 (stdio 로 대기 — 보통은 직접 실행하지 않고 클라이언트가 spawn)
-python server.py
+./venv/bin/python server.py
+```
+
+### 오프라인 설치 (인터넷 없는 운영서)
+
+`mcp` SDK + 의존성(pydantic-core 등 네이티브 포함)을 repo 에 동봉했다 — `git pull` 만으로 받아간다.
+`.gitignore` 가 일반 `*.whl` 은 제외하지만 `python_wheels/mcp/**` 만 예외로 추적한다.
+
+| OS | 파이썬 | wheel 위치 |
+| --- | --- | --- |
+| Ubuntu 22.04 | 3.10 (cp310) | `offline_packages/python_wheels/mcp/python3.10/` |
+| Ubuntu 22.04 (alt) | 3.12 | `offline_packages/python_wheels/mcp/python3.12/` |
+| Ubuntu 24.04 | 3.12 (cp312) | `offline_packages_2404/python_wheels/mcp/python3.12/` |
+
+`install_offline.sh` 가 OS/파이썬 버전을 감지해 알맞은 디렉토리를 골라
+`pip install --no-index --find-links=<wheel dir>` (인터넷 미사용)로 설치한다.
+wheel 갱신이 필요하면 인터넷 되는 PC 에서:
+
+```bash
+python3 -m pip download "mcp>=1.2.0,<2.0.0" \
+  --python-version 3.10 --abi cp310 --implementation cp \
+  --platform manylinux2014_x86_64 --platform manylinux_2_17_x86_64 --platform any \
+  --only-binary=:all: --dest offline_packages/python_wheels/mcp/python3.10
+# (24.04 는 --python-version 3.12 --abi cp312 로, _2404 디렉토리에)
 ```
 
 환경변수:

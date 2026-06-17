@@ -21,6 +21,8 @@ offline_packages/**/*.deb
 offline_packages/**/*.tar.gz
 offline_packages/**/*.tar.bz2
 offline_packages/**/*.whl
+# 예외: MCP 서버 의존성 wheel 은 git 으로 동봉(오프라인 운영서가 받아가게).
+!offline_packages/python_wheels/mcp/**/*.whl
 offline_packages/**/*.rpm
 offline_packages/**/*.run
 offline_packages/**/*.iso
@@ -36,6 +38,8 @@ offline_packages_2404/**/*.deb
 offline_packages_2404/**/*.tar.gz
 offline_packages_2404/**/*.tar.bz2
 offline_packages_2404/**/*.whl
+# 예외: MCP 서버 의존성 wheel 은 git 으로 동봉(오프라인 운영서가 받아가게).
+!offline_packages_2404/python_wheels/mcp/**/*.whl
 offline_packages_2404/**/*.rpm
 offline_packages_2404/**/*.run
 offline_packages_2404/**/*.iso
