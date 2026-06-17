@@ -24,7 +24,17 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from werkzeug.utils import secure_filename
 from template_validator import TemplateValidator
-from middleware.jwt_middleware import jwt_required, permission_required, ROLE_DEFINITIONS
+from middleware.jwt_middleware import (
+    jwt_required, permission_required, ROLE_DEFINITIONS,
+    is_partition_allowed, PARTITION_ENFORCE,
+)
+
+
+class PartitionNotAllowed(Exception):
+    """web_user 의 role 이 요청 파티션에 접근 불가 — submit/preview 가 403 으로 변환."""
+    def __init__(self, role, partition, allowed):
+        self.role, self.partition, self.allowed = role, partition, allowed
+        super().__init__(f"partition '{partition}' not allowed for role '{role}' (allowed={allowed})")
 
 # 절대 경로 import (systemd 환경에서 PATH 제한으로 필요)
 from slurm_commands import SSH, SBATCH
@@ -702,6 +712,23 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
     slurm_config = template['slurm'].copy()
     slurm_config.update(job_config.get('slurm_overrides', {}))
 
+    # ── 파티션 접근권한 검사 (role 기반, 최종 확정된 partition 기준) ──
+    # submit_job 이 multipart/form-data 라 @partition_allowed 데코레이터는 body 의
+    # partition 을 못 읽는다. partition 은 여기서 template+override 병합으로 확정되므로
+    # 이 지점에서 검사한다(데코레이터/잡제출 공유 헬퍼 is_partition_allowed).
+    # PARTITION_ENFORCE=false(기본)=shadow 로그만, true=PartitionNotAllowed→호출측 403.
+    _web_role = job_config.get('web_role', 'user')
+    _part = slurm_config.get('partition')
+    _ok, _allowed = is_partition_allowed(_web_role, _part)
+    if not _ok:
+        logger.warning(
+            f"[partition {'enforce' if PARTITION_ENFORCE else 'shadow'}] "
+            f"{'DENY' if PARTITION_ENFORCE else 'DENY-WOULD-BE'} "
+            f"role={_web_role} partition={_part} allowed={_allowed} job={job_config.get('job_name')}"
+        )
+        if PARTITION_ENFORCE:
+            raise PartitionNotAllowed(_web_role, _part, _allowed)
+
     # Slurm 헤더 생성
     script = "#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_config.get('job_name', template['template']['name'])}\n"
@@ -1082,6 +1109,16 @@ def submit_job():
                     'warnings': warnings
                 })
 
+        except PartitionNotAllowed as e:
+            # 파티션 접근권한 위반 (PARTITION_ENFORCE=true 일 때만 발생) → 403
+            return jsonify({
+                'success': False,
+                'error': 'partition not allowed for your role',
+                'role': e.role,
+                'partition': e.partition,
+                'allowed_partitions': e.allowed,
+                'request_id': request_id
+            }), 403
         except Exception as e:
             log_error(request_id, ErrorCode.SLURM_SCRIPT_GENERATION_FAILED, 'Script generation failed', {
                 'error': str(e)
@@ -1370,6 +1407,17 @@ def preview_script():
             'error': str(e),
             'request_id': request_id
         }), 404
+
+    except PartitionNotAllowed as e:
+        # 파티션 접근권한 위반 (PARTITION_ENFORCE=true 일 때만) → 403
+        return jsonify({
+            'success': False,
+            'error': 'partition not allowed for your role',
+            'role': e.role,
+            'partition': e.partition,
+            'allowed_partitions': e.allowed,
+            'request_id': request_id
+        }), 403
 
     except Exception as e:
         log_error(request_id, ErrorCode.INTERNAL_ERROR, 'Script preview failed', {

@@ -355,6 +355,24 @@ if IS_PROD and not SSO_ENABLED:
     )
 
 
+def is_partition_allowed(role, partition):
+    """role 의 allowed_partitions 기준 partition 허용 여부 (순수 판정 — 로그/차단 없음).
+
+    Returns (allowed: bool, allowed_partitions: list).
+    partition 미지정(빈값) / 와일드카드('*') / 허용목록 포함 → (True, list).
+    데코레이터(@partition_allowed)와 잡 제출 경로(generate_slurm_script)가 공유한다.
+    """
+    # ★안전장치★: 권한모델 미배포(YAML roles 없음 → ROLE_DEFINITIONS 비었음)이거나
+    # 해당 role 정의가 없으면 강제하지 않는다(전부 허용). YAML roles 를 운영서에
+    # 반영하기 전 PARTITION_ENFORCE 를 켜도 정상 제출이 막히지 않게(무중단).
+    if not ROLE_DEFINITIONS or role not in ROLE_DEFINITIONS:
+        return True, []
+    allowed = (ROLE_DEFINITIONS.get(role) or {}).get('allowed_partitions', [])
+    if not partition or '*' in allowed or partition in allowed:
+        return True, allowed
+    return False, allowed
+
+
 def partition_allowed(partition_arg='partition'):
     """잡 제출 등에서 요청 파티션이 g.user.role 의 allowed_partitions 에 있는지 검사.
 
@@ -372,12 +390,11 @@ def partition_allowed(partition_arg='partition'):
         def wrapper(*args, **kwargs):
             user = g.get('user') or {}
             role = user.get('role', 'user')
-            role_def = ROLE_DEFINITIONS.get(role) or {}
-            allowed = role_def.get('allowed_partitions', [])
             # 요청 파티션 추출 (body 우선, 없으면 view kwarg). 없으면 클러스터 기본값 사용 → 통과.
             body = request.get_json(silent=True) or {}
             part = body.get(partition_arg) or kwargs.get(partition_arg)
-            if part and '*' not in allowed and part not in allowed:
+            ok, allowed = is_partition_allowed(role, part)
+            if not ok:
                 # enforce/shadow 공통으로 위반을 로그. prefix 로 모드 구분.
                 prefix = 'DENY' if PARTITION_ENFORCE else 'DENY-WOULD-BE'
                 print(
