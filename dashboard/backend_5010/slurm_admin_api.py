@@ -17,6 +17,7 @@ import os
 from flask import Blueprint, jsonify, request
 
 from middleware.jwt_middleware import jwt_required, permission_required
+from audit_log import log_admin_action, audit_from_scontrol_args
 
 from slurm_commands import (
     get_sdiag,
@@ -397,6 +398,10 @@ def _run_scontrol_mutation(args, dry_run, success_message):
             'error': (result.stderr or 'scontrol failed').strip(),
             'command': command,
         }, 500
+
+    # 감사 기록: 실제 변경 성공만(dry_run/mock 은 위에서 이미 반환되어 여기 안 옴)
+    _action, _target = audit_from_scontrol_args(args)
+    log_admin_action(_action, _target, detail={'command': command})
 
     return {
         'success': True,

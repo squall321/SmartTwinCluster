@@ -181,3 +181,20 @@ INSERT OR IGNORE INTO user_preferences (user_id, theme, dashboard_layout) VALUES
 -- 초기 클러스터 그룹 구성 (initialData.ts와 일치)
 INSERT OR IGNORE INTO cluster_config (id, config) VALUES
 (1, '{"groups": [{"id": 1, "name": "Group 1", "partitionName": "group1", "qosName": "group1_qos", "allowedCoreSizes": [8192], "color": "#3b82f6", "description": "Large scale jobs", "nodeCount": 64, "totalCores": 8192, "nodes": []}, {"id": 2, "name": "Group 2", "partitionName": "group2", "qosName": "group2_qos", "allowedCoreSizes": [1024], "color": "#10b981", "description": "Medium jobs", "nodeCount": 64, "totalCores": 8192, "nodes": []}, {"id": 3, "name": "Group 3", "partitionName": "group3", "qosName": "group3_qos", "allowedCoreSizes": [1024], "color": "#f59e0b", "description": "Medium jobs", "nodeCount": 64, "totalCores": 8192, "nodes": []}, {"id": 4, "name": "Group 4", "partitionName": "group4", "qosName": "group4_qos", "allowedCoreSizes": [128], "color": "#ef4444", "description": "Small jobs", "nodeCount": 100, "totalCores": 12800, "nodes": []}, {"id": 5, "name": "Group 5", "partitionName": "group5", "qosName": "group5_qos", "allowedCoreSizes": [128], "color": "#8b5cf6", "description": "Small jobs", "nodeCount": 14, "totalCores": 1792, "nodes": []}, {"id": 6, "name": "Group 6", "partitionName": "group6", "qosName": "group6_qos", "allowedCoreSizes": [8, 16, 32, 64], "color": "#ec4899", "description": "Flexible jobs", "nodeCount": 64, "totalCores": 8192, "nodes": []}], "totalNodes": 370, "totalCores": 47360, "clusterName": "HPC-Cluster-370", "controllerIp": "192.168.1.10"}');
+
+-- ============================================================================
+-- 감사 로그 (변경계 Slurm 관리 작업 추적: 노드 drain/down, 파티션 state, 잡 cancel 등)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    username    TEXT,
+    action      TEXT NOT NULL,   -- 점 표기: node.drain, partition.update, job.cancel 등
+    target      TEXT,            -- 노드명 / 파티션명 / 잡ID
+    detail      TEXT,            -- JSON: reason, command 등
+    result      TEXT DEFAULT 'success',
+    source_ip   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);

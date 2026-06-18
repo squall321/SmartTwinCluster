@@ -151,6 +151,8 @@ from job_logs_api import job_logs_bp
 
 # 읽기전용 Slurm 관리 API (sdiag/sshare/sprio/sstat/scontrol)
 from slurm_admin_api import slurm_admin_bp
+from audit_api import audit_bp
+from audit_log import ensure_audit_table, log_admin_action
 
 app = Flask(__name__)
 CORS(app)
@@ -310,6 +312,9 @@ print("✅ Job Logs API registered: /api/jobs/<job_id>/logs")
 # 읽기전용 Slurm 관리 API 등록 (/api/slurm/diag, /fairshare, /partitions, /controller/ping, /jobs/priority, /jobs/<id>/stat)
 app.register_blueprint(slurm_admin_bp)
 print("✅ Slurm Admin API registered: /api/slurm/ read{diag,fairshare,partitions,controller/ping,jobs/priority,jobs/<id>/stat} + write{jobs/<id>/[requeue,requeuehold,priority,nice,top], PATCH jobs/<id>, partitions/<n>/state, PATCH partitions/<n>}")
+app.register_blueprint(audit_bp)
+ensure_audit_table()
+print("✅ Audit Log API registered: /api/audit (변경계 작업 추적)")
 
 # Initialize template watcher (Hot Reload)
 try:
@@ -965,6 +970,7 @@ def cancel_job(job_id):
             from slurm_commands import run_slurm_command
             run_slurm_command([SCANCEL, job_id], timeout=5)
             print(f"✅ Job {job_id} cancelled")
+            log_admin_action('job.cancel', job_id)
             return jsonify({
                 'success': True,
                 'mode': 'production',
@@ -992,6 +998,7 @@ def hold_job(job_id):
         else:
             get_scontrol('hold', job_id, timeout=5)
             print(f"✅ Job {job_id} held")
+            log_admin_action('job.hold', job_id)
             return jsonify({
                 'success': True,
                 'mode': 'production',
@@ -1019,6 +1026,7 @@ def release_job(job_id):
         else:
             get_scontrol('release', job_id, timeout=5)
             print(f"✅ Job {job_id} released")
+            log_admin_action('job.release', job_id)
             return jsonify({
                 'success': True,
                 'mode': 'production',

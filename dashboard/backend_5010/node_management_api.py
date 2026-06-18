@@ -11,6 +11,7 @@ import os
 
 # JWT 인증 미들웨어 (변경계 라우트 보호)
 from middleware.jwt_middleware import jwt_required, permission_required
+from audit_log import log_admin_action
 
 # 로거 설정
 logging.basicConfig(
@@ -284,6 +285,7 @@ def drain_node():
             'success': True
         }
         node_history.append(history_entry)
+        log_admin_action('node.drain', node_name, detail={'reason': reason})
         
         return jsonify({
             'success': True,
@@ -347,6 +349,7 @@ def resume_node():
             'success': True
         }
         node_history.append(history_entry)
+        log_admin_action('node.resume', node_name)
         
         return jsonify({
             'success': True,
@@ -439,6 +442,7 @@ def reboot_node():
             'success': True
         }
         node_history.append(history_entry)
+        log_admin_action('node.reboot', node_name, detail={'reason': reason})
         
         return jsonify({
             'success': True,
@@ -535,6 +539,7 @@ def down_node():
             'success': True
         }
         node_history.append(history_entry)
+        log_admin_action('node.down', node_name, detail={'reason': reason})
 
         return jsonify({
             'success': True,
@@ -618,6 +623,7 @@ def undrain_node():
             'success': True
         }
         node_history.append(history_entry)
+        log_admin_action('node.undrain', node_name)
 
         return jsonify({
             'success': True,
