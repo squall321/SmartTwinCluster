@@ -19,6 +19,7 @@ import Reports from './Reports';
 import ThemeToggle from './ThemeToggle';
 import HealthCheck from './HealthCheck';
 import NodeManagement from './NodeManagement';
+import SlurmManagement from './SlurmManagement';
 import VNCSessionManager from './VNCSessionManager';
 import SSHSessionManager from './SSHSessionManager';
 import MoonlightEmbedded from './MoonlightEmbedded';
@@ -150,9 +151,13 @@ export const Dashboard: React.FC = () => {
       jobs: 'Job Management',
       templates: 'Job Templates',
       nodes: 'Node Management',
+      slurm: 'Slurm 관리',
       data: 'Data Management',
       vnc: 'VNC Sessions',
       ssh: 'SSH Sessions',
+      apptainer: 'Apptainer Images',
+      upload: 'Upload',
+      moonlight: 'Moonlight Streaming',
     };
     return titles[activeTab];
   };
@@ -387,6 +392,11 @@ export const Dashboard: React.FC = () => {
             {/* Node Management */}
             {activeTab === 'nodes' && (
               <NodeManagement />
+            )}
+
+            {/* Slurm 관리 (진단/파티션/잡제어/공정공유) */}
+            {activeTab === 'slurm' && (
+              <SlurmManagement />
             )}
 
             {/* Data Management */}
