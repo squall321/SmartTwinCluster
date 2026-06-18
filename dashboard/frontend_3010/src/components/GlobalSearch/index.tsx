@@ -35,7 +35,7 @@ const GlobalSearch: React.FC<GlobalSearchProps> = ({ isOpen, onClose }) => {
   const [searchType, setSearchType] = useState<'all' | 'jobs' | 'nodes' | 'files' | 'templates'>('all');
   
   const inputRef = useRef<HTMLInputElement>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Focus input when opened
   useEffect(() => {

@@ -25,7 +25,7 @@ interface TemplateManagementProps {
 export const TemplateManagement: React.FC<TemplateManagementProps> = ({
   mode = 'production'
 }) => {
-  const { templates, loading, error, refetch } = useTemplates();
+  const { templates, loading, error, refreshTemplates } = useTemplates();
   const { user, isAdmin } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -96,10 +96,10 @@ export const TemplateManagement: React.FC<TemplateManagementProps> = ({
     }
 
     try {
-      const response = await apiDelete(`/api/jobs/templates/${template.template_id}`);
+      const response = await apiDelete<{ success: boolean; error?: string }>(`/api/jobs/templates/${template.template_id}`);
       if (response.success) {
         toast.success('Template deleted successfully');
-        refetch();
+        refreshTemplates();
       } else {
         toast.error(response.error || 'Failed to delete template');
       }
@@ -110,7 +110,7 @@ export const TemplateManagement: React.FC<TemplateManagementProps> = ({
   };
 
   const handleSave = (template: Template) => {
-    refetch();
+    refreshTemplates();
     setShowEditor(false);
     setEditingTemplate(null);
   };

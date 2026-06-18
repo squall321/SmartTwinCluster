@@ -777,6 +777,7 @@ export interface Category {
   description: string;
   icon: string;
   color: string;
+  count?: number;
 }
 
 export const TEMPLATE_CATEGORIES: Category[] = [

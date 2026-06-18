@@ -100,7 +100,7 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
   const [isLoadingFile, setIsLoadingFile] = useState(false);
 
   const logContainerRef = useRef<HTMLPreElement>(null);
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fetch job info
   const fetchJobInfo = useCallback(async () => {

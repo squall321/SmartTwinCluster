@@ -8,6 +8,7 @@ export const convertToSlurmYAML = (config: ClusterConfig): string => {
 
   // 컨트롤러 노드 (첫 번째 그룹의 첫 번째 노드를 컨트롤러로 가정)
   const controllerNode = groups[0]?.nodes[0] || {
+    id: 'controller-0',
     hostname: 'controller',
     ipAddress: controllerIp,
     cores: 128,

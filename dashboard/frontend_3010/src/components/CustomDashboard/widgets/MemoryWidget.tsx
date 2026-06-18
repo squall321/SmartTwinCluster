@@ -3,6 +3,17 @@ import { MemoryStick, GripVertical, X } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';
 import { apiGet } from '../../../utils/api';
 
+interface PrometheusInstantResult {
+  metric?: Record<string, string>;
+  value: [number, string];
+}
+
+interface PrometheusQueryResponse {
+  data?: {
+    result?: PrometheusInstantResult[];
+  };
+}
+
 const MemoryWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) => {
   const [memoryData, setMemoryData] = useState({
     used: 0,
@@ -26,12 +37,12 @@ const MemoryWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode })
     if (mode === 'production') {
       try {
         // Memory usage query
-        const usageResponse = await apiGet('/api/prometheus/query', {
+        const usageResponse = await apiGet<PrometheusQueryResponse>('/api/prometheus/query', {
           query: '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'
         });
-        
+
         // Total memory query
-        const totalResponse = await apiGet('/api/prometheus/query', {
+        const totalResponse = await apiGet<PrometheusQueryResponse>('/api/prometheus/query', {
           query: 'node_memory_MemTotal_bytes / (1024^3)'
         });
         

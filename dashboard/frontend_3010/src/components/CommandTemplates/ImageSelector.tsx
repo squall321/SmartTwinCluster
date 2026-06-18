@@ -43,7 +43,7 @@ export const ImageSelector: React.FC<ImageSelectorProps> = ({
     setError(null);
 
     try {
-      const response = await apiGet(`/api/apptainer/images?partition=${partition}`);
+      const response = await apiGet<{ images?: ApptainerImage[] }>(`/api/apptainer/images?partition=${partition}`);
 
       if (response.images) {
         setImages(response.images);

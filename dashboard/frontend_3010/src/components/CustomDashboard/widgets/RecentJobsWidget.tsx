@@ -11,6 +11,23 @@ interface Job {
   submitTime: string;
 }
 
+interface JobApiItem {
+  job_id?: string;
+  id?: string;
+  job_name?: string;
+  name?: string;
+  job_state?: string;
+  state?: string;
+  user_name?: string;
+  user?: string;
+  submit_time?: string;
+  submitTime?: string;
+}
+
+interface JobsResponse {
+  jobs?: JobApiItem[];
+}
+
 const RecentJobsWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,10 +46,10 @@ const RecentJobsWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mod
     // Production 모드: 실제 API 시도
     if (mode === 'production') {
       try {
-        const response = await apiGet('/api/jobs?limit=5');
+        const response = await apiGet<JobsResponse>('/api/jobs?limit=5');
         if (response?.jobs && Array.isArray(response.jobs)) {
           // 실제 API 응답을 위젯 형식으로 변환
-          const formattedJobs = response.jobs.slice(0, 5).map((job: any) => ({
+          const formattedJobs = response.jobs.slice(0, 5).map((job: JobApiItem) => ({
             id: job.job_id || job.id || 'N/A',
             name: job.job_name || job.name || 'Unknown',
             state: job.job_state || job.state || 'UNKNOWN',

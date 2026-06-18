@@ -21,7 +21,7 @@ interface UseUploadProgressResult {
   unsubscribe: (uploadId: string) => void;
 }
 
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:5011/ws';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:5011/ws';
 
 export const useUploadProgress = (
   options: UseUploadProgressOptions = {}
@@ -33,7 +33,7 @@ export const useUploadProgress = (
   const [error, setError] = useState<Error | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscribedIdsRef = useRef<Set<string>>(new Set(uploadIds));
 
   /**

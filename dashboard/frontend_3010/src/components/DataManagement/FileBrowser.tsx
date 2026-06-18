@@ -54,7 +54,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
   const loadFiles = async (path: string) => {
     setLoading(true);
     try {
-      const response = await storageApi.listFiles(path, storageType);
+      const response = await storageApi.listFiles(path, storageType === 'shared' ? 'data' : 'scratch');
       
       if (response.success) {
         if (response.mode === 'production' && response.data) {
@@ -309,6 +309,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
             selectedFiles={selectedFiles}
             onFileClick={handleFileClick}
             onFileSelect={handleFileSelect}
+            onSelectAll={handleSelectAll}
           />
         )}
       </div>

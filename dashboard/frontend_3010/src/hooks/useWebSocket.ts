@@ -49,7 +49,7 @@ export const useWebSocket = (options: UseWebSocketOptions): UseWebSocketReturn =
   const [reconnectCount, setReconnectCount] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscribedChannelsRef = useRef<Set<string>>(new Set());
   const reconnectAttemptsRef = useRef(0);
 

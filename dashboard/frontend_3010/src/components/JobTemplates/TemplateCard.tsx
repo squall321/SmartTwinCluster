@@ -180,7 +180,7 @@ const TemplateCard: React.FC<TemplateCardProps> = (
           onClick={() => {
             navigator.clipboard.writeText(template.config.script);
             // 사용자에게 피드백
-            const btn = event?.currentTarget;
+            const btn = event?.currentTarget as HTMLButtonElement;
             if (btn) {
               const originalTitle = btn.title;
               btn.title = 'Copied!';

@@ -4,6 +4,7 @@ export interface SlurmNode {
   hostname: string;
   ipAddress: string;
   cores: number;
+  cpus?: number;
   memory: number; // MB
   state: 'idle' | 'allocated' | 'mixed' | 'down';
   groupId: number;

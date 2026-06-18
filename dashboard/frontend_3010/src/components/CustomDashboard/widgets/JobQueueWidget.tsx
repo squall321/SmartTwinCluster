@@ -3,6 +3,16 @@ import { Clock, GripVertical, X, Users, AlertCircle } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';
 import { apiGet } from '../../../utils/api';
 
+interface JobQueueItem {
+  [key: string]: unknown;
+}
+
+interface JobsListResponse {
+  jobs?: JobQueueItem[];
+}
+
+type JobsApiResult = JobQueueItem[] | JobsListResponse;
+
 const JobQueueWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) => {
   const [queueData, setQueueData] = useState({
     pending: 0,
@@ -26,8 +36,8 @@ const JobQueueWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode 
     if (mode === 'production') {
       try {
         const [pendingRes, runningRes] = await Promise.all([
-          apiGet('/api/jobs', { state: 'PENDING' }),
-          apiGet('/api/jobs', { state: 'RUNNING' })
+          apiGet<JobsApiResult>('/api/jobs', { state: 'PENDING' }),
+          apiGet<JobsApiResult>('/api/jobs', { state: 'RUNNING' })
         ]);
 
         // Handle direct array response or jobs property

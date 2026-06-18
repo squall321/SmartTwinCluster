@@ -54,7 +54,7 @@ const MetricChart: React.FC<MetricChartProps> = ({ queryResults, mode, originalQ
       const end = new Date();
       const start = new Date(end.getTime() - TIME_RANGES[timeRange].seconds * 1000);
       
-      const response = await apiGet('/api/prometheus/query_range', {
+      const response = await apiGet<{ data?: { result?: any[] } }>('/api/prometheus/query_range', {
         query,
         start: start.toISOString(),
         end: end.toISOString(),

@@ -92,7 +92,7 @@ const FileDownload: React.FC<FileDownloadProps> = ({
 
         if (total > 0 && response.body) {
           const reader = response.body.getReader();
-          const chunks: Uint8Array[] = [];
+          const chunks: BlobPart[] = [];
           let received = 0;
 
           while (true) {

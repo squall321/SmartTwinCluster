@@ -11,10 +11,10 @@ import FileUploadSection from './JobManagement/FileUploadSection';
 import { JobFileUpload } from './JobManagement/JobFileUpload';
 import { createDefaultScript, updateScriptWithFilesSmartly } from './JobManagement/scriptUtils';
 import { API_CONFIG } from '../config/api.config';
-import { ApptainerSelector, ApptainerImage } from './ApptainerSelector';
+import { ApptainerSelector } from './ApptainerSelector';
 import { useTemplates } from '../hooks/useTemplates';
 import { Template } from '../types/template';
-import { ApptainerImageSelector, ApptainerConfig } from './JobManagement/ApptainerImageSelector';
+import { ApptainerImageSelector, ApptainerConfig, ApptainerImage } from './JobManagement/ApptainerImageSelector';
 import { TemplateFileUpload, UploadedFileInfo } from './JobManagement/TemplateFileUpload';
 import { JobLogViewer } from './JobManagement/JobLogViewer';
 
@@ -917,7 +917,7 @@ const JobSubmitModal: React.FC<JobSubmitModalProps> = ({ apiMode, template, onCl
           formDataToSend.append('job_name', formData.jobName);
 
           // 신규 API 엔드포인트로 전송 (TODO: Backend 구현 필요)
-          const response = await fetch(`${API_CONFIG.BASE_URL}/api/jobs/submit`, {
+          const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/jobs/submit`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('token')}`,

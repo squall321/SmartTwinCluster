@@ -6,14 +6,9 @@
 import React, { useState, useCallback } from 'react';
 import { Upload, File, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { FileSchema as TemplateFileSchema, FileRequirement } from '../../types/template';
 
-export interface FileSchema {
-  name: string;  // 사용자에게 표시되는 이름
-  file_key: string;  // 내부 키 (스크립트에서 사용)
-  pattern: string;  // 파일 패턴 (*.stl, *.json 등)
-  description: string;
-  type: 'file' | 'directory';
-  max_size: string;  // "500MB", "1GB" 등
+export interface FileSchema extends FileRequirement {
   validation?: {
     extensions?: string[];
     mime_types?: string[];
@@ -28,10 +23,7 @@ export interface UploadedFileInfo {
 }
 
 interface TemplateFileUploadProps {
-  schema: {
-    required?: FileSchema[];
-    optional?: FileSchema[];
-  };
+  schema: TemplateFileSchema;
   onFilesChange: (files: UploadedFileInfo[]) => void;
   uploadedFiles: UploadedFileInfo[];
   className?: string;

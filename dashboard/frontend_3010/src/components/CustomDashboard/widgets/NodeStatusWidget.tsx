@@ -10,6 +10,14 @@ interface NodeStats {
   down: number;
 }
 
+interface NodeApiItem {
+  state?: string;
+}
+
+interface NodesResponse {
+  nodes?: NodeApiItem[];
+}
+
 const NodeStatusWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) => {
   const [stats, setStats] = useState<NodeStats>({
     total: 0,
@@ -33,21 +41,21 @@ const NodeStatusWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mod
     // Production mode: try real API
     if (mode === 'production') {
       try {
-        const response = await apiGet('/api/nodes');
+        const response = await apiGet<NodesResponse>('/api/nodes');
         if (response?.nodes && Array.isArray(response.nodes)) {
           const nodes = response.nodes;
-          
+
           // Aggregate by node state
-          const allocated = nodes.filter((n: any) => 
-            n.state?.toLowerCase().includes('alloc') || 
+          const allocated = nodes.filter((n: NodeApiItem) =>
+            n.state?.toLowerCase().includes('alloc') ||
             n.state?.toLowerCase().includes('mix')
           ).length;
-          
-          const idle = nodes.filter((n: any) => 
+
+          const idle = nodes.filter((n: NodeApiItem) =>
             n.state?.toLowerCase().includes('idle')
           ).length;
-          
-          const down = nodes.filter((n: any) => 
+
+          const down = nodes.filter((n: NodeApiItem) =>
             n.state?.toLowerCase().includes('down') ||
             n.state?.toLowerCase().includes('drain') ||
             n.state?.toLowerCase().includes('fail')

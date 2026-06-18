@@ -27,6 +27,8 @@ export interface ApptainerConfig {
   default_image?: string;
   required: boolean;
   user_selectable: boolean;
+  bind?: string[];
+  env?: Record<string, string>;
 }
 
 interface ApptainerImageSelectorProps {

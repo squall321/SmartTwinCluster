@@ -10,6 +10,21 @@ interface StorageInfo {
   percentage: number;
 }
 
+interface StorageEntry {
+  path?: string;
+  name?: string;
+  used_gb?: number | string;
+  used?: number | string;
+  total_gb?: number | string;
+  total?: number | string;
+  usage_percent?: number | string;
+  percentage?: number | string;
+}
+
+interface StorageUsageResponse {
+  storages?: StorageEntry[];
+}
+
 const StorageWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) => {
   const [storages, setStorages] = useState<StorageInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,14 +43,14 @@ const StorageWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }
     // Production 모드: 실제 API 시도
     if (mode === 'production') {
       try {
-        const response = await apiGet('/api/storage/usage');
+        const response = await apiGet<StorageUsageResponse>('/api/storage/usage');
         if (response?.storages && Array.isArray(response.storages)) {
           // API 응답을 위젯 형식으로 변환
-          const formatted = response.storages.map((s: any) => ({
+          const formatted = response.storages.map((s: StorageEntry) => ({
             name: s.path || s.name || 'Unknown',
-            used: parseFloat(s.used_gb || s.used || 0),
-            total: parseFloat(s.total_gb || s.total || 1),
-            percentage: parseFloat(s.usage_percent || s.percentage || 0)
+            used: parseFloat(String(s.used_gb || s.used || 0)),
+            total: parseFloat(String(s.total_gb || s.total || 1)),
+            percentage: parseFloat(String(s.usage_percent || s.percentage || 0))
           }));
           setStorages(formatted);
           setUsingMockData(false);

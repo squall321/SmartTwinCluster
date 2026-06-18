@@ -17,7 +17,7 @@ interface ClusterStore extends ClusterConfig {
   addCoreSize: (groupId: number, coreSize: number) => void;
   removeCoreSize: (groupId: number, coreSize: number) => void;
   resetChanges: () => void;
-  applyConfiguration: () => Promise<void>;
+  applyConfiguration: () => Promise<{ success: boolean; mode: string; message: string; details?: any; error?: string }>;
   setApplying: (isApplying: boolean) => void;
 
   // 🆕 그룹 관리 기능

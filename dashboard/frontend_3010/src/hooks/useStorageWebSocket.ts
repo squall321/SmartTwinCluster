@@ -71,8 +71,8 @@ export function useStorageWebSocket(options: WebSocketOptions = {}) {
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // FIXED: useRef로 재연결 카운터 관리 (dependency 문제 해결)
   const reconnectAttemptsRef = useRef(0);

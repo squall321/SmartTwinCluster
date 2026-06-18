@@ -10,6 +10,21 @@ interface GPUInfo {
   temperature: number;
 }
 
+interface PrometheusInstantResult {
+  metric?: {
+    gpu?: string;
+    minor_number?: string;
+    [key: string]: string | undefined;
+  };
+  value: [number, string];
+}
+
+interface PrometheusQueryResponse {
+  data?: {
+    result?: PrometheusInstantResult[];
+  };
+}
+
 const GPUWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) => {
   const [gpus, setGpus] = useState<GPUInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,38 +44,38 @@ const GPUWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) =>
     if (mode === 'production') {
       try {
         // GPU 사용률 쿼리
-        const utilizationResponse = await apiGet('/api/prometheus/query', {
+        const utilizationResponse = await apiGet<PrometheusQueryResponse>('/api/prometheus/query', {
           query: 'nvidia_smi_utilization_gpu_ratio'
         });
-        
+
         // GPU 메모리 쿼리
-        const memoryResponse = await apiGet('/api/prometheus/query', {
+        const memoryResponse = await apiGet<PrometheusQueryResponse>('/api/prometheus/query', {
           query: 'nvidia_smi_memory_used_bytes / nvidia_smi_memory_total_bytes * 100'
         });
-        
+
         // GPU 온도 쿼리
-        const tempResponse = await apiGet('/api/prometheus/query', {
+        const tempResponse = await apiGet<PrometheusQueryResponse>('/api/prometheus/query', {
           query: 'nvidia_smi_temperature_gpu'
         });
-        
+
         // 응답 검증
-        if (utilizationResponse?.data?.result?.length > 0) {
-          const gpuData = utilizationResponse.data.result.map((item: any, index: number) => {
+        if ((utilizationResponse?.data?.result?.length ?? 0) > 0) {
+          const gpuData = utilizationResponse.data!.result!.map((item: PrometheusInstantResult, index: number) => {
             // GPU ID 추출
-            const gpuId = parseInt(item.metric?.gpu || item.metric?.minor_number || index);
+            const gpuId = parseInt(String(item.metric?.gpu || item.metric?.minor_number || index));
             
             // 사용률 (0-100%)
             const utilization = parseFloat(item.value[1]) * 100 || 0;
             
             // 메모리 사용률 찾기
             const memoryItem = memoryResponse?.data?.result?.find(
-              (m: any) => (m.metric?.gpu || m.metric?.minor_number) === String(gpuId)
+              (m: PrometheusInstantResult) => (m.metric?.gpu || m.metric?.minor_number) === String(gpuId)
             );
             const memory = memoryItem ? parseFloat(memoryItem.value[1]) : 0;
-            
+
             // 온도 찾기
             const tempItem = tempResponse?.data?.result?.find(
-              (t: any) => (t.metric?.gpu || t.metric?.minor_number) === String(gpuId)
+              (t: PrometheusInstantResult) => (t.metric?.gpu || t.metric?.minor_number) === String(gpuId)
             );
             const temperature = tempItem ? parseFloat(tempItem.value[1]) : 0;
             

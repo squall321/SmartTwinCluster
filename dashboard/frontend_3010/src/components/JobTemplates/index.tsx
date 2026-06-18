@@ -418,12 +418,12 @@ const JobTemplates: React.FC<JobTemplatesProps> = ({ mode, onUseTemplate }) => {
       {/* Template Editor Modal */}
       {showEditor && (
         <TemplateEditor
-          template={editingTemplate}
+          template={editingTemplate as React.ComponentProps<typeof TemplateEditor>['template']}
           onClose={() => {
             setShowEditor(false);
             setEditingTemplate(null);
           }}
-          onSave={handleSaveTemplate}
+          onSave={() => { if (editingTemplate) handleSaveTemplate(editingTemplate); }}
           mode={mode}
         />
       )}

@@ -25,15 +25,26 @@ export interface Template {
   is_active?: number | boolean;
 }
 
+export interface TemplateMetadataConfig {
+  partition?: string;
+  nodes?: number;
+  cpus?: number;
+  memory?: string;
+  time?: string;
+}
+
 export interface TemplateMetadata {
+  id?: string;
   name: string;
   display_name?: string;
   description: string;
+  category?: string;
   version: string;
   author: string;
   tags: string[];
   requirements?: string[];
   is_public?: boolean;
+  config?: TemplateMetadataConfig;
 }
 
 export interface SlurmConfig {
@@ -52,6 +63,8 @@ export interface ApptainerNormalizedConfig {
   partition?: string;
   default_image?: string;
   allowed_images?: string[];
+  user_selectable?: boolean;
+  image_name?: string;
 }
 
 export interface ScriptConfig {
@@ -72,11 +85,21 @@ export interface FileSchema {
 
 export interface FileRequirement {
   name?: string;
+  file_key?: string;
   description: string;
   pattern?: string;
+  type?: 'file' | 'directory';
   extensions?: string[];
   max_size?: string;
   example?: string;
+}
+
+export interface ApptainerImageSelection {
+  mode: 'fixed' | 'partition' | 'specific' | 'any';
+  partition?: string;
+  default_image?: string;
+  allowed_images?: string[];
+  required?: boolean;
 }
 
 export interface ApptainerConfig {
@@ -84,6 +107,7 @@ export interface ApptainerConfig {
   app?: string;
   bind?: string[];
   env?: Record<string, string>;
+  image_selection?: ApptainerImageSelection;
 }
 
 export interface TemplatesResponse {

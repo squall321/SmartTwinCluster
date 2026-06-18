@@ -10,6 +10,19 @@ interface Alert {
   timestamp: string;
 }
 
+interface NotificationItem {
+  id?: string;
+  type?: string;
+  message?: string;
+  title?: string;
+  timestamp?: string;
+  created_at?: string;
+}
+
+interface NotificationsResponse {
+  notifications?: NotificationItem[];
+}
+
 const AlertsWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode }) => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,10 +41,10 @@ const AlertsWidget: React.FC<WidgetProps> = ({ id, onRemove, isEditMode, mode })
     // Production 모드: 실제 API 시도
     if (mode === 'production') {
       try {
-        const response = await apiGet('/api/notifications', { limit: 5 });
+        const response = await apiGet<NotificationsResponse>('/api/notifications', { limit: 5 });
         if (response?.notifications && Array.isArray(response.notifications)) {
           // API 응답을 위젯 형식으로 변환
-          const mappedAlerts = response.notifications.slice(0, 5).map((n: any) => {
+          const mappedAlerts = response.notifications.slice(0, 5).map((n: NotificationItem) => {
             // 알림 타입 매핑
             let type: 'info' | 'success' | 'warning' | 'error' = 'info';
             const notifType = (n.type || '').toLowerCase();

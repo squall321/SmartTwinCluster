@@ -92,7 +92,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
     const loadPartitions = async () => {
       try {
         setLoadingPartitions(true);
-        const response = await apiGet('/api/groups/partitions');
+        const response = await apiGet<{ success: boolean; partitions: Partition[]; cpus_per_node?: number }>('/api/groups/partitions');
         if (response.success) {
           setPartitions(response.partitions);
           setCpusPerNode(response.cpus_per_node || 128);

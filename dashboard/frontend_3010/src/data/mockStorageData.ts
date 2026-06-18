@@ -8,16 +8,16 @@ import {
 } from '../types';
 
 // Helper function to generate random sizes
-const generateSize = (minGB: number, maxGB: number): { size: string; bytes: number } => {
+const generateSize = (minGB: number, maxGB: number): { size: string; sizeBytes: number } => {
   const gb = minGB + Math.random() * (maxGB - minGB);
-  const bytes = Math.floor(gb * 1024 * 1024 * 1024);
-  
+  const sizeBytes = Math.floor(gb * 1024 * 1024 * 1024);
+
   if (gb < 1) {
-    return { size: `${Math.floor(gb * 1024)} MB`, bytes };
+    return { size: `${Math.floor(gb * 1024)} MB`, sizeBytes };
   } else if (gb < 1024) {
-    return { size: `${gb.toFixed(1)} GB`, bytes };
+    return { size: `${gb.toFixed(1)} GB`, sizeBytes };
   } else {
-    return { size: `${(gb / 1024).toFixed(1)} TB`, bytes };
+    return { size: `${(gb / 1024).toFixed(1)} TB`, sizeBytes };
   }
 };
 
