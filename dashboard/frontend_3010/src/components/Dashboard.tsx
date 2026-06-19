@@ -20,6 +20,7 @@ import ThemeToggle from './ThemeToggle';
 import HealthCheck from './HealthCheck';
 import NodeManagement from './NodeManagement';
 import SlurmManagement from './SlurmManagement';
+import McpTokens from './McpTokens';
 import VNCSessionManager from './VNCSessionManager';
 import SSHSessionManager from './SSHSessionManager';
 import MoonlightEmbedded from './MoonlightEmbedded';
@@ -152,6 +153,7 @@ export const Dashboard: React.FC = () => {
       templates: 'Job Templates',
       nodes: 'Node Management',
       slurm: 'Slurm 관리',
+      mcp: 'MCP 토큰 (Claude 연동)',
       data: 'Data Management',
       vnc: 'VNC Sessions',
       ssh: 'SSH Sessions',
@@ -397,6 +399,11 @@ export const Dashboard: React.FC = () => {
             {/* Slurm 관리 (진단/파티션/잡제어/공정공유) */}
             {activeTab === 'slurm' && (
               <SlurmManagement />
+            )}
+
+            {/* MCP 토큰 (Claude 연동) */}
+            {activeTab === 'mcp' && (
+              <McpTokens />
             )}
 
             {/* Data Management */}

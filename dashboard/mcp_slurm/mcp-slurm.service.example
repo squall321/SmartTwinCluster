@@ -1,26 +1,33 @@
-# 참고용 systemd 유닛 예시 — Slurm 읽기전용 MCP 서버
+# 참고용 systemd 유닛 예시 — Slurm MCP 서버 (HTTP/streamable 데몬)
 #
-# NOTE: 이 MCP 서버는 stdio 트랜스포트이므로 "보통은 MCP 클라이언트가 직접 spawn" 합니다.
-#       따라서 대개 systemd 서비스가 필요 없습니다 (.mcp.json 등록만으로 충분).
-#       항상 떠 있는 데몬 형태로 운영하고 싶을 때만 참고하세요.
+# NOTE: HTTP 모드(기본)는 원격 Claude Desktop/Code 가 접속하므로 상시 데몬으로 띄웁니다.
+#       (stdio 모드로 쓸 거면 클라이언트가 직접 spawn 하므로 이 서비스가 필요 없습니다.)
 #
-# 본 예시는 dashboard/systemd/dashboard-backend.service 패턴을 본떴습니다
-# (User / WorkingDirectory / Environment=SLURM_BIN_DIR / ExecStart).
+# 본 예시는 dashboard/systemd/dashboard-backend.service 패턴을 본떴습니다.
 # install_services.sh 가 __SERVICE_USER__ / __PROJECT_HOME__ 등 placeholder 를 치환합니다.
+# ExecStart 는 mcp_slurm 전용 venv(install_offline.sh 가 생성)를 가리킵니다.
 
 [Unit]
-Description=Slurm Read-only MCP Server (stdio)
+Description=Slurm MCP Server (HTTP/streamable, :5012)
 After=network.target
+# backend_5010 인증/변경계 REST 에 의존 — 같이 떠 있어야 함(있다면).
+Wants=dashboard-backend.service
 
 [Service]
 Type=simple
 User=__SERVICE_USER__   # placeholder — install_services.sh가 동적 치환
 Group=__SERVICE_GROUP__
 WorkingDirectory=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/mcp_slurm
-Environment="PATH=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
+Environment="PATH=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/mcp_slurm/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
 Environment="HOME=/home/koopark"
 Environment="SLURM_BIN_DIR=/usr/local/slurm/bin"
-ExecStart=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/venv/bin/python server.py
+# transport / 바인딩 — 외부 노출 시 MCP_HOST=0.0.0.0 + MCP_ALLOWED_HOSTS 지정(README 참고).
+Environment="MCP_TRANSPORT=streamable-http"
+Environment="MCP_HOST=127.0.0.1"
+Environment="MCP_PORT=5012"
+# 인증 게이트 + 변경계 프록시 대상 backend.
+Environment="SLURM_MCP_BACKEND=http://127.0.0.1:5010"
+ExecStart=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/mcp_slurm/venv/bin/python server.py
 Restart=on-failure
 RestartSec=5
 KillMode=mixed

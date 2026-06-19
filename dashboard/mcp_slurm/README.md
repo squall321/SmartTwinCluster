@@ -1,16 +1,21 @@
-# mcp_slurm — Slurm MCP 서버 (읽기전용 + 변경계 REST 프록시)
+# mcp_slurm — Slurm MCP 서버 (HTTP/stdio, 읽기전용 + 변경계 REST 프록시)
 
 LLM 클라이언트(Claude Desktop, Claude Code 등)가 **Model Context Protocol(MCP)** 로
-Slurm 클러스터를 **조회(읽기)** 및 **제어(변경)** 하게 해주는 stdio 서버입니다.
+Slurm 클러스터를 **조회(읽기)** 및 **제어(변경)** 하게 해주는 서버입니다.
+
+기본은 **HTTP(streamable) 트랜스포트**(`127.0.0.1:5012/mcp`)로, 원격 노트북의
+Claude Desktop/Code 도 접속할 수 있습니다. 사용자별 토큰(PAT)을 `Authorization` 헤더로
+받아 backend 가 검증하므로 **그 사용자 권한**으로 동작합니다(만능 토큰 없음).
 
 ## 무엇
 
-- `mcp.server.fastmcp.FastMCP` 기반의 별도 stdio MCP 서버 (`server.py`).
-- **읽기전용 tool**: `../backend_5010/slurm_commands.py` 의 검증된 래퍼 함수를 **직접 import 재사용**
-  → Slurm 명령 경로 / `SLURM_BIN_DIR` 환경변수 / 타임아웃 처리를 단일 소스에서 관리.
-- **변경(write) tool**: slurm_commands 를 직접 호출하지 **않고**, `backend_5010` 의
-  변경계 **REST API 를 HTTP 로 프록시**합니다(표준 라이브러리 `urllib`).
-  → JWT 인증 / `permission_required` 권한 / 감사 경계를 **우회하지 않기** 위함.
+- `mcp.server.fastmcp.FastMCP` 기반 MCP 서버 (`server.py`). transport 는 env 로 전환:
+  - **`streamable-http`(기본)** — 원격 Claude 가 `mcp-remote` 브리지로 접속.
+  - **`stdio`** — 기존 동작(클라이언트가 로컬에서 직접 spawn). 단일 사용자.
+- **읽기전용 tool**: `../backend_5010/slurm_commands.py` 의 검증된 래퍼 함수를 **직접 import 재사용**.
+  단, HTTP 노출 시 무인증 조회를 막기 위해 backend `/api/me` 로 토큰을 **검증(게이트)** 한 뒤 실행.
+- **변경(write) tool**: slurm_commands 직접 호출이 아니라 `backend_5010` 의 변경계 **REST 를 프록시**.
+  JWT 인증 / `permission_required` 권한 / 감사 경계를 **우회하지 않기** 위함.
 
 ### 제공 tools (읽기전용)
 
@@ -28,63 +33,53 @@ Slurm 클러스터를 **조회(읽기)** 및 **제어(변경)** 하게 해주는
 
 ### 제공 tools (변경계 / write — REST 프록시)
 
-변경계 tool 은 `backend_5010` 의 변경계 REST 를 호출합니다. 직접 Slurm 을 건드리지 않습니다.
-**모든 write tool 은 `dry_run` 기본값이 `True`** 입니다 — 실제 적용하려면 LLM 이
-`dry_run=False` 를 명시해야 합니다.
+**모든 write tool 은 `dry_run` 기본값이 `True`** 입니다 — 실제 적용은 `dry_run=False` 명시 필요.
 
 | Tool | 호출 REST | 설명 |
 | --- | --- | --- |
-| `slurm_node_set_state(node, state, reason, dry_run=True)` | `POST /api/nodes/{drain\|resume\|down\|undrain}` | 노드 상태 변경. `state ∈ {DRAIN, RESUME, DOWN, UNDRAIN}` (enum 강제). `DOWN` 은 `reason` 필수. |
-| `slurm_job_control(job_id, action, value, dry_run=True)` | `/api/slurm/jobs/<id>/<action>` | 잡 제어. `action ∈ {hold, release, requeue, cancel, priority, nice, top}` (enum 강제). `priority`/`nice` 는 `value`(정수) 사용. |
+| `slurm_node_set_state(node, state, reason, dry_run=True)` | `POST /api/nodes/{drain\|resume\|down\|undrain}` | 노드 상태 변경(enum 강제). `DOWN` 은 `reason` 필수·파괴적. |
+| `slurm_job_control(job_id, action, value, dry_run=True)` | `/api/slurm/jobs/<id>/<action>` | 잡 제어(enum 강제). `priority`/`nice` 는 `value`. `cancel` 파괴적. |
 
-위험도 / `dry_run` 주의:
+> `hold`/`release`/`cancel`/`drain`/`resume` REST 는 서버단 `dry_run` 미지원이라 `dry_run=True`
+> 로 불러도 즉시 실행됩니다(tool 응답에 `[warning]` 부착). 진짜 미리보기는 backend 측 보강 필요(향후 과제).
 
-- **`DOWN` / `cancel` 은 파괴적**입니다(실행 중 잡 종료). 반드시 사용자 확인 후 호출하세요.
-- `slurm_node_set_state` 의 `DOWN`/`UNDRAIN` REST 와, `slurm_job_control` 의
-  `requeue`/`priority`/`nice`/`top` REST 는 서버단에서 **`dry_run` 을 실제로 지원**합니다
-  (`dry_run=True` 면 생성될 `scontrol` 명령 문자열만 반환, 미적용).
-- 단, **`hold` / `release` / `cancel` REST(`app.py`)는 `dry_run` 을 지원하지 않아**
-  `dry_run=True` 로 불러도 서버가 **즉시 실행**합니다. 이 경우 tool 응답 앞에
-  `[warning] ... 즉시 실행되었습니다` 가 붙습니다.
-- `drain`/`resume` REST 도 현재 서버단 `dry_run` 미지원(즉시 실행) — `down`/`undrain` 만 지원.
-  `drain`/`resume` 을 `dry_run=True` 로 불러도 즉시 실행되며, hold/release/cancel 과 동일하게
-  tool 응답 앞에 `[warning] ... 즉시 실행되었습니다` 가 붙습니다.
-- backend 가 안 떠 있으면 tool 은 예외로 죽지 않고 `error: backend(...) 에 연결할 수 없습니다 ...`
-  문자열을 반환합니다.
+## 인증 (★권장: 웹에서 토큰 발급★)
 
-## 인증 (변경계 REST 호출용 토큰)
+변경계 REST 와 읽기 게이트는 `@jwt_required` 로 보호됩니다. MCP 서버는 인증을 스스로
+판단하지 않고, **들어온 요청의 `Authorization` 헤더를 backend 로 전달**해 backend 가
+PAT(개인 액세스 토큰) 또는 JWT 를 검증하게 합니다.
 
-변경계 REST 는 `@jwt_required` 로 보호됩니다(`Authorization: Bearer <JWT>` 필요).
-MCP 서버는 **`SLURM_MCP_TOKEN` 환경변수의 토큰을 그대로 `Authorization: Bearer` 헤더에 실어** 보냅니다.
+1. **웹 대시보드 → 사이드바 「MCP 토큰 (Claude 연동)」** 메뉴에서 토큰을 발급합니다.
+   - 발급된 평문 토큰(`kst_…`)은 **그 화면에서 1회만** 노출됩니다(서버는 sha256 해시만 저장).
+   - 같은 화면이 **토큰을 박은 Claude Code/Desktop 등록 명령**을 바로 복사할 수 있게 보여줍니다.
+   - 유출 시 그 화면에서 삭제하면 즉시 무효화됩니다(만료 기본 90일).
+2. 이 토큰을 클라이언트가 `Authorization: Bearer kst_…` 로 보내면, backend 가
+   토큰에 묶인 사용자/역할로 권한을 적용합니다(파티션 접근·변경 권한 등).
 
-- `SLURM_MCP_TOKEN` 이 **설정돼 있으면** → 그 JWT 로 인증 시도. (Auth Portal 발급 토큰)
-- `SLURM_MCP_TOKEN` 이 **없으면** → 헤더 없이 호출하고, 응답 앞에
-  `[warning] SLURM_MCP_TOKEN 미설정 ...` 경고를 붙입니다.
-  backend 가 `SSO_ENABLED=false` 모드(전권 부여)면 토큰 없이도 동작하지만,
-  그 외에는 `401` 을 받습니다.
-- `401/403` 응답 시 tool 은 토큰/SSO 확인 힌트를 포함한 에러 문자열을 돌려줍니다.
-
-> ⚠️ **현 구현은 최소 수준**입니다: env 토큰을 그대로 헤더에 싣기만 하며,
-> 토큰 만료/갱신/자동 로그인은 처리하지 않습니다. 장기 운영 시 단기 토큰 갱신 또는
-> backend 측 내부 호출 전용 경로(서비스 토큰) 설계를 권장합니다. (아래 '한계' 참고)
+> backend 가 `SSO_ENABLED=false` 모드면 토큰 없이도 동작합니다(전권 부여 — 개발/기본).
+> 운영(`SSO_ENABLED=true`)에서는 유효한 PAT 가 없으면 `401` 입니다.
 
 ## 실행법
 
 ```bash
 # 1) 의존성 설치
-#  [오프라인 운영서 — 권장]  repo 동봉 wheel 로 venv 생성 + 설치 + 검증을 한 번에:
+#  [오프라인 운영서 — 권장] repo 동봉 wheel 로 venv 생성 + 설치 + 검증을 한 번에:
 ./install_offline.sh                 # ./venv 생성 (OS/파이썬 버전 자동 감지)
 #  [인터넷 가능 환경]
 pip install -r requirements.txt
 
-# 2) 서버 실행 (stdio 로 대기 — 보통은 직접 실행하지 않고 클라이언트가 spawn)
-./venv/bin/python server.py
+# 2) 서버 실행 (HTTP 기본 — 127.0.0.1:5012/mcp)
+SLURM_MCP_BACKEND=http://127.0.0.1:5010 ./venv/bin/python server.py
+#  stdio 로 쓰려면:
+MCP_TRANSPORT=stdio ./venv/bin/python server.py
 ```
+
+HTTP 모드는 보통 **systemd 데몬**으로 상시 기동합니다(아래 systemd 절). stdio 모드는
+클라이언트가 직접 spawn 하므로 데몬이 필요 없습니다.
 
 ### 오프라인 설치 (인터넷 없는 운영서)
 
-`mcp` SDK + 의존성(pydantic-core 등 네이티브 포함)을 repo 에 동봉했다 — `git pull` 만으로 받아간다.
-`.gitignore` 가 일반 `*.whl` 은 제외하지만 `python_wheels/mcp/**` 만 예외로 추적한다.
+`mcp` SDK + 의존성(starlette/uvicorn/pydantic-core 등 네이티브 포함)을 repo 에 동봉했습니다.
 
 | OS | 파이썬 | wheel 위치 |
 | --- | --- | --- |
@@ -92,76 +87,86 @@ pip install -r requirements.txt
 | Ubuntu 22.04 (alt) | 3.12 | `offline_packages/python_wheels/mcp/python3.12/` |
 | Ubuntu 24.04 | 3.12 (cp312) | `offline_packages_2404/python_wheels/mcp/python3.12/` |
 
-`install_offline.sh` 가 OS/파이썬 버전을 감지해 알맞은 디렉토리를 골라
-`pip install --no-index --find-links=<wheel dir>` (인터넷 미사용)로 설치한다.
-wheel 갱신이 필요하면 인터넷 되는 PC 에서:
+`install_offline.sh` 가 OS/파이썬을 감지해 `pip install --no-index --find-links=<dir>` 로 설치합니다.
+
+## 환경변수
+
+| 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `MCP_TRANSPORT` | `streamable-http` | `streamable-http`(원격 가능) \| `stdio`(로컬 spawn) |
+| `MCP_HOST` | `127.0.0.1` | HTTP 바인딩 호스트. 외부 노출 시 `0.0.0.0` + `MCP_ALLOWED_HOSTS` |
+| `MCP_PORT` | `5012` | HTTP 바인딩 포트 |
+| `MCP_ALLOWED_HOSTS` | (없음) | 비-localhost 바인딩 시 허용 Host(쉼표구분). 예: `slurm.example.com,10.0.0.5:5012` |
+| `SLURM_MCP_BACKEND` | `http://127.0.0.1:5010` | backend REST 베이스 URL(인증 게이트 + 변경계 프록시) |
+| `SLURM_BIN_DIR` | `/usr/local/slurm/bin` | Slurm 바이너리 경로(읽기 tool). apt 설치면 `/usr/bin` |
+| `SLURM_MCP_TOKEN` | (없음) | **stdio 모드 폴백 토큰**. HTTP 모드는 요청 헤더가 우선 |
+
+> 외부망 노출 시 `MCP_ALLOWED_HOSTS` 를 지정해 DNS rebinding 보호를 유지하세요.
+> 미지정 + 비-localhost 바인딩이면 보호가 꺼지므로(인증은 PAT, 망 보호는 nginx/방화벽 가정)
+> 사내망 한정으로만 쓰세요.
+
+## MCP 클라이언트 등록
+
+> **가장 쉬운 길**: 웹 대시보드 「MCP 토큰 (Claude 연동)」 메뉴에서 토큰을 발급하면
+> 아래 명령들이 **토큰까지 박힌 상태로** 화면에 나옵니다 — 복사해서 붙이기만 하면 됩니다.
+
+HTTP MCP(`http://<host>:5012/mcp`)는 plain HTTP·사내 인증서 문제를 안정적으로 처리하려
+`npx mcp-remote` 브리지로 연결합니다(**Node.js 필요**).
+
+### Claude Code (터미널)
 
 ```bash
-python3 -m pip download "mcp>=1.2.0,<2.0.0" \
-  --python-version 3.10 --abi cp310 --implementation cp \
-  --platform manylinux2014_x86_64 --platform manylinux_2_17_x86_64 --platform any \
-  --only-binary=:all: --dest offline_packages/python_wheels/mcp/python3.10
-# (24.04 는 --python-version 3.12 --abi cp312 로, _2404 디렉토리에)
+claude mcp add slurm-mcp \
+  -e AUTH='Bearer kst_<발급받은토큰>' \
+  -e NODE_OPTIONS=--use-system-ca \
+  -- npx -y mcp-remote http://<host>:5012/mcp --allow-http \
+  --header 'Authorization:${AUTH}'
 ```
 
-환경변수:
+등록 확인: `claude mcp list` / 세션 내 `/mcp`.
 
-- `SLURM_BIN_DIR` — Slurm 바이너리 경로. 기본 `/usr/local/slurm/bin`.
-  apt/yum 패키지 설치 환경이면 `/usr/bin` 으로 지정. (읽기전용 tool 이 사용)
-- `SLURM_MCP_BACKEND` — 변경계 REST 베이스 URL. 기본 `http://127.0.0.1:5010`.
-  (변경계 tool 이 이 주소로 `urllib` HTTP 호출)
-- `SLURM_MCP_TOKEN` — 변경계 REST 호출용 JWT. `Authorization: Bearer` 헤더로 실립니다.
-  미설정이면 헤더 없이 호출(경고 부착). backend `SSO_ENABLED=false` 면 생략 가능.
-  자세한 내용은 위 **인증** 절 참고.
+### Claude Desktop (설정 파일)
 
-## MCP 클라이언트 등록 (`.mcp.json`)
-
-이 서버는 **stdio 트랜스포트**입니다. 보통 별도 데몬으로 띄우지 않고,
-MCP 클라이언트가 아래 설정을 보고 프로세스를 **직접 spawn** 합니다.
-
-`.mcp.json` 예시 (Claude Code 프로젝트 루트 또는 클라이언트 설정):
+설정 → 개발자 → 「설정 편집」으로 `claude_desktop_config.json` 을 열고, 아래 항목을
+`"mcpServers": { }` 중괄호 안에 붙여넣은 뒤 Claude Desktop 재시작:
 
 ```json
-{
-  "mcpServers": {
-    "slurm-readonly": {
-      "command": "python",
-      "args": [
-        "/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/mcp_slurm/server.py"
-      ],
-      "env": {
-        "SLURM_BIN_DIR": "/usr/local/slurm/bin",
-        "SLURM_MCP_BACKEND": "http://127.0.0.1:5010",
-        "SLURM_MCP_TOKEN": "<Auth Portal 발급 JWT 또는 생략(SSO off 시)>"
-      }
-    }
-  }
+"slurm-mcp": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "http://<host>:5012/mcp", "--allow-http",
+           "--header", "Authorization:${AUTH}"],
+  "env": { "AUTH": "Bearer kst_<발급받은토큰>", "NODE_OPTIONS": "--use-system-ca" }
 }
 ```
 
-> `command` 는 `mcp` 패키지가 설치된 파이썬을 가리켜야 합니다.
-> 프로젝트 venv 를 쓴다면 venv 의 절대경로 python 으로 바꾸세요. 예:
-> `/home/koopark/claude/KooSlurmInstallAutomationRefactory/venv/bin/python`
+파일에 `mcpServers` 가 없으면 `{ "mcpServers": { 여기 } }` 로 감싸고, 다른 항목이 있으면 쉼표로 구분.
 
-## systemd (참고용)
+### (참고) stdio 로컬 등록
 
-stdio 서버라 보통은 클라이언트가 직접 spawn 하므로 systemd 서비스가 필요 없습니다.
-다만 항상 떠 있는 데몬 형태로 운영하고 싶을 때를 대비해
-`mcp-slurm.service.example` 을 참고용으로 동봉했습니다
-(`backend_5010` 의 `dashboard-backend.service` 패턴을 본떠 작성).
+같은 머신(헤드노드)에서 Claude Code 를 쓰면 stdio 도 가능합니다:
+
+```bash
+claude mcp add slurm-mcp \
+  -e MCP_TRANSPORT=stdio \
+  -e SLURM_MCP_TOKEN=kst_<토큰> \
+  -- /path/to/dashboard/mcp_slurm/venv/bin/python /path/to/dashboard/mcp_slurm/server.py
+```
+
+## systemd (HTTP 데몬)
+
+HTTP 모드는 상시 데몬으로 운영합니다. `mcp-slurm.service.example` 참고
+(`install_services.sh` 가 `__SERVICE_USER__`/`__PROJECT_HOME__` placeholder 치환).
 
 ## 한계 (현 구현)
 
-- 변경계 인증은 **env 토큰을 헤더에 싣는 최소 구현**입니다. 토큰 만료/갱신/자동
-  로그인 미처리 — 만료되면 `401` 을 받고 tool 은 힌트 문자열을 반환합니다.
-  장기 운영 시: (a) Auth Portal 단기 토큰 주기 갱신, 또는 (b) backend 측 내부 호출
-  전용 서비스 토큰/네트워크 경계(127.0.0.1 only) 설계를 권장합니다.
-- `hold`/`release`/`cancel`/`drain`/`resume` REST 는 서버단 `dry_run` 미지원이라
-  `dry_run=True` 로 불러도 즉시 실행됩니다(tool 이 경고 부착). 진짜 미리보기가 필요하면
-  backend 측 해당 라우트에 `dry_run` 분기를 추가해야 합니다(향후 과제).
+- 읽기 게이트/변경계는 backend 가 떠 있어야 동작합니다(인증을 backend 가 검증). backend 불가 시
+  tool 은 예외 없이 에러 문자열을 반환합니다.
+- PAT 는 발급 시점의 신원(역할/그룹)을 스냅샷합니다 — 발급 후 역할이 바뀌면 토큰을 재발급하세요.
+- `hold`/`release`/`cancel`/`drain`/`resume` REST 는 서버단 `dry_run` 미지원(즉시 실행, tool 경고 부착).
 
 ## 파일
 
-- `server.py` — MCP 서버 본체 (읽기전용 tool 직접호출 + 변경계 tool REST 프록시).
-- `requirements.txt` — `mcp` SDK 의존성 (보수적 버전핀).
-- `mcp-slurm.service.example` — systemd 유닛 예시 (참고용).
+- `server.py` — MCP 서버(읽기 게이트+직접호출 / 변경계 REST 프록시, HTTP·stdio 양용).
+- `requirements.txt` — `mcp` SDK 의존성.
+- `install_offline.sh` — 오프라인 wheel 설치 + venv 생성 + 검증.
+- `mcp-slurm.service.example` — systemd 유닛 예시(HTTP 데몬).
