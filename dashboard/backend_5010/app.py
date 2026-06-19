@@ -156,6 +156,10 @@ from audit_log import ensure_audit_table, log_admin_action
 # 개인 액세스 토큰(MCP 연동) — 발급/조회/삭제 + /api/me whoami
 from mcp_token_api import mcp_token_bp
 from mcp_token import ensure_token_table
+# Slurm 계정/Association(sacctmgr) · 예약(reservation) · 사용량 리포트(sreport) 관리 API
+from slurm_account_api import slurm_account_bp
+from slurm_reservation_api import slurm_reservation_bp
+from slurm_report_api import slurm_report_bp
 
 app = Flask(__name__)
 CORS(app)
@@ -319,6 +323,9 @@ app.register_blueprint(audit_bp)
 ensure_audit_table()
 app.register_blueprint(mcp_token_bp)
 ensure_token_table()
+app.register_blueprint(slurm_account_bp)
+app.register_blueprint(slurm_reservation_bp)
+app.register_blueprint(slurm_report_bp)
 print("✅ Audit Log API registered: /api/audit (변경계 작업 추적)")
 
 # Initialize template watcher (Hot Reload)
@@ -965,6 +972,9 @@ def submit_job():
 def cancel_job(job_id):
     """작업 취소 - JWT 인증 필요"""
     try:
+        dry_run = bool((request.get_json(silent=True) or {}).get('dry_run', False))
+        if dry_run:
+            return jsonify({'success': True, 'dry_run': True, 'command': f'scancel {job_id}'})
         if MOCK_MODE:
             return jsonify({
                 'success': True,
@@ -994,6 +1004,9 @@ def cancel_job(job_id):
 def hold_job(job_id):
     """작업 홀드 - JWT 인증 필요"""
     try:
+        dry_run = bool((request.get_json(silent=True) or {}).get('dry_run', False))
+        if dry_run:
+            return jsonify({'success': True, 'dry_run': True, 'command': f'scontrol hold {job_id}'})
         if MOCK_MODE:
             return jsonify({
                 'success': True,
@@ -1022,6 +1035,9 @@ def hold_job(job_id):
 def release_job(job_id):
     """작업 릴리즈 - JWT 인증 필요"""
     try:
+        dry_run = bool((request.get_json(silent=True) or {}).get('dry_run', False))
+        if dry_run:
+            return jsonify({'success': True, 'dry_run': True, 'command': f'scontrol release {job_id}'})
         if MOCK_MODE:
             return jsonify({
                 'success': True,

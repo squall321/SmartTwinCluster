@@ -256,7 +256,15 @@ def drain_node():
                 'success': False,
                 'error': 'node_name is required'
             }), 400
-        
+
+        dry_run = bool(data.get('dry_run', False))
+        if dry_run:
+            return jsonify({
+                'success': True,
+                'dry_run': True,
+                'command': f'scontrol update NodeName={node_name} State=DRAIN Reason="{reason}"',
+            })
+
         if MOCK_MODE:
             # Mock 모드에서는 성공으로 간주
             logger.info(f"🎭 Mock: Draining node {node_name} with reason: {reason}")
@@ -322,7 +330,15 @@ def resume_node():
                 'success': False,
                 'error': 'node_name is required'
             }), 400
-        
+
+        dry_run = bool(data.get('dry_run', False))
+        if dry_run:
+            return jsonify({
+                'success': True,
+                'dry_run': True,
+                'command': f'scontrol update NodeName={node_name} State=RESUME',
+            })
+
         if MOCK_MODE:
             # Mock 모드에서는 성공으로 간주
             logger.info(f"🎭 Mock: Resuming node {node_name}")

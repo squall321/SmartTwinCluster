@@ -40,8 +40,8 @@ Claude Desktop/Code 도 접속할 수 있습니다. 사용자별 토큰(PAT)을 
 | `slurm_node_set_state(node, state, reason, dry_run=True)` | `POST /api/nodes/{drain\|resume\|down\|undrain}` | 노드 상태 변경(enum 강제). `DOWN` 은 `reason` 필수·파괴적. |
 | `slurm_job_control(job_id, action, value, dry_run=True)` | `/api/slurm/jobs/<id>/<action>` | 잡 제어(enum 강제). `priority`/`nice` 는 `value`. `cancel` 파괴적. |
 
-> `hold`/`release`/`cancel`/`drain`/`resume` REST 는 서버단 `dry_run` 미지원이라 `dry_run=True`
-> 로 불러도 즉시 실행됩니다(tool 응답에 `[warning]` 부착). 진짜 미리보기는 backend 측 보강 필요(향후 과제).
+> 모든 변경계 REST(`hold`/`release`/`cancel`/`drain`/`resume`/`down`/`undrain`/`requeue`/`priority`/`nice`/`top`/
+> 파티션 state)는 서버단 `dry_run` 을 지원합니다 — `dry_run=True`(기본)면 생성될 명령만 반환하고 적용하지 않습니다.
 
 ## 인증 (★권장: 웹에서 토큰 발급★)
 
@@ -162,7 +162,6 @@ HTTP 모드는 상시 데몬으로 운영합니다. `mcp-slurm.service.example` 
 - 읽기 게이트/변경계는 backend 가 떠 있어야 동작합니다(인증을 backend 가 검증). backend 불가 시
   tool 은 예외 없이 에러 문자열을 반환합니다.
 - PAT 는 발급 시점의 신원(역할/그룹)을 스냅샷합니다 — 발급 후 역할이 바뀌면 토큰을 재발급하세요.
-- `hold`/`release`/`cancel`/`drain`/`resume` REST 는 서버단 `dry_run` 미지원(즉시 실행, tool 경고 부착).
 
 ## 파일
 

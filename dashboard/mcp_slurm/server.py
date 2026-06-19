@@ -334,9 +334,10 @@ def slurm_job_stat(job_id: str, ctx: Context) -> str:
 # ===========================================================================
 
 # node state -> (REST 경로, reason 필요, dry_run 지원)
+# drain/resume/down/undrain 전부 서버단 dry_run 지원(미리보기→확인→실행).
 _NODE_STATE_ROUTES = {
-    "DRAIN": ("/api/nodes/drain", True, False),
-    "RESUME": ("/api/nodes/resume", False, False),
+    "DRAIN": ("/api/nodes/drain", True, True),
+    "RESUME": ("/api/nodes/resume", False, True),
     "DOWN": ("/api/nodes/down", True, True),
     "UNDRAIN": ("/api/nodes/undrain", False, True),
 }
@@ -390,11 +391,11 @@ def _body_nice(value, dry_run):
     return {"nice": value, "dry_run": bool(dry_run)}
 
 
-# action -> (method, 경로, body builder, dry_run 지원)
+# action -> (method, 경로, body builder, dry_run 지원). 전부 서버단 dry_run 지원.
 _JOB_ACTIONS = {
-    "hold":     ("POST", "/api/slurm/jobs/{id}/hold",     _body_dry_only, False),
-    "release":  ("POST", "/api/slurm/jobs/{id}/release",  _body_dry_only, False),
-    "cancel":   ("POST", "/api/slurm/jobs/{id}/cancel",   _body_dry_only, False),
+    "hold":     ("POST", "/api/slurm/jobs/{id}/hold",     _body_dry_only, True),
+    "release":  ("POST", "/api/slurm/jobs/{id}/release",  _body_dry_only, True),
+    "cancel":   ("POST", "/api/slurm/jobs/{id}/cancel",   _body_dry_only, True),
     "requeue":  ("POST", "/api/slurm/jobs/{id}/requeue",  _body_dry_only, True),
     "priority": ("POST", "/api/slurm/jobs/{id}/priority", _body_priority, True),
     "nice":     ("POST", "/api/slurm/jobs/{id}/nice",     _body_nice,     True),
@@ -420,8 +421,7 @@ def slurm_job_control(
         action: hold | release | requeue | cancel(파괴적, 되돌릴 수 없음)
                 | priority(value 정수) | nice(value 정수, 음수=우선순위↑) | top(내 큐 최상단).
         value: priority/nice 에서만 사용하는 정수.
-        dry_run: True(기본)면 미리보기. 실제 적용은 dry_run=False 명시.
-            주의: hold/release/cancel REST 는 dry_run 미지원 → dry_run=True 여도 즉시 실행(경고 부착).
+        dry_run: True(기본)면 미리보기(생성될 명령만 반환). 실제 적용은 dry_run=False 명시.
     """
     job_id = str(job_id).strip()
     if not job_id:
