@@ -85,11 +85,24 @@ class SAMLHandler:
         with open(sp_key_file, 'r') as f:
             sp_key = f.read()
 
-        # Read IdP metadata (we'll handle this dynamically)
-        idp_metadata_url = Config.SAML_IDP_METADATA_URL
+        # IdP 설정: env(YAML→generate_sso_env) 우선, 없으면 dev 기본값(localhost:7000).
+        idp_entity_id = Config.SAML_IDP_ENTITY_ID or 'http://localhost:7000/metadata'
+        idp_sso_url = Config.SAML_IDP_SSO_URL or 'http://localhost:7000/saml/sso'
+        idp_slo_url = Config.SAML_IDP_SLO_URL or 'http://localhost:7000/saml/slo'
+
+        # IdP 서명검증용 인증서: 직접 값(SAML_IDP_CERTIFICATE) 또는 파일 경로에서 로드.
+        # 인증서가 있어야 assertion 서명 검증이 가능하다(없으면 위조 차단 불가).
+        idp_cert = Config.SAML_IDP_CERTIFICATE
+        if not idp_cert and Config.SAML_IDP_CERTIFICATE_FILE:
+            try:
+                with open(Config.SAML_IDP_CERTIFICATE_FILE, 'r') as f:
+                    idp_cert = f.read()
+            except OSError as e:
+                print(f"[saml] IdP certificate file read failed: {e}")
+                idp_cert = ''
 
         settings = {
-            'strict': False,
+            'strict': Config.SAML_STRICT,
             'debug': Config.DEBUG,
             'sp': {
                 'entityId': Config.SAML_SP_ENTITY_ID,
@@ -106,16 +119,24 @@ class SAMLHandler:
                 'privateKey': sp_key
             },
             'idp': {
-                'entityId': 'http://localhost:7000/metadata',
+                'entityId': idp_entity_id,
                 'singleSignOnService': {
-                    'url': 'http://localhost:7000/saml/sso',
+                    'url': idp_sso_url,
                     'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
                 },
                 'singleLogoutService': {
-                    'url': 'http://localhost:7000/saml/slo',
+                    'url': idp_slo_url,
                     'binding': 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
                 },
-                'x509cert': ''  # Will be filled from IdP metadata
+                'x509cert': idp_cert
+            },
+            # 보안: IdP 인증서가 설정돼 있으면 assertion 서명 검증을 강제(위조 차단).
+            # 인증서 미설정(dev) 시엔 서명요구를 끄되 strict(조건/타임스탬프/replay) 는 유지.
+            'security': {
+                'wantAssertionsSigned': bool(idp_cert),
+                'wantMessagesSigned': False,
+                'wantNameId': False,
+                'requestedAuthnContext': False,
             }
         }
 
@@ -166,14 +187,28 @@ class SAMLHandler:
                     'attributes': dict
                 }
         """
-        # Extract username (from NameID or uid attribute)
-        username = saml_attributes.get('uid', [''])[0] or saml_attributes.get('User.Username', [''])[0]
+        # 속성 매핑(설정 기준) + IdP 변형 폴백. OIDC 핸들러와 동일하게 Config 매핑을 따른다.
+        attr_map = Config.get_attribute_mapping()
 
-        # Extract email
-        email = saml_attributes.get('email', [''])[0] or saml_attributes.get('User.email', [''])[0]
+        def _first(*names):
+            """주어진 속성명들 중 처음 값이 있는 것을 반환(리스트면 첫 원소)."""
+            for n in names:
+                if not n:
+                    continue
+                v = saml_attributes.get(n)
+                if v:
+                    return v[0] if isinstance(v, list) else v
+            return ''
 
-        # Extract groups
-        groups = saml_attributes.get('groups', []) or saml_attributes.get('Group', [])
+        # username: 매핑값 우선, 그 외 흔한 IdP 속성명 폴백(uid/userName/User.Username)
+        username = _first(attr_map.get('username', 'uid'), 'uid', 'userName', 'User.Username')
+        email = _first(attr_map.get('email', 'email'), 'email', 'User.email')
+        display_name = _first(attr_map.get('display_name', 'displayName'), 'displayName')
+        department = _first(attr_map.get('department', 'department'), 'department')
+
+        # groups: 여러 값이라 리스트 유지(매핑 속성명 우선, groups/Group 폴백)
+        groups_attr = attr_map.get('groups', 'groups')
+        groups = saml_attributes.get(groups_attr) or saml_attributes.get('groups') or saml_attributes.get('Group') or []
         if isinstance(groups, str):
             groups = [groups]
 
@@ -181,6 +216,8 @@ class SAMLHandler:
             'username': username,
             'email': email,
             'groups': groups,
+            'display_name': display_name,
+            'department': department,
             'attributes': saml_attributes
         }
 

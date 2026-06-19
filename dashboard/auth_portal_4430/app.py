@@ -4,6 +4,7 @@ Flask server for SSO authentication (SAML/OIDC) and JWT token issuance
 """
 from flask import Flask, request, jsonify, redirect, session, url_for
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config.config import Config
 from auth_handler import AuthHandler
 from jwt_handler import JWTHandler
@@ -31,6 +32,10 @@ app.secret_key = Config.SECRET_KEY
 
 # Enable CORS
 CORS(app, supports_credentials=True)
+
+# 리버스 프록시(nginx /auth_portal) 뒤에서 X-Forwarded-* 를 신뢰해 url_for(_external=True) 가
+# 올바른 외부 scheme/host/prefix 를 쓰게 한다(OIDC redirect_uri 가 IdP 등록값과 일치하도록).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Initialize handlers
 jwt_handler = JWTHandler()
@@ -77,7 +82,7 @@ def saml_login():
         return redirect(auth.login())
     except Exception as e:
         logger.error(f"SAML login error: {str(e)}")
-        return jsonify({'error': 'SAML login failed', 'message': str(e)}), 500
+        return jsonify({'error': 'SAML login failed'}), 500
 
 
 @app.route('/auth/saml/acs', methods=['POST'])
@@ -97,10 +102,7 @@ def saml_acs():
         errors = auth.get_errors()
         if errors:
             logger.error(f"SAML ACS errors: {errors}")
-            return jsonify({
-                'error': 'SAML authentication failed',
-                'details': errors
-            }), 401
+            return jsonify({'error': 'SAML authentication failed'}), 401
 
         if not auth.is_authenticated():
             logger.warning("SAML authentication failed - not authenticated")
@@ -132,7 +134,7 @@ def saml_acs():
 
     except Exception as e:
         logger.error(f"SAML ACS error: {str(e)}", exc_info=True)
-        return jsonify({'error': 'SAML processing failed', 'message': str(e)}), 500
+        return jsonify({'error': 'SAML processing failed'}), 500
 
 
 @app.route('/auth/saml/sls', methods=['GET'])
@@ -161,7 +163,7 @@ def saml_sls():
 
     except Exception as e:
         logger.error(f"SAML SLS error: {str(e)}")
-        return jsonify({'error': 'Logout failed', 'message': str(e)}), 500
+        return jsonify({'error': 'Logout failed'}), 500
 
 
 @app.route('/auth/saml/metadata', methods=['GET'])
@@ -187,7 +189,7 @@ def saml_metadata():
 
     except Exception as e:
         logger.error(f"Metadata generation error: {str(e)}")
-        return jsonify({'error': 'Metadata generation failed', 'message': str(e)}), 500
+        return jsonify({'error': 'Metadata generation failed'}), 500
 
 
 # ============================================================================
@@ -208,7 +210,7 @@ def oidc_login():
         return AuthHandler.get_oidc_authorize_redirect(redirect_uri)
     except Exception as e:
         logger.error(f"OIDC login error: {str(e)}")
-        return jsonify({'error': 'OIDC login failed', 'message': str(e)}), 500
+        return jsonify({'error': 'OIDC login failed'}), 500
 
 
 @app.route('/auth/oidc/callback', methods=['GET'])
@@ -246,7 +248,7 @@ def oidc_callback():
 
     except Exception as e:
         logger.error(f"OIDC callback error: {str(e)}", exc_info=True)
-        return jsonify({'error': 'OIDC authentication failed', 'message': str(e)}), 500
+        return jsonify({'error': 'OIDC authentication failed'}), 500
 
 
 @app.route('/auth/oidc/logout', methods=['GET', 'POST'])
@@ -275,7 +277,7 @@ def oidc_logout():
 
     except Exception as e:
         logger.error(f"OIDC logout error: {str(e)}")
-        return jsonify({'error': 'Logout failed', 'message': str(e)}), 500
+        return jsonify({'error': 'Logout failed'}), 500
 
 
 # ============================================================================
@@ -306,7 +308,7 @@ def verify_token():
 
     except Exception as e:
         logger.error(f"Token verification error: {str(e)}")
-        return jsonify({'error': 'Verification failed', 'message': str(e)}), 500
+        return jsonify({'error': 'Verification failed'}), 500
 
 
 @app.route('/auth/refresh', methods=['POST'])
@@ -326,11 +328,11 @@ def refresh_token():
         if not payload:
             return jsonify({'error': 'Invalid or expired token'}), 401
 
-        # Create new token with same user info
+        # Create new token with same user info (클레임 누락 토큰에도 안전하게 .get)
         user_info = {
-            'username': payload['sub'],
-            'email': payload['email'],
-            'groups': payload['groups']
+            'username': payload.get('sub'),
+            'email': payload.get('email', ''),
+            'groups': payload.get('groups', [])
         }
 
         new_token = jwt_handler.create_token(user_info)
@@ -341,7 +343,7 @@ def refresh_token():
 
     except Exception as e:
         logger.error(f"Token refresh error: {str(e)}")
-        return jsonify({'error': 'Refresh failed', 'message': str(e)}), 500
+        return jsonify({'error': 'Refresh failed'}), 500
 
 
 @app.route('/auth/logout', methods=['POST'])
@@ -362,7 +364,7 @@ def logout():
 
     except Exception as e:
         logger.error(f"Logout error: {str(e)}")
-        return jsonify({'error': 'Logout failed', 'message': str(e)}), 500
+        return jsonify({'error': 'Logout failed'}), 500
 
 
 # ============================================================================
@@ -387,15 +389,15 @@ def get_user_info():
             return jsonify({'error': 'Invalid or expired token'}), 401
 
         return jsonify({
-            'username': payload['sub'],
-            'email': payload['email'],
-            'groups': payload['groups'],
-            'permissions': payload['permissions']
+            'username': payload.get('sub'),
+            'email': payload.get('email', ''),
+            'groups': payload.get('groups', []),
+            'permissions': payload.get('permissions', [])
         }), 200
 
     except Exception as e:
         logger.error(f"Get user info error: {str(e)}")
-        return jsonify({'error': 'Failed to get user info', 'message': str(e)}), 500
+        return jsonify({'error': 'Failed to get user info'}), 500
 
 
 @app.route('/auth/services', methods=['GET'])
@@ -416,7 +418,7 @@ def get_services():
         if not payload:
             return jsonify({'error': 'Invalid or expired token'}), 401
 
-        services = Config.get_services_for_groups(payload['groups'])
+        services = Config.get_services_for_groups(payload.get('groups', []))
 
         return jsonify({
             'services': services
@@ -424,7 +426,7 @@ def get_services():
 
     except Exception as e:
         logger.error(f"Get services error: {str(e)}")
-        return jsonify({'error': 'Failed to get services', 'message': str(e)}), 500
+        return jsonify({'error': 'Failed to get services'}), 500
 
 
 # ============================================================================
@@ -477,7 +479,7 @@ def test_login():
 
     except Exception as e:
         logger.error(f"Test login error: {str(e)}")
-        return jsonify({'error': 'Test login failed', 'message': str(e)}), 500
+        return jsonify({'error': 'Test login failed'}), 500
 
 
 # ============================================================================

@@ -55,6 +55,11 @@ class Config:
     SAML_IDP_SSO_URL = os.getenv('SAML_IDP_SSO_URL', '')
     SAML_IDP_SLO_URL = os.getenv('SAML_IDP_SLO_URL', '')
     SAML_IDP_CERTIFICATE = os.getenv('SAML_IDP_CERTIFICATE', '')
+    SAML_IDP_CERTIFICATE_FILE = os.getenv('SAML_IDP_CERTIFICATE_FILE', '')
+
+    # SAML 보안: strict 면 서명/조건/replay 검증 강제(운영 권장). 기본 True(안전 기본값).
+    # IdP 인증서(SAML_IDP_CERTIFICATE[_FILE])가 설정돼 있어야 서명검증이 가능하다.
+    SAML_STRICT = os.getenv('SAML_STRICT', 'true').lower() == 'true'
 
     # ==========================================================================
     # OIDC Configuration
@@ -128,8 +133,8 @@ class Config:
     PORT = int(os.getenv('PORT', '4430'))
 
     # ==========================================================================
-    # Group-based permissions
-    GROUP_PERMISSIONS = {
+    # Group-based permissions (default; overridable via SSO_GROUP_PERMISSIONS env JSON)
+    _DEFAULT_GROUP_PERMISSIONS = {
         'HPC-Admins': ['dashboard', 'cae', 'vnc', 'app', 'admin'],
         'DX-Users': ['dashboard', 'vnc', 'app'],
         'CAEG-Users': ['dashboard', 'cae', 'vnc', 'app'],
@@ -145,9 +150,6 @@ class Config:
             except json.JSONDecodeError:
                 pass
         return cls._DEFAULT_GROUP_PERMISSIONS
-
-    # Alias for backwards compatibility
-    GROUP_PERMISSIONS = property(lambda self: Config.get_group_permissions())
 
     @classmethod
     def get_permissions_for_groups(cls, groups):
