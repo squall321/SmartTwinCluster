@@ -262,7 +262,7 @@ def drain_node():
             return jsonify({
                 'success': True,
                 'dry_run': True,
-                'command': f'scontrol update NodeName={node_name} State=DRAIN Reason="{reason}"',
+                'command': f'scontrol update NodeName={node_name} State=DRAIN Reason={reason}',
             })
 
         if MOCK_MODE:
@@ -272,8 +272,8 @@ def drain_node():
         else:
             # 실제 Slurm 명령어 실행 (전체 경로 사용)
             success, stdout, stderr = run_slurm_command(
-                [SCONTROL_PATH, 'update', f'NodeName={node_name}', 
-                 'State=DRAIN', f'Reason="{reason}"'],
+                [SCONTROL_PATH, 'update', f'NodeName={node_name}',
+                 'State=DRAIN', f'Reason={reason}'],
                 use_sudo=True  # 🔧 sudo 권한 사용
             )
             

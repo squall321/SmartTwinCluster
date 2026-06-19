@@ -146,7 +146,7 @@ const SlurmAccounts: React.FC = () => {
 
   const onDeleteAccount = (account: string) => {
     void mutate(
-      (dry_run) => apiRequest<MutateResp>(`/api/slurm/accounts/${account}`, {
+      (dry_run) => apiRequest<MutateResp>(`/api/slurm/accounts/${encodeURIComponent(account)}`, {
         method: 'DELETE',
         body: JSON.stringify({ dry_run }),
       }),

@@ -20,6 +20,7 @@ slurm_admin_api.py 와 동일 규약:
 """
 
 import os
+import re
 
 from flask import Blueprint, jsonify, request
 
@@ -31,6 +32,19 @@ from slurm_commands import get_sacctmgr
 # MOCK_MODE: 실제 Slurm 명령 미실행(데모/테스트). app.py / slurm_admin_api.py 와 동일 규약.
 # 읽기(show)는 안전하므로 MOCK_MODE 무시하고 실제 실행, 쓰기만 MOCK 분기.
 MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
+
+# 계정/사용자 이름 검증(인자 인젝션 방지). slurm_admin_api._PARTITION_NAME_RE 와 동일 스타일.
+# 영숫자 / '_' / '.' / '-' 만 허용. fullmatch 로 'a\n' 같은 우회 차단.
+_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
+
+
+def _valid_name(s) -> bool:
+    """이름 검증: 빈문자 / 패턴 불일치 / '-' 시작(argv 플래그 오인) 이면 False."""
+    return (
+        isinstance(s, str)
+        and bool(_NAME_RE.fullmatch(s))
+        and not s.startswith('-')
+    )
 
 # url_prefix 는 /api/slurm (slurm_admin_bp 와 동일 prefix). 이름은 'slurm_account' 로 고유.
 # 경로(/accounts, /associations)가 slurm_admin 의 경로와 겹치지 않으므로 충돌 없음.
@@ -189,9 +203,16 @@ def slurm_account_create():
         account = (body.get('account') or '').strip()
         if not account:
             return jsonify({'success': False, 'error': "'account' is required"}), 400
+        if not _valid_name(account):
+            return jsonify({'success': False, 'error': 'invalid account name'}), 400
 
         description = (body.get('description') or '').strip()
         organization = (body.get('organization') or '').strip()
+        # description/organization 은 자유문자라 패턴 검증은 안 하되 '-' 시작만 거부(플래그 오인 방지).
+        if description.startswith('-'):
+            return jsonify({'success': False, 'error': 'invalid description'}), 400
+        if organization.startswith('-'):
+            return jsonify({'success': False, 'error': 'invalid organization'}), 400
         dry_run = bool(body.get('dry_run', True))
 
         # 명령 인자(토큰) 구성. get_sacctmgr 위치인자와 command 문자열을 동일 토큰으로.
@@ -220,6 +241,9 @@ def slurm_account_create():
 def slurm_account_delete(account):
     """sacctmgr -i delete account <account>. dry_run 기본 True."""
     try:
+        if not _valid_name(account):
+            return jsonify({'success': False, 'error': 'invalid account name'}), 400
+
         dry_run = bool((request.get_json(silent=True) or {}).get('dry_run', True))
 
         args = ['-i', 'delete', 'account', account]
@@ -250,9 +274,18 @@ def slurm_association_add():
             return jsonify({'success': False, 'error': "'user' is required"}), 400
         if not account:
             return jsonify({'success': False, 'error': "'account' is required"}), 400
+        if not _valid_name(user):
+            return jsonify({'success': False, 'error': 'invalid user name'}), 400
+        if not _valid_name(account):
+            return jsonify({'success': False, 'error': 'invalid account name'}), 400
 
         partition = (body.get('partition') or '').strip()
         qos = (body.get('qos') or '').strip()
+        # partition/qos 는 값이 있으면 _valid_name 검증('-' 시작 포함).
+        if partition and not _valid_name(partition):
+            return jsonify({'success': False, 'error': 'invalid partition'}), 400
+        if qos and not _valid_name(qos):
+            return jsonify({'success': False, 'error': 'invalid qos'}), 400
         dry_run = bool(body.get('dry_run', True))
 
         args = ['-i', 'add', 'user', user, f'account={account}']
@@ -287,6 +320,10 @@ def slurm_association_delete():
             return jsonify({'success': False, 'error': "'user' is required"}), 400
         if not account:
             return jsonify({'success': False, 'error': "'account' is required"}), 400
+        if not _valid_name(user):
+            return jsonify({'success': False, 'error': 'invalid user name'}), 400
+        if not _valid_name(account):
+            return jsonify({'success': False, 'error': 'invalid account name'}), 400
 
         dry_run = bool(body.get('dry_run', True))
 

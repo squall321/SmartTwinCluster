@@ -19,6 +19,7 @@ get_scontrol 는 subprocess.CompletedProcess(result.stdout / result.stderr / res
 """
 
 import os
+import re
 
 from flask import Blueprint, jsonify, request
 
@@ -29,6 +30,10 @@ from slurm_commands import get_scontrol
 
 # MOCK_MODE: 실제 Slurm 변경 미실행(데모/테스트). slurm_admin_api.py 와 동일 규약.
 MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
+
+# 예약명 검증(인자 인젝션 방지). slurm_admin_api._PARTITION_NAME_RE 와 동일 스타일.
+# 영숫자 / '_' / '.' / '-' 만 허용. fullmatch 로 'a\n' 같은 우회 차단.
+_RESERVATION_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 
 # url_prefix 는 /api/slurm. 경로는 /reservations 만 사용하여 기존 Blueprint 와 겹치지 않게 한다.
 slurm_reservation_bp = Blueprint('slurm_reservation', __name__, url_prefix='/api/slurm')
@@ -163,6 +168,27 @@ def create_reservation():
             }), 400
         # nodes/partition/flags=MAINT 중 하나는 권장이나, 없어도 경고 없이 진행.
 
+        # (a) reservation_name 이 제공되면 엄격 검증(자동생성 허용 위해 없으면 통과).
+        if reservation_name is not None:
+            rn = str(reservation_name)
+            if not _RESERVATION_NAME_RE.fullmatch(rn) or rn.startswith('-'):
+                return jsonify({
+                    'success': False,
+                    'error': 'invalid reservation_name',
+                }), 400
+
+        # (b) users/accounts/nodes/partition/flags 는 Slurm 특수문자(콤마/[]/:)를 허용해야
+        #     하므로 엄격 정규식은 쓰지 않고, '-' 시작(플래그 오인)만 거부한다.
+        for _field, _value in (
+            ('users', users), ('accounts', accounts), ('nodes', nodes),
+            ('partition', partition), ('flags', flags),
+        ):
+            if _value is not None and str(_value).startswith('-'):
+                return jsonify({
+                    'success': False,
+                    'error': f"invalid {_field}",
+                }), 400
+
         # 명령 토큰 조립: scontrol create reservation Key=Value ...
         tokens = ['create', 'reservation']
         if reservation_name:
@@ -187,7 +213,7 @@ def create_reservation():
             tokens.append(f'flags={flags}')
 
         command = _reservation_command_str(*tokens)
-        dry_run = bool((request.get_json(silent=True) or {}).get('dry_run', True))
+        dry_run = bool(body.get('dry_run', True))
 
         if dry_run:
             return jsonify({
