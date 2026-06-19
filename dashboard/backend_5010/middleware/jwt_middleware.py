@@ -138,6 +138,18 @@ def jwt_required(f):
         # 토큰 추출
         token = auth_header.split(' ')[1]
 
+        # PAT(kst_) 우선: JWT 가 아니라 개인 액세스 토큰(MCP 연동)이면 DB 로 검증.
+        if token.startswith('kst_'):
+            import mcp_token  # 지연 import (경로/순환 안전)
+            identity = mcp_token.resolve_token(token)
+            if identity is None:
+                return jsonify({
+                    'error': 'Invalid token',
+                    'message': 'Personal access token is invalid, expired, or revoked.'
+                }), 401
+            g.user = identity
+            return f(*args, **kwargs)
+
         try:
             # JWT 토큰 검증
             payload = jwt.decode(
@@ -285,6 +297,12 @@ def optional_jwt(f):
 
         if auth_header and auth_header.startswith('Bearer '):
             token = auth_header.split(' ')[1]
+
+            # PAT(kst_) 우선: 유효하면 g.user 설정, 아니면(선택적이므로) None 으로 진행.
+            if token.startswith('kst_'):
+                import mcp_token  # 지연 import (경로/순환 안전)
+                g.user = mcp_token.resolve_token(token)
+                return f(*args, **kwargs)
 
             try:
                 payload = jwt.decode(

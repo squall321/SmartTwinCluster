@@ -198,3 +198,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+
+-- ============================================================================
+-- 개인 액세스 토큰 (MCP 등 외부 클라이언트용 — Claude Code/Desktop 연동)
+-- 평문은 발급 시 1회만 노출, DB 엔 sha256 해시만. users 테이블이 없어 신원 스냅샷 저장.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS personal_access_tokens (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    username         TEXT NOT NULL,
+    name             TEXT NOT NULL,             -- 토큰 라벨(예: 내 노트북)
+    token_prefix     TEXT NOT NULL,             -- 표시용(kst_ + 앞 8자)
+    token_hash       TEXT NOT NULL UNIQUE,      -- sha256(평문)
+    email            TEXT,                       -- 발급 시점 신원 스냅샷
+    groups_json      TEXT,                       -- JSON array
+    permissions_json TEXT,                       -- JSON array
+    role             TEXT,                       -- admin/poweruser/user
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_used_at     DATETIME,
+    expires_at       DATETIME,
+    revoked_at       DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_pat_username ON personal_access_tokens(username);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pat_token_hash ON personal_access_tokens(token_hash);

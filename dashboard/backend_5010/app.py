@@ -153,6 +153,9 @@ from job_logs_api import job_logs_bp
 from slurm_admin_api import slurm_admin_bp
 from audit_api import audit_bp
 from audit_log import ensure_audit_table, log_admin_action
+# 개인 액세스 토큰(MCP 연동) — 발급/조회/삭제 + /api/me whoami
+from mcp_token_api import mcp_token_bp
+from mcp_token import ensure_token_table
 
 app = Flask(__name__)
 CORS(app)
@@ -314,6 +317,8 @@ app.register_blueprint(slurm_admin_bp)
 print("✅ Slurm Admin API registered: /api/slurm/ read{diag,fairshare,partitions,controller/ping,jobs/priority,jobs/<id>/stat} + write{jobs/<id>/[requeue,requeuehold,priority,nice,top], PATCH jobs/<id>, partitions/<n>/state, PATCH partitions/<n>}")
 app.register_blueprint(audit_bp)
 ensure_audit_table()
+app.register_blueprint(mcp_token_bp)
+ensure_token_table()
 print("✅ Audit Log API registered: /api/audit (변경계 작업 추적)")
 
 # Initialize template watcher (Hot Reload)
