@@ -23,7 +23,10 @@ export PYTHON_BIN=/usr/bin/python3.12
 # venv 없거나 깨졌으면 ensure_venv가 재생성
 source "$SCRIPT_DIR/../common/ensure_venv.sh" 2>/dev/null
 [ -f "venv/bin/activate" ] && source venv/bin/activate
-ensure_venv flask flask_cors jwt:PyJWT dotenv:python-dotenv redis
+# SSO deps 포함(requirements_actual.txt 와 정렬): OIDC=authlib(+httpx 전이), SAML=python3-saml
+# (onelogin, 네이티브 xmlsec/lxml 필요). SSO off(mock)면 미사용이라 누락돼도 비치명
+# (ensure_venv 경고 후 진행). SSO 켜려면 필수 — 오프라인이면 해당 휠이 offline_packages 에 있어야 함.
+ensure_venv flask flask_cors jwt:PyJWT dotenv:python-dotenv redis authlib onelogin:python3-saml
 [ -f "venv/bin/activate" ] && source venv/bin/activate
 
 mkdir -p logs
