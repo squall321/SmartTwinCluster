@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import {
   LayoutGrid, Layout, Activity, BarChart3, FileCode,
-  Briefcase, Database, Server, Stethoscope, ChevronDown, ChevronRight, Menu, X, Monitor, Terminal, Package, Upload, Gamepad2, Power, Plug
+  Briefcase, Database, Server, Stethoscope, ChevronDown, ChevronRight, Menu, X, Monitor, Terminal, Package, Upload, Gamepad2, Power, Plug, ScrollText, UserCog, CalendarClock
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-export type TabType = 'customdash' | 'cluster' | 'monitoring' | 'prometheus' | 'health' | 'reports' | 'jobs' | 'templates' | 'nodes' | 'slurm' | 'mcp' | 'data' | 'vnc' | 'ssh' | 'apptainer' | 'upload' | 'moonlight';
+export type TabType = 'customdash' | 'cluster' | 'monitoring' | 'prometheus' | 'health' | 'reports' | 'jobs' | 'templates' | 'nodes' | 'slurm' | 'mcp' | 'accounts' | 'reservations' | 'slurmdiag' | 'audit' | 'data' | 'vnc' | 'ssh' | 'apptainer' | 'upload' | 'moonlight';
 
 interface MenuItem {
   id: TabType;
@@ -46,6 +46,8 @@ const menuStructure: MenuCategory[] = [
       { id: 'nodes', label: 'Node Management', icon: Server as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
       { id: 'slurm', label: 'Slurm 관리', icon: Power as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
       { id: 'mcp', label: 'MCP 토큰 (Claude 연동)', icon: Plug as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'dashboard' },
+      { id: 'accounts', label: '계정·Association', icon: UserCog as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
+      { id: 'reservations', label: 'Slurm 예약', icon: CalendarClock as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
       { id: 'vnc', label: 'VNC Sessions', icon: Monitor as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
       { id: 'moonlight', label: 'Moonlight Streaming', icon: Gamepad2 as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'dashboard' },
       { id: 'ssh', label: 'SSH Sessions', icon: Terminal as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
@@ -59,6 +61,8 @@ const menuStructure: MenuCategory[] = [
       { id: 'prometheus', label: 'Prometheus Metrics', icon: BarChart3 as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
       { id: 'health', label: 'Health Check', icon: Stethoscope as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
       { id: 'reports', label: 'Reports', icon: FileCode as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
+      { id: 'slurmdiag', label: '진단·리포트', icon: Activity as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
+      { id: 'audit', label: '감사 로그', icon: ScrollText as React.ComponentType<{ size?: number; className?: string }>, requiredPermission: 'admin' },
     ]
   },
   {

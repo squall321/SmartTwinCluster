@@ -21,6 +21,10 @@ import HealthCheck from './HealthCheck';
 import NodeManagement from './NodeManagement';
 import SlurmManagement from './SlurmManagement';
 import McpTokens from './McpTokens';
+import SlurmAccounts from './SlurmAccounts';
+import Reservations from './Reservations';
+import SlurmDiagnostics from './SlurmDiagnostics';
+import AuditLog from './AuditLog';
 import VNCSessionManager from './VNCSessionManager';
 import SSHSessionManager from './SSHSessionManager';
 import MoonlightEmbedded from './MoonlightEmbedded';
@@ -154,6 +158,10 @@ export const Dashboard: React.FC = () => {
       nodes: 'Node Management',
       slurm: 'Slurm 관리',
       mcp: 'MCP 토큰 (Claude 연동)',
+      accounts: '계정·Association 관리',
+      reservations: 'Slurm 예약(Reservation)',
+      slurmdiag: 'Slurm 진단·리포트',
+      audit: '감사 로그',
       data: 'Data Management',
       vnc: 'VNC Sessions',
       ssh: 'SSH Sessions',
@@ -404,6 +412,26 @@ export const Dashboard: React.FC = () => {
             {/* MCP 토큰 (Claude 연동) */}
             {activeTab === 'mcp' && (
               <McpTokens />
+            )}
+
+            {/* Slurm 계정·Association (sacctmgr) */}
+            {activeTab === 'accounts' && (
+              <SlurmAccounts />
+            )}
+
+            {/* Slurm 예약 (Reservation) */}
+            {activeTab === 'reservations' && (
+              <Reservations />
+            )}
+
+            {/* Slurm 진단·리포트 (sprio/sstat/controller/sreport) */}
+            {activeTab === 'slurmdiag' && (
+              <SlurmDiagnostics />
+            )}
+
+            {/* 감사 로그 */}
+            {activeTab === 'audit' && (
+              <AuditLog />
             )}
 
             {/* Data Management */}
