@@ -1,14 +1,15 @@
 {
-  "admin@hpc.local": {
-    "password": "J4@^Y27PTHOlJ9Wd",
-    "email": "admin@hpc.local",
-    "userName": "admin",
-    "firstName": "System",
-    "lastName": "Admin",
-    "displayName": "System Administrator",
+  "koopark@hpc.local": {
+    "password": "Soseks314!",
+    "email": "koopark@hpc.local",
+    "userName": "koopark",
+    "firstName": "koopark",
+    "lastName": "User",
+    "displayName": "koopark",
     "groups": [
+      "DX-Users",
       "HPC-Admins"
     ],
-    "department": "IT"
+    "department": "General"
   }
 }

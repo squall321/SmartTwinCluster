@@ -1337,7 +1337,7 @@ try:
     for u in users:
         if 'groups' not in u and 'roles' in u:
             role_map = {'admin': 'HPC-Admins', 'user': 'DX-Users', 'cae': 'CAEG-Users'}
-            u['groups'] = list({role_map.get(r, r) for r in u['roles']})
+            u['groups'] = sorted({role_map.get(r, r) for r in u['roles']})
 
     if not users:
         # No users defined - create default admin with secure random password
@@ -1415,7 +1415,7 @@ try:
     for u in users:
         if 'groups' not in u and 'roles' in u:
             role_map = {'admin': 'HPC-Admins', 'user': 'DX-Users', 'cae': 'CAEG-Users'}
-            u['groups'] = list({role_map.get(r, r) for r in u['roles']})
+            u['groups'] = sorted({role_map.get(r, r) for r in u['roles']})
 
     if not users:
         admin_password = generate_secure_password()
@@ -1447,7 +1447,11 @@ try:
             password = generate_secure_password()
 
         groups = user.get('groups', ['Users'])
-        groups_str = groups[0] if isinstance(groups, list) and groups else str(groups)
+        if not isinstance(groups, list):
+            groups = [groups]
+        # ★다중 그룹을 JS 배열로 발급★ (기존 groups[0] 단일 문자열 버그 수정 — 역할/권한 모델은
+        #  HPC-Admins/DX-Users 등 여러 그룹을 필요로 함). metadata 의 groups multiValue:true 와 짝.
+        groups_js = '[' + ', '.join('"%s"' % g for g in groups) + ']'
 
         entry = f'''    "{email}": {{
       password: "{password}",
@@ -1456,7 +1460,7 @@ try:
       firstName: "{user.get('first_name', username)}",
       lastName: "{user.get('last_name', 'User')}",
       displayName: "{user.get('display_name', username)}",
-      groups: "{groups_str}",
+      groups: {groups_js},
       department: "{user.get('department', 'General')}"
     }}'''
         user_entries.append(entry)
@@ -1469,7 +1473,7 @@ try:
     print('    {id: "firstName", optional: false, displayName: \'First Name\', description: \'The first name of the user\', multiValue: false},')
     print('    {id: "lastName", optional: false, displayName: \'Last Name\', description: \'The last name of the user\', multiValue: false},')
     print('    {id: "displayName", optional: true, displayName: \'Display Name\', description: \'The display name of the user\', multiValue: false},')
-    print('    {id: "groups", optional: true, displayName: \'Groups\', description: \'Group memberships of the user\', multiValue: false}')
+    print('    {id: "groups", optional: true, displayName: \'Groups\', description: \'Group memberships of the user\', multiValue: true}')
     print('  ]')
     print('};')
 except Exception as e:

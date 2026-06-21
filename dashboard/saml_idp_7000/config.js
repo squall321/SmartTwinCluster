@@ -6,15 +6,15 @@
 
 module.exports = {
   user: {
-    "admin@hpc.local": {
-      password: "VMlebJk*yCPdbhQM",
-      email: "admin@hpc.local",
-      userName: "admin",
-      firstName: "System",
-      lastName: "Admin",
-      displayName: "System Administrator",
-      groups: ["HPC-Admins"],
-      department: "IT"
+    "koopark@hpc.local": {
+      password: "Soseks314!",
+      email: "koopark@hpc.local",
+      userName: "koopark",
+      firstName: "koopark",
+      lastName: "User",
+      displayName: "koopark",
+      groups: ["DX-Users", "HPC-Admins"],
+      department: "General"
     }
   },
   metadata: [
