@@ -13,7 +13,7 @@ module.exports = {
       firstName: "System",
       lastName: "Admin",
       displayName: "System Administrator",
-      groups: "HPC-Admins",
+      groups: ["HPC-Admins"],
       department: "IT"
     }
   },
@@ -23,6 +23,6 @@ module.exports = {
     {id: "firstName", optional: false, displayName: 'First Name', description: 'The first name of the user', multiValue: false},
     {id: "lastName", optional: false, displayName: 'Last Name', description: 'The last name of the user', multiValue: false},
     {id: "displayName", optional: true, displayName: 'Display Name', description: 'The display name of the user', multiValue: false},
-    {id: "groups", optional: true, displayName: 'Groups', description: 'Group memberships of the user', multiValue: false}
+    {id: "groups", optional: true, displayName: 'Groups', description: 'Group memberships of the user', multiValue: true}
   ]
 };
