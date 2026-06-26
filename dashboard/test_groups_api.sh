@@ -1,4 +1,5 @@
 #!/bin/bash
+# Groups API 테스트 스크립트
 
 echo "Testing Groups API..."
 echo ""

@@ -1,3 +1,4 @@
+// 데이터 관리 스크래치 스토리지 뷰
 import React, { useState, useEffect } from 'react';
 import { 
   HardDrive, Server, Trash2, MoveRight, AlertTriangle, 

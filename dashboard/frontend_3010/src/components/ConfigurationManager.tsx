@@ -1,3 +1,4 @@
+// 클러스터 설정 관리 컴포넌트
 import React, { useRef, useState } from 'react';
 import { Download, Upload, Save, FolderOpen, X, FileCode, RefreshCw } from 'lucide-react';
 import { useClusterStore } from '../store/clusterStore';

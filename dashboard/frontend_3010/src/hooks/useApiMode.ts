@@ -1,3 +1,4 @@
+// API 모드(mock/production) 감지 훅
 import { useState, useEffect } from 'react';
 
 export type ApiMode = 'mock' | 'production' | 'unknown';

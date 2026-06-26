@@ -1,3 +1,4 @@
+# KooCAE 웹서버 Flask 앱 팩토리/엔트리포인트
 from flask import Flask
 from flask_cors import CORS
 from flask_sock import Sock

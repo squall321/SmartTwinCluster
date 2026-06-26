@@ -1,3 +1,4 @@
+// Moonlight 스트리밍 임베드 컴포넌트
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 

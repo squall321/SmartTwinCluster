@@ -1,4 +1,5 @@
 #!/bin/bash
+# Mock Mode 설정 수정 스크립트
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'

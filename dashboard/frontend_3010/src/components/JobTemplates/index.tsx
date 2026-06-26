@@ -1,3 +1,4 @@
+// 잡 템플릿 목록 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { FileCode, Plus, Search, Trash2, Edit2, Copy, TrendingUp, Download, Upload, Star, Clock } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '../../utils/api';

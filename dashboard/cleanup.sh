@@ -1,4 +1,5 @@
 #!/bin/bash
+# 전체 대시보드 프로세스 정리 스크립트
 
 echo "🧹 Cleaning up all processes..."
 

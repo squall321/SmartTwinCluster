@@ -1,3 +1,4 @@
+// 로그인 후 서비스 메뉴 페이지
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/ServiceMenuPage.css';

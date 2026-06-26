@@ -1,3 +1,4 @@
+// 커스텀 대시보드 빠른 작업 위젯
 import React from 'react';
 import { Zap, GripVertical, X, Play, Pause, RotateCcw, Trash2, FileText, Download } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

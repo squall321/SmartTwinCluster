@@ -1,3 +1,4 @@
+// 서비스 헬스체크 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { API_CONFIG } from '../../config/api.config';
 import {

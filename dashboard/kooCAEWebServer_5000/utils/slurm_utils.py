@@ -1,3 +1,4 @@
+# Slurm 명령 실행 유틸리티
 import os
 import time
 import random

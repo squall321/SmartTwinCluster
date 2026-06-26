@@ -1,3 +1,4 @@
+// 커스텀 대시보드 CPU 사용률 위젯
 import React, { useState, useEffect } from 'react';
 import { Cpu, GripVertical, X, TrendingUp, TrendingDown } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

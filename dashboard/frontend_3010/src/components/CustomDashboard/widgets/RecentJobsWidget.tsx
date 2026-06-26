@@ -1,3 +1,4 @@
+// 커스텀 대시보드 최근 잡 위젯
 import React, { useState, useEffect } from 'react';
 import { List, GripVertical, X, CheckCircle, XCircle, Clock, Play } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

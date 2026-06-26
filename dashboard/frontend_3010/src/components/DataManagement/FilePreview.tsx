@@ -1,3 +1,4 @@
+// 데이터 관리 파일 미리보기
 import React, { useState, useEffect } from 'react';
 import { X, FileText, Image as ImageIcon, Download, RefreshCw, Maximize2 } from 'lucide-react';
 import { API_CONFIG } from "../../config/api.config";

@@ -1,3 +1,4 @@
+// 잡 관리(제출/조회) 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Trash2, Search, Plus,

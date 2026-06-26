@@ -1,4 +1,5 @@
 #!/bin/bash
+# KooCAE 웹서버 프로젝트 자동 설정 스크립트
 
 echo "========================================"
 echo "KooCAE Project Auto-Setup"

@@ -1,3 +1,4 @@
+// 커스텀 대시보드 알림 위젯
 import React, { useState, useEffect } from 'react';
 import { Bell, GripVertical, X, AlertCircle, CheckCircle, XCircle, Info } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

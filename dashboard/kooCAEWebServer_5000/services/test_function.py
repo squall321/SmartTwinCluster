@@ -1,3 +1,4 @@
+# KooCAE 라이브러리 테스트용 함수
 from KooCAE import ElementShellManager, NodeManager, ElementManager, ElementSolidManager, BoundaryManager, PartManager
 
 nodeManager = NodeManager()

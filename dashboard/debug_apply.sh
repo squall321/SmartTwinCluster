@@ -1,4 +1,5 @@
 #!/bin/bash
+# Apply Configuration 실시간 디버깅 스크립트
 
 echo "=========================================="
 echo "🔍 Apply Configuration 실시간 디버깅"

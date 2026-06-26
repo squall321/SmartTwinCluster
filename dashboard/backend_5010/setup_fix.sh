@@ -1,4 +1,5 @@
 #!/bin/bash
+# 스크립트 실행권한 부여 스크립트
 
 cd /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/dashboard_refactory/backend_5010
 

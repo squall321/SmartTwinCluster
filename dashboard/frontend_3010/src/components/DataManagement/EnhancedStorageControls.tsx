@@ -1,3 +1,4 @@
+// 데이터 관리 고급 스토리지 제어 패널
 import React, { useState } from 'react';
 import { Upload as UploadIcon, Download, Zap, Activity } from 'lucide-react';
 import FileUpload from './FileUpload';

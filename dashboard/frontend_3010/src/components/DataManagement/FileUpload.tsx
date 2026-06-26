@@ -1,3 +1,4 @@
+// 데이터 관리 파일 업로드
 import React, { useState, useCallback } from 'react';
 import { Upload, X, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { API_CONFIG } from "../../config/api.config";

@@ -1,3 +1,4 @@
+// 알림 벨 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { Bell } from 'lucide-react';
 import NotificationCenter from './NotificationCenter';

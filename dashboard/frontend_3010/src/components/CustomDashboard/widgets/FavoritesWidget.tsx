@@ -1,3 +1,4 @@
+// 커스텀 대시보드 즐겨찾기 위젯
 import React, { useState, useEffect } from 'react';
 import { Star, GripVertical, X, Plus, Trash2 } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

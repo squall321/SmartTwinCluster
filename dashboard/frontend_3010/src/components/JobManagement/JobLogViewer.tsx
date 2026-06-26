@@ -1,3 +1,4 @@
+// 잡 로그 뷰어 컴포넌트
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, FileText, Download, RefreshCw, Terminal, AlertCircle,

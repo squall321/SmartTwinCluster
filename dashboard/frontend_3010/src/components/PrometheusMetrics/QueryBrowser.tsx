@@ -1,3 +1,4 @@
+// PromQL 쿼리 브라우저 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { Play, Loader2, AlertCircle, Clock, CheckCircle } from 'lucide-react';
 import { apiGet } from '../../utils/api';

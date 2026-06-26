@@ -1,3 +1,4 @@
+// 데이터 관리 메인 컴포넌트
 import React, { useState } from 'react';
 import { Database, HardDrive, Server } from 'lucide-react';
 import SharedStorageView from './SharedStorageView';

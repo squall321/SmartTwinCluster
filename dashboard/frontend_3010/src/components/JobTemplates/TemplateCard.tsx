@@ -1,3 +1,4 @@
+// 잡 템플릿 카드 컴포넌트
 import React from 'react';
 import { Play, Edit2, Trash2, Copy, TrendingUp, Clock, User, Cpu, HardDrive, Download, FileText } from 'lucide-react';
 

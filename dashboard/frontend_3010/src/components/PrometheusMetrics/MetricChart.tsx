@@ -1,3 +1,4 @@
+// Prometheus 메트릭 차트 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TrendingUp, Calendar, AlertCircle } from 'lucide-react';

@@ -1,3 +1,4 @@
+// 데이터 관리 파일 다운로드
 import React from 'react';
 import { Download, FileArchive, Loader } from 'lucide-react';
 import { API_CONFIG } from "../../config/api.config";

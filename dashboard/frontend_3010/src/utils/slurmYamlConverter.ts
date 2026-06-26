@@ -1,3 +1,4 @@
+// 클러스터 설정→Slurm YAML 변환 유틸
 import { ClusterConfig, SlurmGroup } from '../types';
 
 /**

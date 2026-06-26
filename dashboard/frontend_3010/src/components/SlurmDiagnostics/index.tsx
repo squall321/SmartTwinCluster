@@ -1,3 +1,4 @@
+// Slurm 진단·리포트 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import { Activity, RefreshCw, Gauge, Cpu, Radio, BarChart3, AlertTriangle, Search } from 'lucide-react';
 import { apiGet } from '../../utils/api';

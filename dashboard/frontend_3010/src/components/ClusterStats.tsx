@@ -1,3 +1,4 @@
+// 클러스터 통계 요약 컴포넌트
 import React from 'react';
 import { SlurmGroup } from '../types';
 import { Server, Cpu, Activity } from 'lucide-react';

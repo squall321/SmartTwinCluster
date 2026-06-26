@@ -1,3 +1,4 @@
+# KooCAE 웹서버 설정(public URL 등)
 import os
 import yaml
 from dotenv import load_dotenv

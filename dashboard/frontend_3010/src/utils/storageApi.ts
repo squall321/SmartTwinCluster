@@ -1,3 +1,4 @@
+// 스토리지 API 클라이언트
 import { API_CONFIG } from '../config/api.config';
 
 /**

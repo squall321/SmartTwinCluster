@@ -1,4 +1,5 @@
 #!/bin/bash
+# KooCAE 웹서버 Ubuntu 빌드 스크립트
 
 cd build
 

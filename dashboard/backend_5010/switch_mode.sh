@@ -1,4 +1,5 @@
 #!/bin/bash
+# 백엔드 Mock/Production 모드 전환 스크립트
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'

@@ -1,3 +1,4 @@
+// 커스텀 대시보드 잡 큐 위젯
 import React, { useState, useEffect } from 'react';
 import { Clock, GripVertical, X, Users, AlertCircle } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

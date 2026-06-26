@@ -1,3 +1,4 @@
+// 데이터 관리 스토리지 사용량 대시보드
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TrendingUp, HardDrive, Database, Activity } from 'lucide-react';

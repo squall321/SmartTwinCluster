@@ -1,3 +1,4 @@
+// VNC 세션 페이지
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/VNCPage.css';

@@ -1,3 +1,4 @@
+# KooCAE k-file→STL 변환 라우트
 import os
 from flask import Blueprint, request, jsonify, send_file, g
 from werkzeug.utils import secure_filename

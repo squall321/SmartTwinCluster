@@ -1,3 +1,4 @@
+// 데이터 관리 전송 관리자
 import React, { useState } from 'react';
 import {
   Activity,

@@ -1,3 +1,4 @@
+// 커스텀 대시보드 GPU 사용률 위젯
 import React, { useState, useEffect } from 'react';
 import { Monitor, GripVertical, X, Activity } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

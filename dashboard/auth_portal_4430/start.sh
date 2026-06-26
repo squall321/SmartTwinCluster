@@ -1,4 +1,5 @@
 #!/bin/bash
+# Auth Portal 백엔드(4430) 기동 스크립트
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'

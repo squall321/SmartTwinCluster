@@ -1,4 +1,5 @@
 #!/bin/bash
+# SAML 테스트 IdP(7000) 기동 스크립트
 
 PORT=7000
 HOST="0.0.0.0"

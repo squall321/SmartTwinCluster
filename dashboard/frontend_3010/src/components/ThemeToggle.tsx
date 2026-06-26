@@ -1,3 +1,4 @@
+// 다크/라이트 테마 토글 컴포넌트
 import React, { useState } from 'react';
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';

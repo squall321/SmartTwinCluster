@@ -1,3 +1,4 @@
+// 커스텀 대시보드 위젯 라이브러리 패널
 import React from 'react';
 import { X, Cpu, MemoryStick, Monitor, Clock, List, Zap, Server, HardDrive, Bell, Star } from 'lucide-react';
 import { WidgetType } from './widgetRegistry';

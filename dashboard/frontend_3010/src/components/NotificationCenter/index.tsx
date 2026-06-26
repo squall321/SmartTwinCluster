@@ -1,3 +1,4 @@
+// 알림 센터 컴포넌트
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';

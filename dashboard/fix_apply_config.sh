@@ -1,4 +1,5 @@
 #!/bin/bash
+# Apply Configuration 문제 해결 스크립트
 
 echo "=========================================="
 echo "🔧 Apply Configuration 문제 해결"

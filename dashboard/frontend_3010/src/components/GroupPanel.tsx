@@ -1,3 +1,4 @@
+// 그룹(파티션) 패널 컴포넌트
 import React, { useState, useMemo, useEffect } from 'react';
 import { useDrop } from 'react-dnd';
 import { SlurmGroup } from '../types';

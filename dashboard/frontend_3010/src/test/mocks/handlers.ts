@@ -1,3 +1,4 @@
+// MSW 목 API 핸들러
 import { http, HttpResponse } from 'msw';
 
 // Mock data

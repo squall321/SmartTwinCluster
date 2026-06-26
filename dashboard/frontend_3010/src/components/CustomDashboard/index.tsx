@@ -1,3 +1,4 @@
+// 커스텀 대시보드(위젯 배치) 컨테이너
 import React, { useState, useEffect } from 'react';
 import GridLayout from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';

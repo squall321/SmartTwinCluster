@@ -1,3 +1,4 @@
+// App 서비스(5174) 프론트 루트 컴포넌트
 import { useState, useEffect } from 'react'
 import './App.css'
 import { apiService } from '@core/services/api.service'

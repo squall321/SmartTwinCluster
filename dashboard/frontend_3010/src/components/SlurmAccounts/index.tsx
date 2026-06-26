@@ -1,3 +1,4 @@
+// Slurm 계정·Association 관리 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserCog, Users, RefreshCw, Trash2, Plus, AlertTriangle } from 'lucide-react';
 import { apiGet, apiPost, apiRequest } from '../../utils/api';

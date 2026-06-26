@@ -1,3 +1,4 @@
+// 데이터 관리 파일 브라우저
 import React, { useState, useEffect } from 'react';
 import {
   Folder,

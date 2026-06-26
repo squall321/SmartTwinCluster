@@ -1,4 +1,5 @@
 #!/bin/bash
+# 전체 대시보드 서비스 일괄 기동 스크립트
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 

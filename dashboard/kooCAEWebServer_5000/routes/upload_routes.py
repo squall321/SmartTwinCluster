@@ -1,3 +1,4 @@
+# LS-DYNA 입력 파일 업로드 라우트
 import os
 from flask import Blueprint, request, jsonify, g
 from werkzeug.utils import secure_filename

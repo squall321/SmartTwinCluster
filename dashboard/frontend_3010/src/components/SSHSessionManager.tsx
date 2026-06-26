@@ -1,3 +1,4 @@
+// SSH 세션 관리자 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { Terminal, Plus, X, Play, RefreshCw, Clock, User, Server } from 'lucide-react';
 import { API_CONFIG } from '../config/api.config';

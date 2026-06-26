@@ -1,3 +1,4 @@
+// SSO 콜백 처리 페이지(토큰 수신)
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import '../styles/CallbackPage.css';

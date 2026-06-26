@@ -1,3 +1,4 @@
+// 로그인 페이지(SSO 로그인 시작)
 import React, { useState, useEffect } from 'react';
 import '../styles/LoginPage.css';
 

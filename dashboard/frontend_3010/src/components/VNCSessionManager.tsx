@@ -1,3 +1,4 @@
+// VNC 세션 관리자 컴포넌트
 import React, { useState, useEffect } from 'react';
 import {
   Monitor, Plus, Trash2, ExternalLink, Clock,

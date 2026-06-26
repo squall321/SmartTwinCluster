@@ -1,4 +1,5 @@
 #!/bin/bash
+# SAML 테스트 IdP(7000) 중지 스크립트
 
 LOG_DIR="$(dirname "$0")/logs"
 PID_FILE="$LOG_DIR/idp.pid"

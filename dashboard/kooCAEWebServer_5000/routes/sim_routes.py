@@ -1,3 +1,4 @@
+# 전각도 낙하 등 시뮬레이션 결과 라우트
 from flask import Blueprint, jsonify
 
 sim_bp = Blueprint('sim', __name__)

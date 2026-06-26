@@ -1,3 +1,4 @@
+// 클러스터 상태 zustand 스토어
 import { create } from 'zustand';
 import { SlurmGroup, SlurmNode, ClusterConfig } from '../types';
 import { initialClusterData } from '../data/initialData';

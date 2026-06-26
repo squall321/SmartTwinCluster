@@ -1,3 +1,4 @@
+// 잡 관리 파일 업로드 섹션
 import React, { useCallback, useState } from 'react';
 import { Upload, X, File, CheckCircle, AlertCircle, Copy, Loader } from 'lucide-react';
 import { UploadedFile } from './types';

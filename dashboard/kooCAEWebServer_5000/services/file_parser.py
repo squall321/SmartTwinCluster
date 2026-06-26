@@ -1,3 +1,4 @@
+# 파일명/DYNA 파일 PID 파서
 import sys
 import os
 

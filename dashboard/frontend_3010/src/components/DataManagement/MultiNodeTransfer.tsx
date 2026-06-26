@@ -1,3 +1,4 @@
+// 데이터 관리 다중 노드 전송
 import React, { useState } from 'react';
 import { Send, Server, CheckCircle, XCircle, Loader, AlertCircle } from 'lucide-react';
 import { API_CONFIG } from "../../config/api.config";

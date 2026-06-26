@@ -1,3 +1,4 @@
+// WebSocket 연결 관리 훅
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 /**

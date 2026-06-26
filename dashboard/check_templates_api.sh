@@ -1,4 +1,5 @@
 #!/bin/bash
+# 템플릿 API 응답 확인 스크립트
 
 echo "=========================================="
 echo "Check Templates API"

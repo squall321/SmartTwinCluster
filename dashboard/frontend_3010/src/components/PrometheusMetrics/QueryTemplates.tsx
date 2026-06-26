@@ -1,3 +1,4 @@
+// PromQL 쿼리 템플릿 컴포넌트
 import React, { useState } from 'react';
 import { Search, Server, Cpu, HardDrive, Network, Zap, BarChart3, TrendingUp } from 'lucide-react';
 

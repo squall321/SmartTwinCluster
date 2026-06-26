@@ -1,3 +1,4 @@
+// 사이드바 네비게이션 컴포넌트
 import React, { useState } from 'react';
 import {
   LayoutGrid, Layout, Activity, BarChart3, FileCode,

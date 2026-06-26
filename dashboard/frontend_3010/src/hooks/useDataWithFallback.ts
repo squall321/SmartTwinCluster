@@ -1,3 +1,4 @@
+// 폴백 포함 데이터 페치 훅
 import { useState, useEffect, useCallback } from 'react';
 import { apiGet } from '../utils/api';
 

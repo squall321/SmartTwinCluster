@@ -1,4 +1,5 @@
 #!/bin/bash
+# KooCAE 웹서버(5000) 중지 스크립트
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'

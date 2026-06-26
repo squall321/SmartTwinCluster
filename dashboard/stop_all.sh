@@ -1,4 +1,5 @@
 #!/bin/bash
+# 전체 대시보드 서비스 일괄 종료 스크립트
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "🛑 모든 서버 종료..."
 

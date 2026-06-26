@@ -1,3 +1,4 @@
+// 위젯 타입→컴포넌트 레지스트리
 import React from 'react';
 import CPUWidget from './widgets/CPUWidget';
 import MemoryWidget from './widgets/MemoryWidget';

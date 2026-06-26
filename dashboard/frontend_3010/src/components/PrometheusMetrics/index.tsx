@@ -1,3 +1,4 @@
+// Prometheus 메트릭 컴포넌트
 import React, { useState } from 'react';
 import { Activity, TrendingUp, AlertCircle, Database } from 'lucide-react';
 import QueryBrowser from './QueryBrowser';

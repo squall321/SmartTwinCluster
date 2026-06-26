@@ -1,3 +1,4 @@
+// Slurm 관리 콘솔 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import { API_CONFIG } from '../../config/api.config';
 import {

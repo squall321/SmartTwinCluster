@@ -1,3 +1,4 @@
+// Auth Portal 프론트엔드 루트 컴포넌트
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import CallbackPage from './pages/CallbackPage';

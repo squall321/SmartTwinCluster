@@ -1,3 +1,4 @@
+# KooCAE 랙(노드) 상태 조회 라우트
 from flask import Blueprint, jsonify
 import subprocess, re, os
 import utils.slurm_utils as slurm_utils  # ✅ 전체 모듈을 import

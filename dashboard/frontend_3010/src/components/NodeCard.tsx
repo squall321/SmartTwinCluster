@@ -1,3 +1,4 @@
+// 노드 카드 컴포넌트
 import React from 'react';
 import { useDrag } from 'react-dnd';
 import { SlurmNode } from '../types';

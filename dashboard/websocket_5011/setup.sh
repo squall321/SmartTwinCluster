@@ -1,4 +1,5 @@
 #!/bin/bash
+# WebSocket 서비스 환경 설정 스크립트(Python 3.13)
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'

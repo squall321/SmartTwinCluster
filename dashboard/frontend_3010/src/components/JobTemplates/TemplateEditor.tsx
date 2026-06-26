@@ -1,3 +1,4 @@
+// 잡 템플릿 편집기 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { X, Save } from 'lucide-react';
 import { apiGet, apiPost, apiPatch } from '../../utils/api';

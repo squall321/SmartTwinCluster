@@ -1,3 +1,4 @@
+// Mock/Production 모드 배지 컴포넌트
 import React from 'react';
 import { ApiMode } from '../hooks/useApiMode';
 import { AlertCircle, Zap, HelpCircle } from 'lucide-react';

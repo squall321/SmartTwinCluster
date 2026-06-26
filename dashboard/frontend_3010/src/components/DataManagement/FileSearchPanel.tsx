@@ -1,3 +1,4 @@
+// 데이터 관리 파일 검색 패널
 import React, { useState } from 'react';
 import { Search, Filter, Loader, File, Folder, Download, X } from 'lucide-react';
 import { API_CONFIG } from "../../config/api.config";

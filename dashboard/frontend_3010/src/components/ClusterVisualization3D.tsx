@@ -1,3 +1,4 @@
+// 클러스터 3D 시각화 컴포넌트
 import React, { useRef, useEffect, useState } from 'react';
 import { Canvas, useFrame, ThreeElements } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';

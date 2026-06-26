@@ -1,3 +1,4 @@
+// SSH 터미널 컴포넌트
 import React, { useEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';

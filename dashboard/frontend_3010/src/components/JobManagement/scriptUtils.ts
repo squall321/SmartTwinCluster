@@ -1,3 +1,4 @@
+// 잡 스크립트 유틸(자동생성 섹션 처리)
 import { UploadedFile } from './types';
 
 /**

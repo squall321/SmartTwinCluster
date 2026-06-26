@@ -1,3 +1,4 @@
+// 데이터 관리 공유 스토리지 뷰
 import React, { useState, useEffect } from 'react';
 import { 
   Folder, TrendingUp, Clock, Search, Filter,

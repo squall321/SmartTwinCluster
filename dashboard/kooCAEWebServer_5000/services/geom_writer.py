@@ -1,3 +1,4 @@
+# 표면 삼각형 추출 등 지오메트리 기록 서비스
 import numpy as np
 import trimesh
 from stl import mesh

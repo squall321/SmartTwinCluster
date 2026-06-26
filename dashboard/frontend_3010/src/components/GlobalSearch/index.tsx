@@ -1,3 +1,4 @@
+// 전역 검색 컴포넌트
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Loader2, FileText, Server, Briefcase, FileCode, ArrowRight } from 'lucide-react';
 import { apiGet } from '../../utils/api';

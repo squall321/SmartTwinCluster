@@ -1,3 +1,4 @@
+# KooCAE 웹서버 사용자 DB 모델
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()

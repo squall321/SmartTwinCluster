@@ -1,3 +1,4 @@
+// 테스트 환경 셋업
 import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeAll, afterAll, vi } from 'vitest';

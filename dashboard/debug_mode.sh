@@ -1,4 +1,5 @@
 #!/bin/bash
+# Mock/Production 모드 디버깅 스크립트
 
 echo "=========================================="
 echo "🔍 Mock/Production Mode 디버깅"

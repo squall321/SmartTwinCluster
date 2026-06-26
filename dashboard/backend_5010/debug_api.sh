@@ -1,4 +1,5 @@
 #!/bin/bash
+# 노드 관리 API 디버그 스크립트
 
 echo "=========================================="
 echo "🔍 Node Management API 디버그"

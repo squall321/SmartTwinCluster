@@ -1,3 +1,4 @@
+# KooCAE 웹서버 Slurm(sinfo/squeue 등) 조회 라우트
 from flask import Blueprint, request, jsonify, g
 import utils.slurm_utils as slurm_utils
 from werkzeug.utils import secure_filename

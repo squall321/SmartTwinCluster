@@ -1,3 +1,4 @@
+// Slurm 예약(Reservation) 관리 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import { CalendarClock, RefreshCw, Trash2, PlusCircle, AlertTriangle } from 'lucide-react';
 import { apiGet, apiPost, apiRequest } from '../../utils/api';

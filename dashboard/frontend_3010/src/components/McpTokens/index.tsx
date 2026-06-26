@@ -1,3 +1,4 @@
+// MCP 토큰 발급/Claude 연결가이드 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plug, Trash2, Copy, Check, AlertTriangle, KeyRound } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '../../utils/api';

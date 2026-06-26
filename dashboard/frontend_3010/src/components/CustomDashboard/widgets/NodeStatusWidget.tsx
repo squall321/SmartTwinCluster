@@ -1,3 +1,4 @@
+// 커스텀 대시보드 노드 상태 위젯
 import React, { useState, useEffect } from 'react';
 import { Server, GripVertical, X, CheckCircle, AlertCircle, XCircle } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

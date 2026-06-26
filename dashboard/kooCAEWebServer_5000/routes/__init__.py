@@ -1,3 +1,4 @@
+# KooCAE 웹서버 라우트 블루프린트 등록
 from .auth_routes import auth_bp
 from .upload_routes import upload_bp
 from .sim_routes import sim_bp

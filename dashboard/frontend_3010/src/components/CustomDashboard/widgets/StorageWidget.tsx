@@ -1,3 +1,4 @@
+// 커스텀 대시보드 스토리지 사용량 위젯
 import React, { useState, useEffect } from 'react';
 import { HardDrive, GripVertical, X, AlertTriangle } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

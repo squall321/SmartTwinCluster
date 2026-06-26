@@ -1,3 +1,4 @@
+# KooCAE 서비스 동적 프록시 라우트
 from flask import Blueprint, request, jsonify, stream_with_context, Response
 import requests
 from config import Config

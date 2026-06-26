@@ -1,3 +1,4 @@
+# KooCAE 웹서버 로그인/인증 라우트
 from flask import Blueprint, request, jsonify
 from models.user import db, User
 from werkzeug.security import generate_password_hash, check_password_hash

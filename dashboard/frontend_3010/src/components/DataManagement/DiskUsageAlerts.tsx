@@ -1,3 +1,4 @@
+// 데이터 관리 디스크 사용량 경고 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, AlertCircle, X, Settings } from 'lucide-react';
 import { API_CONFIG } from "../../config/api.config";

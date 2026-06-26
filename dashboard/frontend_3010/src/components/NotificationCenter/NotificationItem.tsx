@@ -1,3 +1,4 @@
+// 알림 항목 컴포넌트
 import React from 'react';
 import { 
   CheckCircle, 

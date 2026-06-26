@@ -1,3 +1,4 @@
+// 대시보드 메인 레이아웃 및 탭 라우팅
 import React, { useState, useEffect } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';

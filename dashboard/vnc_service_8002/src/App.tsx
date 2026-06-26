@@ -1,3 +1,4 @@
+// VNC 서비스(8002) 프론트 루트 컴포넌트
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
 

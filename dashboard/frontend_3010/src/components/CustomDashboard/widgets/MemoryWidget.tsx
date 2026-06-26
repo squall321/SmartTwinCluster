@@ -1,3 +1,4 @@
+// 커스텀 대시보드 메모리 사용률 위젯
 import React, { useState, useEffect } from 'react';
 import { MemoryStick, GripVertical, X } from 'lucide-react';
 import { WidgetProps } from '../widgetRegistry';

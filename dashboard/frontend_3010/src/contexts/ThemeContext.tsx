@@ -1,3 +1,4 @@
+// 테마 상태를 관리하는 Context Provider
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 /**

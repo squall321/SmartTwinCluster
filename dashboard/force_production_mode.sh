@@ -1,4 +1,5 @@
 #!/bin/bash
+# Production Mode 강제 재시작 스크립트
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'

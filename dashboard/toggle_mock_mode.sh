@@ -1,4 +1,5 @@
 #!/bin/bash
+# Mock 모드 토글 전환 스크립트
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

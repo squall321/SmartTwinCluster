@@ -1,3 +1,4 @@
+// 대시보드 프론트엔드 루트 컴포넌트
 import React, { useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { ThemeProvider } from './contexts/ThemeContext';

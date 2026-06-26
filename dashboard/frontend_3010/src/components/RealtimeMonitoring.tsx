@@ -1,3 +1,4 @@
+// 실시간 모니터링 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { 
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, 

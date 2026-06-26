@@ -1,3 +1,4 @@
+// 전역 검색 결과 컴포넌트
 import React from 'react';
 import { FileText, Server, Briefcase, FileCode, ArrowRight, Cpu, HardDrive } from 'lucide-react';
 

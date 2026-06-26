@@ -1,3 +1,4 @@
+// 감사 로그 뷰어 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import { ScrollText, Search, RefreshCw, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiGet } from '../../utils/api';
