@@ -110,17 +110,14 @@ HTTP 모드는 보통 **systemd 데몬**으로 상시 기동합니다(아래 sys
 > **가장 쉬운 길**: 웹 대시보드 「MCP 토큰 (Claude 연동)」 메뉴에서 토큰을 발급하면
 > 아래 명령들이 **토큰까지 박힌 상태로** 화면에 나옵니다 — 복사해서 붙이기만 하면 됩니다.
 
-HTTP MCP(`http://<host>:5012/mcp`)는 plain HTTP·사내 인증서 문제를 안정적으로 처리하려
-`npx mcp-remote` 브리지로 연결합니다(**Node.js 필요**).
+- **Claude Code**: 네이티브 HTTP 트랜스포트로 `/mcp` 엔드포인트에 직접 연결(Node/npx 불필요).
+- **Claude Desktop**: 설정 파일은 stdio(command) 서버만 받으므로 `npx mcp-remote` 브리지로 연결(Node.js 필요).
 
 ### Claude Code (터미널)
 
 ```bash
-claude mcp add slurm-mcp \
-  -e AUTH='Bearer kst_<발급받은토큰>' \
-  -e NODE_OPTIONS=--use-system-ca \
-  -- npx -y mcp-remote http://<host>:5012/mcp --allow-http \
-  --header 'Authorization:${AUTH}'
+claude mcp add --transport http slurm-mcp http://<host>:5012/mcp \
+  --header "Authorization: Bearer kst_<발급받은토큰>"
 ```
 
 등록 확인: `claude mcp list` / 세션 내 `/mcp`.

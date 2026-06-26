@@ -136,10 +136,9 @@ const McpTokens: React.FC = () => {
   const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const mcpUrl = `http://${host}:5012/mcp`;
 
-  // Claude Code — 터미널 등록. HTTP 주소·사내 인증서 문제를 안정적으로 처리하려 mcp-remote 브리지 사용.
-  // 토큰은 env(-e)로 넣고 args 의 ${AUTH} 는 mcp-remote 가 치환(셸 확장 방지용 작은따옴표).
+  // Claude Code — 네이티브 HTTP 트랜스포트로 /mcp 엔드포인트에 직접 등록(Node/npx 불필요).
   const claudeCodeCmd = reveal
-    ? `claude mcp add slurm-mcp \\\n  -e AUTH='Bearer ${reveal}' \\\n  -e NODE_OPTIONS=--use-system-ca \\\n  -- npx -y mcp-remote ${mcpUrl} --allow-http \\\n  --header 'Authorization:\${AUTH}'`
+    ? `claude mcp add --transport http slurm-mcp ${mcpUrl} \\\n  --header "Authorization: Bearer ${reveal}"`
     : '';
 
   // Claude Desktop — claude_desktop_config.json 의 mcpServers 안에 붙여넣는 항목.
@@ -200,8 +199,9 @@ const McpTokens: React.FC = () => {
           <div className="pt-2 border-t border-blue-200">
             <div className="text-xs font-semibold text-gray-700 mb-1">Claude Code (터미널)</div>
             <div className="text-xs text-gray-500 mb-1">
-              아래 명령을 터미널에 붙여 등록하세요. <b>Node.js 필요</b> — HTTP 주소·사내 인증서 문제를 안정적으로
-              처리하려 <code className="font-mono">npx mcp-remote</code> 브리지로 연결합니다.
+              아래 명령을 터미널에 붙여 등록하세요. Claude Code 의 <b>네이티브 HTTP 트랜스포트</b>로
+              <code className="font-mono"> /mcp</code> 엔드포인트에 직접 연결합니다(별도 도구 불필요).
+              등록 확인은 <code className="font-mono">claude mcp list</code>.
             </div>
             <pre className="overflow-x-auto rounded bg-gray-900 text-gray-100 px-3 py-2 text-[11px] font-mono whitespace-pre">{claudeCodeCmd}</pre>
             <div className="mt-1"><CopyBtn text={claudeCodeCmd} ckey="code" label="명령 복사" /></div>
