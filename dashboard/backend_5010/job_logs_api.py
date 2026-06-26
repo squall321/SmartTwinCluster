@@ -608,6 +608,67 @@ def download_job_file(job_id: str):
         }), 500
 
 
+@job_logs_bp.route('/<job_id>/files/download-all', methods=['GET'])
+@optional_jwt
+def download_job_files_zip(job_id: str):
+    """잡 작업 디렉토리의 결과 파일 ★전체를 ZIP★ 으로 묶어 다운로드.
+
+    대용량(d3plot 등) 대비 메모리 대신 디스크 임시파일에 압축 후 전송, 전송 뒤 정리.
+    심볼릭링크/경로탈출은 realpath 검증으로 차단(작업 디렉토리 내부 파일만 포함).
+    """
+    import zipfile
+    import tempfile
+    from flask import after_this_request
+    try:
+        job_dir = get_job_dir(job_id)
+        if not job_dir or not os.path.exists(job_dir):
+            return jsonify({'success': False, 'error': f'Work directory not found for job {job_id}'}), 404
+        real_job_dir = os.path.realpath(job_dir)
+
+        tmp = tempfile.NamedTemporaryFile(prefix=f'job_{job_id}_', suffix='.zip', delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        count = 0
+        with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            for root, _dirs, filenames in os.walk(job_dir):
+                for fn in filenames:
+                    fp = os.path.join(root, fn)
+                    if not os.path.realpath(fp).startswith(real_job_dir):
+                        continue  # 심볼릭링크로 디렉토리 밖을 가리키는 파일 제외
+                    try:
+                        zf.write(fp, os.path.relpath(fp, job_dir))
+                        count += 1
+                    except OSError:
+                        continue
+
+        if count == 0:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return jsonify({'success': False, 'error': 'No files to download'}), 404
+
+        @after_this_request
+        def _cleanup(response):
+            # Linux: 전송 중 unlink 해도 열린 fd 가 데이터 유지 → 전송 완료 후 자동 삭제.
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return response
+
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name=f'job_{job_id}_results.zip',
+            mimetype='application/zip',
+        )
+    except Exception as e:
+        print(f"❌ Error zipping job files: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @job_logs_bp.route('/<job_id>/logs/stream', methods=['GET'])
 @optional_jwt
 def stream_job_logs(job_id: str):

@@ -41,6 +41,7 @@ interface JobLogViewerProps {
   jobId: string;
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: 'logs' | 'files';
 }
 
 const formatBytes = (bytes: number): string => {
@@ -85,7 +86,7 @@ const getStateBadgeColor = (state: string) => {
   }
 };
 
-export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClose }) => {
+export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClose, initialTab = 'logs' }) => {
   const [jobInfo, setJobInfo] = useState<JobInfo | null>(null);
   const [logContent, setLogContent] = useState<string>('');
   const [logType, setLogType] = useState<'out' | 'err'>('out');
@@ -94,7 +95,7 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [activeTab, setActiveTab] = useState<'logs' | 'files'>('logs');
+  const [activeTab, setActiveTab] = useState<'logs' | 'files'>(initialTab);
   const [showFilesPanel, setShowFilesPanel] = useState(true);
   const [selectedFile, setSelectedFile] = useState<JobFile | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
@@ -342,10 +343,21 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
 
                 {/* Files List */}
                 <div className="flex-1 overflow-y-auto p-4">
-                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                    <FolderOpen className="w-4 h-4" />
-                    Files ({files.length})
-                  </h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                      <FolderOpen className="w-4 h-4" />
+                      Files ({files.length})
+                    </h3>
+                    {files.length > 0 && (
+                      <button
+                        onClick={() => window.open(getApiUrl(`/api/jobs/${jobId}/files/download-all`), '_blank')}
+                        className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1"
+                        title="결과 파일 전체를 ZIP 으로 다운로드"
+                      >
+                        <Download className="w-3.5 h-3.5" /> 전체 ZIP
+                      </button>
+                    )}
+                  </div>
                   <div className="space-y-1">
                     {files.length === 0 ? (
                       <p className="text-sm text-gray-500 dark:text-gray-400 italic">

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Trash2, Search, Plus,
-  Clock, User, Cpu, CheckCircle, XCircle, AlertCircle, Eye
+  Clock, User, Cpu, CheckCircle, XCircle, AlertCircle, Eye, FolderDown
 } from 'lucide-react';
 import { SlurmJob, JobSubmitRequest } from '../types';
 import { UploadedFile } from './JobManagement/types';
@@ -57,6 +57,7 @@ export const JobManagement: React.FC<JobManagementProps> = ({
   const [selectedJob, setSelectedJob] = useState<SlurmJob | null>(null);
   const [showLogViewer, setShowLogViewer] = useState(false);
   const [selectedJobIdForLogs, setSelectedJobIdForLogs] = useState<string | null>(null);
+  const [logViewerTab, setLogViewerTab] = useState<'logs' | 'files'>('logs');
 
   // External control of submit modal
   useEffect(() => {
@@ -358,6 +359,7 @@ export const JobManagement: React.FC<JobManagementProps> = ({
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
+                          setLogViewerTab('logs');
                           setSelectedJobIdForLogs(job.jobId);
                           setShowLogViewer(true);
                         }}
@@ -366,6 +368,19 @@ export const JobManagement: React.FC<JobManagementProps> = ({
                       >
                         <Eye className="w-4 h-4" />
                       </button>
+                      {job.state !== 'PENDING' && (
+                        <button
+                          onClick={() => {
+                            setLogViewerTab('files');
+                            setSelectedJobIdForLogs(job.jobId);
+                            setShowLogViewer(true);
+                          }}
+                          className="p-1 text-green-600 hover:bg-green-50 rounded"
+                          title="결과 파일 (다운로드)"
+                        >
+                          <FolderDown className="w-4 h-4" />
+                        </button>
+                      )}
                       {(job.state === 'RUNNING' || job.state === 'PENDING') && (
                         <button
                           onClick={() => handleJobAction(job.jobId, 'cancel')}
@@ -491,6 +506,7 @@ export const JobManagement: React.FC<JobManagementProps> = ({
         <JobLogViewer
           jobId={selectedJobIdForLogs}
           isOpen={showLogViewer}
+          initialTab={logViewerTab}
           onClose={() => {
             setShowLogViewer(false);
             setSelectedJobIdForLogs(null);
