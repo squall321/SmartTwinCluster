@@ -1066,8 +1066,28 @@ def submit_job():
         log_info(request_id, 'files_validated')
 
         # 6. Slurm 스크립트 생성
-        slurm_overrides = json.loads(request.form.get('slurm_overrides', '{}'))
-        job_name = request.form.get('job_name', template['template']['name'])
+        # slurm_overrides 는 #SBATCH 라인에 그대로 보간되므로(nodes/mem/time/partition)
+        # 객체·스칼라만 허용하고 개행/제어문자를 거부한다(헤더 주입 차단).
+        try:
+            slurm_overrides = json.loads(request.form.get('slurm_overrides', '{}'))
+            if not isinstance(slurm_overrides, dict):
+                raise ValueError('slurm_overrides must be a JSON object')
+            for _k, _v in slurm_overrides.items():
+                if isinstance(_v, (dict, list)) or (
+                        isinstance(_v, str) and any(c in _v for c in '\n\r\x00')):
+                    raise ValueError(f'invalid slurm_overrides value for {_k}')
+        except (ValueError, TypeError) as e:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid slurm_overrides: {e}',
+                'request_id': request_id
+            }), 400
+
+        # job_name 은 #SBATCH --job-name 과 스크립트 파일명(os.path.join)에 쓰이므로
+        # 경로 구분자/셸 메타문자를 제거해 경로탈출·디렉티브 주입을 막는다.
+        # \w(유니코드) 허용으로 한글 잡 이름은 보존, '/'·공백·개행 등은 '_' 치환.
+        job_name_raw = request.form.get('job_name') or template['template']['name']
+        job_name = re.sub(r'[^\w.\-]', '_', str(job_name_raw))[:64] or 'job'
 
         # 웹 로그인 사용자 — 결과를 /data/single/<web_user>/ 에 저장하기 위해
         # 스크립트 생성 '전에' 추출한다 (기존엔 제출 후에야 추출해 경로에 못 씀).
