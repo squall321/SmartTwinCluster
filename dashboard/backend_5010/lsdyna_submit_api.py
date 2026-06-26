@@ -10,6 +10,7 @@ LS-DYNA Job Submission API with Apptainer Template Integration
 
 from flask import Blueprint, request, jsonify
 import os
+import re
 import json
 import tempfile
 import sqlite3
@@ -311,11 +312,15 @@ def submit_lsdyna_jobs():
 
             meta = json.loads(request.form[meta_key])
 
-            # Save uploaded file temporarily
-            temp_dir = '/tmp/lsdyna_uploads'
+            # 업로드 k파일 저장 — 공유 스토리지에 둬야 compute 노드가 읽는다(/tmp 는 노드로컬).
+            temp_dir = '/shared/lsdyna_uploads' if os.path.isdir('/shared') else '/tmp/lsdyna_uploads'
             os.makedirs(temp_dir, exist_ok=True)
+            if os.path.isdir('/shared'):
+                os.makedirs('/shared/logs', exist_ok=True)  # #SBATCH --output 대상
 
-            temp_path = os.path.join(temp_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}")
+            # 파일명 위생: basename + 경로구분자 제거(경로탈출 차단), \w 로 한글 보존.
+            safe_name = re.sub(r'[^\w.\-]', '_', os.path.basename(str(file.filename or '')))[:128] or f'input_{i}.k'
+            temp_path = os.path.join(temp_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}_{safe_name}")
             file.save(temp_path)
 
             # Check if using template
@@ -353,12 +358,14 @@ def submit_lsdyna_jobs():
                         # Generate script from template
                         slurm_config = {
                             'jobName': meta.get('filename', 'lsdyna_job'),
-                            'partition': 'group6',  # Default partition
+                            # partition/qos 는 meta 로만 — 비면 #SBATCH 줄 생략(클러스터 기본).
+                            # 특정 이름 하드코딩 시 다른 클러스터에서 invalid partition 으로 실패.
+                            'partition': meta.get('partition'),
                             'nodes': 1,
                             'cores': meta.get('cores', 32),
                             'memory': f"{meta.get('cores', 32) * 2}G",  # 2GB per core
                             'time': '24:00:00',
-                            'qos': 'group6_qos',
+                            'qos': meta.get('qos'),
                         }
 
                         input_files = {
@@ -426,40 +433,65 @@ def generate_traditional_script(meta, k_file_path):
     """Generate traditional LS-DYNA script without template"""
     lines = []
 
+    # 잡 이름/코어수 위생 — #SBATCH 라인 주입 차단.
+    safe_job = re.sub(r'[^\w.\-]', '_', str(meta.get('filename', 'lsdyna_job')))[:64] or 'lsdyna_job'
+    try:
+        cores = int(meta.get('cores', 16) or 16)
+    except (ValueError, TypeError):
+        cores = 16
+
     lines.append('#!/bin/bash')
     lines.append('')
     lines.append('# Traditional LS-DYNA submission (no template)')
-    lines.append(f"#SBATCH --job-name={meta.get('filename', 'lsdyna_job')}")
-    lines.append(f"#SBATCH --partition=group6")
-    lines.append(f"#SBATCH --nodes=1")
-    lines.append(f"#SBATCH --ntasks={meta.get('cores', 16)}")
-    lines.append(f"#SBATCH --mem={meta.get('cores', 16) * 2}G")
-    lines.append(f"#SBATCH --time=24:00:00")
+    lines.append(f"#SBATCH --job-name={safe_job}")
+    # partition 은 meta 가 줄 때만 — 비면 #SBATCH 줄 생략(클러스터 기본 사용).
+    # 하드코딩(예: group6)하면 그 파티션이 없는 클러스터에서 sbatch 가 invalid partition 으로 실패.
+    if meta.get('partition'):
+        lines.append(f"#SBATCH --partition={meta['partition']}")
+    lines.append("#SBATCH --nodes=1")
+    lines.append(f"#SBATCH --ntasks={cores}")
+    lines.append(f"#SBATCH --mem={cores * 2}G")
+    lines.append("#SBATCH --time=24:00:00")
     lines.append('#SBATCH --output=/shared/logs/%j.out')
     lines.append('#SBATCH --error=/shared/logs/%j.err')
     lines.append('')
 
     lines.append('# Environment')
-    lines.append(f"export K_FILE=\"{k_file_path}\"")
-    lines.append(f"export CORES={meta.get('cores', 16)}")
+    lines.append(f'export K_FILE="{k_file_path}"')
+    lines.append(f'export NPROCS={cores}')
     lines.append(f"export MODE={meta.get('mode', 'MPP')}")
-    lines.append(f"export VERSION={meta.get('version', 'R15')}")
+    lines.append(f"export VERSION={meta.get('version', 'R13.1.0')}")
     lines.append(f"export PRECISION={meta.get('precision', 'single')}")
+    lines.append('export MEMORY=64000000  # LS-DYNA solver memory (words)')
     lines.append('')
 
-    lines.append('# Execute LS-DYNA')
-    lines.append('echo "Starting LS-DYNA job..."')
-    lines.append('echo "K-file: $K_FILE"')
-    lines.append('echo "Cores: $CORES"')
-    lines.append('echo "Mode: $MODE"')
+    lines.append('echo "========================================"')
+    lines.append('echo "LS-DYNA Job ($MODE / $VERSION)"')
+    lines.append('echo "K-file : $K_FILE"')
+    lines.append('echo "Cores  : $NPROCS"')
+    lines.append('echo "========================================"')
     lines.append('')
-
-    # Add actual LS-DYNA execution command here
-    lines.append('# TODO: Add actual LS-DYNA command')
-    lines.append('# mpirun -np $CORES lsdyna i=$K_FILE ...')
+    lines.append('if [ ! -f "$K_FILE" ]; then')
+    lines.append('    echo "Error: K file not found: $K_FILE"')
+    lines.append('    exit 1')
+    lines.append('fi')
     lines.append('')
-
+    lines.append('# 결과는 k파일 옆 output/ 에 — 업로드 공유경로 하위라 노드 간 접근 가능')
+    lines.append('OUTPUT_DIR="$(dirname "$K_FILE")/output"')
+    lines.append('mkdir -p "$OUTPUT_DIR"')
+    lines.append('cd "$OUTPUT_DIR"')
+    lines.append('')
+    lines.append('# LS-DYNA 모듈 로드(클러스터 환경에 맞게 조정). 없으면 통과.')
+    lines.append('module load lsdyna/$VERSION 2>/dev/null || module load lsdyna/R13.1.0 2>/dev/null || true')
+    lines.append('')
+    lines.append('echo "Running LS-DYNA MPP solver..."')
+    lines.append('mpirun -np $NPROCS ls-dyna_mpp I="$K_FILE" MEMORY=$MEMORY NCPU=$NPROCS')
+    lines.append('EXIT_CODE=$?')
+    lines.append('')
+    lines.append('echo "Exit Code: $EXIT_CODE"')
+    lines.append('ls -lh "$OUTPUT_DIR" 2>/dev/null || true')
     lines.append('echo "Job completed"')
+    lines.append('exit $EXIT_CODE')
 
     return '\n'.join(lines)
 
