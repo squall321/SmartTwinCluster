@@ -132,9 +132,10 @@ const McpTokens: React.FC = () => {
     }
   };
 
-  // 연결 가이드(토큰 주입). MCP 서버는 대시보드와 같은 호스트의 5012 포트(HTTP, streamable).
-  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const mcpUrl = `http://${host}:5012/mcp`;
+  // 연결 가이드(토큰 주입). MCP 는 대시보드와 ★같은 오리진의 /mcp★ 로 노출된다
+  // (nginx 가 내부 127.0.0.1:5012 streamable-http 로 프록시 — TLS·단일포트, PAT 암호화 전송).
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://localhost';
+  const mcpUrl = `${origin}/mcp`;
 
   // Claude Code — 네이티브 HTTP 트랜스포트로 /mcp 엔드포인트에 직접 등록(Node/npx 불필요).
   const claudeCodeCmd = reveal
@@ -146,7 +147,7 @@ const McpTokens: React.FC = () => {
     ? `"slurm-mcp": ${JSON.stringify(
         {
           command: 'npx',
-          args: ['-y', 'mcp-remote', mcpUrl, '--allow-http', '--header', 'Authorization:${AUTH}'],
+          args: ['-y', 'mcp-remote', mcpUrl, '--header', 'Authorization:${AUTH}'],
           env: { AUTH: `Bearer ${reveal}`, NODE_OPTIONS: '--use-system-ca' },
         },
         null,
@@ -199,9 +200,10 @@ const McpTokens: React.FC = () => {
           <div className="pt-2 border-t border-blue-200">
             <div className="text-xs font-semibold text-gray-700 mb-1">Claude Code (터미널)</div>
             <div className="text-xs text-gray-500 mb-1">
-              아래 명령을 터미널에 붙여 등록하세요. Claude Code 의 <b>네이티브 HTTP 트랜스포트</b>로
-              <code className="font-mono"> /mcp</code> 엔드포인트에 직접 연결합니다(별도 도구 불필요).
-              등록 확인은 <code className="font-mono">claude mcp list</code>.
+              아래 명령을 터미널에 붙여 등록하세요. 대시보드와 <b>같은 주소의 <code className="font-mono">/mcp</code></b> 로
+              직접 연결합니다(별도 포트·도구 불필요). 등록 확인은 <code className="font-mono">claude mcp list</code>.
+              <span className="block mt-1">※ 사설(self-signed) 인증서 환경이면 클라이언트가 그 인증서를 신뢰하도록 설정해야 합니다
+              (Claude Code 실행 환경에 <code className="font-mono">NODE_EXTRA_CA_CERTS</code> 지정 등, 또는 정식 인증서 권장).</span>
             </div>
             <pre className="overflow-x-auto rounded bg-gray-900 text-gray-100 px-3 py-2 text-[11px] font-mono whitespace-pre">{claudeCodeCmd}</pre>
             <div className="mt-1"><CopyBtn text={claudeCodeCmd} ckey="code" label="명령 복사" /></div>

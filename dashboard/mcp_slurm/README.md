@@ -110,13 +110,18 @@ HTTP 모드는 보통 **systemd 데몬**으로 상시 기동합니다(아래 sys
 > **가장 쉬운 길**: 웹 대시보드 「MCP 토큰 (Claude 연동)」 메뉴에서 토큰을 발급하면
 > 아래 명령들이 **토큰까지 박힌 상태로** 화면에 나옵니다 — 복사해서 붙이기만 하면 됩니다.
 
-- **Claude Code**: 네이티브 HTTP 트랜스포트로 `/mcp` 엔드포인트에 직접 연결(Node/npx 불필요).
+접속 주소는 **대시보드와 같은 오리진의 `/mcp`** 입니다(nginx 가 내부 `127.0.0.1:5012` streamable-http
+로 프록시 — TLS·단일포트, PAT 암호화 전송). 데몬은 loopback 바인딩을 유지합니다.
+
+- **Claude Code**: 네이티브 HTTP 트랜스포트로 `/mcp` 에 직접 연결(Node/npx 불필요).
 - **Claude Desktop**: 설정 파일은 stdio(command) 서버만 받으므로 `npx mcp-remote` 브리지로 연결(Node.js 필요).
+- ※ 사설(self-signed) 인증서 환경이면 클라이언트가 그 인증서를 신뢰하도록 설정해야 합니다
+  (Claude Code: `NODE_EXTRA_CA_CERTS`, Desktop: `NODE_OPTIONS=--use-system-ca` 또는 정식 인증서 권장).
 
 ### Claude Code (터미널)
 
 ```bash
-claude mcp add --transport http slurm-mcp http://<host>:5012/mcp \
+claude mcp add --transport http slurm-mcp https://<host>/mcp \
   --header "Authorization: Bearer kst_<발급받은토큰>"
 ```
 
@@ -130,7 +135,7 @@ claude mcp add --transport http slurm-mcp http://<host>:5012/mcp \
 ```json
 "slurm-mcp": {
   "command": "npx",
-  "args": ["-y", "mcp-remote", "http://<host>:5012/mcp", "--allow-http",
+  "args": ["-y", "mcp-remote", "https://<host>/mcp",
            "--header", "Authorization:${AUTH}"],
   "env": { "AUTH": "Bearer kst_<발급받은토큰>", "NODE_OPTIONS": "--use-system-ca" }
 }
