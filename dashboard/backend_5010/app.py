@@ -886,7 +886,10 @@ def submit_job():
             with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
                 f.write(f"#!/bin/bash\n")
                 f.write(f"#SBATCH --job-name={data['jobName']}\n")
-                f.write(f"#SBATCH --partition={data['partition']}\n")
+                # partition 이 비면 #SBATCH 줄을 생략 — 클러스터 기본 파티션 사용.
+                # 빈 값을 박으면 sbatch 가 invalid partition 으로 실패한다(클러스터마다 이름 다름).
+                if data.get('partition'):
+                    f.write(f"#SBATCH --partition={data['partition']}\n")
                 f.write(f"#SBATCH --nodes={data['nodes']}\n")
                 if data.get('cpus'):
                     f.write(f"#SBATCH --cpus-per-task={data['cpus']}\n")
@@ -894,6 +897,11 @@ def submit_job():
                     f.write(f"#SBATCH --mem={data['memory']}\n")
                 if data.get('time'):
                     f.write(f"#SBATCH --time={data['time']}\n")
+                # 로그를 공유 스토리지에 — 로그뷰어/결과/MCP 가 /shared/logs/%j.* 를 찾는다(Path A 와 정합).
+                # /shared 가 없으면(비공유 환경) Slurm 기본 위치로 둔다.
+                if os.path.isdir('/shared'):
+                    f.write(f"#SBATCH --output=/shared/logs/%j.out\n")
+                    f.write(f"#SBATCH --error=/shared/logs/%j.err\n")
                 f.write(f"\n")
 
                 # 업로드된 파일 경로를 환경변수로 추가
