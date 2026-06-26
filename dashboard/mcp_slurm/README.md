@@ -30,6 +30,8 @@ Claude Desktop/Code 도 접속할 수 있습니다. 사용자별 토큰(PAT)을 
 | `slurm_fairshare` | `sshare` | 페어셰어(공정 사용량) |
 | `slurm_job_priority` | `sprio` | 대기 잡 우선순위 분해 |
 | `slurm_job_stat(job_id)` | `sstat -j <id>` | 실행 잡 실시간 자원 사용량 |
+| `slurm_job_results(job_id)` | backend `/api/jobs/<id>/info`+`/files` | **완료 잡 결과** — 상태/종료코드/작업디렉토리 + 결과 파일 목록(d3plot/binout/csv/로그) |
+| `slurm_job_log(job_id, lines, log_type)` | backend `/api/jobs/<id>/logs/tail` | 잡 stdout/stderr 로그 마지막 N줄(시뮬 출력/에러 분석) |
 
 ### 제공 tools (변경계 / write — REST 프록시)
 

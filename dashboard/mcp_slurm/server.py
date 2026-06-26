@@ -325,6 +325,121 @@ def slurm_job_stat(job_id: str, ctx: Context) -> str:
     return _stdout(get_sstat("-j", job_id, check=False))
 
 
+# ---------------------------------------------------------------------------
+# 잡 결과(완료 시뮬) 조회 tools — backend_5010 의 job_logs REST(/api/jobs/<id>/...) 프록시.
+# 작업 디렉토리 탐색/파일 워크/로그 파싱 로직이 backend 에 있으므로 직접호출이 아니라 REST 재사용.
+# ---------------------------------------------------------------------------
+
+def _human_size(n) -> str:
+    """바이트 → 사람이 읽는 크기."""
+    try:
+        size = float(n)
+    except (TypeError, ValueError):
+        return str(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024:
+            return f"{int(size)}{unit}" if unit == "B" else f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.1f}PB"
+
+
+@mcp.tool()
+def slurm_job_results(job_id: str, ctx: Context) -> str:
+    """완료(또는 실행 중)된 잡의 결과 요약을 반환합니다 — 상태/종료코드/경과시간,
+    작업 디렉토리, 그리고 ★결과 파일 목록★(LS-DYNA d3plot/binout, csv, 로그 등).
+
+    시뮬레이션 잡이 끝난 뒤 정상 종료했는지, 어떤 산출물(결과 파일)이 생겼는지 확인할 때
+    사용하세요. 텍스트 로그 내용(stdout/stderr)은 slurm_job_log 로 가져옵니다.
+    (결과 데이터 자체는 d3plot 등 바이너리라 목록만 보여줍니다.)
+
+    Args:
+        job_id: 조회할 잡 ID (예: "12345").
+    """
+    err = _require_user(ctx)
+    if err:
+        return err
+    job_id = str(job_id).strip()
+    if not job_id:
+        return "error: job_id 가 비어 있습니다."
+    auth = _auth_header(ctx)
+
+    ok_i, info_raw, st_i = _backend_request("GET", f"/api/jobs/{job_id}/info", None, auth)
+    if not ok_i:
+        if st_i == 404:
+            return f"잡 {job_id} 를 찾을 수 없습니다(sacct/작업기록 없음)."
+        return info_raw if isinstance(info_raw, str) and info_raw else f"error: HTTP {st_i}"
+    try:
+        info = json.loads(info_raw).get("job", {}) or {}
+    except (ValueError, TypeError):
+        info = {}
+
+    ok_f, files_raw, _ = _backend_request("GET", f"/api/jobs/{job_id}/files", None, auth)
+    files, work_dir = [], ""
+    if ok_f:
+        try:
+            fj = json.loads(files_raw)
+            files = fj.get("files", []) or []
+            work_dir = fj.get("workDir") or ""
+        except (ValueError, TypeError):
+            pass
+
+    out = [
+        f"잡 {job_id} 결과",
+        f"  이름: {info.get('jobName', '?')}",
+        f"  상태: {info.get('state', '?')}  (ExitCode {info.get('exitCode', '?')})",
+        f"  경과: {info.get('elapsed', '?')}  파티션: {info.get('partition', '?')}",
+    ]
+    if work_dir:
+        out.append(f"  작업 디렉토리: {work_dir}")
+    if files:
+        out.append(f"  결과 파일 ({len(files)}개):")
+        for f in files[:100]:
+            tag = f.get("logType") or f.get("type", "")
+            suffix = f", {tag}" if tag and tag != "file" else ""
+            out.append(f"    - {f.get('name', '?')}  ({_human_size(f.get('size', 0))}{suffix})")
+        if len(files) > 100:
+            out.append(f"    … 외 {len(files) - 100}개")
+    else:
+        out.append("  결과 파일: (없음 또는 작업 디렉토리 접근 불가)")
+    return "\n".join(out)
+
+
+@mcp.tool()
+def slurm_job_log(job_id: str, ctx: Context, lines: int = 200, log_type: str = "out") -> str:
+    """잡의 stdout/stderr 로그 마지막 N줄을 반환합니다.
+
+    시뮬레이션 출력/에러 메시지를 읽고 분석할 때 사용하세요(예: LS-DYNA 종료/수렴/에러 메시지).
+    큰 로그는 tail 로 마지막 부분만 가져옵니다. 결과 파일 목록은 slurm_job_results 를 쓰세요.
+
+    Args:
+        job_id: 잡 ID.
+        lines: 가져올 마지막 줄 수(기본 200, 최대 2000).
+        log_type: "out"(stdout, 기본) 또는 "err"(stderr).
+    """
+    err = _require_user(ctx)
+    if err:
+        return err
+    job_id = str(job_id).strip()
+    if not job_id:
+        return "error: job_id 가 비어 있습니다."
+    try:
+        n = max(1, min(int(lines), 2000))
+    except (TypeError, ValueError):
+        n = 200
+    lt = "err" if str(log_type).strip().lower().startswith("e") else "out"
+    auth = _auth_header(ctx)
+    ok, raw, st = _backend_request("GET", f"/api/jobs/{job_id}/logs/tail?lines={n}&type={lt}", None, auth)
+    if not ok:
+        if st == 404:
+            return f"잡 {job_id} 의 {lt} 로그를 찾을 수 없습니다."
+        return raw if isinstance(raw, str) and raw else f"error: HTTP {st}"
+    try:
+        content = json.loads(raw).get("content", "")
+    except (ValueError, TypeError):
+        content = raw
+    return content if content and content.strip() else "(로그 비어 있음)"
+
+
 # ===========================================================================
 # 변경계(write) tools — backend_5010 REST 프록시
 #
