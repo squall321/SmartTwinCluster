@@ -18,13 +18,15 @@ from slurm_commands import get_sacct, get_scontrol
 job_logs_bp = Blueprint('job_logs', __name__, url_prefix='/api/jobs')
 
 # 로그 및 작업 디렉토리 경로
-# GlusterFS 마운트 경로 (클러스터 공유 스토리지)
-LOGS_DIR = os.getenv('JOB_LOGS_DIR', '/mnt/gluster/logs')
-JOBS_DIR = os.getenv('JOB_WORK_DIR', '/mnt/gluster/jobs')
+# 공유 스토리지 베이스 — 제출(job_submit/lsdyna/app.py)이 쓰는 위치와 동일 규칙.
+# 운영은 /shared(=GlusterFS), gluster 미마운트 환경은 SHARED_BASE(예: /data).
+SHARED_BASE = os.getenv('SHARED_BASE', '/shared')
+LOGS_DIR = os.getenv('JOB_LOGS_DIR', os.path.join(SHARED_BASE, 'logs'))
+JOBS_DIR = os.getenv('JOB_WORK_DIR', os.path.join(SHARED_BASE, 'jobs'))
 
-# 대체 경로 (로컬 fallback)
-ALT_LOGS_DIR = '/shared/logs'
-ALT_JOBS_DIR = '/shared/jobs'
+# 대체 경로 (다른 마운트 규칙/레거시 fallback)
+ALT_LOGS_DIR = '/mnt/gluster/logs'
+ALT_JOBS_DIR = '/mnt/gluster/jobs'
 
 
 def get_log_path(job_id: str, log_type: str = 'out') -> str:

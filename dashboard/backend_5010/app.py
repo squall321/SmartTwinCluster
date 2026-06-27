@@ -49,6 +49,10 @@ except Exception as e:
 # Mock 모드 설정 (환경변수로 제어)
 MOCK_MODE = os.getenv('MOCK_MODE', 'true').lower() == 'true'
 
+# 공유 스토리지 베이스 — 운영은 /shared(GlusterFS), gluster 미마운트 환경은 SHARED_BASE(예: /data).
+# job_submit_api/lsdyna_submit_api 와 동일 규칙(기본 /shared, 운영 무해).
+SHARED_BASE = os.getenv('SHARED_BASE', '/shared')
+
 if MOCK_MODE:
     print("⚠️  Running in MOCK MODE - No actual Slurm commands will be executed")
 else:
@@ -897,11 +901,12 @@ def submit_job():
                     f.write(f"#SBATCH --mem={data['memory']}\n")
                 if data.get('time'):
                     f.write(f"#SBATCH --time={data['time']}\n")
-                # 로그를 공유 스토리지에 — 로그뷰어/결과/MCP 가 /shared/logs/%j.* 를 찾는다(Path A 와 정합).
-                # /shared 가 없으면(비공유 환경) Slurm 기본 위치로 둔다.
-                if os.path.isdir('/shared'):
-                    f.write(f"#SBATCH --output=/shared/logs/%j.out\n")
-                    f.write(f"#SBATCH --error=/shared/logs/%j.err\n")
+                # 로그를 공유 스토리지에 — 로그뷰어/결과/MCP 가 SHARED_BASE/logs/%j.* 를 찾는다(Path A 와 정합).
+                # 공유 베이스가 없으면(비공유 환경) Slurm 기본 위치로 둔다.
+                if os.path.isdir(SHARED_BASE):
+                    os.makedirs(os.path.join(SHARED_BASE, 'logs'), exist_ok=True)
+                    f.write(f"#SBATCH --output={SHARED_BASE}/logs/%j.out\n")
+                    f.write(f"#SBATCH --error={SHARED_BASE}/logs/%j.err\n")
                 f.write(f"\n")
 
                 # 업로드된 파일 경로를 환경변수로 추가

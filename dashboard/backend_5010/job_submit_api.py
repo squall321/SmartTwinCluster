@@ -118,11 +118,16 @@ def log_info(request_id: str, event: str, details: dict = None):
 
 job_submit_bp = Blueprint('job_submit', __name__)
 
+# 공유 스토리지 베이스 — 운영(icn401)은 /shared(=GlusterFS), gluster 미마운트 환경(dev 등)은
+# SHARED_BASE 로 실제 공유 마운트(예: /data)를 지정. 기본 /shared(운영 무해).
+# 로그/작업/업로드/스크립트가 모두 이 밑에 모여 compute 노드와 헤드가 같은 경로로 본다.
+SHARED_BASE = os.getenv('SHARED_BASE', '/shared')
+
 # Template 디렉토리
 TEMPLATE_DIRS = {
-    'official': '/shared/templates/official',
-    'community': '/shared/templates/community',
-    'user': '/shared/templates/user',
+    'official': f'{SHARED_BASE}/templates/official',
+    'community': f'{SHARED_BASE}/templates/community',
+    'user': f'{SHARED_BASE}/templates/user',
 }
 
 # Apptainer 이미지 디렉토리 (fallback용, DB 우선 사용)
@@ -134,9 +139,14 @@ APPTAINER_DIRS = {
 # 메타데이터 디렉토리 (GlusterFS 공유 스토리지)
 APPTAINER_METADATA_DIR = os.getenv('APPTAINER_METADATA_DIR', '/mnt/gluster/apptainer/metadata')
 
-# 업로드 임시 디렉토리
-UPLOAD_DIR = '/tmp/slurm_uploads'
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# 업로드 임시 디렉토리 — 공유 FS 에 둬야 compute 노드가 cp 가능(노드로컬 /tmp 면 멀티노드 실패).
+UPLOAD_DIR = os.path.join(SHARED_BASE, 'slurm_uploads')
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(os.path.join(SHARED_BASE, 'logs'), exist_ok=True)  # #SBATCH --output 대상
+except OSError:
+    UPLOAD_DIR = '/tmp/slurm_uploads'
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 파티션별 대표 노드 (이미지 파일 존재 확인용) - YAML에서 동적 로드
 def get_partition_nodes_from_yaml():
@@ -748,8 +758,8 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
 
     script += f"#SBATCH --mem={slurm_config.get('mem', slurm_config.get('memory', '16G'))}\n"
     script += f"#SBATCH --time={slurm_config['time']}\n"
-    script += f"#SBATCH --output=/shared/logs/%j.out\n"
-    script += f"#SBATCH --error=/shared/logs/%j.err\n\n"
+    script += f"#SBATCH --output={SHARED_BASE}/logs/%j.out\n"
+    script += f"#SBATCH --error={SHARED_BASE}/logs/%j.err\n\n"
 
     # 환경 변수 설정
     script += "# =============================================================================\n"
@@ -777,7 +787,7 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
     safe_job = re.sub(r'[^A-Za-z0-9._-]', '_', str(job_config.get('job_name', 'job')))[:64]
     script += "# --- 작업 디렉토리 ---\n"
     script += f"export WEB_USER=\"{web_user}\"\n"
-    script += "export SLURM_SUBMIT_DIR=/shared/jobs/$SLURM_JOB_ID\n"
+    script += f"export SLURM_SUBMIT_DIR={SHARED_BASE}/jobs/$SLURM_JOB_ID\n"
     script += "export WORK_DIR=\"$SLURM_SUBMIT_DIR\"\n"
     script += f"export SINGLE_BASE=\"/data/single/{web_user}\"\n"
     script += f"export RESULT_DIR=\"$SINGLE_BASE/{safe_job}_$SLURM_JOB_ID\"\n\n"
@@ -1152,7 +1162,7 @@ def submit_job():
 
         # 7. Slurm 스크립트 저장
         # 스크립트 저장 디렉토리 (영구 보관용) — /shared 우선, 없으면 /tmp 폴백
-        SCRIPT_DIR = '/shared/slurm_scripts' if os.path.isdir('/shared') else '/tmp/slurm_scripts'
+        SCRIPT_DIR = os.path.join(SHARED_BASE, 'slurm_scripts') if os.path.isdir(SHARED_BASE) else '/tmp/slurm_scripts'
         try:
             os.makedirs(SCRIPT_DIR, exist_ok=True)
         except PermissionError:

@@ -24,6 +24,10 @@ lsdyna_submit_bp = Blueprint('lsdyna_submit', __name__, url_prefix='/api/slurm')
 # Database path — job_submit_api 와 동일한 DATABASE_PATH 환경변수 사용(DB split-brain 해소)
 DB_PATH = Path(os.getenv('DATABASE_PATH', '/home/koopark/web_services/backend/dashboard.db'))
 
+# 공유 스토리지 베이스 — 운영은 /shared(GlusterFS), gluster 미마운트 환경은 SHARED_BASE(예: /data).
+# job_submit_api 와 동일 규칙(기본 /shared, 운영 무해).
+SHARED_BASE = os.getenv('SHARED_BASE', '/shared')
+
 def get_db_connection():
     """Get SQLite database connection"""
     conn = sqlite3.connect(str(DB_PATH))
@@ -222,8 +226,8 @@ def generate_script_from_template(template, image, slurm_config, input_files, cu
     if slurm_config.get('qos'):
         lines.append(f"#SBATCH --qos={slurm_config['qos']}")
 
-    lines.append('#SBATCH --output=/shared/logs/%j.out')
-    lines.append('#SBATCH --error=/shared/logs/%j.err')
+    lines.append(f'#SBATCH --output={SHARED_BASE}/logs/%j.out')
+    lines.append(f'#SBATCH --error={SHARED_BASE}/logs/%j.err')
     lines.append('')
 
     # Environment variables
@@ -313,10 +317,10 @@ def submit_lsdyna_jobs():
             meta = json.loads(request.form[meta_key])
 
             # 업로드 k파일 저장 — 공유 스토리지에 둬야 compute 노드가 읽는다(/tmp 는 노드로컬).
-            temp_dir = '/shared/lsdyna_uploads' if os.path.isdir('/shared') else '/tmp/lsdyna_uploads'
+            temp_dir = os.path.join(SHARED_BASE, 'lsdyna_uploads') if os.path.isdir(SHARED_BASE) else '/tmp/lsdyna_uploads'
             os.makedirs(temp_dir, exist_ok=True)
-            if os.path.isdir('/shared'):
-                os.makedirs('/shared/logs', exist_ok=True)  # #SBATCH --output 대상
+            if os.path.isdir(SHARED_BASE):
+                os.makedirs(os.path.join(SHARED_BASE, 'logs'), exist_ok=True)  # #SBATCH --output 대상
 
             # 파일명 위생: basename + 경로구분자 제거(경로탈출 차단), \w 로 한글 보존.
             safe_name = re.sub(r'[^\w.\-]', '_', os.path.basename(str(file.filename or '')))[:128] or f'input_{i}.k'
@@ -452,8 +456,8 @@ def generate_traditional_script(meta, k_file_path):
     lines.append(f"#SBATCH --ntasks={cores}")
     lines.append(f"#SBATCH --mem={cores * 2}G")
     lines.append("#SBATCH --time=24:00:00")
-    lines.append('#SBATCH --output=/shared/logs/%j.out')
-    lines.append('#SBATCH --error=/shared/logs/%j.err')
+    lines.append(f'#SBATCH --output={SHARED_BASE}/logs/%j.out')
+    lines.append(f'#SBATCH --error={SHARED_BASE}/logs/%j.err')
     lines.append('')
 
     lines.append('# Environment')
