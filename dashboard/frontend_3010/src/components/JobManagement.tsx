@@ -824,6 +824,20 @@ const JobSubmitModal: React.FC<JobSubmitModalProps> = ({ apiMode, template, onCl
                 template.config.cpus
               );
               setSelectedConfigIndex(matchingIndex);
+            } else if (response.partitions.length > 0) {
+              // 템플릿이 지정한 파티션이 이 클러스터에 없음(예: 'compute'/'gpu' 하드코딩) →
+              // 첫 live 파티션으로 폴백해 드롭다운 표시와 실제 제출 파티션을 일치시킨다
+              // (안 그러면 드롭다운엔 'compute' 가 보이는데 제출은 빈값→다른 파티션에서 도는 혼란).
+              const fp = response.partitions[0];
+              const fc = fp.allowedConfigs[0];
+              setFormData(prev => ({
+                ...prev,
+                partition: fp.name,
+                nodes: fc.nodes,
+                cpus: fc.cpus_per_node
+              }));
+              setAllowedConfigs(fp.allowedConfigs);
+              setSelectedConfigIndex(0);
             }
           } else {
             // 템플릿 없음: 첫 번째 파티션을 기본값으로
@@ -952,8 +966,15 @@ const JobSubmitModal: React.FC<JobSubmitModalProps> = ({ apiMode, template, onCl
           }
         } else {
           // 기존 방식: JSON으로 전송
+          // 선택 파티션이 현재 클러스터 목록에 없으면(템플릿 하드코딩 'compute'/'gpu' 등) 비워서 전송
+          // → 백엔드가 #SBATCH --partition 을 생략해 클러스터 기본 파티션 사용(invalid partition 회피).
+          const partitionToSend =
+            partitions.length === 0 || partitions.some(p => p.name === formData.partition)
+              ? formData.partition
+              : '';
           const submitData = {
             ...formData,
+            partition: partitionToSend,
             jobId: tempJobId,
             apptainerImage: selectedApptainerImage ? {
               id: selectedApptainerImage.id,
