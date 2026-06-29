@@ -30,6 +30,30 @@ DB_PATH = Path(os.getenv('DATABASE_PATH', '/home/koopark/web_services/backend/da
 # job_submit_api 와 동일 규칙(기본 /shared, 운영 무해).
 SHARED_BASE = os.getenv('SHARED_BASE', '/shared')
 
+# ── LS-DYNA Apptainer 실행 설정 (전부 서버사이드 env — 운영/개발마다 다름) ──────────
+# 이 클러스터는 LS-DYNA 를 호스트 바이너리가 아니라 Apptainer 컨테이너(.sif)로 실행한다.
+# 정답 패턴 출처: pyKooCAE/Examples/single-run/run_dyna.sh (apptainer exec ... mpirun lsdyna).
+# ★라이선스 서버 주소는 운영마다 다르므로 절대 하드코딩하지 않고 LSTC_LICENSE_SERVER env 로 주입★
+#   (start_production.sh 가 YAML slurm_config.lsdyna_license.server 를 env 로 내려주는 것을 권장).
+LSDYNA_SIF_DIR = os.getenv('LSDYNA_SIF_DIR', '/data/apptainers')          # .sif 보관 공유경로
+LSDYNA_SIF_COMPILER = os.getenv('LSDYNA_SIF_COMPILER', 'aocc420_ompi4.0.5')  # SIF 이름 중간부
+LSDYNA_BIN = os.getenv('LSDYNA_BIN', '/opt/ls-dyna/lsdyna')               # 컨테이너 내 심볼릭(최신)
+LSDYNA_MPIRUN = os.getenv('LSDYNA_MPIRUN', '/opt/openmpi/bin/mpirun')     # aocc=OpenMPI 풀패스
+LSDYNA_MEMORY = os.getenv('LSDYNA_MEMORY', '500m')                        # LS-DYNA solver memory
+LSDYNA_LICENSE_SERVER = os.getenv('LSTC_LICENSE_SERVER', '')              # ★운영 env 로 주입(빈값=미설정)★
+LSDYNA_LICENSE_FILE = os.getenv('LSTC_FILE', '/opt/ls-dyna_license/LSTC_FILE')
+LSDYNA_BIND = os.getenv('LSDYNA_BIND', '/data:/data')                     # apptainer --bind
+
+
+def _select_lsdyna_sif(meta):
+    """meta.mode(MPP/SMP/HYBRID) + meta.precision(single/double) → SIF 절대경로.
+    MPP→mpp, 그외→hyb. single→s, double→d. 컴파일러/MPI 변형은 env 로 고정."""
+    mode = str(meta.get('mode', 'MPP')).lower()
+    prec = str(meta.get('precision', 'single')).lower()
+    mp = 'mpp' if 'mpp' in mode else 'hyb'
+    sd = 'd' if prec.startswith('d') else 's'
+    return os.path.join(LSDYNA_SIF_DIR, f"LSDynaBasic_{LSDYNA_SIF_COMPILER}_{mp}_{sd}.sif")
+
 def get_db_connection():
     """Get SQLite database connection"""
     conn = sqlite3.connect(str(DB_PATH))
@@ -517,36 +541,43 @@ def generate_traditional_script(meta, k_file_path, web_role=None):
     lines.append(f'#SBATCH --error={SHARED_BASE}/logs/%j.err')
     lines.append('')
 
+    sif = _select_lsdyna_sif(meta)
     lines.append('# Environment')
     lines.append(f'export K_FILE="{k_file_path}"')
     lines.append(f'export NPROCS={cores}')
-    lines.append(f"export MODE={meta.get('mode', 'MPP')}")
-    lines.append(f"export VERSION={meta.get('version', 'R13.1.0')}")
-    lines.append(f"export PRECISION={meta.get('precision', 'single')}")
-    lines.append('export MEMORY=64000000  # LS-DYNA solver memory (words)')
+    lines.append(f'export SIF="{sif}"')
+    lines.append(f'export LSDYNA_BIN="{LSDYNA_BIN}"')
+    lines.append(f'export MEMORY="{LSDYNA_MEMORY}"')
+    lines.append('export APPTAINER_TMPDIR=/data/tmp')
+    lines.append('mkdir -p "$APPTAINER_TMPDIR"')
     lines.append('')
-
     lines.append('echo "========================================"')
-    lines.append('echo "LS-DYNA Job ($MODE / $VERSION)"')
+    lines.append(f"echo \"LS-DYNA (mode={meta.get('mode', 'MPP')} precision={meta.get('precision', 'single')})\"")
     lines.append('echo "K-file : $K_FILE"')
     lines.append('echo "Cores  : $NPROCS"')
+    lines.append('echo "SIF    : $SIF"')
     lines.append('echo "========================================"')
     lines.append('')
-    lines.append('if [ ! -f "$K_FILE" ]; then')
-    lines.append('    echo "Error: K file not found: $K_FILE"')
-    lines.append('    exit 1')
-    lines.append('fi')
+    lines.append('if [ ! -f "$K_FILE" ]; then echo "Error: K file not found: $K_FILE"; exit 1; fi')
+    lines.append('if [ ! -f "$SIF" ]; then echo "Error: LS-DYNA SIF not found: $SIF"; exit 1; fi')
     lines.append('')
-    lines.append('# 결과는 k파일 옆 output/ 에 — 업로드 공유경로 하위라 노드 간 접근 가능')
+    lines.append('# 결과는 k파일 옆 output/ 에(공유경로 하위, 노드 간 접근). cd 후 i=절대경로 → 산출물이 여기 떨어짐.')
     lines.append('OUTPUT_DIR="$(dirname "$K_FILE")/output"')
     lines.append('mkdir -p "$OUTPUT_DIR"')
     lines.append('cd "$OUTPUT_DIR"')
     lines.append('')
-    lines.append('# LS-DYNA 모듈 로드(클러스터 환경에 맞게 조정). 없으면 통과.')
-    lines.append('module load lsdyna/$VERSION 2>/dev/null || module load lsdyna/R13.1.0 2>/dev/null || true')
-    lines.append('')
-    lines.append('echo "Running LS-DYNA MPP solver..."')
-    lines.append('mpirun -np $NPROCS ls-dyna_mpp I="$K_FILE" MEMORY=$MEMORY NCPU=$NPROCS')
+    # ── Apptainer 로 LS-DYNA 실행 (정답: pyKooCAE single-run/run_dyna.sh) ──
+    # 라이선스 서버는 LSTC_LICENSE_SERVER env 가 있을 때만 주입(운영서 설정, 빈값이면 생략).
+    lines.append('echo "Running LS-DYNA via Apptainer..."')
+    lines.append('apptainer exec \\')
+    lines.append(f'  --bind {LSDYNA_BIND} \\')
+    lines.append(f'  --env LSTC_FILE={LSDYNA_LICENSE_FILE} \\')
+    if LSDYNA_LICENSE_SERVER:
+        lines.append(f'  --env LSTC_LICENSE_SERVER={LSDYNA_LICENSE_SERVER} \\')
+    lines.append('  --env FI_PROVIDER=tcp \\')
+    lines.append('  --env I_MPI_FABRICS=ofi \\')
+    lines.append('  --env LD_LIBRARY_PATH=/opt/openmpi/lib \\')
+    lines.append(f'  "$SIF" {LSDYNA_MPIRUN} -np $NPROCS "$LSDYNA_BIN" i="$K_FILE" memory=$MEMORY')
     lines.append('EXIT_CODE=$?')
     lines.append('')
     lines.append('echo "Exit Code: $EXIT_CODE"')
