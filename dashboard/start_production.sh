@@ -470,7 +470,17 @@ if [ -n "$LSTC_SRV" ]; then
     # 부분충격 템플릿 플레이스홀더 (운영 위치)
     _PI=/shared/templates/official/simulation/smarttwin-partial-impact.yaml
     [ -f "$_PI" ] && sudo sed -i "s/%LSTC_LICENSE_SERVER%/$LSTC_SRV/g" "$_PI" 2>/dev/null || true
-    echo "  ✓ LS-DYNA 라이선스 서버 동기화: $LSTC_SRV"
+    # 백엔드(.env) 에도 주입 — 전각도 traditional 제출이 backend env LSTC_LICENSE_SERVER 를 읽어
+    # apptainer 실행에 라이선스 서버를 박는다(lsdyna_submit_api.py). load_dotenv 로 기동 시 반영.
+    _BENV="$SCRIPT_DIR/backend_5010/.env"
+    if [ -f "$_BENV" ]; then
+        if grep -q '^LSTC_LICENSE_SERVER=' "$_BENV"; then
+            sed -i "s|^LSTC_LICENSE_SERVER=.*|LSTC_LICENSE_SERVER=$LSTC_SRV|" "$_BENV"
+        else
+            printf '\nLSTC_LICENSE_SERVER=%s\n' "$LSTC_SRV" >> "$_BENV"
+        fi
+    fi
+    echo "  ✓ LS-DYNA 라이선스 서버 동기화: $LSTC_SRV (scenario/template/backend .env)"
 else
     echo "  ⚠ LS-DYNA 라이선스 서버 IP 미해석 (YAML lsdyna_license.server / controllers[0].ip_address 확인)"
 fi
