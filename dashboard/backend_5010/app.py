@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # JWT middleware import
-from middleware.jwt_middleware import jwt_required, permission_required, optional_jwt
+from middleware.jwt_middleware import jwt_required, permission_required, optional_jwt, is_partition_allowed, PARTITION_ENFORCE
 
 # Slurm 설정 관리 모듈 임포트
 from slurm_config_manager import (
@@ -137,6 +137,8 @@ from file_upload_api import file_upload_bp
 
 # v4.4.0 신규 기능 Blueprint 임포트 (Phase 4 - Job Submit with Template System)
 from job_submit_api import job_submit_bp
+# Path B(레거시 제출)도 Path A 와 동일한 account/qos 주입·이력기록을 쓰도록 재사용.
+from job_submit_api import _sbatch_account_qos_lines, record_job_submission
 
 # v4.5.0 신규 기능 Blueprint 임포트 (Phase 3 Production - Template Persistence)
 from template_service import template_bp as template_persistence_bp
@@ -811,6 +813,18 @@ def submit_job():
         print(f"   - memory: {data.get('memory')}")
         print(f"   - time: {data.get('time')}")
 
+        # 파티션 접근권한 검사(권한모델 2차 방어; PARTITION_ENFORCE=true 일 때만 차단).
+        # web_role 은 아래 account/qos 주입에도 재사용. SSO off 면 admin(전권).
+        web_role = (g.get('user') or {}).get('role', 'user')
+        _ok, _allowed = is_partition_allowed(web_role, data.get('partition'))
+        if not _ok and PARTITION_ENFORCE:
+            return jsonify({
+                'success': False,
+                'error': 'partition not allowed for your role',
+                'partition': data.get('partition'),
+                'allowed_partitions': _allowed,
+            }), 403
+
         job_id = data.get('jobId')  # Frontend에서 전달한 임시 job_id
 
         # 업로드된 파일 정보 조회 (job_id가 있는 경우)
@@ -894,6 +908,8 @@ def submit_job():
                 # 빈 값을 박으면 sbatch 가 invalid partition 으로 실패한다(클러스터마다 이름 다름).
                 if data.get('partition'):
                     f.write(f"#SBATCH --partition={data['partition']}\n")
+                # role 기반 --account/--qos 주입(SBATCH_INJECT_ACCOUNT off 면 무주입 = 기존 동작).
+                f.write(_sbatch_account_qos_lines(web_role))
                 f.write(f"#SBATCH --nodes={data['nodes']}\n")
                 if data.get('cpus'):
                     f.write(f"#SBATCH --cpus-per-task={data['cpus']}\n")
@@ -908,6 +924,13 @@ def submit_job():
                     f.write(f"#SBATCH --output={SHARED_BASE}/logs/%j.out\n")
                     f.write(f"#SBATCH --error={SHARED_BASE}/logs/%j.err\n")
                 f.write(f"\n")
+
+                # 결과 디렉토리 — 잡을 여기서 실행(cd). 상대경로 산출물이 여기 모이고,
+                # 아래에서 DB result_dir 로 기록해 결과뷰어/다운로드/MCP 가 찾게 한다.
+                if os.path.isdir(SHARED_BASE):
+                    f.write(f"export RESULT_DIR={SHARED_BASE}/jobs/$SLURM_JOB_ID\n")
+                    f.write('mkdir -p "$RESULT_DIR" && cd "$RESULT_DIR"\n')
+                    f.write(f"\n")
 
                 # 업로드된 파일 경로를 환경변수로 추가
                 if file_env_vars:
@@ -942,12 +965,37 @@ def submit_job():
             # sbatch 실행
             from slurm_commands import run_slurm_command
             result = run_slurm_command([SBATCH, script_path], timeout=10)
-            
-            # 임시 파일 삭제
-            os.unlink(script_path)
-            
+
             # Job ID 추출
             job_id = result.stdout.strip().split()[-1]
+
+            # 이력 기록 + 결과 위치(result_dir) 등록 — 결과뷰어/다운로드/MCP 가 DB result_dir 로 찾음.
+            # (unlink 전에 호출해 script_hash 계산이 되게 함.)
+            try:
+                _wu = (g.get('user') or {}).get('username') or (g.get('user') or {}).get('id') or 'anonymous'
+                record_job_submission(
+                    job_id=str(job_id),
+                    job_name=str(data.get('jobName', 'job')),
+                    template_id='legacy-script',
+                    template={},
+                    user_id=_wu,
+                    slurm_config={
+                        'partition': data.get('partition'),
+                        'nodes': data.get('nodes'),
+                        'ntasks': data.get('cpus'),
+                        'mem': data.get('memory'),
+                        'time': data.get('time'),
+                    },
+                    apptainer_image=(apptainer_image or {}).get('path') if apptainer_image else None,
+                    uploaded_files=file_env_vars or {},
+                    script_path=script_path,
+                    result_dir=(f"{SHARED_BASE}/jobs/{job_id}" if os.path.isdir(SHARED_BASE) else None),
+                )
+            except Exception as _e:
+                print(f"⚠️ record_job_submission failed (job {job_id}): {_e}")
+
+            # 임시 파일 삭제
+            os.unlink(script_path)
 
             # 로깅 개선
             if apptainer_image:

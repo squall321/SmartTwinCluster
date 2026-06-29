@@ -239,7 +239,7 @@ def record_job_submission(
             template.get('template', {}).get('name'),
             template.get('template', {}).get('version', '1.0.0'),
             user_id,
-            slurm_config.get('partition'),
+            slurm_config.get('partition') or '',  # partition 은 NOT NULL — 빈 파티션(클러스터 기본)도 '' 로 기록
             slurm_config.get('nodes'),
             slurm_config.get('ntasks'),
             slurm_config.get('mem', slurm_config.get('memory')),

@@ -7,10 +7,32 @@ Phase 1: 로그 조회 및 파일 관리
 
 import os
 import json
+import sqlite3
 import subprocess
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file, Response
 from middleware.jwt_middleware import jwt_required, permission_required, optional_jwt
+
+# 제출 시 기록되는 result_dir 의 권위 조회용 DB (job_submit_api 와 동일 경로)
+DATABASE_PATH = os.getenv('DATABASE_PATH', '/home/koopark/web_services/backend/dashboard.db')
+
+
+def _db_result_dir(job_id: str):
+    """job_submissions 에 기록된 result_dir 반환(없으면 None).
+    제출 경로(Path A/B/전각도)가 결과 위치를 권위 있게 남긴 값 — sacct WorkDir 폴백보다 정확."""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT result_dir FROM job_submissions WHERE job_id=? ORDER BY id DESC LIMIT 1",
+            (str(job_id),))
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+    except Exception as e:
+        print(f"⚠️  result_dir DB lookup failed for job {job_id}: {e}")
+    return None
 
 # Slurm 명령어 경로
 from slurm_commands import get_sacct, get_scontrol
@@ -72,6 +94,12 @@ def get_job_dir(job_id: str) -> str:
     Returns:
         작업 디렉토리 경로 (존재하면)
     """
+    # 0. DB 에 기록된 result_dir 우선(권위) — 제출 시점에 정확히 남긴 결과 위치.
+    #    Path A(/data/single/...), 전각도(<업로드>/output), Path B(SHARED_BASE/jobs/<id>) 공통.
+    rd = _db_result_dir(job_id)
+    if rd and os.path.isdir(rd):
+        return rd
+
     # 1. 기본 경로 확인
     path = os.path.join(JOBS_DIR, job_id)
     if os.path.exists(path):

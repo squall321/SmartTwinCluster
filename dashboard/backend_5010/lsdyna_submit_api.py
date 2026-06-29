@@ -8,7 +8,7 @@ LS-DYNA Job Submission API with Apptainer Template Integration
 - Pre/Post 명령어 실행
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import os
 import re
 import json
@@ -16,7 +16,9 @@ import tempfile
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from middleware.jwt_middleware import jwt_required, permission_required
+from middleware.jwt_middleware import jwt_required, permission_required, is_partition_allowed, PARTITION_ENFORCE
+# 권한모델/이력기록 재사용(Path A 와 동일 함수) — 순환 import 없음(job_submit_api 는 lsdyna 를 참조 안 함).
+from job_submit_api import _sbatch_account_qos_lines, record_job_submission
 
 # Blueprint setup
 lsdyna_submit_bp = Blueprint('lsdyna_submit', __name__, url_prefix='/api/slurm')
@@ -188,7 +190,7 @@ def substitute_variables(text: str, variables: dict) -> str:
     return re.sub(r'\$\{([A-Z_][A-Z0-9_]*)\}', replacer, text)
 
 
-def generate_script_from_template(template, image, slurm_config, input_files, custom_values=None):
+def generate_script_from_template(template, image, slurm_config, input_files, custom_values=None, web_role=None):
     """Generate Slurm script from command template"""
 
     # Build variable map
@@ -209,6 +211,11 @@ def generate_script_from_template(template, image, slurm_config, input_files, cu
 
     if slurm_config.get('partition'):
         lines.append(f"#SBATCH --partition={slurm_config['partition']}")
+
+    # role 기반 --account/--qos 주입(권한모델 2차 방어; SBATCH_INJECT_ACCOUNT off 면 무주입).
+    _acct = _sbatch_account_qos_lines(web_role).rstrip('\n')
+    if _acct:
+        lines.extend(_acct.split('\n'))
 
     if slurm_config.get('nodes'):
         lines.append(f"#SBATCH --nodes={slurm_config['nodes']}")
@@ -298,6 +305,12 @@ def submit_lsdyna_jobs():
 
         submitted_jobs = []
 
+        # 웹 로그인 사용자 — 파티션 권한검사·account/qos 주입·이력기록에 사용.
+        # SSO off 면 g.user 가 전권(admin), 토큰 있으면 그 역할.
+        _user = g.get('user') or {}
+        web_role = _user.get('role', 'user')
+        web_user = _user.get('username') or _user.get('id') or 'anonymous'
+
         # Get uploaded files
         files = request.files.getlist('files')
 
@@ -316,6 +329,17 @@ def submit_lsdyna_jobs():
 
             meta = json.loads(request.form[meta_key])
 
+            # 파티션 접근권한 검사(권한모델 2차 방어; PARTITION_ENFORCE=true 일 때만 차단).
+            # meta 에 partition 이 비면 is_partition_allowed 가 True 라 무중단(기본 동작).
+            _ok, _allowed = is_partition_allowed(web_role, meta.get('partition'))
+            if not _ok and PARTITION_ENFORCE:
+                return jsonify({
+                    'success': False,
+                    'error': 'partition not allowed for your role',
+                    'partition': meta.get('partition'),
+                    'allowed_partitions': _allowed,
+                }), 403
+
             # 업로드 k파일 저장 — 공유 스토리지에 둬야 compute 노드가 읽는다(/tmp 는 노드로컬).
             temp_dir = os.path.join(SHARED_BASE, 'lsdyna_uploads') if os.path.isdir(SHARED_BASE) else '/tmp/lsdyna_uploads'
             os.makedirs(temp_dir, exist_ok=True)
@@ -324,7 +348,11 @@ def submit_lsdyna_jobs():
 
             # 파일명 위생: basename + 경로구분자 제거(경로탈출 차단), \w 로 한글 보존.
             safe_name = re.sub(r'[^\w.\-]', '_', os.path.basename(str(file.filename or '')))[:128] or f'input_{i}.k'
-            temp_path = os.path.join(temp_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}_{safe_name}")
+            # 잡마다 고유 스테이징 디렉토리 — OUTPUT_DIR(=dirname/output)이 잡별로 분리돼
+            # 결과가 서로 덮어쓰지 않게(모든 k파일을 한 폴더에 두면 output 이 공유돼 충돌).
+            job_stage = os.path.join(temp_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}")
+            os.makedirs(job_stage, exist_ok=True)
+            temp_path = os.path.join(job_stage, safe_name)
             file.save(temp_path)
 
             # Check if using template
@@ -377,21 +405,21 @@ def submit_lsdyna_jobs():
                         }
 
                         script_content = generate_script_from_template(
-                            template, image, slurm_config, input_files
+                            template, image, slurm_config, input_files, web_role=web_role
                         )
 
                         print(f"✅ Generated script from template: {template_id}")
                     else:
                         # Template not found, fall back to traditional method
                         print(f"⚠️  Template {template_id} not found, using traditional method")
-                        script_content = generate_traditional_script(meta, temp_path)
+                        script_content = generate_traditional_script(meta, temp_path, web_role=web_role)
                 else:
                     # Image not found
                     print(f"⚠️  Image not found, using traditional method")
-                    script_content = generate_traditional_script(meta, temp_path)
+                    script_content = generate_traditional_script(meta, temp_path, web_role=web_role)
             else:
                 # Traditional submission (no template)
-                script_content = generate_traditional_script(meta, temp_path)
+                script_content = generate_traditional_script(meta, temp_path, web_role=web_role)
 
             # Save script
             script_path = os.path.join(temp_dir, f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}.sh")
@@ -410,6 +438,31 @@ def submit_lsdyna_jobs():
                 result = run_slurm_command([SBATCH, script_path], timeout=10)
                 job_id = result.stdout.strip().split()[-1]
                 print(f"✅ Job {job_id} submitted: {meta['filename']}")
+
+                # 이력 기록 + 결과 위치(result_dir) 등록 — 결과뷰어/다운로드/MCP 가 DB result_dir 로 찾음.
+                # traditional 스크립트의 OUTPUT_DIR=$(dirname $K_FILE)/output 과 동일 규칙으로 계산.
+                try:
+                    _cores = int(meta.get('cores', 16) or 16)
+                    record_job_submission(
+                        job_id=str(job_id),
+                        job_name=str(meta.get('filename', 'lsdyna_job')),
+                        template_id=template_id or 'lsdyna-traditional',
+                        template={},
+                        user_id=web_user,
+                        slurm_config={
+                            'partition': meta.get('partition'),
+                            'nodes': 1,
+                            'ntasks': _cores,
+                            'mem': f"{_cores * 2}G",
+                            'time': '24:00:00',
+                        },
+                        apptainer_image=meta.get('image_path'),
+                        uploaded_files={'k_file': os.path.basename(temp_path)},
+                        script_path=script_path,
+                        result_dir=os.path.join(os.path.dirname(temp_path), 'output'),
+                    )
+                except Exception as _e:
+                    print(f"⚠️ record_job_submission failed (job {job_id}): {_e}")
 
             submitted_jobs.append({
                 'filename': meta['filename'],
@@ -433,7 +486,7 @@ def submit_lsdyna_jobs():
         }), 500
 
 
-def generate_traditional_script(meta, k_file_path):
+def generate_traditional_script(meta, k_file_path, web_role=None):
     """Generate traditional LS-DYNA script without template"""
     lines = []
 
@@ -452,6 +505,10 @@ def generate_traditional_script(meta, k_file_path):
     # 하드코딩(예: group6)하면 그 파티션이 없는 클러스터에서 sbatch 가 invalid partition 으로 실패.
     if meta.get('partition'):
         lines.append(f"#SBATCH --partition={meta['partition']}")
+    # role 기반 --account/--qos 주입(SBATCH_INJECT_ACCOUNT off 면 무주입 = 기존 동작).
+    _acct = _sbatch_account_qos_lines(web_role).rstrip('\n')
+    if _acct:
+        lines.extend(_acct.split('\n'))
     lines.append("#SBATCH --nodes=1")
     lines.append(f"#SBATCH --ntasks={cores}")
     lines.append(f"#SBATCH --mem={cores * 2}G")
