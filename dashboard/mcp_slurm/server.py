@@ -30,11 +30,14 @@ transport (env MCP_TRANSPORT):
     MCP_ALLOWED_HOSTS - 비-localhost 바인딩 시 허용 Host (쉼표구분). README 참고.
 """
 
+import io
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
+from typing import Any, Dict, Optional
 
 # ---------------------------------------------------------------------------
 # 1) mcp 패키지 import 가드 (오프라인 환경에서 미설치일 수 있음)
@@ -553,6 +556,470 @@ def slurm_job_control(
     path = path_tmpl.format(id=job_id)
     body = body_builder(value, dry_run)
     return _proxy_write(ctx, method, path, body, supports_dry_run, dry_run, f"job {act}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SmartTwin 시뮬레이션 제출 — 전각도 낙하(fullangle_drop) / 전위치 부분충격(partial_impact)
+#
+# scenario.json 권위 스키마 출처(pyKooCAE 소스에서 코드로 확정):
+#  - 전각도(DROP): Runner/CumulativeDesigner.py(_parse_angle_source) +
+#    Runner/AngleSourceParser.py(AngleSourceType 5종) + Runner/AngleMixingStrategy.py(5전략) +
+#    Runner/StepConfigBuilder.py(build_drop_attitude_config — simulation_params/drop_surface).
+#  - 부분충격(DWI): top-level mode=="drop_weight_impact" 디스패치(KooChainRun cmd_prepare)
+#    → Runner/DropWeightImpactWorkflow.py 가 simulation_params.{impactor,locations,wall} 파싱.
+#
+# 제출 경로: 대시보드 Path A(/api/jobs/submit) 멀티파트 프록시 — 인증/권한/이력(job_submissions,
+# result_dir)이 웹 제출과 동일하게 적용된다. 템플릿(smarttwin-*)은 scenario_json 업로드가
+# 프리셋/기본격자보다 우선하므로, 이 도구가 옵션→scenario.json 을 만들어 올리면 끝.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SMARTTWIN_TEMPLATE_IDS = {
+    "fullangle_drop": "smarttwin-fullangle-drop",
+    "partial_impact": "smarttwin-partial-impact",
+}
+_SCENARIO_PRESET_DIR = os.environ.get("SCENARIO_PRESET_DIR", "/data/scenario")
+# 모델(.k) 경로 허용 베이스 — MCP(헤드노드)가 읽어 업로드하므로 공유 FS 로 제한(경로탈출 방지)
+_MODEL_ALLOWED_BASES = [
+    p.strip() for p in os.environ.get(
+        "SMARTTWIN_MODEL_BASES", "/data,/shared,/mnt/gluster,/home").split(",") if p.strip()
+]
+_SUBMIT_TIMEOUT = float(os.environ.get("MCP_SUBMIT_TIMEOUT", "600"))  # 대형 .k 업로드 대비
+
+_DROP_OPTIONS_DOC = """\
+━━ 전각도 낙하 (fullangle_drop / smarttwin-fullangle-drop) scenario.json 옵션 카탈로그 ━━
+단위계 ★필수 확인★: LS-DYNA 덱과 동일해야 함. 표준은 [tonne, mm, s, MPa]
+  (강철 예: density=7.85e-9 tonne/mm³, youngs_modulus=2.0e5 MPa, height 는 mm).
+
+■ 최상위
+- project_name (string) — 잡 이름으로 자동 치환됨(직접 설정 불필요)
+- scenarios[0].template — "%INPUTFILE%" 그대로 둘 것(업로드한 모델 파일명으로 자동 치환)
+- preserve_includes (list[string], 기본 []) — 보존할 *INCLUDE 패턴(멀티스케일/IGA)
+
+■ simulation_params (전역 물리)
+- height (float, mm, 1500) — 낙하 높이
+- tFinal (float, s, 0.005) / dt (float, s, 1e-6) — 종료 시간 / 출력 간격
+- density (float, tonne/mm³, 7.85e-9) / youngs_modulus (float, MPa, 2.0e5) /
+  poisson_ratio (float, 0.3) — 바닥판(변형체일 때)의 물성
+- offset_distance (float, mm, 0.05) — 모델-바닥 초기 간격
+- drop_surface.type ∈ {Plane(기본), RigidWall, PlaneGraded, PlanewithRoughness}
+  · Plane: size [x,y,z mm, 기본 300,300,20], mesh [nx,ny,nz, 기본 30,30,2]
+  · RigidWall: 파라미터 없음(강체 바닥)
+  · PlaneGraded: size/mesh + num_outer_layers(5), ratio(1.5) — 바깥층 점진 격자
+  · PlanewithRoughness: size/mesh + roughness_mode("Random"), r_max, shape_factor, shape_factor2
+  · deformable_to_rigid (bool, false) — D2R 전환
+- dynamic_relaxation (bool 또는 {enabled, nrcyck 250, drtol 0.01, drfctr 0.995, drterm=tFinal})
+  — 누적 스텝 간 DR 안정화
+- 접촉 고급: convert_general_to_single_surface(true), ensure_single_surface(false),
+  decompose_general_contact(false), robust_contact(false), include_wall_in_general(false),
+  decompose_contact_margin(1.5), decompose_contact_absolute_margin_x/y/z(5,5,0.5)
+
+■ scenarios[0].angle_source — 낙하 각도 집합(DOE)
+- source_type ∈ {cuboid_geometry(기본), fibonacci_lattice, pitching_sweep, rolling_sweep, case_txt_file}
+  · cuboid_geometry: {include_faces(T,6면), include_edges(T,12모서리), include_corners(T,8꼭짓점)} → 최대 26방향
+  · fibonacci_lattice: {num_points(26, 별칭 num_directions), progressive(false),
+    principal_directions, sampling_space} — 구면 균등 N방향
+  · pitching_sweep: {pitch_min(-90), pitch_max(90), pitch_step(10), roll_fixed(0), yaw_fixed(0)}
+  · rolling_sweep: {roll_min(-180), roll_max(170), roll_step(10), pitch_fixed(0), yaw_fixed(0)}
+  · case_txt_file: {file_path(각도목록 .txt), selected_indices(선택)} — case_txt_path 인자로 파일을
+    올리면 file_path 는 자동 설정됨
+
+■ scenarios[0].cumulative — 연속(누적) 낙하
+- num_steps (int, 1) — 각도당 연속 낙하 횟수
+- mode_sequence (list, ["DROP"]) — 스텝별 모드(DROP 외 IMPACT/THERM/STAT/VIB 조합 가능)
+- base_angle_index (int, 0)
+- angle_mixing.strategy ∈ {same_angle(기본, 동일 각도 반복), cyclic(+offset 순환),
+  random(랜덤), opposite(대칭), custom_mapping(스텝→인덱스 매핑)}
+  · cyclic_offset(1), random_seed, custom_mapping({step:index})
+
+■ environment (고급 — 기본은 프리셋 값 유지 권장)
+- ncpu, time_limit, lsdyna_memory, nodes_per_job, mpi_enabled 정도만 조정.
+  경로/sif/라이선스(LSTC_*) 키는 서버가 관리하므로 건드리지 말 것.
+
+■ 드라이버 잡 자원(템플릿 env 고정, scenario 아님): 자식 잡 packing CHAIN_NODES=2,
+  CHAIN_JOBS_PER_NODE=2, CHAIN_NCPU=4, 완료 후 후처리 CHAIN_POSTPROCESS=true.
+"""
+
+_IMPACT_OPTIONS_DOC = """\
+━━ 전위치 부분충격 (partial_impact / smarttwin-partial-impact) scenario.json 옵션 카탈로그 ━━
+단위계 ★필수 확인★: LS-DYNA 덱과 동일해야 함. 표준은 [tonne, mm, s, MPa]
+  (강철: density=7.85e-9, youngs_modulus=2.0e5). ※대시보드 기본값(7850/2.0e11)은 SI 숫자라
+  ton-mm-s 덱과 부정합 — 덱 단위계에 맞춰 반드시 확인/수정할 것.
+
+■ 최상위 (자동 설정 — 직접 넣지 말 것): mode="drop_weight_impact"(디스패치 키),
+  model_file(업로드 모델 파일명), output_dir("output"), project_name(잡 이름)
+- preserve_includes (list[string], 기본 []) — 보존할 *INCLUDE 패턴
+
+■ simulation_params
+- tFinal (float, s, 0.001) / dt (float, s, 1e-6)
+- generation_mode ∈ {DampingSpring(기본), OutsideRigidPart, OutsideRigidElement}
+  — 임팩터-모델 결합/부분강체화 방식(오타 시 조용히 기본 처리되므로 정확히)
+- boundary_distance (float, mm, 0) — >0 이면 충격점 반경 밖 강체화
+- offset_distance (float, mm, 0.05) — 임팩터-모델 초기 간격
+- impactor:
+  · type ∈ {Sphere(기본), Cylinder}
+  · radius (float, mm, 5.0) — Sphere 반경
+  · height (float, mm, 100) — ★낙하 높이★(초속도 vz=-sqrt(2·9810·height); 임팩터 크기 아님)
+  · density / youngs_modulus / poisson_ratio — 임팩터 물성(단위계 주의)
+  · [Cylinder 전용 2단] front_radius(=radius), outer_radius(=radius*2),
+    front_height(=radius), back_height(=radius*2), back_radius(=outer_radius)
+- wall (바닥 강체판): density(1.0e-9), youngs_modulus(1.0e4 MPa), poisson_ratio(0.3)
+- locations — 충격 위치 DOE:
+  · mode ∈ {grid(기본), list, lhs, part_center}
+  · grid: x_count(7)/y_count(13) 또는 spacing(mm, >0 이면 간격 기반 자동 산정);
+    x_range/y_range([min,max] mm, 생략 시 모델 bbox×margin 자동), margin(0.9)
+  · list: points=[[x,y],...] (mm, 필수)
+  · lhs: n_samples(50) + x_range/y_range/margin — Latin Hypercube 샘플링
+  · part_center: pids(파트 ID 목록, 필수; 별칭 pid) + spacing(5.0) + layers(2)
+    → 파트 bbox 중심 기준 (2·layers+1)² 격자
+
+■ environment (자식 잡이 실제 읽는 키만): ncpu(4), memory("4G"), partition("normal"),
+  sif_path, koomeshmodifier_path, solver_command — 기본값 유지 권장.
+
+■ 드라이버 잡 자원(템플릿 env 고정): CHAIN_NODES=2, CHAIN_JOBS_PER_NODE=2, CHAIN_NCPU=4,
+  CHAIN_POSTPROCESS=true.
+"""
+
+
+def _deep_merge(base: Any, override: Any) -> Any:
+    """dict 는 재귀 병합, 그 외(리스트/스칼라)는 override 로 교체."""
+    if isinstance(base, dict) and isinstance(override, dict):
+        out = dict(base)
+        for k, v in override.items():
+            out[k] = _deep_merge(base.get(k), v) if k in base else v
+        return out
+    return override if override is not None else base
+
+
+def _list_drop_presets() -> list:
+    """각도 프리셋 디렉토리(/data/scenario/*) 중 scenario.json 이 있는 것만."""
+    try:
+        return sorted(
+            d for d in os.listdir(_SCENARIO_PRESET_DIR)
+            if os.path.isfile(os.path.join(_SCENARIO_PRESET_DIR, d, "scenario.json"))
+        )
+    except OSError:
+        return []
+
+
+def _safe_filename(name: str) -> str:
+    """backend secure_filename 과 호환되는 ASCII 파일명(변형 없이 통과하도록 선제 정제)."""
+    base = os.path.basename(str(name or ""))
+    return re.sub(r"[^A-Za-z0-9._-]", "_", base) or "input.k"
+
+
+def _validate_shared_path(path: str, exts: tuple, what: str):
+    """서버(헤드노드)측 파일 검증 — 절대경로/실존/확장자/허용 베이스. (ok, err|realpath)"""
+    if not path or not os.path.isabs(path):
+        return False, f"error: {what} 는 서버(헤드노드)의 절대경로여야 합니다 (예: /data/.../model.k). 받은 값: {path!r}"
+    real = os.path.realpath(path)
+    if not any(real == b or real.startswith(b.rstrip("/") + "/") for b in _MODEL_ALLOWED_BASES):
+        return False, f"error: {what} 는 공유 저장소({', '.join(_MODEL_ALLOWED_BASES)}) 하위여야 합니다: {real}"
+    if not os.path.isfile(real):
+        return False, f"error: {what} 파일이 없습니다: {real} (MCP 서버=헤드노드 기준 경로여야 함)"
+    if exts and not real.lower().endswith(exts):
+        return False, f"error: {what} 확장자는 {exts} 만 허용: {real}"
+    return True, real
+
+
+def _lstc_license_server() -> str:
+    """부분충격 생성 scenario 용 라이선스 서버.
+    ★서버사이드 env(LSTC_LICENSE_SERVER) 우선★ — 운영마다 다르고 명시 설정이 권위.
+    없으면 프리셋(start_production.sh 가 운영 IP 로 동기화한 /data/scenario/*)에서 폴백."""
+    env_srv = os.environ.get("LSTC_LICENSE_SERVER", "").strip()
+    if env_srv:
+        return env_srv
+    for preset in _list_drop_presets():
+        try:
+            with open(os.path.join(_SCENARIO_PRESET_DIR, preset, "scenario.json")) as fp:
+                penv = (json.load(fp).get("environment") or {})
+            srv = (penv.get("lsdyna_apptainer_env") or {}).get("LSTC_LICENSE_SERVER", "")
+            if srv and "%" not in srv:
+                return srv
+        except (OSError, ValueError):
+            continue
+    return ""
+
+
+def _impact_base_scenario(model_filename: str, job_name: str, license_server: str) -> dict:
+    """부분충격 기본 scenario — 대시보드 템플릿(smarttwin-partial-impact) 생성본과 동일 구조."""
+    return {
+        "project_name": job_name or "MCP_DWI",
+        "mode": "drop_weight_impact",
+        "model_file": model_filename,
+        "output_dir": "output",
+        "environment": {
+            "koomeshmodifier_path": "/opt/SmartTwinPreprocessor/bin/KooMeshModifier",
+            "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
+            "mpi_path": "mpirun",
+            "memory": "2G",
+            "lsdyna_memory": "2000m",
+            "apptainer_sif": "/opt/apptainers/SmartTwinPreprocessor.sif",
+            "apptainer_bind": "/data:/data,/shared:/shared",
+            "apptainer_env": {},
+            "lsdyna_apptainer_sif": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+            "lsdyna_apptainer_bind": "/data:/data,/shared:/shared",
+            "lsdyna_apptainer_env": {
+                "LSTC_FILE": "/opt/ls-dyna_license/LSTC_FILE",
+                "LSTC_LICENSE_SERVER": license_server,
+                "FI_PROVIDER": "tcp",
+                "I_MPI_FABRICS": "ofi",
+                "LD_LIBRARY_PATH": "/opt/openmpi/lib",
+            },
+            "apptainer_tmpdir": "/data/tmp",
+            "nodes_per_job": 1,
+            "mpi_launcher": "mpirun",
+            "mpi_enabled": True,
+            "ncpu": 1,
+            "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+            "time_limit": "24:00:00",
+        },
+        "simulation_params": {
+            "tFinal": 0.001,
+            "dt": 0.000001,
+            "impactor": {
+                "type": "Sphere",
+                "radius": 5.0,
+                "height": 100,
+                "density": 7850,
+                "youngs_modulus": 2.0e11,
+                "poisson_ratio": 0.3,
+            },
+            "locations": {"mode": "grid", "x_count": 5, "y_count": 5, "margin": 0.9},
+            "generation_mode": "DampingSpring",
+        },
+    }
+
+
+def _multipart_post(path: str, fields: dict, files: list, auth: str, timeout: float):
+    """backend 에 multipart/form-data POST (httpx — mcp 전이 의존이라 항상 존재).
+    files: [(폼필드명, 파일명, bytes|경로)]  반환 (ok, text, status)."""
+    try:
+        import httpx
+    except ImportError:
+        return False, "error: httpx 미설치 — mcp SDK 의존성이 깨졌습니다(venv 재설치 필요).", None
+    url = f"{_BACKEND_URL}{path}"
+    headers = {"Authorization": auth} if auth else {}
+    opened = []
+    try:
+        file_parts = {}
+        for field, fname, src in files:
+            if isinstance(src, (bytes, bytearray)):
+                file_parts[field] = (fname, io.BytesIO(src), "application/octet-stream")
+            else:
+                fh = open(src, "rb")  # noqa: SIM115 — httpx 가 스트리밍, finally 에서 close
+                opened.append(fh)
+                file_parts[field] = (fname, fh, "application/octet-stream")
+        with httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            resp = client.post(url, data=fields, files=file_parts or None, headers=headers)
+        return resp.status_code < 400, resp.text, resp.status_code
+    except Exception as e:  # noqa: BLE001 — tool 이 죽으면 안 됨
+        return False, f"error: backend 멀티파트 요청 실패: {e}", None
+    finally:
+        for fh in opened:
+            try:
+                fh.close()
+            except OSError:
+                pass
+
+
+@mcp.tool()
+def smarttwin_scenario_options(sim_type: str, ctx: Context) -> str:
+    """전각도 낙하/전위치 부분충격 잡의 scenario.json 전체 옵션 카탈로그를 반환합니다.
+
+    smarttwin_submit 을 부르기 전에 이 도구로 옵션(키/타입/단위/기본값/허용값)과
+    사용 가능한 각도 프리셋(live)을 확인하세요. 카탈로그는 KooChainRun 실제 파서
+    (pyKooCAE Runner/*)에서 확정한 권위 스키마입니다.
+
+    Args:
+        sim_type: "fullangle_drop"(전각도 낙하) | "partial_impact"(전위치 부분충격) | "all"(둘 다).
+    """
+    err = _require_user(ctx)
+    if err:
+        return err
+    st = str(sim_type).strip().lower()
+    if st not in ("fullangle_drop", "partial_impact", "all"):
+        return "error: sim_type 은 fullangle_drop | partial_impact | all 중 하나여야 합니다."
+    parts = []
+    if st in ("fullangle_drop", "all"):
+        presets = _list_drop_presets()
+        parts.append(_DROP_OPTIONS_DOC)
+        parts.append(
+            f"■ 사용 가능한 각도 프리셋 (angle_preset, {_SCENARIO_PRESET_DIR}): "
+            + (", ".join(presets) if presets else "(없음 — scenario_overrides 로 직접 구성)")
+            + "\n  프리셋을 base 로 삼고 scenario_overrides 가 깊은 병합(dict 재귀, 리스트/스칼라 교체)됩니다."
+        )
+    if st in ("partial_impact", "all"):
+        parts.append(_IMPACT_OPTIONS_DOC)
+    parts.append(
+        "■ 제출: smarttwin_submit(sim_type, model_path=서버측 .k 절대경로, job_name, "
+        "angle_preset/case_txt_path[전각도], scenario_overrides={...}, memory, time_limit, "
+        "dry_run=True→미리보기/False→실제 제출). 결과 추적: slurm_job_results / slurm_job_log."
+    )
+    return "\n\n".join(parts)
+
+
+@mcp.tool()
+def smarttwin_submit(
+    sim_type: str,
+    model_path: str,
+    ctx: Context,
+    job_name: str = "",
+    angle_preset: str = "",
+    scenario_overrides: Optional[Dict[str, Any]] = None,
+    case_txt_path: str = "",
+    memory: str = "",
+    time_limit: str = "",
+    dry_run: bool = True,
+) -> str:
+    """전각도 낙하/전위치 부분충격 잡을 대시보드 경유로 제출합니다 (변경계, dry_run 기본).
+
+    옵션 스키마는 먼저 smarttwin_scenario_options 로 확인하세요. 이 도구는
+    프리셋/기본 scenario 에 scenario_overrides 를 깊은 병합해 scenario.json 을 만들고,
+    모델(.k)과 함께 대시보드 제출 API(/api/jobs/submit)로 올립니다 — 웹 제출과 동일한
+    인증/권한/이력이 적용되고, 결과는 /data/single/<사용자>/<잡이름>_<잡ID>/ 에 저장됩니다.
+
+    Args:
+        sim_type: "fullangle_drop" | "partial_impact".
+        model_path: LS-DYNA 모델(.k/.key/.dyn)의 ★서버(헤드노드) 절대경로★ (공유 FS: /data 등).
+                    클라이언트 로컬 경로는 불가 — 먼저 공유 저장소에 두세요.
+        job_name: 잡 이름(비우면 템플릿 기본). 결과 폴더명에 들어갑니다.
+        angle_preset: [전각도] 각도 프리셋 이름(예: 26direction, 6face, fibonacci-100).
+                      비우면 scenario_overrides 없을 때 템플릿 기본(26direction).
+        scenario_overrides: scenario.json 에 깊은 병합할 부분 dict.
+                            예(전각도): {"simulation_params": {"height": 1000,
+                              "drop_surface": {"type": "RigidWall"}}}
+                            예(부분충격): {"simulation_params": {"locations":
+                              {"mode": "grid", "spacing": 10}, "impactor": {"radius": 8}}}
+        case_txt_path: [전각도] 각도 케이스(.txt) 서버측 경로 — angle_source=case_txt_file 용.
+        memory: Slurm 드라이버 잡 메모리 오버라이드(예: "8G"). 비우면 템플릿 기본 4G.
+        time_limit: Slurm 드라이버 잡 시간 오버라이드(예: "24:00:00"). 기본 167:00:00.
+        dry_run: True(기본)=검증+최종 scenario.json+스크립트 미리보기만. 실제 제출은 False 명시.
+    """
+    st = str(sim_type).strip().lower()
+    if st not in _SMARTTWIN_TEMPLATE_IDS:
+        return "error: sim_type 은 fullangle_drop | partial_impact 중 하나여야 합니다."
+    template_id = _SMARTTWIN_TEMPLATE_IDS[st]
+    auth = _auth_header(ctx)
+
+    # ── 모델 파일 검증(서버측 경로) ──
+    ok, model_real = _validate_shared_path(model_path, (".k", ".key", ".dyn"), "model_path")
+    if not ok:
+        return model_real
+    model_fname = _safe_filename(model_real)
+
+    ov = scenario_overrides if isinstance(scenario_overrides, dict) else None
+
+    # ── scenario.json 구성 ──
+    scenario = None          # None 이면 업로드 생략(템플릿 기본 동작)
+    scenario_note = ""
+    case_real = None
+    if st == "fullangle_drop":
+        if case_txt_path:
+            ok, case_real = _validate_shared_path(case_txt_path, (".txt",), "case_txt_path")
+            if not ok:
+                return case_real
+        if angle_preset or ov or case_real:
+            preset = (angle_preset or "26direction").strip()
+            preset_file = os.path.join(_SCENARIO_PRESET_DIR, preset, "scenario.json")
+            try:
+                with open(preset_file) as fp:
+                    scenario = json.load(fp)
+            except (OSError, ValueError) as e:
+                return (f"error: 각도 프리셋 '{preset}' 로드 실패({e}). "
+                        f"사용 가능: {', '.join(_list_drop_presets()) or '(없음)'}")
+            scenario_note = f"base=프리셋 {preset}"
+            if ov:
+                scenario = _deep_merge(scenario, ov)
+                scenario_note += " + overrides 병합"
+            if case_real:
+                # 케이스 파일 업로드 시 angle_source 를 case_txt_file 로 자동 배선(미지정 시)
+                scen_list = scenario.get("scenarios") or [{}]
+                asrc = scen_list[0].setdefault("angle_source", {})
+                if not ov or "scenarios" not in ov:
+                    asrc["source_type"] = "case_txt_file"
+                asrc.setdefault("case_txt_file", {}).setdefault(
+                    "file_path", _safe_filename(case_real))
+                scenario["scenarios"] = scen_list
+                scenario_note += f" + case_txt({_safe_filename(case_real)})"
+    else:  # partial_impact
+        if ov:
+            lic = _lstc_license_server()
+            if not lic:
+                return ("error: LS-DYNA 라이선스 서버 주소를 결정할 수 없습니다 "
+                        f"(프리셋 {_SCENARIO_PRESET_DIR}/*/scenario.json / env LSTC_LICENSE_SERVER 모두 없음). "
+                        "운영이면 start_production.sh 라이선스 동기화를 먼저 확인하세요.")
+            scenario = _deep_merge(_impact_base_scenario(model_fname, job_name, lic), ov)
+            # 디스패치/파일명 키는 사용자 오버라이드로 깨지지 않게 고정
+            scenario["mode"] = "drop_weight_impact"
+            scenario["model_file"] = model_fname
+            scenario_note = "base=기본격자(5x5) + overrides 병합"
+
+    # ── 폼 필드 ──
+    slurm_overrides = {}
+    if memory:
+        slurm_overrides["mem"] = str(memory)
+    if time_limit:
+        slurm_overrides["time"] = str(time_limit)
+    fields = {"template_id": template_id,
+              "slurm_overrides": json.dumps(slurm_overrides)}
+    if job_name:
+        fields["job_name"] = str(job_name)
+
+    files = [("file_model_k", model_fname, model_real)]
+    if scenario is not None:
+        files.append(("file_scenario_json", "scenario.json",
+                      json.dumps(scenario, ensure_ascii=False, indent=2).encode("utf-8")))
+    if case_real:
+        files.append(("file_case_txt", _safe_filename(case_real), case_real))
+
+    size_mb = os.path.getsize(model_real) / 1e6
+    if not scenario_note:
+        default_base = "프리셋 26direction" if st == "fullangle_drop" else "기본격자 5x5"
+        scenario_note = f"(업로드 생략 — 템플릿 기본: {default_base})"
+    plan = (
+        f"[{st}] template={template_id}\n"
+        f"model: {model_real} ({size_mb:.1f}MB → {model_fname})\n"
+        f"scenario: {scenario_note}\n"
+        f"slurm_overrides: {slurm_overrides or '(없음)'}  job_name: {job_name or '(템플릿 기본)'}"
+    )
+
+    if dry_run:
+        # 서버측 스크립트 미리보기(/api/jobs/preview 는 파일 불필요) + 최종 scenario 반환
+        ok, text, status = _multipart_post("/api/jobs/preview", fields, [], auth, 30.0)
+        preview = ""
+        if ok:
+            try:
+                script = json.loads(text).get("script", "")
+                sbatch = "\n".join(l for l in script.splitlines() if l.startswith("#SBATCH"))
+                preview = f"\n--- 드라이버 잡 #SBATCH (backend preview) ---\n{sbatch}"
+            except ValueError:
+                pass
+        else:
+            preview = f"\n(backend preview 실패 status={status}: {text[:300]})"
+        scen_txt = ""
+        if scenario is not None:
+            scen_txt = ("\n--- 업로드될 scenario.json ---\n"
+                        + json.dumps(scenario, ensure_ascii=False, indent=2))
+        return (f"[DRY-RUN] 제출 계획 (실제 제출은 dry_run=False)\n{plan}{preview}{scen_txt}")
+
+    ok, text, status = _multipart_post("/api/jobs/submit", fields, files, auth, _SUBMIT_TIMEOUT)
+    if not ok:
+        if status in (401, 403):
+            return (f"error: 인증/권한 거부(status={status}): {text[:300]}\n"
+                    "PAT 토큰(Authorization) 또는 dashboard 권한을 확인하세요.")
+        return f"error: 제출 실패(status={status}): {text[:500]}"
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return f"제출 응답 파싱 실패(원문): {text[:500]}"
+    job_id = data.get("job_id")
+    return (
+        f"✅ 제출 완료 — job_id={job_id}\n{plan}\n"
+        f"script: {data.get('script_path')}\n"
+        f"결과 폴더: /data/single/<사용자>/{(job_name or template_id)}_{job_id}/ (드라이버 잡 완료 후)\n"
+        f"추적: slurm_job_results(job_id={job_id}) / slurm_job_log(job_id={job_id}) — "
+        "드라이버가 자식 잡들을 제출/대기하므로 전체 완료까지 시간이 걸립니다."
+    )
 
 
 if __name__ == "__main__":

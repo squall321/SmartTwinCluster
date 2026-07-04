@@ -32,6 +32,7 @@ Claude Desktop/Code 도 접속할 수 있습니다. 사용자별 토큰(PAT)을 
 | `slurm_job_stat(job_id)` | `sstat -j <id>` | 실행 잡 실시간 자원 사용량 |
 | `slurm_job_results(job_id)` | backend `/api/jobs/<id>/info`+`/files` | **완료 잡 결과** — 상태/종료코드/작업디렉토리 + 결과 파일 목록(d3plot/binout/csv/로그) |
 | `slurm_job_log(job_id, lines, log_type)` | backend `/api/jobs/<id>/logs/tail` | 잡 stdout/stderr 로그 마지막 N줄(시뮬 출력/에러 분석) |
+| `smarttwin_scenario_options(sim_type)` | (로컬 카탈로그 + live 프리셋) | **전각도 낙하/전위치 부분충격 scenario.json 전체 옵션 스키마** — 각도소스 5종(cuboid/fibonacci/pitching/rolling/case_txt)·임팩터(Sphere/Cylinder)·위치 DOE(grid/list/lhs/part_center)·단위계를 LLM 이 인지하고 제출 구성 |
 
 ### 제공 tools (변경계 / write — REST 프록시)
 
@@ -41,9 +42,33 @@ Claude Desktop/Code 도 접속할 수 있습니다. 사용자별 토큰(PAT)을 
 | --- | --- | --- |
 | `slurm_node_set_state(node, state, reason, dry_run=True)` | `POST /api/nodes/{drain\|resume\|down\|undrain}` | 노드 상태 변경(enum 강제). `DOWN` 은 `reason` 필수·파괴적. |
 | `slurm_job_control(job_id, action, value, dry_run=True)` | `/api/slurm/jobs/<id>/<action>` | 잡 제어(enum 강제). `priority`/`nice` 는 `value`. `cancel` 파괴적. |
+| `smarttwin_submit(sim_type, model_path, ..., dry_run=True)` | `POST /api/jobs/submit` (multipart, dry_run 은 `/api/jobs/preview`) | **전각도 낙하/전위치 부분충격 잡 제출**. 프리셋/기본 scenario 에 `scenario_overrides` 깊은 병합 → scenario.json 생성·업로드. model_path 는 ★서버(헤드노드) 공유 FS 절대경로★(/data 등). 웹 제출과 동일한 인증·권한·이력·결과폴더(/data/single/…) 적용. |
 
 > 모든 변경계 REST(`hold`/`release`/`cancel`/`drain`/`resume`/`down`/`undrain`/`requeue`/`priority`/`nice`/`top`/
 > 파티션 state)는 서버단 `dry_run` 을 지원합니다 — `dry_run=True`(기본)면 생성될 명령만 반환하고 적용하지 않습니다.
+
+### SmartTwin 시뮬레이션 제출 예 (Claude 에게 자연어로)
+
+```text
+"전각도 낙하 옵션 뭐 있어?"            → smarttwin_scenario_options("fullangle_drop")
+"/data/koopark/phone.k 를 fibonacci 100방향, 낙하높이 1m, 강체바닥으로 돌려줘"
+  → smarttwin_submit(sim_type="fullangle_drop", model_path="/data/koopark/phone.k",
+      angle_preset="fibonacci-100",
+      scenario_overrides={"simulation_params": {"height": 1000,
+                          "drop_surface": {"type": "RigidWall"}}})   # dry_run 미리보기
+"좋아 제출해"                          → 같은 인자 + dry_run=False
+"부분충격을 LHS 30점, 임팩터 반경 8mm 로"
+  → smarttwin_submit(sim_type="partial_impact", model_path=...,
+      scenario_overrides={"simulation_params": {"locations": {"mode": "lhs", "n_samples": 30},
+                          "impactor": {"radius": 8}}}, dry_run=False)
+```
+
+- scenario 스키마는 KooChainRun 실제 파서(pyKooCAE Runner/*) 기준 — 옵션 도구가 단위계
+  ([tonne, mm, s, MPa])와 각 키의 기본값/허용값을 함께 안내합니다.
+- 부분충격 생성 scenario 의 LS-DYNA 라이선스 서버는 ★env `LSTC_LICENSE_SERVER` 우선★,
+  없으면 운영 동기화된 프리셋(/data/scenario/*)에서 폴백(운영마다 다름 — 하드코딩 없음).
+- 드라이버 잡 자원(자식 packing: CHAIN_NODES/CHAIN_JOBS_PER_NODE/CHAIN_NCPU)은 템플릿 env
+  고정값입니다 — 바꾸려면 템플릿 YAML 수정.
 
 ## 인증 (★권장: 웹에서 토큰 발급★)
 
