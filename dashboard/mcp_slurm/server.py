@@ -748,7 +748,13 @@ def _impact_base_scenario(model_filename: str, job_name: str, license_server: st
         "model_file": model_filename,
         "output_dir": "output",
         "environment": {
-            "koomeshmodifier_path": "/opt/SmartTwinPreprocessor/bin/KooMeshModifier",
+            # DWI(drop_weight_impact) run.sh 가 실제 읽는 평면 키 — KooMeshModifier/솔버는
+            # 공유 FS(/data)에 있어야 compute 노드가 접근(/opt 는 노드로컬이라 멀티노드 실패).
+            # 솔버는 apptainer 로: DWI run.sh 는 `apptainer exec {sif_path} {solver_command} i=...`.
+            "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+            "sif_path": "/data/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+            "solver_command": "/opt/openmpi/bin/mpirun -np 1 /opt/ls-dyna/lsdyna",
+            "partition": "normal",
             "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
             "mpi_path": "mpirun",
             "memory": "2G",

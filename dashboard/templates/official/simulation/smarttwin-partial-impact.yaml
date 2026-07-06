@@ -95,7 +95,10 @@ script:
       "model_file": "$MODEL_FILE",
       "output_dir": "output",
       "environment": {
-        "koomeshmodifier_path": "/opt/SmartTwinPreprocessor/bin/KooMeshModifier",
+        "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+        "sif_path": "/data/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+        "solver_command": "/opt/openmpi/bin/mpirun -np 1 /opt/ls-dyna/lsdyna",
+        "partition": "normal",
         "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
         "mpi_path": "mpirun",
         "memory": "2G",
