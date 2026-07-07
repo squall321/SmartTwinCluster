@@ -813,6 +813,15 @@ def submit_job():
         print(f"   - memory: {data.get('memory')}")
         print(f"   - time: {data.get('time')}")
 
+        # 존재하지 않는 파티션이면 생략 → 클러스터 기본(드롭다운/config 드리프트로 'compute' 등이 와도
+        # sbatch invalid partition 실패 방지). 라이브 목록 못 얻으면 그대로 둔다(무중단).
+        try:
+            from slurm_commands import normalize_partition as _norm_part
+            if data.get('partition'):
+                data['partition'] = _norm_part(data.get('partition'))
+        except Exception:
+            pass
+
         # 파티션 접근권한 검사(권한모델 2차 방어; PARTITION_ENFORCE=true 일 때만 차단).
         # web_role 은 아래 account/qos 주입에도 재사용. SSO off 면 admin(전권).
         web_role = (g.get('user') or {}).get('role', 'user')

@@ -37,7 +37,7 @@ class PartitionNotAllowed(Exception):
         super().__init__(f"partition '{partition}' not allowed for role '{role}' (allowed={allowed})")
 
 # 절대 경로 import (systemd 환경에서 PATH 제한으로 필요)
-from slurm_commands import SSH, SBATCH
+from slurm_commands import SSH, SBATCH, normalize_partition
 
 # Structured logging setup
 logger = logging.getLogger(__name__)
@@ -721,6 +721,9 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
     # Slurm 설정
     slurm_config = template['slurm'].copy()
     slurm_config.update(job_config.get('slurm_overrides', {}))
+    # 존재하지 않는 파티션(드롭다운/템플릿/config 드리프트, 예: 'compute' 인데 실제는 'normal')이면
+    # 생략 → 클러스터 기본 파티션 사용(sbatch invalid partition 실패 방지). 라이브 목록 못 얻으면 그대로.
+    slurm_config['partition'] = normalize_partition(slurm_config.get('partition'))
 
     # ── 파티션 접근권한 검사 (role 기반, 최종 확정된 partition 기준) ──
     # submit_job 이 multipart/form-data 라 @partition_allowed 데코레이터는 body 의

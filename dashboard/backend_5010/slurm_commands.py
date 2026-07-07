@@ -200,6 +200,46 @@ def get_sinfo(*args, **kwargs) -> subprocess.CompletedProcess:
     return run_slurm_command([SINFO] + list(args), **kwargs)
 
 
+# 라이브 파티션 이름 캐시(제출 시 존재검증용) — sinfo 를 매 제출마다 안 때리도록 짧게 캐시.
+_PART_CACHE = {'names': None, 'ts': 0.0}
+_PART_TTL = 60.0
+
+
+def get_live_partitions() -> set:
+    """현재 Slurm 에 실제 존재하는 파티션 이름 집합(기본표시 '*' 제거). 실패 시 빈 집합.
+    빈 집합은 '알 수 없음'을 의미 — 호출측은 이때 검증을 건너뛴다(무중단)."""
+    import time
+    now = time.time()
+    if _PART_CACHE['names'] is not None and (now - _PART_CACHE['ts']) < _PART_TTL:
+        return _PART_CACHE['names']
+    names = set()
+    try:
+        res = run_slurm_command([SINFO, '-h', '-o', '%P'], timeout=5)
+        if res.returncode == 0:
+            names = {ln.strip().rstrip('*') for ln in res.stdout.splitlines() if ln.strip()}
+    except Exception:
+        names = set()
+    if names:  # 성공했을 때만 캐시(실패 시 다음 호출에서 재시도)
+        _PART_CACHE['names'] = names
+        _PART_CACHE['ts'] = now
+    return names
+
+
+def normalize_partition(partition):
+    """요청 파티션이 라이브 Slurm 에 없으면 '' 로(클러스터 기본 파티션 사용) 정규화.
+    - partition 이 비었거나 라이브 목록을 못 얻으면(빈 집합) 그대로 둔다(무중단).
+    - 존재하면 그대로, 없으면 '' + 경고 로그. 드롭다운/템플릿/config 드리프트로 존재하지 않는
+      파티션이 와도 sbatch 가 'invalid partition' 으로 실패하지 않게 한다."""
+    p = (partition or '').strip()
+    if not p:
+        return ''
+    live = get_live_partitions()
+    if not live or p in live:
+        return p
+    print(f"⚠️ [partition] 요청 파티션 '{p}' 가 라이브 Slurm({sorted(live)})에 없음 → 생략(클러스터 기본 사용)")
+    return ''
+
+
 def get_squeue(*args, **kwargs) -> subprocess.CompletedProcess:
     """squeue 실행"""
     return run_slurm_command([SQUEUE] + list(args), **kwargs)

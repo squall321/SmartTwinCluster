@@ -353,6 +353,14 @@ def submit_lsdyna_jobs():
 
             meta = json.loads(request.form[meta_key])
 
+            # 존재하지 않는 파티션이면 생략(클러스터 기본) — config/드롭다운 드리프트 방어.
+            if meta.get('partition'):
+                try:
+                    from slurm_commands import normalize_partition as _norm_part
+                    meta['partition'] = _norm_part(meta.get('partition'))
+                except Exception:
+                    pass
+
             # 파티션 접근권한 검사(권한모델 2차 방어; PARTITION_ENFORCE=true 일 때만 차단).
             # meta 에 partition 이 비면 is_partition_allowed 가 True 라 무중단(기본 동작).
             _ok, _allowed = is_partition_allowed(web_role, meta.get('partition'))
