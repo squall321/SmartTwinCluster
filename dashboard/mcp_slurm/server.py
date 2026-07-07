@@ -748,12 +748,22 @@ def _impact_base_scenario(model_filename: str, job_name: str, license_server: st
         "model_file": model_filename,
         "output_dir": "output",
         "environment": {
-            # DWI(drop_weight_impact) run.sh 가 실제 읽는 평면 키 — KooMeshModifier/솔버는
-            # 공유 FS(/data)에 있어야 compute 노드가 접근(/opt 는 노드로컬이라 멀티노드 실패).
-            # 솔버는 apptainer 로: DWI run.sh 는 `apptainer exec {sif_path} {solver_command} i=...`.
+            # DWI(drop_weight_impact) run.sh 가 실제 읽는 평면 키. KooMeshModifier/sif 는 공유 FS(/data)
+            # 여야 compute 노드가 접근(/opt 노드로컬이면 멀티노드 실패).
+            # ★sif_path 를 비워 run.sh 가 `{solver_command} i=...` 를 bare 실행하게 하고, solver_command
+            #   자체에 apptainer exec + 라이선스 --env 를 넣는다★ — DWI run.sh 의 `apptainer exec {sif}
+            #   {solver}` 는 --env 를 안 줘서 라이선스 서버에 도달 못 하기 때문(검증: 그 경우 "License
+            #   client cannot find any servers"). 아래 형태면 라이선스 통과 + 실솔브 확인됨.
             "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
-            "sif_path": "/data/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
-            "solver_command": "/opt/openmpi/bin/mpirun -np 1 /opt/ls-dyna/lsdyna",
+            "sif_path": "",
+            "solver_command": (
+                "apptainer exec --bind /data:/data "
+                "--env LSTC_FILE=/opt/ls-dyna_license/LSTC_FILE "
+                f"--env LSTC_LICENSE_SERVER={license_server} "
+                "--env FI_PROVIDER=tcp --env I_MPI_FABRICS=ofi --env LD_LIBRARY_PATH=/opt/openmpi/lib "
+                "/data/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif "
+                "/opt/openmpi/bin/mpirun -np 1 /opt/ls-dyna/lsdyna"
+            ),
             "partition": "normal",
             "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
             "mpi_path": "mpirun",
