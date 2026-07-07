@@ -754,7 +754,14 @@ def _impact_base_scenario(model_filename: str, job_name: str, license_server: st
             #   자체에 apptainer exec + 라이선스 --env 를 넣는다★ — DWI run.sh 의 `apptainer exec {sif}
             #   {solver}` 는 --env 를 안 줘서 라이선스 서버에 도달 못 하기 때문(검증: 그 경우 "License
             #   client cannot find any servers"). 아래 형태면 라이선스 통과 + 실솔브 확인됨.
-            "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+            # KooMeshModifier 도 apptainer 로 — OpenCASCADE(libTKernel)가 SmartTwinPreprocessor.sif
+            #   안에 있어 bare 실행은 compute 노드에서 lib 못 찾음(검증: 컨테이너로 실행 시 OCC 통과).
+            #   sif 는 node 접근 위해 공유 /data/apptainers 에 배포돼 있어야 함(/home 은 노드 미마운트).
+            "koomeshmodifier_path": (
+                "apptainer exec --bind /data:/data "
+                "/data/apptainers/SmartTwinPreprocessor.sif "
+                "/opt/SmartTwinPreprocessor/bin/KooMeshModifier"
+            ),
             "sif_path": "",
             "solver_command": (
                 "apptainer exec --bind /data:/data "

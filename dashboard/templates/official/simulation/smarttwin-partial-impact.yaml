@@ -95,7 +95,7 @@ script:
       "model_file": "$MODEL_FILE",
       "output_dir": "output",
       "environment": {
-        "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+        "koomeshmodifier_path": "apptainer exec --bind /data:/data /data/apptainers/SmartTwinPreprocessor.sif /opt/SmartTwinPreprocessor/bin/KooMeshModifier",
         "sif_path": "",
         "solver_command": "apptainer exec --bind /data:/data --env LSTC_FILE=/opt/ls-dyna_license/LSTC_FILE --env LSTC_LICENSE_SERVER=%LSTC_LICENSE_SERVER% --env FI_PROVIDER=tcp --env I_MPI_FABRICS=ofi --env LD_LIBRARY_PATH=/opt/openmpi/lib /data/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif /opt/openmpi/bin/mpirun -np 1 /opt/ls-dyna/lsdyna",
         "partition": "normal",
