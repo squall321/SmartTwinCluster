@@ -105,9 +105,43 @@ script:
       echo "scenario: 프리셋 $ANGLE_PRESET 사용"
     fi
 
+    # 유형 가드: 전각도 잡에 부분충격(DWI) scenario 가 오면 즉시 차단.
+    # KooChainRun 은 mode 키만으로 디스패치하므로, 없으면 조용히 DWI 로 오실행됨(799 사고).
+    if grep -q '"mode"[[:space:]]*:[[:space:]]*"drop_weight_impact"' scenario.json; then
+      echo "ERROR: 전각도 낙하 잡인데 scenario.json 이 drop_weight_impact(부분충격) 모드입니다."
+      echo "  → 부분충격은 smarttwin-partial-impact 템플릿으로 제출하세요."
+      exit 1
+    fi
+
+    # 라이선스 플레이스홀더 잔존 가드 (업로드/프리셋 어느 경로든) — partial 템플릿과 동일.
+    PH="%LSTC_LICENSE""_SERVER%"
+    if grep -q "$PH" scenario.json; then
+      echo "ERROR: LSTC_LICENSE_SERVER 미설정 ($PH 잔존)."
+      echo "  → YAML slurm_config.lsdyna_license.server 설정 후 start_production.sh 재실행 필요"
+      exit 1
+    fi
+
     # 모델 파일명 주입(%INPUTFILE%) + 프로젝트명을 이 잡으로
     sed -i "s|%INPUTFILE%|$MODEL_FILE|g" scenario.json
     sed -i "0,/\"project_name\"/s|\"project_name\"[^,]*|\"project_name\": \"${SLURM_JOB_NAME}_${SLURM_JOB_ID}\"|" scenario.json
+
+    # 후처리 자동화: scenario 에 postprocess 블록 주입 → prepare 가 runner_config 로 전달,
+    # 자식 완료 후 sphere 리포트가 dependent job 으로 자동 생성·제출됨.
+    if [ "${CHAIN_POSTPROCESS:-true}" = "true" ] && ! grep -q '"postprocess"' scenario.json; then
+      if command -v python3 >/dev/null 2>&1; then
+        python3 - <<'PPEOF'
+    import json
+    with open('scenario.json') as f:
+        s = json.load(f)
+    s.setdefault('postprocess', {'enabled': True})
+    with open('scenario.json', 'w') as f:
+        json.dump(s, f, indent=2, ensure_ascii=False)
+    PPEOF
+        echo "postprocess 블록 주입: enabled=true"
+      else
+        echo "WARN: python3 없음 — postprocess 블록 주입 생략"
+      fi
+    fi
     echo "--- scenario.json (앞 40줄) ---"
     head -40 scenario.json
 
@@ -122,26 +156,32 @@ script:
     echo "=== KooChainRun submit (nodes=$CHAIN_NODES jobs/node=$CHAIN_JOBS_PER_NODE ncpu=$CHAIN_NCPU) ==="
     "$KCR" submit runner_config.json \
         --nodes "$CHAIN_NODES" --jobs-per-node "$CHAIN_JOBS_PER_NODE" --ncpu-per-job "$CHAIN_NCPU" \
-        || { echo "ERROR: submit 실패 (이 노드에서 sbatch 가능한지 확인)"; "$KCR" diagnose . 2>/dev/null | tail -20; exit 1; }
+        2>&1 | tee submit.log
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+      echo "ERROR: submit 실패 (이 노드에서 sbatch 가능한지 확인)"
+      "$KCR" diagnose . 2>/dev/null | tail -20
+      exit 1
+    fi
 
-    # 자식 잡 이름 추출 (KooChainRun 이 생성한 slurm 스크립트에서) — 폴링 기준
-    sleep 30
-    CHILD_NAMES=$(find . -path '*slurm_scripts/*.sh' -exec grep -hoE '^#SBATCH --job-name=\S+' {} + 2>/dev/null \
-                  | sed 's/.*=//' | sort -u | paste -sd, -)
-    PROJ=$(sed -n 's/.*"project_name"[^"]*"\([^"]*\)".*/\1/p' runner_config.json | head -1)
-    echo "자식 잡 이름: ${CHILD_NAMES:-（미발견 — 프로젝트명 '$PROJ' 매칭으로 폴링)}"
+    # 자식 잡 ID 수집: submit 출력(권위) → jobs.json 폴백.
+    # 이름 매칭 폴링 폐기 — 자식명 불일치(조기종료)·부모 셀프매칭(무한대기) 사고의 근원.
+    JOB_IDS=$(grep -oE 'Submitted batch job [0-9]+' submit.log | awk '{print $4}' | sort -u | paste -sd, -)
+    if [ -z "$JOB_IDS" ] && [ -f jobs.json ]; then
+      JOB_IDS=$(grep -oE '"job_id"[^0-9]*[0-9]+' jobs.json | grep -oE '[0-9]+$' | sort -u | paste -sd, -)
+    fi
+    if [ -z "$JOB_IDS" ]; then
+      echo "ERROR: 자식 잡 ID 를 확인하지 못함 (submit 출력/jobs.json 모두 부재) — 대기 불가로 중단"
+      exit 1
+    fi
+    echo "자식 잡 ID: $JOB_IDS"
 
-    echo "=== 자식 잡 완료 대기 (5분 간격) ==="
+    echo "=== 자식 잡 완료 대기 (60초 간격) ==="
     while :; do
-      if [ -n "$CHILD_NAMES" ]; then
-        ACTIVE=$(squeue -h -n "$CHILD_NAMES" 2>/dev/null | wc -l)
-      else
-        ACTIVE=$(squeue -h -u "$USER" -o '%j' 2>/dev/null | grep -c -- "$PROJ")
-      fi
+      ACTIVE=$(squeue -h -j "$JOB_IDS" 2>/dev/null | wc -l)
       [ "${ACTIVE:-0}" -eq 0 ] && break
       echo "[$(date '+%F %T')] 실행/대기 중 자식 잡: $ACTIVE"
       "$KCR" status runner_config.json 2>/dev/null | tail -6
-      sleep 300
+      sleep 60
     done
     echo "=== 자식 잡 전체 종료 ==="
 
