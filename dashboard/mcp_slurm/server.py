@@ -642,8 +642,8 @@ _DROP_OPTIONS_DOC = """\
 _IMPACT_OPTIONS_DOC = """\
 ━━ 전위치 부분충격 (partial_impact / smarttwin-partial-impact) scenario.json 옵션 카탈로그 ━━
 단위계 ★필수 확인★: LS-DYNA 덱과 동일해야 함. 표준은 [tonne, mm, s, MPa]
-  (강철: density=7.85e-9, youngs_modulus=2.0e5). ※대시보드 기본값(7850/2.0e11)은 SI 숫자라
-  ton-mm-s 덱과 부정합 — 덱 단위계에 맞춰 반드시 확인/수정할 것.
+  (강철: density=7.85e-9, youngs_modulus=2.0e5). 기본값도 이 단위계로 설정돼 있음 —
+  overrides 로 물성을 줄 때 SI 숫자(7850, 2e11)를 넣으면 무변환 기입되므로 주의.
 
 ■ 최상위 (자동 설정 — 직접 넣지 말 것): mode="drop_weight_impact"(디스패치 키),
   model_file(업로드 모델 파일명), output_dir("output"), project_name(잡 이름)
@@ -803,8 +803,10 @@ def _impact_base_scenario(model_filename: str, job_name: str, license_server: st
                 "type": "Sphere",
                 "radius": 5.0,
                 "height": 100,
-                "density": 7850,
-                "youngs_modulus": 2.0e11,
+                # [tonne, mm, s, MPa] 단위계(덱과 동일). SI(7850, 2e11)를 넣으면 무변환
+                # 기입되어 임팩터 밀도가 12자릿수 과대 — 물리적으로 무효한 해석이 된다.
+                "density": 7.85e-9,
+                "youngs_modulus": 2.0e5,
                 "poisson_ratio": 0.3,
             },
             "locations": {"mode": "grid", "x_count": 5, "y_count": 5, "margin": 0.9},
@@ -954,6 +956,10 @@ def smarttwin_submit(
             if ov:
                 scenario = _deep_merge(scenario, ov)
                 scenario_note += " + overrides 병합"
+                # 전각도 잡에 DWI 디스패치 키(mode)가 섞이면 KooChainRun 이 조용히
+                # 부분충격으로 오실행됨(799 사고 계열) — 낙하 scenario 에선 항상 제거.
+                if scenario.pop("mode", None) is not None:
+                    scenario_note += " (mode 키 제거 — 전각도 잡)"
             if case_real:
                 # 케이스 파일 업로드 시 angle_source 를 case_txt_file 로 자동 배선(미지정 시)
                 scen_list = scenario.get("scenarios") or [{}]
