@@ -625,8 +625,12 @@ def save_uploaded_file(file, max_size_mb=1000) -> str:
         raise ValueError(f"File too large: {file_size / 1024 / 1024:.2f}MB (max: {max_size_mb}MB)")
 
     # 4. 안전한 경로 생성
+    #    ★타임스탬프(초 단위)만으론 같은 초에 같은 파일명이 제출되면 UPLOAD_DIR 에서 충돌해
+    #    나중 업로드가 앞선 것을 무경고로 덮어쓴다 — 동시 제출된 잡이 남의 입력(예: 전각도
+    #    잡이 부분충격 scenario)으로 조용히 실행되는 사고의 근원. 런타임 cp(잡 시작 시점)라
+    #    제출~실행 사이 덮어쓰기가 그대로 전파된다. uuid 로 제출별 고유화해 두 결함을 함께 차단.★
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    temp_filename = f"{timestamp}_{filename}"
+    temp_filename = f"{timestamp}_{uuid.uuid4().hex[:12]}_{filename}"
     temp_path = os.path.join(UPLOAD_DIR, temp_filename)
 
     # 5. Path traversal 최종 검증

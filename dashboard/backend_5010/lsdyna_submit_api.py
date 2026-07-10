@@ -12,6 +12,7 @@ from flask import Blueprint, request, jsonify, g
 import os
 import re
 import json
+import uuid
 import tempfile
 import sqlite3
 from datetime import datetime
@@ -382,7 +383,8 @@ def submit_lsdyna_jobs():
             safe_name = re.sub(r'[^\w.\-]', '_', os.path.basename(str(file.filename or '')))[:128] or f'input_{i}.k'
             # 잡마다 고유 스테이징 디렉토리 — OUTPUT_DIR(=dirname/output)이 잡별로 분리돼
             # 결과가 서로 덮어쓰지 않게(모든 k파일을 한 폴더에 두면 output 이 공유돼 충돌).
-            job_stage = os.path.join(temp_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}")
+            # 타임스탬프+인덱스만으론 동시 요청이 같은 초에 겹치면 충돌하므로 uuid 로 고유화.
+            job_stage = os.path.join(temp_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}_{uuid.uuid4().hex[:8]}")
             os.makedirs(job_stage, exist_ok=True)
             temp_path = os.path.join(job_stage, safe_name)
             file.save(temp_path)
