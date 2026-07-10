@@ -98,10 +98,13 @@ MONITORING_SERVICES=(
 )
 
 # 선택적 데몬 — systemd 에 설치돼있으면 시작, 없으면 조용히 스킵
+#   mcp-slurm(5012): MCP 서버(server.py). 이 스크립트가 유일한 재기동 경로다 —
+#     여기 없으면 server.py 코드 갱신(물성 단위/scenario 가드 등)이 배포돼도 반영 안 됨.
+#     단순 서비스라 아래 루프의 일반 restart 로 충분. 미설치면 가드가 조용히 스킵.
 #   saml_idp(7000): SSO on 일 때만 (yaml sso.enabled 보고 조건부 포함)
 # 주: cae_service(8001) 는 index.html 만 있는 죽은 서비스(npm run dev 불가) — 제외.
 #     cae 는 nginx static(/cae/ → /var/www/html/cae)으로 동작하므로 8001 불필요.
-OPTIONAL_SERVICES=()
+OPTIONAL_SERVICES=("mcp-slurm")
 # yaml sso.enabled 면 saml_idp 도 선택적 시작 대상에 추가
 _SSO=$(python3 -c "
 import yaml
