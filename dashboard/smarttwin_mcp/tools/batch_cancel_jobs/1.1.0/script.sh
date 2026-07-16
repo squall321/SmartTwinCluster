@@ -4,7 +4,7 @@ set -euo pipefail
 export SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
 
 python3 - <<'PY'
-import json, os, sys, subprocess
+import json, os, sys, urllib.request, urllib.error
 
 sys.path.insert(0, os.environ["SHARED_DIR"])
 import registry
@@ -12,6 +12,23 @@ import job_helpers
 import audit
 
 MAX_BATCH = 100
+
+
+def _backend_cancel(base, token, jid):
+    # (C): 직접 scancel 대신 backend 권한/감사 경유로 취소.
+    req = urllib.request.Request(
+        f"{base}/api/slurm/jobs/{jid}/cancel",
+        data=json.dumps({"dry_run": False}).encode("utf-8"),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:  # noqa: BLE001
+        return None, str(e)
 
 def main():
     args = json.loads(os.environ["STMC_ARGS_JSON"])
@@ -88,6 +105,11 @@ def main():
     if dry_run:
         out["would_cancel"] = [summarize(r) for r in candidates]
     else:
+        base = (os.environ.get("STMC_CLUSTER_URL") or "").rstrip("/")
+        token = os.environ.get("STMC_CLUSTER_TOKEN") or ""
+        if not base or not token:
+            job_helpers.fail("취소는 backend 권한을 경유합니다 — STMC_CLUSTER_URL(서버 env) 과 "
+                             "요청 PAT(Authorization) 가 필요합니다(fail-closed).")
         for row in candidates:
             slurm_ids = row.get("slurm_job_ids") or []
             entry = summarize(row)
@@ -97,27 +119,20 @@ def main():
                                        notes="cancelled via batch_cancel_jobs (no slurm ids)")
                 out["cancelled"].append(entry)
                 continue
-            try:
-                r = subprocess.run(
-                    ["scancel"] + [str(s) for s in slurm_ids],
-                    capture_output=True, text=True, timeout=30,
-                )
-            except FileNotFoundError:
-                entry["reason"] = "scancel not found on PATH"
-                out["failures"].append(entry)
-                continue
-            except subprocess.TimeoutExpired:
-                entry["reason"] = "scancel timed out after 30s"
-                out["failures"].append(entry)
-                continue
-            if r.returncode == 0:
+            # (C): 각 slurm id 를 backend 권한/감사 경유로 취소.
+            per, all_ok = [], True
+            for s in slurm_ids:
+                code, body = _backend_cancel(base, token, str(s))
+                ok = code is not None and 200 <= code < 300
+                all_ok = all_ok and ok
+                per.append({"slurm_job_id": str(s), "http": code, "ok": ok})
+            entry["cancel_results"] = per
+            if all_ok:
                 registry.update_status(row["id"], "cancelled",
-                                       notes="cancelled via batch_cancel_jobs")
-                entry["scancel_stderr"] = (r.stderr or "")[-200:]
+                                       notes="cancelled via batch_cancel_jobs (backend)")
                 out["cancelled"].append(entry)
             else:
-                entry["reason"] = f"scancel rc={r.returncode}"
-                entry["scancel_stderr"] = (r.stderr or "")[-500:]
+                entry["reason"] = "backend cancel 일부 실패"
                 out["failures"].append(entry)
 
     out["summary"] = {
