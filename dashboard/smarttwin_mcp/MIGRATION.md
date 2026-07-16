@@ -36,7 +36,20 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
       dry_run→/api/jobs/preview. latest 심링크 1.1.0→1.2.0, catalog_reload 로 반영.
 - [x] Phase2: submit 실제 잡 e2e — catalog_run(submit_job, dry_run=false) → http 201, job 885
       squeue PENDING 확인 → 취소. **read+submit 둘 다 실 backend e2e 증명(2a 방식 검증 완료).**
-- [ ] Phase3: 나머지 ~42개 도구 순차 이식(같은 패턴: meta/script 를 /api/* + PAT 로) → 파리티
+- [x] 모델 확정 = **(C) 하이브리드**. 중대 발견: SmartTwinMCP 도구는 스텁이 아니라 head-node
+      네이티브(직접 squeue/KooChainRun + 로컬 SQLite registry)로 대부분 이미 동작. 스텁은 submit 뿐.
+      → 읽기=네이티브 유지, 쓰기(submit/cancel)=backend 권한/감사 경유, registry 가 다리.
+- [x] (C) 코어 검증·커밋: (1) runner http url 에 args 보간({job_id} 등), (2) submit_job 이 backend
+      제출 job_id 를 registry.record_submission 으로 기록(username=/api/me), (3) job_stop 이 registry
+      로 job_id 해석 → /api/slurm/jobs/{id}/cancel(권한) → registry/audit 기록. fail-closed.
+      e2e: submit(job 892)→registry_id 12→job_status 가 squeue 로 추적→job_stop→sacct CANCELLED.
+- [ ] Phase3 쓰기 잔여: batch_cancel_jobs(cancel), job_rerun(resubmit), 네이티브 sim submit
+      (single_drop/fullangle_drop/submit_lsdyna_*/train_*): 시나리오는 로컬 빌드 유지, **최종 제출만
+      backend 경유**로 전환(submit_job 패턴 재사용).
+- [ ] Phase3 읽기 검증: job_status✓/list_recent_jobs✓/list_slurm_partitions✓ 외 job_logs/
+      get_job_details/job_progress/show_slurm_node/check_partition_capacity 동작 확인(네이티브).
+- [ ] Phase3 네이티브 기능(backend 무관, 그대로): audit_*/estimate_cost/summarize_costs/*scheduled*/
+      *webhook*/echo/scenario_full_reference/apply_template_args/get_template/list_templates.
 - [ ] Phase3: 파리티+검증 후 mcp-slurm.service(또는 nginx /mcp) 컷오버, 구버전 폴백 유지
       (컷오버 시 STMC_CLUSTER_URL=http://127.0.0.1:5010 + streamable-http 서비스로 systemd 유닛 교체)
 

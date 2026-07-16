@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # 실 backend_5010 /api/jobs/submit 에 템플릿 기반 멀티파트 제출 (요청 PAT 패스스루)
+# (C) 하이브리드: 제출은 backend(권한/감사) → 받은 job_id 를 로컬 registry 에 기록(다리).
 set -euo pipefail
+export SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
 python3 - <<'PY'
 import json, os, sys, uuid, urllib.request, urllib.error
+
+sys.path.insert(0, os.environ.get("SHARED_DIR", ""))
+try:
+    import registry as _registry
+except Exception:
+    _registry = None
 
 
 def fail(msg, **extra):
@@ -101,7 +109,27 @@ if dry_run:
                      ensure_ascii=False))
 else:
     job_id = data.get("job_id") if isinstance(data, dict) else None
+    reg_id = None
+    reg_note = None
+    if job_id and _registry is not None:
+        # (C) 다리: backend 제출 잡을 로컬 registry 에 기록 → job_status/job_logs/job_stop 이 찾음.
+        try:
+            user = "unknown"
+            mreq = urllib.request.Request(base + "/api/me",
+                                          headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(mreq, timeout=15) as mr:
+                user = json.loads(mr.read().decode("utf-8", "replace")).get("username") or "unknown"
+            name = job_name or tid
+            wd = f"/data/single/{user}/{name}_{job_id}"
+            reg_id = _registry.record_submission(
+                tool_name="submit_job", work_dir=wd, output_dir=wd + "/output",
+                project_name=name, runner_config_path=wd + "/output/runner_config.json",
+                slurm_job_ids=[str(job_id)])
+        except Exception as e:  # noqa: BLE001
+            reg_note = f"registry 기록 실패(추적엔 job_id 사용): {e}"
     print(json.dumps({"ok": bool(200 <= code < 300 and job_id), "http": code,
-                      "job_id": job_id, "template_id": tid, "response": data},
+                      "job_id": job_id, "registry_id": reg_id, "registry_note": reg_note,
+                      "template_id": tid, "response": data,
+                      "next": "job_status/job_logs/job_stop 에 registry_id 또는 job_id 사용"},
                      ensure_ascii=False))
 PY
