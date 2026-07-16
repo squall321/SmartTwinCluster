@@ -257,6 +257,84 @@ def slurm_list_partitions(ctx: Context) -> str:
 
 
 @mcp.tool()
+def slurm_list_templates(ctx: Context, category: str = "") -> str:
+    """제출 가능한 잡 템플릿 목록을 반환합니다 (대시보드 템플릿 카탈로그).
+
+    slurm_submit_job 으로 제출하기 전에, 어떤 워크로드를 돌릴 수 있는지와 각 템플릿이
+    요구하는 파일(file_key)을 이 도구로 확인하세요. 전각도/부분충격은 전용 도구
+    smarttwin_submit 이 더 편하지만, 그 외 일반 템플릿(예: LS-DYNA 단일/배열, OpenFOAM)은
+    slurm_submit_job 으로 제출합니다.
+
+    Args:
+        category: 카테고리 필터(예: simulation, ml, cfd). 비우면 전체.
+    """
+    err = _require_user(ctx)
+    if err:
+        return err
+    path = "/api/jobs/templates" + (f"?category={category.strip()}" if category and category.strip() else "")
+    ok, raw, st = _backend_request("GET", path, None, _auth_header(ctx))
+    if not ok:
+        return raw if isinstance(raw, str) and raw else f"error: HTTP {st}"
+    try:
+        tpls = json.loads(raw).get("templates", []) or []
+    except (ValueError, TypeError):
+        return f"error: 템플릿 응답 파싱 실패: {str(raw)[:300]}"
+    if not tpls:
+        return "제출 가능한 템플릿이 없습니다."
+    out = [f"제출 가능한 템플릿 ({len(tpls)}개):"]
+    for t in tpls:
+        meta = t.get("template", {}) if isinstance(t, dict) else {}
+        tid = meta.get("id", "?")
+        name = meta.get("display_name") or meta.get("name", "")
+        cat = meta.get("category", "")
+        schema = (t.get("files", {}) or {}).get("input_schema", {}) or {}
+        req = [f.get("file_key") for f in schema.get("required", []) if f.get("file_key")]
+        opt = [f.get("file_key") for f in schema.get("optional", []) if f.get("file_key")]
+        img = ((t.get("apptainer", {}) or {}).get("image_selection", {}) or {})
+        line = f"  • {tid}  [{cat}]  {name}"
+        if img.get("required", False):
+            line += "\n      이미지 필요: slurm_submit_job(..., image=<이미지id>)"
+        if req:
+            line += f"\n      필수 파일(file_key): {', '.join(req)}"
+        if opt:
+            line += f"\n      선택 파일: {', '.join(opt)}"
+        out.append(line)
+    out.append("\n제출: slurm_submit_job(template_id, files={file_key: 서버측 절대경로}, "
+               "slurm_overrides={partition,mem,time,...}, dry_run=True).")
+    return "\n".join(out)
+
+
+@mcp.tool()
+def slurm_list_reservations(ctx: Context) -> str:
+    """예약(reservation) 목록을 반환합니다 (scontrol show reservation).
+
+    특정 노드/시간대가 예약되어 있는지, 유지보수 창이 잡혀 있는지 확인할 때 사용하세요.
+    """
+    err = _require_user(ctx)
+    if err:
+        return err
+    ok, raw, st = _backend_request("GET", "/api/slurm/reservations", None, _auth_header(ctx))
+    if not ok:
+        return raw if isinstance(raw, str) and raw else f"error: HTTP {st}"
+    return raw if raw and raw.strip() else "(예약 없음)"
+
+
+@mcp.tool()
+def slurm_list_qos(ctx: Context) -> str:
+    """QOS(Quality of Service) 목록/한도를 반환합니다 (sacctmgr show qos).
+
+    잡에 지정할 수 있는 QOS 와 각 QOS 의 우선순위/자원 한도를 확인할 때 사용하세요.
+    """
+    err = _require_user(ctx)
+    if err:
+        return err
+    ok, raw, st = _backend_request("GET", "/api/slurm/qos", None, _auth_header(ctx))
+    if not ok:
+        return raw if isinstance(raw, str) and raw else f"error: HTTP {st}"
+    return raw if raw and raw.strip() else "(QOS 정보 없음)"
+
+
+@mcp.tool()
 def slurm_job_accounting(ctx: Context) -> str:
     """완료/실행 잡의 어카운팅 기록을 반환합니다 (sacct).
 
@@ -544,6 +622,7 @@ _JOB_ACTIONS = {
     "release":  ("POST", "/api/slurm/jobs/{id}/release",  _body_dry_only, True),
     "cancel":   ("POST", "/api/slurm/jobs/{id}/cancel",   _body_dry_only, True),
     "requeue":  ("POST", "/api/slurm/jobs/{id}/requeue",  _body_dry_only, True),
+    "requeuehold": ("POST", "/api/slurm/jobs/{id}/requeuehold", _body_dry_only, True),
     "priority": ("POST", "/api/slurm/jobs/{id}/priority", _body_priority, True),
     "nice":     ("POST", "/api/slurm/jobs/{id}/nice",     _body_nice,     True),
     "top":      ("POST", "/api/slurm/jobs/{id}/top",      _body_dry_only, True),
@@ -1098,6 +1177,98 @@ def smarttwin_submit(
         f"결과 폴더: /data/single/<사용자>/{(job_name or template_id)}_{job_id}/ (드라이버 잡 완료 후)\n"
         f"추적: slurm_job_results(job_id={job_id}) / slurm_job_log(job_id={job_id}) — "
         "드라이버가 자식 잡들을 제출/대기하므로 전체 완료까지 시간이 걸립니다."
+    )
+
+
+@mcp.tool()
+def slurm_submit_job(
+    template_id: str,
+    ctx: Context,
+    files: Optional[Dict[str, str]] = None,
+    job_name: str = "",
+    slurm_overrides: Optional[Dict[str, Any]] = None,
+    image: str = "",
+    dry_run: bool = True,
+) -> str:
+    """임의 템플릿으로 잡을 제출합니다 (변경계, dry_run 기본 True).
+
+    전각도/부분충격 이외의 일반 워크로드(예: LS-DYNA 단일/배열, OpenFOAM 등)를 이 도구로
+    제출합니다. 먼저 slurm_list_templates 로 template_id 와 필요한 파일(file_key)을 확인하세요.
+    웹 제출과 동일한 인증/권한/이력이 적용됩니다.
+
+    Args:
+        template_id: slurm_list_templates 의 템플릿 id.
+        files: {file_key: 서버(헤드노드) 절대경로}. 각 파일은 공유 FS(/data 등)에 있어야 하며,
+               file_key 는 템플릿 input_schema 의 키입니다(예: {"model_k": "/data/.../a.k"}).
+        job_name: 잡 이름(비우면 템플릿 기본). 결과 폴더명에 들어갑니다.
+        slurm_overrides: #SBATCH 오버라이드 dict(예: {"partition": "normal", "mem": "8G",
+                         "time": "04:00:00", "nodes": 1}). backend 가 위생/검증합니다.
+        image: Apptainer 이미지 id/이름. 템플릿이 이미지를 요구하면(slurm_list_templates 의
+               '이미지 필요' 표시) 지정하세요. smarttwin 등 image 불필요 템플릿은 비워둡니다.
+        dry_run: True(기본)면 미리보기(#SBATCH 생성 결과), False 면 실제 제출.
+    """
+    err = _require_user(ctx)
+    if err:
+        return err
+    auth = _auth_header(ctx)
+    tid = str(template_id).strip()
+    if not tid:
+        return "error: template_id 가 비어 있습니다 (slurm_list_templates 로 확인)."
+
+    fmap = files if isinstance(files, dict) else {}
+    file_parts = []
+    for key, path in fmap.items():
+        safe_key = re.sub(r"[^A-Za-z0-9_]", "", str(key or ""))
+        if not safe_key:
+            return f"error: file_key 가 올바르지 않습니다: {key!r} (영숫자/_ 만)."
+        ok, real = _validate_shared_path(path, (), f"files['{key}']")
+        if not ok:
+            return real
+        file_parts.append((f"file_{safe_key}", _safe_filename(real), real))
+
+    so = slurm_overrides if isinstance(slurm_overrides, dict) else {}
+    fields = {"template_id": tid, "slurm_overrides": json.dumps(so)}
+    if job_name:
+        fields["job_name"] = str(job_name)
+    if image and str(image).strip():
+        fields["apptainer_image_id"] = str(image).strip()
+
+    files_desc = ", ".join(f"{k}={v}" for k, v in fmap.items()) or "(없음)"
+    plan = (
+        f"template={tid}\n"
+        f"files: {files_desc}\n"
+        f"slurm_overrides: {so or '(없음)'}  job_name: {job_name or '(템플릿 기본)'}"
+    )
+
+    if dry_run:
+        ok, text, status = _multipart_post("/api/jobs/preview", fields, [], auth, 30.0)
+        preview = ""
+        if ok:
+            try:
+                script = json.loads(text).get("script", "")
+                sbatch = "\n".join(l for l in script.splitlines() if l.startswith("#SBATCH"))
+                preview = f"\n--- 드라이버 잡 #SBATCH (backend preview) ---\n{sbatch}"
+            except ValueError:
+                pass
+        else:
+            preview = f"\n(backend preview 실패 status={status}: {str(text)[:300]})"
+        return f"[DRY-RUN] 제출 계획 (실제 제출은 dry_run=False)\n{plan}{preview}"
+
+    ok, text, status = _multipart_post("/api/jobs/submit", fields, file_parts, auth, _SUBMIT_TIMEOUT)
+    if not ok:
+        if status in (401, 403):
+            return (f"error: 인증/권한 거부(status={status}): {str(text)[:300]}\n"
+                    "PAT 토큰(Authorization) 또는 dashboard 권한을 확인하세요.")
+        return f"error: 제출 실패(status={status}): {str(text)[:500]}"
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return f"제출 응답 파싱 실패(원문): {str(text)[:500]}"
+    job_id = data.get("job_id")
+    return (
+        f"✅ 제출 완료 — job_id={job_id}\n{plan}\n"
+        f"script: {data.get('script_path')}\n"
+        f"추적: slurm_job_results(job_id={job_id}) / slurm_job_log(job_id={job_id})."
     )
 
 
