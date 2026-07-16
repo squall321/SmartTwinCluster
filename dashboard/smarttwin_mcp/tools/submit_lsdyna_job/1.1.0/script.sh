@@ -1,156 +1,81 @@
 #!/usr/bin/env bash
-# submit_lsdyna_job — raw .k file → sbatch (no KooChainRun)
+# submit_lsdyna_job — raw LS-DYNA .k 제출. (C): backend lsdyna-r16-basic 템플릿 경유(권한/감사).
+#   라이선스·솔버 실행은 backend 템플릿이 담당 → 로컬 sbatch 직접 생성 없음.
 set -euo pipefail
-
 export SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
-
 python3 - <<'PY'
-import json, os, sys, subprocess, re
-
+import json, os, sys
 sys.path.insert(0, os.environ["SHARED_DIR"])
-import registry
+import job_helpers
 import audit
 
 
-def fail(reason: str, **extra):
+def fail(reason, **extra):
     print(json.dumps({"ok": False, "reason": reason, **extra}, ensure_ascii=False))
     sys.exit(1)
-
-
-SBATCH_TEMPLATE = """#!/bin/bash
-#SBATCH --job-name={job_name}
-#SBATCH --output={work_dir}/lsdyna.slurm.out
-#SBATCH --error={work_dir}/lsdyna.slurm.err
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task={ncpu}
-#SBATCH --mem={memory}
-#SBATCH --time={time_limit}
-{partition_line}
-cd {work_dir}
-
-apptainer exec \\
-  --bind /data:/data,/shared:/shared,{work_dir}:{work_dir} \\
-  --env LSTC_FILE=/opt/ls-dyna_license/LSTC_FILE \\
-  --env LSTC_LICENSE_SERVER={lstc_ip} \\
-  --env FI_PROVIDER=tcp \\
-  --env I_MPI_FABRICS=ofi \\
-  --env LD_LIBRARY_PATH=/opt/openmpi/lib \\
-  {lsdyna_sif} \\
-  mpirun -n {ncpu} /opt/ls-dyna/lsdyna_R16.1.1 i={k_filename} memory={lsdyna_memory_words}
-"""
 
 
 def main():
     args = json.loads(os.environ["STMC_ARGS_JSON"])
 
     k_file = args["k_file"]
-    if not os.path.exists(k_file):
-        fail(f"k_file not found: {k_file}")
-
-    lstc_ip = args["lstc_license_ip"]
+    if not os.path.isabs(k_file) or not os.path.exists(k_file):
+        fail(f"k_file 는 존재하는 서버측 절대경로여야 합니다: {k_file}")
     ncpu = int(args.get("ncpu", 1))
     memory = args.get("memory", "2G")
     time_limit = args.get("time_limit", "01:00:00")
-    lsdyna_mem = args.get("lsdyna_memory_words", "2000m")
-    partition = args.get("partition", "")
-    lsdyna_sif = args.get("lsdyna_sif",
-                          "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif")
+    partition = args.get("partition") or ""
+    image = args.get("lsdyna_sif")  # backend 이미지 id. 경로(/...)면 무시하고 템플릿 기본 사용.
+    job_name = args.get("job_name") or f"raw_lsdyna_{os.path.splitext(os.path.basename(k_file))[0]}"
     dry_run = bool(args.get("dry_run", False))
 
-    work_dir = os.path.dirname(os.path.abspath(k_file))
-    k_filename = os.path.basename(k_file)
-    job_name = args.get("job_name") or f"raw_lsdyna_{os.path.splitext(k_filename)[0]}"
+    slurm_overrides = {"cpus_per_task": ncpu, "mem": memory, "time": time_limit}
+    if partition:
+        slurm_overrides["partition"] = partition
 
-    partition_line = f"#SBATCH --partition={partition}\n" if partition else ""
-
-    sbatch_text = SBATCH_TEMPLATE.format(
-        job_name=job_name,
-        work_dir=work_dir,
-        ncpu=ncpu,
-        memory=memory,
-        time_limit=time_limit,
-        partition_line=partition_line,
-        lstc_ip=lstc_ip,
-        lsdyna_sif=lsdyna_sif,
-        k_filename=k_filename,
-        lsdyna_memory_words=lsdyna_mem,
-    )
-    sbatch_path = os.path.join(work_dir, f"{job_name}.sbatch")
-    with open(sbatch_path, "w") as f:
-        f.write(sbatch_text)
-    os.chmod(sbatch_path, 0o755)
-
-    slurm_ids = []
-    status = "dry_run"
-    if not dry_run:
-        try:
-            r = subprocess.run(
-                ["sbatch", sbatch_path],
-                capture_output=True, text=True, check=True, timeout=60,
-            )
-        except subprocess.CalledProcessError as e:
-            fail(f"sbatch failed: rc={e.returncode}",
-                 stderr=e.stderr[-500:], stdout=e.stdout[-500:])
-        m = re.search(r"Submitted batch job (\d+)", r.stdout)
-        if m:
-            slurm_ids.append(m.group(1))
-        status = "submitted"
-
-    reg_id = registry.record_submission(
+    res = job_helpers.backend_submit(
+        template_id="lsdyna-r16-basic",
+        files={"input_k": k_file},
         tool_name="submit_lsdyna_job",
-        work_dir=work_dir,
-        output_dir=work_dir,  # raw lsdyna 결과(d3plot)는 work_dir에 그대로 떨어짐
-        project_name=job_name,
-        runner_config_path=None,
-        slurm_job_ids=slurm_ids or None,
-        num_angles=None,
-        status=status,
-        extra={
-            "k_file": k_file,
-            "sbatch_path": sbatch_path,
-            "ncpu": ncpu,
-            "memory": memory,
-        },
-    )
+        project_name=job_name, job_name=job_name,
+        slurm_overrides=slurm_overrides,
+        image=(image if image and not str(image).startswith("/") else None),
+        dry_run=dry_run)
 
-    # §25.3.1 audit row (success path only; failures stay silent per §25.3).
+    if dry_run:
+        print(json.dumps({"ok": res.get("ok"), "dry_run": True, "sbatch_preview": res.get("sbatch_preview"),
+                          "note": "제출은 backend lsdyna-r16-basic 템플릿 경유(권한/감사). 라이선스·솔버메모리는 템플릿이 설정."},
+                         ensure_ascii=False))
+        return
+
+    if not res.get("ok"):
+        fail(res.get("error", "backend 제출 실패"),
+             **{k: res[k] for k in ("http", "response") if k in res})
+
+    reg_id, job_id = res.get("registry_id"), res["job_id"]
+
     actor = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
     audit.record_event(
-        actor=actor,
-        tool="submit_lsdyna_job@1.1.0",
-        action="submit",
-        summary=f"submitted {k_file} ({ncpu}cpu/{memory}/{time_limit}) -> slurm {slurm_ids or '[]'}",
-        target_kind="job",
-        target_id=str(reg_id),
-        detail={
-            "k_file": k_file,
-            "ncpu": ncpu,
-            "memory": memory,
-            "slurm_job_ids": slurm_ids,
-            "dry_run": dry_run,
-        },
-    )
+        actor=actor, tool="submit_lsdyna_job@1.1.0", action="submit",
+        summary=f"submitted raw lsdyna {job_name} via backend -> job {job_id}",
+        target_kind="job", target_id=str(reg_id or job_id),
+        detail={"k_file": k_file, "ncpu": ncpu, "memory": memory, "job_id": job_id, "dry_run": dry_run})
 
     print(json.dumps({
         "ok": True,
         "registry_id": reg_id,
+        "job_id": job_id,
         "tool": "submit_lsdyna_job",
-        "work_dir": work_dir,
-        "output_dir": work_dir,
         "k_file": k_file,
-        "sbatch_path": sbatch_path,
-        "slurm_job_ids": slurm_ids,
-        "status": status,
-        "follow_up_hint": (
-            "raw LS-DYNA 잡: KooChainRun status/rerun 등은 동작 X (KooChainRun 메타 없음). "
-            "Slurm 직접 명령(squeue, scancel <jid>) 사용. d3plot은 work_dir에 생성됨."
-        ),
+        "job_name": job_name,
+        "submitted_via": "backend_5010 lsdyna-r16-basic 템플릿 (권한/감사)",
+        "follow_up_hint": "job_status/job_stop 에 registry_id 또는 job_id 사용.",
     }, ensure_ascii=False))
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         fail(f"unhandled exception: {type(e).__name__}: {e}")
 PY

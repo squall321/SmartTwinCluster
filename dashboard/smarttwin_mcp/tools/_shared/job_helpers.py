@@ -17,13 +17,19 @@ import registry
 KOOCHAINRUN = "/data/SmartTwinPreprocessor/bin/KooChainRun"
 
 
-def backend_submit(template_id, model_path, scenario_path, tool_name, project_name,
-                   job_name=None, slurm_overrides=None, num_angles=None, dry_run=False):
-    """(C) 하이브리드: 시나리오는 로컬 빌드하고, 최종 제출은 backend_5010 /api/jobs/submit 로.
+def backend_submit(template_id, files, tool_name, project_name,
+                   job_name=None, slurm_overrides=None, image=None,
+                   num_angles=None, dry_run=False):
+    """(C) 하이브리드: 입력은 로컬에서 준비하고, 최종 제출은 backend_5010 /api/jobs/submit 로.
 
     요청 PAT(STMC_CLUSTER_TOKEN, 프레임워크가 주입)로 권한/감사를 지나고, backend 드라이버가
-    sinfo+DOE 로 병렬도 auto-tune(클러스터 인식) 하므로 sim 도구가 네이티브 auto-tune 을
-    중복할 필요가 없다. 받은 job_id 를 로컬 registry 에 기록해 job_status/job_stop 이 찾게 한다.
+    sinfo+DOE 로 병렬도 auto-tune(클러스터 인식) 하므로 도구가 네이티브 auto-tune 을 중복할
+    필요가 없다. 받은 job_id 를 로컬 registry 에 기록해 job_status/job_stop 이 찾게 한다.
+
+    Args:
+        files: {file_key: 절대경로}. 템플릿 input_schema 의 키 (예: {"model_k": ...,
+               "scenario_json": ...} 또는 {"input_k": ...}). 폼필드는 file_<key>.
+        image: apptainer 이미지 id(이미지 필요 템플릿). slurm_overrides: #SBATCH 오버라이드.
     반환 dict: {ok, http, job_id, registry_id, response} (dry_run 이면 sbatch_preview).
     """
     import uuid
@@ -50,12 +56,15 @@ def backend_submit(template_id, model_path, scenario_path, tool_name, project_na
     body += _field("slurm_overrides", json.dumps(slurm_overrides or {}))
     if job_name:
         body += _field("job_name", job_name)
+    if image:
+        body += _field("apptainer_image_id", str(image))
     path = "/api/jobs/preview" if dry_run else "/api/jobs/submit"
     if not dry_run:
-        with open(model_path, "rb") as f:
-            body += _filep("file_model_k", os.path.basename(model_path), f.read())
-        with open(scenario_path, "rb") as f:
-            body += _filep("file_scenario_json", "scenario.json", f.read())
+        for key, fpath in (files or {}).items():
+            safe = "".join(c for c in str(key) if c.isalnum() or c == "_")
+            with open(fpath, "rb") as f:
+                fname = "scenario.json" if safe == "scenario_json" else os.path.basename(fpath)
+                body += _filep(f"file_{safe}", fname, f.read())
     body += (f'--{boundary}--\r\n').encode()
 
     req = urllib.request.Request(

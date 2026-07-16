@@ -66,8 +66,9 @@ def main():
 
     # (C): 제출은 backend 경유(권한/감사). 드라이버가 병렬도 auto-tune.
     res = job_helpers.backend_submit(
-        template_id="smarttwin-fullangle-drop", model_path=model_target,
-        scenario_path=scenario_path, tool_name="single_drop_simulation",
+        template_id="smarttwin-fullangle-drop",
+        files={"model_k": model_target, "scenario_json": scenario_path},
+        tool_name="single_drop_simulation",
         project_name=project_name, job_name=project_name, num_angles=1, dry_run=dry_run)
 
     if dry_run:

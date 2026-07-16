@@ -76,8 +76,9 @@ def main():
     # (C): 제출은 backend 경유(권한/감사). 드라이버가 sinfo+DOE 로 병렬도 auto-tune 하므로
     #      여기서 KooChainRun 을 직접 prepare/submit 하지 않는다.
     res = job_helpers.backend_submit(
-        template_id="smarttwin-fullangle-drop", model_path=model_target,
-        scenario_path=scenario_path, tool_name="fullangle_drop_simulation",
+        template_id="smarttwin-fullangle-drop",
+        files={"model_k": model_target, "scenario_json": scenario_path},
+        tool_name="fullangle_drop_simulation",
         project_name=project_name, job_name=project_name,
         num_angles=num_angles, dry_run=dry_run)
 
