@@ -35,6 +35,28 @@ from .search import search as search_tools
 logger = logging.getLogger("smarttwin_mcp")
 
 
+def _auth_extra_env() -> dict:
+    """요청의 Authorization 을 도구 실행 env 로 전달 — 사용자별 PAT(kst_) 패스스루.
+
+    backend_5010 이 이 토큰으로 인증/권한/감사를 처리하므로, 단일 서비스토큰이 아니라
+    호출한 사용자의 신원이 그대로 유지된다(대시보드 권한모델 보존). HTTP 컨텍스트가 아니면
+    (stdio) {} 를 돌려주고, 그 경우 도구는 서버 env 의 STMC_CLUSTER_TOKEN(있으면)으로 폴백.
+    STMC_CLUSTER_TOKEN = Bearer 뒤 순수 토큰(HTTP 도구 헤더용), STMC_AUTH = 전체 헤더값.
+    """
+    try:
+        from fastmcp.server.dependencies import get_http_headers
+        # get_http_headers 는 기본적으로 authorization 을 제거함(민감헤더). 프록시 패스스루
+        # 용도라 include 로 명시적으로 포함시켜야 한다(fastmcp 도크 §include).
+        headers = get_http_headers(include={"authorization"}) or {}
+    except Exception:
+        return {}
+    auth = headers.get("authorization") or headers.get("Authorization") or ""
+    if not auth:
+        return {}
+    token = auth[7:].strip() if auth[:7].lower() == "bearer " else auth
+    return {"STMC_CLUSTER_TOKEN": token, "STMC_AUTH": auth}
+
+
 def _identifier_for(name: str, version: str | None, catalog: Catalog) -> str:
     if version:
         return f"{name}@{version}"
@@ -157,7 +179,7 @@ def build_server(tools_root: Path) -> FastMCP:
         err = _validate_args(entry.args_schema, args)
         if err:
             return {"ok": False, "error": err, "tool": entry.qualified_name}
-        result = run_tool(entry, args)
+        result = run_tool(entry, args, extra_env=_auth_extra_env())
         return {"tool": entry.qualified_name, **result.to_dict()}
 
     @mcp.tool(
@@ -201,7 +223,7 @@ def _register_direct(mcp: FastMCP, entry, state: dict) -> None:
         err = _validate_args(current.args_schema, args)
         if err:
             return {"ok": False, "error": err, "tool": current.qualified_name}
-        result = run_tool(current, args)
+        result = run_tool(current, args, extra_env=_auth_extra_env())
         return {"tool": current.qualified_name, **result.to_dict()}
 
 
@@ -248,16 +270,23 @@ def _add_serve_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--transport",
-        choices=["stdio", "sse"],
+        choices=["stdio", "sse", "http", "streamable-http"],
         default=os.environ.get("STMC_MCP_TRANSPORT", "stdio"),
-        help="MCP transport to expose the server on.",
+        help="MCP transport (http = streamable-http for nginx /mcp).",
     )
+    p.add_argument("--host", default=os.environ.get("STMC_MCP_HOST", "127.0.0.1"),
+                   help="HTTP bind host (http/sse transports).")
+    p.add_argument("--port", type=int, default=int(os.environ.get("STMC_MCP_PORT", "5013")),
+                   help="HTTP bind port (http/sse transports).")
 
 
 def _cmd_serve(args) -> int:
     tools_root = Path(args.tools_root).resolve()
     server = build_server(tools_root)
-    server.run(transport=args.transport)
+    if args.transport in ("http", "streamable-http", "sse"):
+        server.run(transport=args.transport, host=args.host, port=args.port)
+    else:
+        server.run(transport=args.transport)
     return 0
 
 

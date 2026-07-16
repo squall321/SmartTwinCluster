@@ -59,9 +59,10 @@ def _try_parse_json(s: str) -> Any | None:
         return None
 
 
-def _run_local(entry: ToolEntry, args: dict, t: LocalTransport) -> RunResult:
+def _run_local(entry: ToolEntry, args: dict, t: LocalTransport, extra_env: dict | None = None) -> RunResult:
     args_json = json.dumps(args, ensure_ascii=False)
-    env = {**os.environ, **t.env, "STMC_ARGS_JSON": args_json}
+    # extra_env(요청별 인증 등)는 os.environ/t.env 위에 얹어 우선 적용.
+    env = {**os.environ, **t.env, **(extra_env or {}), "STMC_ARGS_JSON": args_json}
     cmd = [t.shell, str(entry.script_path)]
     try:
         proc = subprocess.run(
@@ -95,7 +96,7 @@ def _run_local(entry: ToolEntry, args: dict, t: LocalTransport) -> RunResult:
     )
 
 
-def _run_ssh(entry: ToolEntry, args: dict, t: SshTransport) -> RunResult:
+def _run_ssh(entry: ToolEntry, args: dict, t: SshTransport, extra_env: dict | None = None) -> RunResult:
     """Pipe script.sh over ssh stdin; pass args via env exported on the remote.
 
     Supports ${VAR} and ${VAR:-default} interpolation in host, user, key_path,
@@ -105,7 +106,7 @@ def _run_ssh(entry: ToolEntry, args: dict, t: SshTransport) -> RunResult:
 
     We don't upload the script to a persistent path — each invocation is hermetic.
     """
-    proc_env = os.environ
+    proc_env = {**os.environ, **(extra_env or {})}
 
     rendered_host, miss_host = _interpolate_env(t.host, proc_env)
     rendered_user, miss_user = _interpolate_env(t.user, proc_env) if t.user else ("", [])
@@ -201,19 +202,20 @@ def _interpolate_env(s: str, env: dict[str, str]) -> tuple[str, list[str]]:
     return _ENV_TOKEN.sub(sub, s), missing
 
 
-def _run_http(entry: ToolEntry, args: dict, t: HttpTransport) -> RunResult:
+def _run_http(entry: ToolEntry, args: dict, t: HttpTransport, extra_env: dict | None = None) -> RunResult:
     """Send args as the request body. body_template, if set, is formatted with args.
 
     Supports ${VAR} and ${VAR:-default} interpolation in url, headers, and
-    body_template, sourced from the process environment. Missing required env
-    vars cause a clean failure before any network request fires.
+    body_template, sourced from the process environment (+ per-request extra_env
+    such as the caller's forwarded auth token). Missing required env vars cause a
+    clean failure before any network request fires.
 
     We use urllib to avoid a hard runtime dep on httpx for the minimal case.
     """
     import urllib.request
     import urllib.error
 
-    env = os.environ
+    env = {**os.environ, **(extra_env or {})}
 
     url, miss_url = _interpolate_env(t.url, env)
     rendered_headers: dict[str, str] = {}
@@ -293,12 +295,14 @@ class _SafeArgs(dict):
         raise KeyError(key)
 
 
-def run(entry: ToolEntry, args: dict) -> RunResult:
+def run(entry: ToolEntry, args: dict, extra_env: dict | None = None) -> RunResult:
+    """extra_env: 이 호출에만 얹을 환경변수(요청별 인증 토큰 등). 도구 subprocess/HTTP
+    호출의 env 에 os.environ 위로 병합되어, 사용자별 PAT 패스스루를 가능케 한다."""
     t = entry.meta.transport
     if isinstance(t, LocalTransport):
-        return _run_local(entry, args, t)
+        return _run_local(entry, args, t, extra_env)
     if isinstance(t, SshTransport):
-        return _run_ssh(entry, args, t)
+        return _run_ssh(entry, args, t, extra_env)
     if isinstance(t, HttpTransport):
-        return _run_http(entry, args, t)
+        return _run_http(entry, args, t, extra_env)
     raise RuntimeError(f"unknown transport: {t!r}")

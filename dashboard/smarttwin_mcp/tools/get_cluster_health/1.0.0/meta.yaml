@@ -3,7 +3,7 @@ version: 1.0.0
 summary: Hit the SmartTwinCluster control-plane /v1/health endpoint and return raw JSON.
 description: |
   Returns the SmartTwinCluster control-plane health snapshot as raw JSON.
-  Performs a single GET against `${STMC_CLUSTER_URL}/v1/health` with a Bearer
+  Performs a single GET against `${STMC_CLUSTER_URL}/api/slurm/status` with a Bearer
   token sourced from `${STMC_CLUSTER_TOKEN}`. No registry interaction, no
   side effects.
 
@@ -41,7 +41,7 @@ tags: [http, cluster, health, monitoring, smarttwincluster, preflight, mode-read
 transport:
   kind: http
   method: GET
-  url: ${STMC_CLUSTER_URL}/v1/health
+  url: ${STMC_CLUSTER_URL}/api/slurm/status
   headers:
     Authorization: "Bearer ${STMC_CLUSTER_TOKEN}"
     Accept: application/json

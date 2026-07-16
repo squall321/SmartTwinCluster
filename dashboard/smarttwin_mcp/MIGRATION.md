@@ -24,10 +24,15 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
 
 ## 체크리스트
 - [x] Phase1: `dashboard/smarttwin_mcp/` 로 vendoring (venv/git/캐시/CI/세션 제외, 1.7M)
-- [ ] Phase1: import/lint 산안검증 + 커밋(이 변경)
-- [ ] Phase2: 백엔드 계약/인증 결정 확정 (`_shared` 헬퍼 or env)
-- [ ] Phase2 PoC: read 1개(get_cluster_health → /api/slurm/status) + submit 1개(submit_job → /api/jobs/submit) 실배선
-- [ ] Phase2: 5013 병행 구동 + 실제 잡 제출 e2e
+- [x] Phase1: import/lint 산안검증(src 전 파싱 OK, 도구 45개) + 커밋(12e82a7)
+- [x] Phase2: 인증 결정 = **(ii) 요청별 PAT 패스스루**. 구현: runner.run(entry,args,extra_env) +
+      server._auth_extra_env(get_http_headers(include={"authorization"}) → STMC_CLUSTER_TOKEN/STMC_AUTH).
+      transport 에 http(streamable) + --host/--port 추가.
+- [x] Phase2 PoC read: get_cluster_health → `${STMC_CLUSTER_URL}/api/slurm/status`. 5013 병행 구동,
+      PAT 有 → ok/200/실데이터, PAT 無 → fail-closed 검증 완료. (get_http_headers 가 기본으로
+      authorization 을 strip 하는 함정 → include 로 해결.)
+- [ ] Phase2 PoC submit: submit_job → `/api/jobs/submit` 멀티파트(file_<key>) + 하드닝 이식(경로검증 등)
+- [ ] Phase2: submit 실제 잡 제출 e2e
 - [ ] Phase3: 나머지 도구 순차 이식(하드닝 이식) → 파리티
 - [ ] Phase3: 파리티+검증 후 mcp-slurm.service(또는 nginx /mcp) 컷오버, 구버전 폴백 유지
 
@@ -37,3 +42,11 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
 - 진입점: `pyproject [project.scripts] smarttwin-mcp = smarttwin_mcp.server:main`. 패키지 = `src/smarttwin_mcp/`.
 - 프레임워크 파일: `src/smarttwin_mcp/{server,catalog,spec,runner,search,lint}.py`. 공통헬퍼: `tools/_shared/{registry,audit,job_helpers,scenario_builder,auto_tune}.py`.
 - audit/registry DB 는 `/data/SmartTwinMCP/*.db`(STMC_AUDIT_DB / STMC_JOBS_DB 로 override). 운영경로 재검토 필요(→ `/data/smarttwin_mcp/`?).
+- ★인증 모델(Phase2 핵심 결정)★ — runner.py 는 도구 실행 시 env 를 **`os.environ`**(서버 프로세스)에서
+  가져온다(local: line64 `{**os.environ,...}`, http: line216 `env=os.environ`, headers 를 `${STMC_CLUSTER_TOKEN}`
+  로 보간). 즉 **단일 서비스 토큰** 모델 — 요청별 PAT 패스스루가 아님. 그대로 쓰면 backend_5010 의
+  사용자별 권한/감사/이력이 전부 한 서비스계정으로 뭉개진다(대시보드 권한모델 붕괴).
+  → **결정 필요**: (i) 단일 서비스토큰 유지(간단, 보안 후퇴) vs (ii) 요청 Authorization 을 catalog_run
+  (server.py, ctx.request_context.request.headers) 에서 읽어 runner→도구 env 로 **주입(패스스루)**
+  — mcp_slurm 의 검증된 모델. (ii) 는 runner.py/server.py 프레임워크 수정 필요(도구별 아님).
+  추천 = (ii). Phase2 는 이 결정부터.
