@@ -39,9 +39,15 @@ def get_db_connection():
 
 
 def get_template_loader():
-    """TemplateLoader 인스턴스 생성"""
+    """TemplateLoader 인스턴스 생성.
+
+    ★base_path 는 SHARED_BASE 를 존중★ — job_submit_api(제출 경로)가 SHARED_BASE/templates 에서
+    템플릿을 읽는데, 목록 경로만 '/shared' 하드코딩이라 gluster 미마운트/비표준 공유(dev=/data)
+    에서 목록이 빈 것으로 나왔음(제출은 되는데 목록은 0). 두 경로를 동일 베이스로 정합.
+    """
     db_conn = get_db_connection()
-    return TemplateLoader(base_path="/shared/templates", db_connection=db_conn)
+    base = os.getenv('SHARED_BASE', '/shared').rstrip('/') + '/templates'
+    return TemplateLoader(base_path=base, db_connection=db_conn)
 
 
 @templates_v2_bp.route('', methods=['GET'])
