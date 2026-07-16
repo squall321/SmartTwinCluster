@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "submit_job args",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template_id"],
+  "properties": {
+    "template_id": {
+      "type": "string",
+      "description": "list_templates 의 템플릿 id (예: smarttwin-partial-impact, lsdyna-r16-basic)."
+    },
+    "files": {
+      "type": "object",
+      "description": "{file_key: 서버(헤드노드) 절대경로}. file_key 는 템플릿 input_schema 의 키.",
+      "additionalProperties": {"type": "string", "pattern": "^/.+"}
+    },
+    "job_name": {
+      "type": "string",
+      "description": "잡 이름(비우면 템플릿 기본). 결과 폴더명에 들어감."
+    },
+    "slurm_overrides": {
+      "type": "object",
+      "description": "#SBATCH 오버라이드 (partition, mem, time, nodes 등). backend 가 위생/검증."
+    },
+    "image": {
+      "type": "string",
+      "description": "apptainer 이미지 id. 이미지 선택이 필요한 템플릿에만."
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": true,
+      "description": "true=미리보기(/api/jobs/preview), false=실제 제출."
+    }
+  }
+}

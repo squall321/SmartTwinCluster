@@ -1,0 +1,47 @@
+name: submit_job
+version: 1.2.0
+summary: Submit a job to SmartTwinCluster via a dashboard template (real backend_5010).
+description: |
+  v1.2.0: 실제 backend_5010 `/api/jobs/submit` 에 **템플릿 기반**으로 제출한다.
+  요청의 PAT(Authorization: Bearer kst_...) 가 그대로 전달되어 웹 제출과 동일한
+  사용자별 권한/감사/이력이 적용된다(단일 서비스토큰 아님).
+
+  # When to call
+  "run/submit/launch/queue" 요청. 먼저 `list_templates` 로 template_id 와
+  필요한 파일(file_key)·이미지 필요 여부를 확인하라.
+
+  # Mental model
+  - template_id: `list_templates` 의 id (예: smarttwin-partial-impact, lsdyna-r16-basic)
+  - files: {file_key: 서버(헤드노드) 절대경로}. 공유 FS(/data,/shared,/mnt/gluster,/home) 하위여야 함.
+  - slurm_overrides: {partition, mem, time, nodes, ...} — #SBATCH 오버라이드
+  - image: 이미지 선택이 필요한 템플릿의 apptainer 이미지 id
+  - dry_run: true 면 #SBATCH 미리보기(/api/jobs/preview), false 면 실제 제출.
+
+  # Pre-conditions
+  - 서버 env STMC_CLUSTER_URL 필요(backend_5010 베이스). 요청에 PAT 없으면 거부(fail-closed).
+
+  # Output
+  JSON {ok, http, job_id, ...}. job_id 로 job_status/job_logs/cancel_job 추적.
+tags: [job, submit, slurm, cluster, template, mode-own]
+aliases: [run_job, launch]
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 600
+expose: direct
+examples:
+  - title: 부분충격 미리보기(dry_run)
+    args:
+      template_id: smarttwin-partial-impact
+      files:
+        model_k: /home/koopark/serviceApptainers/appt313/opt/pyKooCAE/Examples/MinimumModel.k
+      dry_run: true
+  - title: 실제 제출
+    args:
+      template_id: smarttwin-partial-impact
+      files:
+        model_k: /data/models/phone.k
+      job_name: phone_impact
+      slurm_overrides:
+        time: "00:30:00"
+      dry_run: false

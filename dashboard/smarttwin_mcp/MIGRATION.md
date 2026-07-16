@@ -31,10 +31,14 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
 - [x] Phase2 PoC read: get_cluster_health → `${STMC_CLUSTER_URL}/api/slurm/status`. 5013 병행 구동,
       PAT 有 → ok/200/실데이터, PAT 無 → fail-closed 검증 완료. (get_http_headers 가 기본으로
       authorization 을 strip 하는 함정 → include 로 해결.)
-- [ ] Phase2 PoC submit: submit_job → `/api/jobs/submit` 멀티파트(file_<key>) + 하드닝 이식(경로검증 등)
-- [ ] Phase2: submit 실제 잡 제출 e2e
-- [ ] Phase3: 나머지 도구 순차 이식(하드닝 이식) → 파리티
+- [x] Phase2 PoC submit: submit_job@1.2.0 → `/api/jobs/submit` 멀티파트(file_<key>) + 하드닝 이식
+      (경로검증: /etc/passwd·상대경로 거부). transport=local(script.sh→python urllib multipart),
+      dry_run→/api/jobs/preview. latest 심링크 1.1.0→1.2.0, catalog_reload 로 반영.
+- [x] Phase2: submit 실제 잡 e2e — catalog_run(submit_job, dry_run=false) → http 201, job 885
+      squeue PENDING 확인 → 취소. **read+submit 둘 다 실 backend e2e 증명(2a 방식 검증 완료).**
+- [ ] Phase3: 나머지 ~42개 도구 순차 이식(같은 패턴: meta/script 를 /api/* + PAT 로) → 파리티
 - [ ] Phase3: 파리티+검증 후 mcp-slurm.service(또는 nginx /mcp) 컷오버, 구버전 폴백 유지
+      (컷오버 시 STMC_CLUSTER_URL=http://127.0.0.1:5010 + streamable-http 서비스로 systemd 유닛 교체)
 
 ## 컨텍스트 노트 (이관 중 결정 기록 — 계속 추가)
 - vendoring 방식 = **copy(코드 종속)**. git-subtree(히스토리 보존) 아님. 원본 repo 는 upstream 으로 보존(삭제 안 함).
