@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
-# single_drop_simulation — KooChainRun manual-angle drop
+# single_drop_simulation — 수동 각도(roll/pitch/yaw) 낙하. (C): 시나리오 로컬 빌드 + 제출은 backend 경유
+#   (권한/감사 + 드라이버가 sinfo 로 클러스터 인식 auto-tune).
 set -euo pipefail
 
-SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
+export SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
 export PYTHONPATH="$SHARED_DIR:${PYTHONPATH:-}"
 
 python3 - <<'PY'
-import json, os, sys, shutil, subprocess
+import json, os, sys, shutil
 
-# scenario_builder + registry are in tools/_shared/
-sys.path.insert(0, os.environ["SHARED_DIR"]) if "SHARED_DIR" in os.environ else None
+sys.path.insert(0, os.environ["SHARED_DIR"])
 from scenario_builder import build_single_angle_scenario, write_scenario
-import registry
-import auto_tune
+import job_helpers
 import audit
-
-KOOCHAINRUN = "/data/SmartTwinPreprocessor/bin/KooChainRun"
 
 
 def fail(reason: str, **extra):
@@ -41,16 +38,9 @@ def main():
     project_name = args.get("project_name") or f"SingleDrop_R{int(roll)}_P{int(pitch)}_Y{int(yaw)}"
     drop_surface_type = args.get("drop_surface_type", "Plane")
     extra_overrides = args.get("extra_scenario_overrides")
-    sequential = bool(args.get("sequential", False))
-    partition_arg = args.get("partition")
-    submit_overrides = args.get("submit_cli_overrides") or {}
     dry_run = bool(args.get("dry_run", False))
 
-    # Preflight
-    if not os.path.exists(KOOCHAINRUN):
-        fail(f"KooChainRun not found at {KOOCHAINRUN}")
     os.makedirs(work_dir, exist_ok=True)
-
     model_target = os.path.join(work_dir, model_file)
     if not os.path.exists(model_target):
         if model_file_path and os.path.exists(model_file_path):
@@ -58,7 +48,7 @@ def main():
         else:
             fail(f"Model file missing: {model_target} (and no valid model_file_path provided)")
 
-    # Build scenario
+    # 시나리오 빌드(이 도구의 핵심 가치 — 단일 각도 회전).
     scenario = build_single_angle_scenario(
         project_name=project_name,
         base_dir=work_dir,
@@ -72,139 +62,49 @@ def main():
     )
     scenario_path = os.path.join(work_dir, "scenario.json")
     write_scenario(scenario, scenario_path)
-
-    # prepare
-    runner_config_path = os.path.join(work_dir, "runner_config.json")
-    try:
-        r = subprocess.run(
-            [KOOCHAINRUN, "prepare", scenario_path],
-            capture_output=True, text=True, timeout=60, check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        fail(f"KooChainRun prepare failed: rc={e.returncode}",
-             stderr=e.stderr[-500:], stdout=e.stdout[-500:])
-
     output_dir = os.path.join(work_dir, "output")
 
-    # Auto-tune partition + nodes/jobs_per_node (single angle → minimal)
-    tune = auto_tune.auto_tune_submit(
-        num_angles=1,
-        user_partition=partition_arg,
-        user_ncpu=submit_overrides.get("ncpu_per_job") or ncpu,
-    )
+    # (C): 제출은 backend 경유(권한/감사). 드라이버가 병렬도 auto-tune.
+    res = job_helpers.backend_submit(
+        template_id="smarttwin-fullangle-drop", model_path=model_target,
+        scenario_path=scenario_path, tool_name="single_drop_simulation",
+        project_name=project_name, job_name=project_name, num_angles=1, dry_run=dry_run)
 
-    # partition=list: discovery-only — no submission
-    if tune["partition_discovery"].get("discovery_only"):
-        print(json.dumps({
-            "ok": True, "discovery_only": True,
-            "available_partitions": tune["partition_discovery"]["all_partitions"],
-            "hint": "Pick a partition name and re-call with partition='<name>'.",
-        }, ensure_ascii=False, default=str))
+    if dry_run:
+        print(json.dumps({"ok": res.get("ok"), "dry_run": True, "scenario_path": scenario_path,
+                          "sbatch_preview": res.get("sbatch_preview"),
+                          "note": "제출은 backend 경유(권한/감사) + 드라이버가 sinfo 로 병렬도 auto-tune"},
+                         ensure_ascii=False))
         return
 
-    # Build submit args: auto-tune → override → sequential flag
-    submit_args = [KOOCHAINRUN, "submit", runner_config_path]
-    cli = {}
-    if tune.get("applied") or tune.get("fallback_used"):
-        if tune.get("nodes"):          cli["--nodes"] = str(tune["nodes"])
-        if tune.get("jobs_per_node"):  cli["--jobs-per-node"] = str(tune["jobs_per_node"])
-        if tune.get("ncpu_per_job"):   cli["--ncpu-per-job"] = str(tune["ncpu_per_job"])
-        if tune.get("partition"):      cli["--partition"] = tune["partition"]
-    # apply user overrides (highest priority)
-    override_map = {
-        "nodes": "--nodes", "jobs_per_node": "--jobs-per-node",
-        "ncpu_per_job": "--ncpu-per-job", "memory": "--memory",
-        "time_limit": "--time-limit", "submit_mode": "--mode",
-        "data_root": "--data-root",
-    }
-    for k, flag in override_map.items():
-        if k in submit_overrides:
-            cli[flag] = str(submit_overrides[k])
-    if "partition" in submit_overrides:
-        cli["--partition"] = submit_overrides["partition"]
-    for flag, val in cli.items():
-        submit_args.extend([flag, val])
-    if sequential:
-        submit_args.append("--sequential")
+    if not res.get("ok"):
+        fail(res.get("error", "backend 제출 실패"),
+             **{k: res[k] for k in ("http", "response") if k in res})
 
-    slurm_ids = []
-    status = "dry_run"
-    if not dry_run:
-        try:
-            r = subprocess.run(
-                submit_args, capture_output=True, text=True, timeout=120, check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            fail(f"KooChainRun submit failed: rc={e.returncode}",
-                 stderr=e.stderr[-500:], stdout=e.stdout[-500:],
-                 submit_args=submit_args)
-        import re
-        for line in r.stdout.splitlines():
-            m = re.search(r"submitted \(job (\d+)\)", line)
-            if m:
-                slurm_ids.append(m.group(1))
-        status = "submitted"
+    reg_id, job_id = res.get("registry_id"), res["job_id"]
 
-    # Record in registry
-    reg_id = registry.record_submission(
-        tool_name="single_drop_simulation",
-        work_dir=work_dir,
-        output_dir=output_dir,
-        project_name=project_name,
-        runner_config_path=runner_config_path,
-        slurm_job_ids=slurm_ids or None,
-        num_angles=1,
-        status=status,
-        extra={
-            "angle": {"roll": roll, "pitch": pitch, "yaw": yaw},
-            "drop_height_mm": height_mm,
-            "simulation_time_s": t_final,
-        },
-    )
-
-    # §25.3.1 audit row (success path only; failures stay silent per §25.3).
     actor = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
     audit.record_event(
-        actor=actor,
-        tool="single_drop_simulation@1.1.0",
-        action="submit",
-        summary=f"submitted single drop {project_name} (R{roll}/P{pitch}/Y{yaw}, h={height_mm}mm) -> slurm {slurm_ids or '[]'}",
-        target_kind="job",
-        target_id=str(reg_id),
-        detail={
-            "project_name": project_name,
-            "angle": {"roll": roll, "pitch": pitch, "yaw": yaw},
-            "drop_height_mm": height_mm,
-            "slurm_job_ids": slurm_ids,
-            "dry_run": dry_run,
-        },
-    )
+        actor=actor, tool="single_drop_simulation@1.1.0", action="submit",
+        summary=f"submitted single drop {project_name} (R{roll}/P{pitch}/Y{yaw}) via backend -> job {job_id}",
+        target_kind="job", target_id=str(reg_id or job_id),
+        detail={"project_name": project_name, "angle": {"roll": roll, "pitch": pitch, "yaw": yaw},
+                "drop_height_mm": height_mm, "job_id": job_id, "dry_run": dry_run})
 
     print(json.dumps({
         "ok": True,
         "registry_id": reg_id,
+        "job_id": job_id,
         "tool": "single_drop_simulation",
+        "project_name": project_name,
+        "angle": {"roll": roll, "pitch": pitch, "yaw": yaw},
         "work_dir": work_dir,
         "output_dir": output_dir,
         "scenario_path": scenario_path,
-        "runner_config_path": runner_config_path,
-        "slurm_job_ids": slurm_ids,
-        "angle": {"roll": roll, "pitch": pitch, "yaw": yaw},
-        "status": status,
-        "submit_cli_used": " ".join(submit_args[2:]),
-        "auto_tune": {
-            "applied": tune.get("applied"),
-            "fallback_used": tune.get("fallback_used"),
-            "partition": tune.get("partition"),
-            "nodes": tune.get("nodes"),
-            "jobs_per_node": tune.get("jobs_per_node"),
-            "reason": tune.get("reason"),
-            "partition_selected_reason": tune["partition_discovery"].get("selected_reason"),
-            "excluded_partitions": tune["partition_discovery"].get("excluded", []),
-        },
+        "submitted_via": "backend_5010 (권한/감사) + 드라이버 클러스터 auto-tune",
         "follow_up_hint": (
-            "Use registry_id or work_dir with job_status, job_stop, job_diagnose, "
-            "job_postprocess, job_collect tools. list_recent_jobs to find again across sessions."
+            "job_status/job_stop/job_diagnose/job_postprocess/job_collect 에 registry_id 또는 "
+            "job_id 사용. list_recent_jobs 로 세션 넘어서 다시 찾기."
         ),
     }, ensure_ascii=False))
 
@@ -212,6 +112,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         fail(f"unhandled exception: {type(e).__name__}: {e}")
 PY
