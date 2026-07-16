@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
-# fullangle_drop_simulation — KooChainRun Fibonacci N-direction drop + auto postprocess
+# fullangle_drop_simulation — Fibonacci N-방향 낙하. (C): 시나리오 로컬 빌드 + 제출은 backend 경유
+#   (권한/감사 + 드라이버가 sinfo+DOE 로 클러스터 인식 auto-tune).
 set -euo pipefail
 
 export SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
 
 python3 - <<'PY'
-import json, os, sys, shutil, subprocess, re
+import json, os, sys, shutil
 
 sys.path.insert(0, os.environ["SHARED_DIR"])
 from scenario_builder import build_fullangle_scenario, write_scenario
-import registry
-import auto_tune
+import job_helpers
 import audit
-
-KOOCHAINRUN = "/data/SmartTwinPreprocessor/bin/KooChainRun"
 
 
 def fail(reason: str, **extra):
@@ -42,16 +40,10 @@ def main():
     drop_surface_type = args.get("drop_surface_type", "Plane")
     sif_post = args.get("sif_path_postprocessor")
     extra_overrides = args.get("extra_scenario_overrides")
-    sequential = bool(args.get("sequential", False))
-    partition_arg = args.get("partition")
-    submit_overrides = args.get("submit_cli_overrides") or {}
     project_name = args.get("project_name") or f"Fullangle_Fib{num_angles}"
     dry_run = bool(args.get("dry_run", False))
 
-    if not os.path.exists(KOOCHAINRUN):
-        fail(f"KooChainRun not found at {KOOCHAINRUN}")
     os.makedirs(work_dir, exist_ok=True)
-
     model_target = os.path.join(work_dir, model_file)
     if not os.path.exists(model_target):
         if model_file_path and os.path.exists(model_file_path):
@@ -59,7 +51,7 @@ def main():
         else:
             fail(f"Model file missing: {model_target}")
 
-    # Build + write scenario
+    # 시나리오 빌드(이 도구의 핵심 가치 — fibonacci 각도 + 후처리 구성).
     scenario = build_fullangle_scenario(
         project_name=project_name,
         base_dir=work_dir,
@@ -79,151 +71,52 @@ def main():
     )
     scenario_path = os.path.join(work_dir, "scenario.json")
     write_scenario(scenario, scenario_path)
-
-    # prepare
-    runner_config_path = os.path.join(work_dir, "runner_config.json")
-    try:
-        subprocess.run(
-            [KOOCHAINRUN, "prepare", scenario_path],
-            capture_output=True, text=True, timeout=120, check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        fail(f"KooChainRun prepare failed: rc={e.returncode}",
-             stderr=e.stderr[-500:], stdout=e.stdout[-500:])
-
     output_dir = os.path.join(work_dir, "output")
 
-    # Auto-tune partition + nodes/jobs_per_node based on num_angles
-    tune = auto_tune.auto_tune_submit(
-        num_angles=num_angles,
-        user_partition=partition_arg,
-        user_ncpu=submit_overrides.get("ncpu_per_job") or ncpu,
-    )
+    # (C): 제출은 backend 경유(권한/감사). 드라이버가 sinfo+DOE 로 병렬도 auto-tune 하므로
+    #      여기서 KooChainRun 을 직접 prepare/submit 하지 않는다.
+    res = job_helpers.backend_submit(
+        template_id="smarttwin-fullangle-drop", model_path=model_target,
+        scenario_path=scenario_path, tool_name="fullangle_drop_simulation",
+        project_name=project_name, job_name=project_name,
+        num_angles=num_angles, dry_run=dry_run)
 
-    # partition=list: discovery-only
-    if tune["partition_discovery"].get("discovery_only"):
-        print(json.dumps({
-            "ok": True, "discovery_only": True,
-            "available_partitions": tune["partition_discovery"]["all_partitions"],
-            "hint": "Pick a partition name and re-call with partition='<name>'.",
-        }, ensure_ascii=False, default=str))
+    if dry_run:
+        print(json.dumps({"ok": res.get("ok"), "dry_run": True, "scenario_path": scenario_path,
+                          "sbatch_preview": res.get("sbatch_preview"),
+                          "note": "제출은 backend 경유(권한/감사) + 드라이버가 sinfo 로 병렬도 auto-tune"},
+                         ensure_ascii=False))
         return
 
-    submit_args = [KOOCHAINRUN, "submit", runner_config_path]
-    cli = {}
-    if tune.get("applied") or tune.get("fallback_used"):
-        if tune.get("nodes"):          cli["--nodes"] = str(tune["nodes"])
-        if tune.get("jobs_per_node"):  cli["--jobs-per-node"] = str(tune["jobs_per_node"])
-        if tune.get("ncpu_per_job"):   cli["--ncpu-per-job"] = str(tune["ncpu_per_job"])
-        if tune.get("partition"):      cli["--partition"] = tune["partition"]
-    override_map = {
-        "nodes": "--nodes", "jobs_per_node": "--jobs-per-node",
-        "ncpu_per_job": "--ncpu-per-job", "memory": "--memory",
-        "time_limit": "--time-limit", "submit_mode": "--mode",
-        "data_root": "--data-root",
-    }
-    for k, flag in override_map.items():
-        if k in submit_overrides:
-            cli[flag] = str(submit_overrides[k])
-    if "partition" in submit_overrides:
-        cli["--partition"] = submit_overrides["partition"]
-    for flag, val in cli.items():
-        submit_args.extend([flag, val])
-    if sequential:
-        submit_args.append("--sequential")
+    if not res.get("ok"):
+        fail(res.get("error", "backend 제출 실패"),
+             **{k: res[k] for k in ("http", "response") if k in res})
 
-    slurm_ids = []
-    sphere_job_id = None
-    status = "dry_run"
-    if not dry_run:
-        try:
-            r = subprocess.run(
-                submit_args, capture_output=True, text=True, timeout=600, check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            fail(f"KooChainRun submit failed: rc={e.returncode}",
-                 stderr=e.stderr[-1000:], stdout=e.stdout[-1000:],
-                 submit_args=submit_args)
-        for line in r.stdout.splitlines():
-            m = re.search(r"submitted \(job (\d+)\)", line)
-            if m:
-                slurm_ids.append(m.group(1))
-            m = re.search(r"Sphere Job ID: (\d+)", line)
-            if m:
-                sphere_job_id = m.group(1)
-        status = "submitted"
+    reg_id, job_id = res.get("registry_id"), res["job_id"]
 
-    # Rough runtime estimate (small model ~1min/angle * num_angles / parallelism)
-    expected_runtime_hours = max(1, num_angles * t_final * 200 / 3600)
-
-    reg_id = registry.record_submission(
-        tool_name="fullangle_drop_simulation",
-        work_dir=work_dir,
-        output_dir=output_dir,
-        project_name=project_name,
-        runner_config_path=runner_config_path,
-        slurm_job_ids=slurm_ids or None,
-        sphere_job_id=sphere_job_id,
-        num_angles=num_angles,
-        status=status,
-        extra={
-            "drop_height_mm": height_mm,
-            "simulation_time_s": t_final,
-            "auto_deep_mode": auto_deep_mode,
-            "enable_postprocess": enable_pp,
-            "yield_stress_mpa": yield_stress,
-        },
-    )
-
-    # §25.3.1 audit row (success path only; failures stay silent per §25.3).
     actor = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
     audit.record_event(
-        actor=actor,
-        tool="fullangle_drop_simulation@1.1.0",
-        action="submit",
-        summary=f"submitted fullangle {project_name} (Fib{num_angles}, h={height_mm}mm) -> {len(slurm_ids)} slurm jobs, sphere {sphere_job_id}",
-        target_kind="job",
-        target_id=str(reg_id),
-        detail={
-            "project_name": project_name,
-            "num_angles": num_angles,
-            "drop_height_mm": height_mm,
-            "slurm_job_ids": slurm_ids,
-            "sphere_job_id": sphere_job_id,
-            "dry_run": dry_run,
-        },
-    )
+        actor=actor, tool="fullangle_drop_simulation@1.1.0", action="submit",
+        summary=f"submitted fullangle {project_name} (Fib{num_angles}) via backend -> job {job_id}",
+        target_kind="job", target_id=str(reg_id or job_id),
+        detail={"project_name": project_name, "num_angles": num_angles,
+                "job_id": job_id, "drop_height_mm": height_mm, "dry_run": dry_run})
 
     print(json.dumps({
         "ok": True,
         "registry_id": reg_id,
+        "job_id": job_id,
         "tool": "fullangle_drop_simulation",
+        "project_name": project_name,
+        "num_angles": num_angles,
         "work_dir": work_dir,
         "output_dir": output_dir,
         "scenario_path": scenario_path,
-        "runner_config_path": runner_config_path,
-        "slurm_job_ids": slurm_ids,
-        "sphere_job_id": sphere_job_id,
-        "num_angles": num_angles,
-        "status": status,
-        "auto_deep_mode": auto_deep_mode,
-        "expected_runtime_hours": round(expected_runtime_hours, 1),
+        "submitted_via": "backend_5010 (권한/감사) + 드라이버 클러스터 auto-tune",
         "sphere_report_path": os.path.join(output_dir, "sphere_report.html"),
-        "submit_cli_used": " ".join(submit_args[2:]),
-        "auto_tune": {
-            "applied": tune.get("applied"),
-            "fallback_used": tune.get("fallback_used"),
-            "partition": tune.get("partition"),
-            "nodes": tune.get("nodes"),
-            "jobs_per_node": tune.get("jobs_per_node"),
-            "ncpu_per_job": tune.get("ncpu_per_job"),
-            "reason": tune.get("reason"),
-            "partition_selected_reason": tune["partition_discovery"].get("selected_reason"),
-            "excluded_partitions": tune["partition_discovery"].get("excluded", []),
-        },
         "follow_up_hint": (
-            "Use registry_id or work_dir with job_status/job_stop/job_diagnose/"
-            "job_postprocess/job_collect. sphere_report.html is the final aggregate output."
+            "job_status/job_stop/job_diagnose/job_postprocess/job_collect 에 registry_id 또는 "
+            "job_id 사용. sphere_report.html 이 최종 aggregate 산출."
         ),
     }, ensure_ascii=False))
 
@@ -231,6 +124,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         fail(f"unhandled exception: {type(e).__name__}: {e}")
 PY

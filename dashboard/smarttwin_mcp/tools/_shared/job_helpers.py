@@ -17,6 +17,90 @@ import registry
 KOOCHAINRUN = "/data/SmartTwinPreprocessor/bin/KooChainRun"
 
 
+def backend_submit(template_id, model_path, scenario_path, tool_name, project_name,
+                   job_name=None, slurm_overrides=None, num_angles=None, dry_run=False):
+    """(C) 하이브리드: 시나리오는 로컬 빌드하고, 최종 제출은 backend_5010 /api/jobs/submit 로.
+
+    요청 PAT(STMC_CLUSTER_TOKEN, 프레임워크가 주입)로 권한/감사를 지나고, backend 드라이버가
+    sinfo+DOE 로 병렬도 auto-tune(클러스터 인식) 하므로 sim 도구가 네이티브 auto-tune 을
+    중복할 필요가 없다. 받은 job_id 를 로컬 registry 에 기록해 job_status/job_stop 이 찾게 한다.
+    반환 dict: {ok, http, job_id, registry_id, response} (dry_run 이면 sbatch_preview).
+    """
+    import uuid
+    import urllib.request
+    import urllib.error
+
+    base = (os.environ.get("STMC_CLUSTER_URL") or "").rstrip("/")
+    token = os.environ.get("STMC_CLUSTER_TOKEN") or ""
+    if not base or not token:
+        return {"ok": False, "error": "제출은 backend 를 경유합니다 — STMC_CLUSTER_URL(서버 env) 과 "
+                                      "요청 PAT(Authorization) 가 필요합니다(fail-closed)."}
+
+    boundary = "----stmc" + uuid.uuid4().hex
+
+    def _field(n, v):
+        return (f'--{boundary}\r\nContent-Disposition: form-data; name="{n}"\r\n\r\n{v}\r\n').encode()
+
+    def _filep(n, fn, data):
+        return ((f'--{boundary}\r\nContent-Disposition: form-data; name="{n}"; filename="{fn}"\r\n'
+                 f'Content-Type: application/octet-stream\r\n\r\n').encode() + data + b"\r\n")
+
+    body = bytearray()
+    body += _field("template_id", template_id)
+    body += _field("slurm_overrides", json.dumps(slurm_overrides or {}))
+    if job_name:
+        body += _field("job_name", job_name)
+    path = "/api/jobs/preview" if dry_run else "/api/jobs/submit"
+    if not dry_run:
+        with open(model_path, "rb") as f:
+            body += _filep("file_model_k", os.path.basename(model_path), f.read())
+        with open(scenario_path, "rb") as f:
+            body += _filep("file_scenario_json", "scenario.json", f.read())
+    body += (f'--{boundary}--\r\n').encode()
+
+    req = urllib.request.Request(
+        base + path, data=bytes(body), method="POST",
+        headers={"Authorization": f"Bearer {token}",
+                 "Content-Type": f"multipart/form-data; boundary={boundary}"})
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r:
+            raw, code = r.read().decode("utf-8", "replace"), r.status
+    except urllib.error.HTTPError as e:
+        raw, code = e.read().decode("utf-8", "replace"), e.code
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"backend 요청 실패: {e}"}
+
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = {"raw": raw[:500]}
+
+    if dry_run:
+        script = (data.get("script") or "") if isinstance(data, dict) else ""
+        sbatch = "\n".join(l for l in script.splitlines() if l.startswith("#SBATCH"))
+        return {"ok": 200 <= code < 300, "dry_run": True, "http": code, "sbatch_preview": sbatch or data}
+
+    job_id = data.get("job_id") if isinstance(data, dict) else None
+    if not (200 <= code < 300 and job_id):
+        return {"ok": False, "http": code, "error": "제출 실패", "response": data}
+
+    reg_id = None
+    try:
+        user = "unknown"
+        mreq = urllib.request.Request(base + "/api/me", headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(mreq, timeout=15) as mr:
+            user = json.loads(mr.read().decode("utf-8", "replace")).get("username") or "unknown"
+        name = job_name or project_name
+        wd = f"/data/single/{user}/{name}_{job_id}"
+        reg_id = registry.record_submission(
+            tool_name=tool_name, work_dir=wd, output_dir=wd + "/output",
+            project_name=project_name, runner_config_path=wd + "/output/runner_config.json",
+            slurm_job_ids=[str(job_id)], num_angles=num_angles)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "http": code, "job_id": job_id, "registry_id": reg_id, "response": data}
+
+
 def resolve_job(args: dict) -> dict | None:
     """Look up job by registry_id or work_dir.
 
