@@ -43,15 +43,23 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
       제출 job_id 를 registry.record_submission 으로 기록(username=/api/me), (3) job_stop 이 registry
       로 job_id 해석 → /api/slurm/jobs/{id}/cancel(권한) → registry/audit 기록. fail-closed.
       e2e: submit(job 892)→registry_id 12→job_status 가 squeue 로 추적→job_stop→sacct CANCELLED.
-- [ ] Phase3 쓰기 잔여: batch_cancel_jobs(cancel), job_rerun(resubmit), 네이티브 sim submit
-      (single_drop/fullangle_drop/submit_lsdyna_*/train_*): 시나리오는 로컬 빌드 유지, **최종 제출만
-      backend 경유**로 전환(submit_job 패턴 재사용).
-- [ ] Phase3 읽기 검증: job_status✓/list_recent_jobs✓/list_slurm_partitions✓ 외 job_logs/
-      get_job_details/job_progress/show_slurm_node/check_partition_capacity 동작 확인(네이티브).
-- [ ] Phase3 네이티브 기능(backend 무관, 그대로): audit_*/estimate_cost/summarize_costs/*scheduled*/
-      *webhook*/echo/scenario_full_reference/apply_template_args/get_template/list_templates.
+- [x] ★production★ 제출 병렬도 auto-tune(108d7aa): 템플릿이 CHAIN_NODES=2 고정 → 350노드
+      미활용이던 버그. chain_autotune.py(sinfo+DOE) 로 --nodes/--jobs-per-node/--ncpu 동적화.
+      submit_job(job 896) 로그 'auto-tune(sinfo,DOE=26): nodes=1(dev)…' 검증. → sim 을 backend 로
+      태워도 클러스터인식 유지되어 (나) 걱정 해소.
+- [x] Phase3 쓰기: job_stop·batch_cancel_jobs → backend 취소(5ece9a6·9051635).
+      job_helpers.backend_submit() 헬퍼 + fullangle_drop_simulation(cca15c3)·single_drop_simulation
+      (3afa4ff) → 시나리오 로컬 빌드 + backend 제출. e2e: fullangle job 924 RUNNING→job_stop 취소.
+- [x] Phase3 읽기·네이티브: 전 도구 재스모크 **크래시 0/44**. 읽기(job_status/logs/list/partitions/
+      my_jobs)·네이티브(audit/cost/schedule/webhook/echo/templates) 그대로 동작.
+- [ ] Phase3 남은 제출(도메인 경계): submit_lsdyna_job(→lsdyna-r16-basic 템플릿, sif 필요),
+      job_rerun(resubmit), submit_lsdyna_remote(SSH 원격클러스터), train_pytorch_gpu·
+      submit_distributed_train(**backend ML 템플릿 없음** → 별도 인프라 필요). SmartTwin 코어(드롭
+      DOE)는 완료, 이들은 도메인/템플릿 부재로 별건.
 - [ ] Phase3: 파리티+검증 후 mcp-slurm.service(또는 nginx /mcp) 컷오버, 구버전 폴백 유지
       (컷오버 시 STMC_CLUSTER_URL=http://127.0.0.1:5010 + streamable-http 서비스로 systemd 유닛 교체)
+- [ ] 배포 필요: 템플릿 /data 동기화, auto_tune.py·chain_autotune.py → /data/SmartTwinPreprocessor/bin,
+      (컷오버 시) smarttwin_mcp systemd 유닛 + venv(fastmcp) + nginx /mcp 전환.
 
 ## 컨텍스트 노트 (이관 중 결정 기록 — 계속 추가)
 - vendoring 방식 = **copy(코드 종속)**. git-subtree(히스토리 보존) 아님. 원본 repo 는 upstream 으로 보존(삭제 안 함).
