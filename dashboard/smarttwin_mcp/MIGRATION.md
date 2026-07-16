@@ -54,11 +54,16 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
       my_jobs)·네이티브(audit/cost/schedule/webhook/echo/templates) 그대로 동작.
 - [x] submit_lsdyna_job → backend lsdyna-r16-basic 템플릿 경유(beda944). files dict 로 backend_submit
       일반화. dev 는 lsdyna sif 부재로 이미지 404(라우팅은 정확).
-- [ ] Phase3 남은 제출(깔끔한 backend 경로 없음): job_rerun(KooChainRun rerun — backend 에 rerun
-      엔드포인트 없음. 네이티브 유지, 완전 (C) 는 backend rerun 엔드포인트 필요), submit_lsdyna_remote
-      (SSH 원격 클러스터 — backend_5010=이 클러스터 도메인 아님, 그대로), train_pytorch_gpu·
+- [x] job_rerun → backend 신설 `POST /api/jobs/rerun`(job_submit_api.py) 경유. work_dir 소유권
+      게이트(/data/single/<web_user>/ 하위, realpath 로 경로탈출 차단) + jwt_required + dashboard 권한.
+      job_helpers.backend_rerun() + job_rerun/1.1.0 재배선. ★잠복버그★: 기존 네이티브가 `--force`
+      없이 호출 → 비대화형 확인 프롬프트에 막혀 rc=0 이지만 재제출 0건이었음. backend 가 `--force`
+      로 수정. e2e: catalog_run(job_rerun,reg14)→backend→10 DOE 재제출(job 936~945)→취소·정리,
+      registry status=submitted + audit row 확인. 게이트: 타인경로/../→403, 미존재→404.
+- [ ] Phase3 남은 제출(이 클러스터 도메인 아님/인프라 미비): submit_lsdyna_remote(SSH 원격
+      클러스터 — backend_5010=이 클러스터 도메인 아님, 그대로), train_pytorch_gpu·
       submit_distributed_train(**backend ML 템플릿 없음** → ML 인프라, 사용자 지시로 나중). non-ML
-      중 backend 로 태울 수 있는 건 전부 완료.
+      중 backend 로 태울 수 있는 건 **전부 완료**.
 - [ ] Phase3: 파리티+검증 후 mcp-slurm.service(또는 nginx /mcp) 컷오버, 구버전 폴백 유지
       (컷오버 시 STMC_CLUSTER_URL=http://127.0.0.1:5010 + streamable-http 서비스로 systemd 유닛 교체)
 - [ ] 배포 필요: 템플릿 /data 동기화, auto_tune.py·chain_autotune.py → /data/SmartTwinPreprocessor/bin,

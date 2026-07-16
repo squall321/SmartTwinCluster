@@ -73,6 +73,7 @@ class ErrorCode:
 
     # General errors (9xxx)
     INVALID_REQUEST = 9001
+    PERMISSION_DENIED = 9003
     INTERNAL_ERROR = 9999
 
 def log_error(request_id: str, error_code: int, message: str, details: dict = None, exc_info: bool = False):
@@ -129,6 +130,13 @@ TEMPLATE_DIRS = {
     'community': f'{SHARED_BASE}/templates/community',
     'user': f'{SHARED_BASE}/templates/user',
 }
+
+# KooChainRun 바이너리 — rerun(실패 DOE 재제출) 엔드포인트에서 사용. dev override 가능.
+KOOCHAINRUN = os.getenv('KOOCHAINRUN_BIN', '/data/SmartTwinPreprocessor/bin/KooChainRun')
+
+# 사용자별 결과/작업 루트 — 잡 결과가 /data/single/<web_user>/ 아래 저장됨(제출 경로 규약과 동일).
+# rerun 은 이 밑의 work_dir 만 허용해 소유권(권한)을 강제한다.
+SINGLE_ROOT = os.getenv('SINGLE_ROOT', '/data/single')
 
 # Apptainer 이미지 디렉토리 (fallback용, DB 우선 사용)
 APPTAINER_DIRS = {
@@ -1531,6 +1539,72 @@ def estimate_job_cost(slurm_config: dict) -> dict:
         },
         'note': 'Estimated cost - actual cost may vary'
     }
+
+
+@job_submit_bp.route('/api/jobs/rerun', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
+def rerun_job():
+    """실패한 DOE 케이스만 재제출 (KooChainRun rerun) — JWT 인증 + dashboard 권한.
+
+    (C) 하이브리드: SmartTwinMCP job_rerun 도구가 registry 로 work_dir 을 해석한 뒤
+    이 엔드포인트로 태워, 사용자별 권한/감사를 backend 에서 강제한다.
+
+    Request (JSON): { "work_dir": "/data/single/<web_user>/<name>_<job_id>" }
+    Response: { "success": bool, "rc": int, "stdout": str, "stderr": str }
+    """
+    request_id = str(uuid.uuid4())
+    body = request.get_json(silent=True) or {}
+    work_dir = (body.get('work_dir') or '').strip()
+
+    if not work_dir or not os.path.isabs(work_dir):
+        return jsonify({'success': False, 'error': 'work_dir(절대경로) required',
+                        'error_code': ErrorCode.INVALID_REQUEST, 'request_id': request_id}), 400
+
+    # 소유권 강제 — work_dir 는 요청자의 /data/single/<web_user>/ 하위여야 한다(권한 게이트).
+    web_user = _sanitize_web_user(
+        g.get('user', {}).get('username') or g.get('user', {}).get('id') or 'anonymous')
+    user_root = os.path.realpath(os.path.join(SINGLE_ROOT, web_user))
+    real_wd = os.path.realpath(work_dir)
+    if real_wd != user_root and not real_wd.startswith(user_root + os.sep):
+        log_error(request_id, ErrorCode.PERMISSION_DENIED,
+                  'work_dir outside caller home', {'work_dir': work_dir, 'web_user': web_user})
+        return jsonify({'success': False, 'error': 'work_dir 는 본인 결과 디렉토리 하위여야 합니다',
+                        'error_code': ErrorCode.PERMISSION_DENIED, 'request_id': request_id}), 403
+
+    if not os.path.isdir(real_wd):
+        return jsonify({'success': False, 'error': f'work_dir not found: {work_dir}',
+                        'error_code': ErrorCode.INVALID_REQUEST, 'request_id': request_id}), 404
+
+    if not os.path.exists(KOOCHAINRUN):
+        return jsonify({'success': False, 'error': f'KooChainRun not found: {KOOCHAINRUN}',
+                        'error_code': ErrorCode.INTERNAL_ERROR, 'request_id': request_id}), 500
+
+    log_info(request_id, 'rerun_start', {'work_dir': real_wd, 'web_user': web_user})
+    try:
+        # --force: 비대화형 재제출(확인 프롬프트 없이). 없으면 KooChainRun 이 y/n 대기 후
+        # 아무것도 제출하지 않고 종료한다(rc=0 이지만 재제출 미실행).
+        proc = subprocess.run([KOOCHAINRUN, 'rerun', real_wd, '--force'],
+                              capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        log_error(request_id, ErrorCode.INTERNAL_ERROR, 'KooChainRun rerun timed out', {'work_dir': real_wd})
+        return jsonify({'success': False, 'error': 'KooChainRun rerun timed out (300s)',
+                        'error_code': ErrorCode.INTERNAL_ERROR, 'request_id': request_id}), 504
+
+    ok = proc.returncode == 0
+    if ok:
+        log_info(request_id, 'rerun_done', {'rc': proc.returncode, 'work_dir': real_wd})
+    else:
+        log_error(request_id, ErrorCode.INTERNAL_ERROR, 'rerun failed',
+                  {'rc': proc.returncode, 'stderr': proc.stderr[-500:]})
+    return jsonify({
+        'success': ok,
+        'rc': proc.returncode,
+        'stdout': proc.stdout[-4000:],
+        'stderr': proc.stderr[-2000:],
+        'work_dir': real_wd,
+        'request_id': request_id,
+    }), (200 if ok else 500)
 
 
 # Health check

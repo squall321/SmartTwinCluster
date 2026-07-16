@@ -110,6 +110,43 @@ def backend_submit(template_id, files, tool_name, project_name,
     return {"ok": True, "http": code, "job_id": job_id, "registry_id": reg_id, "response": data}
 
 
+def backend_rerun(work_dir: str, timeout: int = 320) -> dict:
+    """(C) 하이브리드: KooChainRun rerun 을 backend_5010 /api/jobs/rerun 으로 태운다.
+
+    요청 PAT(STMC_CLUSTER_TOKEN, 프레임워크 주입)로 사용자별 권한/감사를 지난다. backend 가
+    work_dir 소유권(요청자의 /data/single/<user>/ 하위)을 검증하므로 도구는 네이티브 실행 없이
+    HTTP 만 한다. 반환 dict: {ok, http, rc, stdout, stderr} 또는 {ok:False, error}.
+    """
+    import urllib.request
+    import urllib.error
+
+    base = (os.environ.get("STMC_CLUSTER_URL") or "").rstrip("/")
+    token = os.environ.get("STMC_CLUSTER_TOKEN") or ""
+    if not base or not token:
+        return {"ok": False, "error": "rerun 은 backend 를 경유합니다 — STMC_CLUSTER_URL(서버 env) 과 "
+                                      "요청 PAT(Authorization) 가 필요합니다(fail-closed)."}
+    payload = json.dumps({"work_dir": work_dir}).encode()
+    req = urllib.request.Request(
+        base + "/api/jobs/rerun", data=payload, method="POST",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw, code = r.read().decode("utf-8", "replace"), r.status
+    except urllib.error.HTTPError as e:
+        raw, code = e.read().decode("utf-8", "replace"), e.code
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"backend 요청 실패: {e}"}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = {"raw": raw[:500]}
+    return {"ok": bool(isinstance(data, dict) and data.get("success")), "http": code,
+            "rc": data.get("rc") if isinstance(data, dict) else None,
+            "stdout": data.get("stdout") if isinstance(data, dict) else None,
+            "stderr": data.get("stderr") if isinstance(data, dict) else None,
+            "response": data}
+
+
 def resolve_job(args: dict) -> dict | None:
     """Look up job by registry_id or work_dir.
 
