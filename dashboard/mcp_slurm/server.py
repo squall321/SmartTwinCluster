@@ -189,6 +189,30 @@ def _stdout(result) -> str:
     return out if out else "(no output)"
 
 
+# Slurm 잡ID: 숫자, 선택적 배열인덱스(_N), 선택적 스텝(.batch/.extern/.0 등).
+# backend URL 경로(/api/jobs/{id}/...)와 sstat 인자에 그대로 쓰이므로 '/','..','-','?','#',
+# 공백 등 경로·인자 조작 문자를 차단(패턴 외 거부). 예: 12345, 12345_3, 12345.batch
+_JOB_ID_RE = re.compile(r"^[0-9]+(_[0-9]+)?(\.[A-Za-z0-9_+-]+)?$")
+
+
+def _clean_job_id(job_id):
+    """job_id 를 정제·검증. (ok, value_or_error) 반환."""
+    jid = str(job_id or "").strip()
+    if not jid:
+        return False, "error: job_id 가 비어 있습니다."
+    if not _JOB_ID_RE.match(jid):
+        return False, (
+            f"error: job_id 형식이 올바르지 않습니다: {jid!r} "
+            "(숫자[_배열][.스텝] 만 허용 — 예: 12345, 12345_3, 12345.batch)."
+        )
+    return True, jid
+
+
+# 단일 노드 이름: 영숫자로 시작, 이후 영숫자·'.','-','_'. 쉼표·공백·셸/URL 메타문자 거부.
+# (변경계는 backend JSON body 로 가지만 방어심화 + 명확한 에러를 위해 MCP 단에서도 검증.)
+_NODE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
+
+
 # ---------------------------------------------------------------------------
 # 읽기전용 tools (인증 게이트 후 slurm_commands 직접호출)
 # ---------------------------------------------------------------------------
@@ -322,9 +346,9 @@ def slurm_job_stat(job_id: str, ctx: Context) -> str:
     err = _require_user(ctx)
     if err:
         return err
-    job_id = str(job_id).strip()
-    if not job_id:
-        return "error: job_id 가 비어 있습니다."
+    ok, job_id = _clean_job_id(job_id)
+    if not ok:
+        return job_id
     return _stdout(get_sstat("-j", job_id, check=False))
 
 
@@ -361,9 +385,9 @@ def slurm_job_results(job_id: str, ctx: Context) -> str:
     err = _require_user(ctx)
     if err:
         return err
-    job_id = str(job_id).strip()
-    if not job_id:
-        return "error: job_id 가 비어 있습니다."
+    ok, job_id = _clean_job_id(job_id)
+    if not ok:
+        return job_id
     auth = _auth_header(ctx)
 
     ok_i, info_raw, st_i = _backend_request("GET", f"/api/jobs/{job_id}/info", None, auth)
@@ -422,9 +446,9 @@ def slurm_job_log(job_id: str, ctx: Context, lines: int = 200, log_type: str = "
     err = _require_user(ctx)
     if err:
         return err
-    job_id = str(job_id).strip()
-    if not job_id:
-        return "error: job_id 가 비어 있습니다."
+    ok, job_id = _clean_job_id(job_id)
+    if not ok:
+        return job_id
     try:
         n = max(1, min(int(lines), 2000))
     except (TypeError, ValueError):
@@ -484,6 +508,11 @@ def slurm_node_set_state(
     node = str(node).strip()
     if not node:
         return "error: node 가 비어 있습니다."
+    if not _NODE_NAME_RE.match(node):
+        return (
+            f"error: node 이름 형식이 올바르지 않습니다: {node!r} "
+            "(단일 노드만, 영숫자/'.','-','_'. 쉼표·범위·공백은 불가)."
+        )
     key = str(state).strip().upper()
     if key not in _NODE_STATE_ROUTES:
         return f"error: state '{state}' 는 허용되지 않습니다. 가능: {sorted(_NODE_STATE_ROUTES.keys())}"
@@ -584,6 +613,14 @@ _MODEL_ALLOWED_BASES = [
         "SMARTTWIN_MODEL_BASES", "/data,/shared,/mnt/gluster,/home").split(",") if p.strip()
 ]
 _SUBMIT_TIMEOUT = float(os.environ.get("MCP_SUBMIT_TIMEOUT", "600"))  # 대형 .k 업로드 대비
+
+# scenario_overrides 로 절대 못 바꾸는 최상위 키 — 서버/템플릿 고정.
+# ★environment★ 는 자식 잡이 실행하는 solver_command/koomeshmodifier_path/koochainrun_path
+# 를 담고 있어, 덮어쓰기 허용 시 컴퓨트 노드에서 임의 명령 실행(RCE)이 된다. mode/model_file/
+# output_dir/project_name 은 디스패치·경로 결정 키라 사용자 입력이 끼어들면 안 된다.
+_LOCKED_SCENARIO_KEYS = frozenset(
+    {"environment", "mode", "model_file", "output_dir", "project_name"}
+)
 
 _DROP_OPTIONS_DOC = """\
 ━━ 전각도 낙하 (fullangle_drop / smarttwin-fullangle-drop) scenario.json 옵션 카탈로그 ━━
@@ -933,6 +970,17 @@ def smarttwin_submit(
     model_fname = _safe_filename(model_real)
 
     ov = scenario_overrides if isinstance(scenario_overrides, dict) else None
+    # ★보안★ 실행/디스패치 결정 키는 overrides 에서 제거 — environment(solver_command 등)
+    # 덮어쓰기 = 컴퓨트 노드 임의명령 실행(RCE). 사용자는 simulation_params/scenarios/
+    # locations/impactor 등 '무엇을 풀지' 만 조정할 수 있고 '어떻게 실행할지' 는 서버 고정.
+    locked_note = ""
+    if ov:
+        stripped = sorted(k for k in ov if k in _LOCKED_SCENARIO_KEYS)
+        if stripped:
+            ov = {k: v for k, v in ov.items() if k not in _LOCKED_SCENARIO_KEYS}
+            locked_note = f" · [보안] overrides 의 {', '.join(stripped)} 무시(서버 고정)"
+        if not ov:
+            ov = None
 
     # ── scenario.json 구성 ──
     scenario = None          # None 이면 업로드 생략(템플릿 기본 동작)
@@ -982,6 +1030,8 @@ def smarttwin_submit(
             scenario["mode"] = "drop_weight_impact"
             scenario["model_file"] = model_fname
             scenario_note = "base=기본격자(5x5) + overrides 병합"
+
+    scenario_note += locked_note
 
     # ── 폼 필드 ──
     slurm_overrides = {}
