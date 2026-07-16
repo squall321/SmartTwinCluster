@@ -52,10 +52,13 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
       (3afa4ff) → 시나리오 로컬 빌드 + backend 제출. e2e: fullangle job 924 RUNNING→job_stop 취소.
 - [x] Phase3 읽기·네이티브: 전 도구 재스모크 **크래시 0/44**. 읽기(job_status/logs/list/partitions/
       my_jobs)·네이티브(audit/cost/schedule/webhook/echo/templates) 그대로 동작.
-- [ ] Phase3 남은 제출(도메인 경계): submit_lsdyna_job(→lsdyna-r16-basic 템플릿, sif 필요),
-      job_rerun(resubmit), submit_lsdyna_remote(SSH 원격클러스터), train_pytorch_gpu·
-      submit_distributed_train(**backend ML 템플릿 없음** → 별도 인프라 필요). SmartTwin 코어(드롭
-      DOE)는 완료, 이들은 도메인/템플릿 부재로 별건.
+- [x] submit_lsdyna_job → backend lsdyna-r16-basic 템플릿 경유(beda944). files dict 로 backend_submit
+      일반화. dev 는 lsdyna sif 부재로 이미지 404(라우팅은 정확).
+- [ ] Phase3 남은 제출(깔끔한 backend 경로 없음): job_rerun(KooChainRun rerun — backend 에 rerun
+      엔드포인트 없음. 네이티브 유지, 완전 (C) 는 backend rerun 엔드포인트 필요), submit_lsdyna_remote
+      (SSH 원격 클러스터 — backend_5010=이 클러스터 도메인 아님, 그대로), train_pytorch_gpu·
+      submit_distributed_train(**backend ML 템플릿 없음** → ML 인프라, 사용자 지시로 나중). non-ML
+      중 backend 로 태울 수 있는 건 전부 완료.
 - [ ] Phase3: 파리티+검증 후 mcp-slurm.service(또는 nginx /mcp) 컷오버, 구버전 폴백 유지
       (컷오버 시 STMC_CLUSTER_URL=http://127.0.0.1:5010 + streamable-http 서비스로 systemd 유닛 교체)
 - [ ] 배포 필요: 템플릿 /data 동기화, auto_tune.py·chain_autotune.py → /data/SmartTwinPreprocessor/bin,
