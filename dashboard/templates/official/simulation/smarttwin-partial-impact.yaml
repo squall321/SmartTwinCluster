@@ -191,9 +191,22 @@ script:
     echo "=== KooChainRun prepare ==="
     "$KCR" prepare scenario.json -o runner_config.json || { echo "ERROR: prepare 실패"; exit 1; }
 
+    # ── 350노드 클러스터 인식: DOE(충격 위치) 크기 + sinfo 로 병렬도 auto-tune (CHAIN_* 고정 탈피) ──
+    AT_HELPER=/data/SmartTwinPreprocessor/bin/chain_autotune.py
+    DOE_COUNT=$(python3 -c "import json;rc=json.load(open('runner_config.json'));print((rc.get('scenario') or {}).get('doe_count') or rc.get('total_cases') or 0)" 2>/dev/null || echo 0)
+    SUBMIT_PART=""
+    if [ -f "$AT_HELPER" ] && AT=$(python3 "$AT_HELPER" --doe "$DOE_COUNT" --ncpu "$CHAIN_NCPU" 2>/dev/null); then
+      read -r AT_PART AT_NODES AT_JPN AT_NCPU <<< "$AT"
+      echo "auto-tune(sinfo, DOE=$DOE_COUNT): partition=$AT_PART nodes=$AT_NODES jobs/node=$AT_JPN ncpu=$AT_NCPU (CHAIN_* 대체)"
+      CHAIN_NODES="$AT_NODES"; CHAIN_JOBS_PER_NODE="$AT_JPN"; CHAIN_NCPU="$AT_NCPU"
+      [ -n "$AT_PART" ] && SUBMIT_PART="--partition $AT_PART"
+    else
+      echo "auto-tune 미적용 → CHAIN_* 기본값 사용(nodes=$CHAIN_NODES). (sinfo/도우미 $AT_HELPER 확인)"
+    fi
+
     echo "=== KooChainRun submit (nodes=$CHAIN_NODES jobs/node=$CHAIN_JOBS_PER_NODE ncpu=$CHAIN_NCPU) ==="
     "$KCR" submit runner_config.json \
-        --nodes "$CHAIN_NODES" --jobs-per-node "$CHAIN_JOBS_PER_NODE" --ncpu-per-job "$CHAIN_NCPU" \
+        --nodes "$CHAIN_NODES" --jobs-per-node "$CHAIN_JOBS_PER_NODE" --ncpu-per-job "$CHAIN_NCPU" $SUBMIT_PART \
         2>&1 | tee submit.log
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then
       echo "ERROR: submit 실패 (이 노드에서 sbatch 가능한지 확인)"
