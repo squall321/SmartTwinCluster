@@ -1,0 +1,24 @@
+[Unit]
+Description=SmartTwin MCP Server (HTTP/streamable, :5013) — (C) hybrid, backend_5010 경유 쓰기
+After=network.target
+Wants=dashboard-backend.service
+
+[Service]
+Type=simple
+User=koopark
+Group=koopark
+WorkingDirectory=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp
+Environment="PATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/.venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
+Environment="HOME=/home/koopark"
+Environment="PYTHONPATH=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/src"
+Environment="STMC_CLUSTER_URL=http://127.0.0.1:5010"
+Environment="STMC_JOBS_DB=/data/SmartTwinMCP/jobs.db"
+Environment="STMC_AUDIT_DB=/data/SmartTwinMCP/audit.db"
+ExecStart=/home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/.venv/bin/python -m smarttwin_mcp.server serve --transport streamable-http --host 127.0.0.1 --port 5013 --tools-root /home/koopark/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/tools
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
