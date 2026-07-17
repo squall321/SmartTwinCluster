@@ -19,13 +19,15 @@ mcp-slurm(:5012) → smarttwin_mcp(:5013) 로 컷오버(구버전 즉시 폴백 
 - [x] A4. 롤백 = deploy/nginx-mcp.snippet.conf 참조. /mcp 의 5013 두 곳 → 5012 + `nginx -s reload`.
       mcp-slurm.service(:5012) active/enabled 유지되어 즉시 복구 가능(무중단).
 
-## B. 오프라인 휠 + 운영 런북 (icn401 = 24.04 / py3.12 / cp312)
-- [ ] B1. fastmcp==3.3.1 + 전 의존성 폐포를 cp312 manylinux 휠로 수집 →
-      offline_packages_2404/python_wheels/python3.12/smarttwin_mcp/
-- [ ] B2. requirements.lock(정확한 버전 핀) 생성
-- [ ] B3. 신규 py3.12 venv 에 `--no-index --find-links` 로 설치 재현(오프라인 모의) → 성공해야 함
-- [ ] B4. RUNBOOK.md — icn401 오프라인 배포 절차(apt install python3.12-venv[offline_packages_2404],
-      venv, pip --no-index, 유닛 설치, nginx flip, /data 동기화, 폴백)
+## B. 오프라인 휠 + 운영 런북 (icn401 = 24.04 / py3.12 / cp312) — ✅ 완료(2026-07-17)
+- [x] B1. fastmcp==3.3.1 + 전 폐포(68휠) 를 cp312 manylinux 로 수집(add_missing_wheels 방식:
+      --only-binary=:all: --python-version 3.12 --platform manylinux2014/2_17/2_28 --platform any) →
+      offline_packages_2404/python_wheels/python3.12/smarttwin_mcp/ (gitignore, 디스크 번들).
+- [x] B2. deploy/requirements.lock(68줄, 전부 핀) 생성 + 휠 디렉토리에 사본.
+- [x] B3. 신규 py3.12 venv 에 `--no-index --find-links` 설치 재현 → exit 0, fastmcp 3.3.1 + 전 의존성
+      임포트 + smarttwin_mcp.server(PYTHONPATH=src) OK. **오프라인 설치 실증.**
+- [x] B4. deploy/RUNBOOK.md — icn401 오프라인 배포 절차(코드 pull, venv --no-index, /data 아티팩트,
+      유닛 설치, nginx flip, 라이브검증, 롤백). ★경로 하드코딩 경고(icn401 repo경로/계정 수정 필요)★.
 
 ## 절대 규칙(재확인)
 - mcp-slurm.service 는 컷오버 후에도 **살려둔다**(폴백). 검증 전 삭제/중지 금지.
