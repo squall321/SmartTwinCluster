@@ -29,6 +29,22 @@ mcp-slurm(:5012) → smarttwin_mcp(:5013) 로 컷오버(구버전 즉시 폴백 
 - [x] B4. deploy/RUNBOOK.md — icn401 오프라인 배포 절차(코드 pull, venv --no-index, /data 아티팩트,
       유닛 설치, nginx flip, 라이브검증, 롤백). ★경로 하드코딩 경고(icn401 repo경로/계정 수정 필요)★.
 
+## C. 규약화 리팩터 (사용자 지적: "경로·계정은 YAML 에서") — ✅ 완료·검증(2026-07-19)
+- [x] C1. 규약 규명: 코어 웹서비스 = dashboard/systemd/install_services.sh(YAML web_services.service_user
+      → users.ssh_user 유도 + repo 경로 유도). MCP류 = `<svc>.service.example`(placeholder) +
+      per-service install_offline.sh(mcp_slurm 패턴). nginx 정본 = cluster/config/nginx_web_production.conf.
+- [x] C2. smarttwin-mcp.service.example(placeholder: __SERVICE_USER__/__SERVICE_GROUP__/__PROJECT_HOME__)
+      + install_offline.sh(--install-service: YAML 계정 유도[cluster_info.head_nodes[0].ssh_user 폴백 포함]
+      + repo 경로 유도 + venv 오프라인 구축 + 유닛 치환·설치·기동). requirements.txt = 전체 핀(단일 정본).
+- [x] C3. 휠 위치를 mcp_slurm 컨벤션으로 이동: python_wheels/smarttwin_mcp/python3.12/ (68휠).
+- [x] C4. nginx 정본 cluster/config/nginx_web_production.conf 의 /mcp → 5013 갱신(재배포 시 회귀 방지).
+- [x] C5. 하드코딩 잔재 제거: deploy/smarttwin-mcp.service·nginx-mcp.snippet.conf·requirements.lock,
+      수작업 .venv. 이 박스에서 sudo ./install_offline.sh --install-service 재실행으로 실검증
+      (User=koopark[YAML], 프로세스 koopark, active, :5013).
+- [x] C6. ★잠복버그 2건 발견·수정★: (i) 치환기 grep -v 가 User= 줄 통째 삭제 → root 실행(보안 후퇴).
+      (ii) systemd 지시어 줄 인라인 주석은 값으로 파싱 → 217/USER 기동 실패. 해결 = 템플릿 주석 별도 줄
+      + placeholder 3종만 sed 치환.
+
 ## 절대 규칙(재확인)
 - mcp-slurm.service 는 컷오버 후에도 **살려둔다**(폴백). 검증 전 삭제/중지 금지.
 - 운영(icn401)은 별도 머신. 이 체크리스트 A 는 staging(이 박스)만. 운영 반영은 B + 사용자 승인 후.

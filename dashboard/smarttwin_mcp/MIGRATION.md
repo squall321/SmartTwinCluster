@@ -64,10 +64,13 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
       클러스터 — backend_5010=이 클러스터 도메인 아님, 그대로), train_pytorch_gpu·
       submit_distributed_train(**backend ML 템플릿 없음** → ML 인프라, 사용자 지시로 나중). non-ML
       중 backend 로 태울 수 있는 건 **전부 완료**.
-- [ ] Phase3: 파리티+검증 후 mcp-slurm.service(또는 nginx /mcp) 컷오버, 구버전 폴백 유지
-      (컷오버 시 STMC_CLUSTER_URL=http://127.0.0.1:5010 + streamable-http 서비스로 systemd 유닛 교체)
-- [ ] 배포 필요: 템플릿 /data 동기화, auto_tune.py·chain_autotune.py → /data/SmartTwinPreprocessor/bin,
-      (컷오버 시) smarttwin_mcp systemd 유닛 + venv(fastmcp) + nginx /mcp 전환.
+- [x] ★스테이징 컷오버 완료★(2026-07-17~19, deploy/checklist.md A·C): smarttwin-mcp.service
+      (YAML-유도: smarttwin-mcp.service.example + install_offline.sh --install-service) active :5013,
+      nginx /mcp 5012→5013(정본 cluster/config/nginx_web_production.conf 도 갱신), mcp-slurm(:5012)
+      폴백 가동 유지. nginx 443 경유 e2e(read/write dry_run/auth) 검증.
+- [x] 오프라인 운영 준비: cp312 휠 68개 → offline_packages_2404/python_wheels/smarttwin_mcp/python3.12/,
+      requirements.txt 전체 핀, --no-index 재현 검증, deploy/RUNBOOK.md(icn401 절차).
+- [ ] 운영(icn401) 실배포: origin push + RUNBOOK 실행(사용자 승인/접근 필요). /data 템플릿 동기화 포함.
 
 ## 컨텍스트 노트 (이관 중 결정 기록 — 계속 추가)
 - vendoring 방식 = **copy(코드 종속)**. git-subtree(히스토리 보존) 아님. 원본 repo 는 upstream 으로 보존(삭제 안 함).

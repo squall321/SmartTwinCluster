@@ -1,3 +1,6 @@
+# SmartTwin MCP 서버 의존성 — fastmcp==3.3.1 로 검증된 폐포 전체 핀(오프라인 재현용).
+# install_offline.sh 가 offline_packages_2404/python_wheels/smarttwin_mcp/python3.12/ 의 wheel 로
+# --no-index --find-links 설치한다. 벤더링 패키지 자체는 PYTHONPATH=src 로 로드(여기 없음).
 aiofile==3.11.1
 annotated-types==0.7.0
 anyio==4.14.2
