@@ -19,19 +19,28 @@ DEFAULT_APPTAINER_SIF_DYNA = "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_
 DEFAULT_APPTAINER_SIF_POST = "/opt/apptainers/SmartTwinPostprocessor.sif"
 
 
+# single-precision(I4R4) LS-DYNA의 memory= 파라미터는 32비트 정수(word 단위)라
+# 2147m(=2147*10^6 < 2^31-1)을 넘기면 "Error 10904 (KEY+904)"로 즉사한다.
+LSDYNA_SP_MAX_MEMORY_M = 2147
+
+
 def _base_environment(lstc_ip: str, ncpu: int = 1, memory: str = "2G",
                       time_limit: str = "01:00:00") -> dict:
+    lsdyna_memory_m = (
+        min(int(memory.rstrip("Gg")) * 1000, LSDYNA_SP_MAX_MEMORY_M)
+        if memory.endswith(("G", "g")) else 2000
+    )
     return {
         "koomeshmodifier_path": DEFAULT_KOOMESHMODIFIER_PATH,
         "lsdyna_path": DEFAULT_LSDYNA_PATH,
         "mpi_path": "mpirun",
         "memory": memory,
-        "lsdyna_memory": f"{int(memory.rstrip('Gg')) * 1000}m" if memory.endswith(("G", "g")) else "2000m",
+        "lsdyna_memory": f"{lsdyna_memory_m}m",
         "apptainer_sif": DEFAULT_APPTAINER_SIF_PREP,
         "apptainer_bind": "/data:/data",
         "apptainer_env": {},
         "lsdyna_apptainer_sif": DEFAULT_APPTAINER_SIF_DYNA,
-        "lsdyna_apptainer_bind": "/data:/data",
+        "lsdyna_apptainer_bind": "/data:/data,/shared:/shared",
         "lsdyna_apptainer_env": {
             "LSTC_FILE": "/opt/ls-dyna_license/LSTC_FILE",
             "LSTC_LICENSE_SERVER": lstc_ip,
