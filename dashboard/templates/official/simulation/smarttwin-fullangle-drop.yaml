@@ -20,7 +20,7 @@ slurm:
   partition: ""
   nodes: 1
   ntasks: 1
-  cpus_per_task: 2
+  cpus_per_task: 1
   mem: 4G
   time: "167:00:00"   # 드라이버 잡 수명(자식 잡 대기 포함) — 7일 한도 내
 
