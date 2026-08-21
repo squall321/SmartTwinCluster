@@ -957,6 +957,13 @@ setup_redis_session_management() {
                 fi
                 local ssh_key_path="/home/${ssh_user}/.ssh/id_rsa"
 
+                # Determine dashboard SQLite DB path (YAML override, else service_user 홈 기준)
+                local db_path="/home/${ssh_user}/web_services/backend/dashboard.db"
+                if [[ -f "$CONFIG_PATH" ]]; then
+                    local yaml_db_path=$(grep -E "^\s+dashboard_db_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                    [[ -n "$yaml_db_path" ]] && db_path="$yaml_db_path"
+                fi
+
                 cat > "$service_dir/.env" << EOF
 # Redis Configuration for Session Management
 REDIS_HOST=localhost
@@ -971,6 +978,9 @@ SLURM_BIN_DIR=${slurm_bin_path}
 
 # SSH Configuration (for SSH session management)
 SSH_KEY_PATH=${ssh_key_path}
+
+# Database Configuration
+DATABASE_PATH=${db_path}
 EOF
                 # Set ownership (use service_user from YAML or current user)
                 local env_owner="${SERVICE_USER:-$(whoami)}"
@@ -1044,6 +1054,22 @@ EOF
                     echo "" >> "$service_dir/.env"
                     echo "# SSH Configuration (for SSH session management)" >> "$service_dir/.env"
                     echo "SSH_KEY_PATH=${ssh_key_path}" >> "$service_dir/.env"
+                    needs_update=true
+                fi
+
+                # Add DATABASE_PATH if missing (YAML dashboard_db_path 우선, 없으면 service_user 홈 기준)
+                if ! grep -q "^DATABASE_PATH=" "$service_dir/.env"; then
+                    local db_user="${SERVICE_USER:-$(whoami)}"
+                    local db_path="/home/${db_user}/web_services/backend/dashboard.db"
+                    if [[ -f "$CONFIG_PATH" ]]; then
+                        local yaml_db_user=$(grep -E "^\s+service_user:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                        [[ -n "$yaml_db_user" ]] && db_path="/home/${yaml_db_user}/web_services/backend/dashboard.db"
+                        local yaml_db_path=$(grep -E "^\s+dashboard_db_path:" "$CONFIG_PATH" 2>/dev/null | head -1 | awk '{print $2}')
+                        [[ -n "$yaml_db_path" ]] && db_path="$yaml_db_path"
+                    fi
+                    echo "" >> "$service_dir/.env"
+                    echo "# Database Configuration" >> "$service_dir/.env"
+                    echo "DATABASE_PATH=${db_path}" >> "$service_dir/.env"
                     needs_update=true
                 fi
 
