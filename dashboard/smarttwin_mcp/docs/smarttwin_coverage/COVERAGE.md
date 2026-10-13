@@ -1,7 +1,7 @@
 <!-- 생성됨: tools/_gen/generate_smarttwin_tools.py — SmartTwin 기능 ↔ MCP/REST 도구 대응표 -->
 # SmartTwin 기능 커버리지
 
-정본 pyKooCAE `7711e10` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 도구 108개.
+정본 pyKooCAE `7711e10` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 도구 116개.
 
 | 제품 | 분류 | 기능 | MCP 도구 (REST: POST /smarttwin-api/v1/tools/<도구>/run) | 요약 |
 |---|---|---|---|---|
@@ -113,3 +113,11 @@
 | SmartTwinPostprocessor | 후처리 | koo_scatter_report | `post_scatter_report` | 각도 산포 캠페인 리포트 — 편차각 산포·방향도·회수율 |
 | SmartTwinPostprocessor | 후처리 | koo_dyna_diag | `post_dyna_diag` | LS-DYNA 결과 진단 — 에러·경고·성능 프로파일 JSON/HTML (단일 폴더 또는 일괄 색인) |
 | SmartTwinPostprocessor | 후처리 | make_stl | `post_make_stl` | d3plot·모델 .k 에서 미리보기 STL 생성 (리포트 실형상 미리보기용) |
+| KooChainRun | 시나리오 모드 | DROP | `scenario_drop` | 낙하 시나리오 — 자세 DOE(피보나치·육면체·스윕) × 누적 스텝 |
+| KooChainRun | 시나리오 모드 | IMPACT | `scenario_impact` | 충격 시나리오 — 모델 윗면 격자 위치마다 구·다단 실린더 충격추 낙하 |
+| KooChainRun | 시나리오 모드 | VIBRATION | `scenario_vibration` | 진동 시나리오 — 하중 곡선 × 파트 계수 (명시·캡별·회로별 DOE) |
+| KooChainRun | 시나리오 모드 | THERM | `scenario_therm` | 열 시나리오 — 균일 챔버 온도 열응력 또는 IC 발열 2-pass |
+| KooChainRun | 시나리오 모드 | REMAP | `scenario_remap` | 누적 스텝 사이에 KooRemapper 변환(재질 교체 등)을 끼우는 러너 전용 스텝 |
+| KooChainRun | 워크플로우 (최상위 mode) | part_validation | `scenario_part_validation` | 파트별 0° 낙하 검증 — 파트마다 독립 .k 로 쪼개 해석 가능 여부 사전 점검 |
+| KooChainRun | 워크플로우 (최상위 mode) | drop_weight_impact | `scenario_drop_weight_impact` | (구) 전위치 부분충격 워크플로우 — IMPACT 시나리오와 별도 스키마 |
+| KooChainRun | 범용 | scenario.json | `scenario_submit` | 임의 scenario.json 제출 |

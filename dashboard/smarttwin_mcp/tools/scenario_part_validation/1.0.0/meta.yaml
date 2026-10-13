@@ -1,0 +1,84 @@
+name: scenario_part_validation
+version: 1.0.0
+summary: KooChainRun part_validation — 파트별 0° 낙하 검증 — 파트마다 독립 .k 로 쪼개 해석 가능 여부 사전 점검
+description: |
+  파트별 0° 낙하 검증 — 파트마다 독립 .k 로 쪼개 해석 가능 여부 사전 점검
+
+  # 언제 쓰나
+  - 전각도 낙하 전에 어떤 파트가 단독으로도 터지는지(메시 불량) 찾을 때
+
+  # 시나리오 키 (KooChainRun --help part_validation)
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `mode` (필수) | part_validation | - | 워크플로우 선택 |
+  | `model_file` (필수) | 경로 | - | 모델 .k (scenario.json 기준) |
+  | `output_dir` | 경로 | validation_output | 분할 결과 |
+  | `simulation_params.height / tFinal / dt` | 실수 | 100 / 5e-4 / 1e-5 | 검증 낙하 조건 |
+  | `min_elements / except_pids` | 정수 / 배열 | 1 / [] | 대상 파트 거르기 |
+  | `environment.koomeshmodifier_path / sif_path / solver_command / ncpu / memory / partition` | - | - | 실행 환경 |
+
+  # 사례 — 요소 10 개 이상 파트 전부 100 mm 낙하 검증
+  ```json
+  {
+    "project_name": "PartValidation",
+    "mode": "part_validation",
+    "model_file": "model.k",
+    "output_dir": "validation_output",
+    "simulation_params": {
+      "height": 100,
+      "tFinal": 0.0005,
+      "dt": 1e-05
+    },
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "sif_path": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+      "solver_command": "ls-dyna",
+      "ncpu": 4,
+      "memory": "4G",
+      "partition": "normal"
+    },
+    "min_elements": 10,
+    "except_pids": []
+  }
+  ```
+  - prepare 가 KooMeshModifier 로 파트를 쪼갠다 (시간이 걸린다). submit → collect 로 PASS/FAIL 리포트.
+
+  # MCP 로 부르는 법
+  - 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).
+  - environment(경로·SIF·솔버 명령)는 서버가 만든다 — ncpu·memory·time_limit·solver_precision·partition·lstc_license_ip 인자로만 조정한다. 시간 상한(environment.timeout_*_seconds 정수)은 scenario 로 줄 수 있다.
+  - 드라이버 잡 하나(1 CPU)가 KooChainRun prepare→submit→자식 잡 대기→collect→(postprocess) 를 돈다. 진행·결과는 job_status·job_collect·job_diagnose·job_postprocess·post_* 도구로.
+  - dry_run=true 로 먼저 최종 scenario.json 을 확인할 것(PAT 없이 된다).
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koochainrun
+- scenario
+- campaign
+- lsdyna
+- doe
+- part
+- validation
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 최종 scenario.json 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: true
+- title: 시간·자원을 바꿔 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: false
+    scenario:
+      simulation_params:
+        tFinal: 0.002
+    ncpu: 4
+    memory: 8G

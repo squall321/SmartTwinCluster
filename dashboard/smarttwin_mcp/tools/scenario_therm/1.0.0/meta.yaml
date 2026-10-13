@@ -1,0 +1,115 @@
+name: scenario_therm
+version: 1.0.0
+summary: KooChainRun THERM — 열 시나리오 — 균일 챔버 온도 열응력 또는 IC 발열 2-pass
+description: |
+  열 시나리오 — 균일 챔버 온도 열응력 또는 IC 발열 2-pass
+
+  # 언제 쓰나
+  - 고온 챔버 온도 변화에 의한 열응력
+  - IC 발열 → 온도장 → 구조 해석 (ICPower)
+
+  # 시나리오 키 (KooChainRun --help THERM)
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `thermal_conditions` | 문자 배열 | ["THERM"] | 조건마다 DOE 1개 |
+  | `simulation_params.thermal.thermal_type` | UniformChamber \| ICPower | UniformChamber | 열 하중 종류 |
+  | `simulation_params.thermal.base_temp_C / target_temp_C` | 실수 | 25 / 85 | ℃ |
+  | `simulation_params.thermal.ramp_time_s / dt / dtmin` | 실수 | 1e-3 / 1e-6 / - | 승온 시간 / 출력 간격 |
+  | `simulation_params.thermal.default_cte_1_K / part_cte` | 실수 / {pid: cte} | 1.7e-5 / {} | 열팽창계수 |
+  | `simulation_params.thermal.materials / heat_sources / timestep` | - | - | ICPower 전용 (전 파트 rho·hc·tc 필요) |
+
+  # 사례 — 25→85 ℃ 챔버, 파트 1 CTE 지정
+  ```json
+  {
+    "project_name": "Therm_85C",
+    "base_dir": "/data/<사용자>/Therm_85C",
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+      "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
+      "apptainer_sif": "/opt/apptainers/SmartTwinPreprocessor.sif",
+      "apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_sif": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+      "lsdyna_apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_env": {
+        "LSTC_LICENSE_SERVER": "192.168.122.1",
+        "FI_PROVIDER": "tcp"
+      },
+      "apptainer_tmpdir": "/data/tmp",
+      "ncpu": 8,
+      "memory": "16G",
+      "partition": "normal",
+      "timeout_per_step_seconds": 7200
+    },
+    "simulation_params": {
+      "thermal": {
+        "thermal_type": "UniformChamber",
+        "base_temp_C": 25,
+        "target_temp_C": 85,
+        "ramp_time_s": 0.001,
+        "dt": 1e-06,
+        "default_cte_1_K": 1.7e-05,
+        "part_cte": {
+          "1": 2.3e-05
+        }
+      }
+    },
+    "scenarios": [
+      {
+        "scenario_name": "Chamber85",
+        "template": "model.k",
+        "thermal_conditions": [
+          "85C"
+        ],
+        "cumulative": {
+          "num_steps": 1,
+          "mode_sequence": [
+            "THERM"
+          ]
+        }
+      }
+    ]
+  }
+  ```
+  - 열해석은 배정밀 LS-DYNA SIF(_mpp_d) 가 필요하다.
+
+  # MCP 로 부르는 법
+  - 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).
+  - environment(경로·SIF·솔버 명령)는 서버가 만든다 — ncpu·memory·time_limit·solver_precision·partition·lstc_license_ip 인자로만 조정한다. 시간 상한(environment.timeout_*_seconds 정수)은 scenario 로 줄 수 있다.
+  - 드라이버 잡 하나(1 CPU)가 KooChainRun prepare→submit→자식 잡 대기→collect→(postprocess) 를 돈다. 진행·결과는 job_status·job_collect·job_diagnose·job_postprocess·post_* 도구로.
+  - dry_run=true 로 먼저 최종 scenario.json 을 확인할 것(PAT 없이 된다).
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koochainrun
+- scenario
+- campaign
+- lsdyna
+- doe
+- therm
+- thermal
+- icpower
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 최종 scenario.json 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: true
+- title: 시간·자원을 바꿔 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: false
+    scenario:
+      simulation_params:
+        tFinal: 0.002
+    ncpu: 4
+    memory: 8G

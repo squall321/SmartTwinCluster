@@ -641,12 +641,120 @@ def gen_post(written, skipped, specs, index):
                       "tool": name, "summary": cfg["summary"]})
 
 
+# ── KooChainRun 시나리오 ─────────────────────────────────────────────────────────
+
+SCENARIO_TOOLS = {"DROP": "scenario_drop", "IMPACT": "scenario_impact", "VIBRATION": "scenario_vibration",
+                  "THERM": "scenario_therm", "REMAP": "scenario_remap",
+                  "part_validation": "scenario_part_validation", "drop_weight_impact": "scenario_drop_weight_impact"}
+_IPV4 = "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
+
+
+def _scenario_props(workflow: str | None, precision_default: str, generic: bool = False) -> dict:
+    props = {
+        "model_path": {"type": "string", "pattern": "^/.+",
+                       "description": "입력 LS-DYNA 모델(.k) 절대경로 — 캠페인 결과 폴더로 올라가 template/model_file 이 된다."},
+        "lstc_license_ip": {"type": "string", "pattern": _IPV4,
+                            "description": "계산 노드에서 보이는 LS-DYNA 라이선스 서버 IPv4(localhost 금지). 생략하면 서버 env STMC_LSTC_LICENSE_IP."},
+        "scenario": {"type": "object",
+                     "description": "사례 시나리오 위에 덮어쓸 값(딥머지, 목록은 통째 교체). environment·mode·model_file·output_dir·"
+                                    "project_name 은 서버 고정이라 무시되고, 문자열은 공백·셸 메타문자 없는 토큰만 받는다. "
+                                    "받지 않은 값은 응답 locked_overrides_dropped 에 나온다."},
+        "ncpu": {"type": "integer", "minimum": 1, "maximum": 256, "default": 2, "description": "자식 잡(LS-DYNA) CPU 수"},
+        "memory": {"type": "string", "pattern": "^[0-9]+[GM]$", "default": "4G", "description": "자식 잡 메모리"},
+        "time_limit": {"type": "string", "pattern": "^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$", "default": "12:00:00",
+                       "description": "자식 잡 시간 상한"},
+        "solver_precision": {"type": "string", "enum": ["single", "double"], "default": precision_default,
+                             "description": "LS-DYNA 정밀도 — /opt/apptainers 의 _mpp_s / _mpp_d SIF. 열(ICPower)은 double 필수."},
+        "partition": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,32}$", "description": "자식 잡 파티션(생략 = 클러스터 기본)"},
+        "dry_run": COMMON_PROPS["dry_run"], "job_name": COMMON_PROPS["job_name"],
+    }
+    if workflow != "drop_weight_impact":
+        props["driver_mem"] = {"type": "string", "pattern": "^[0-9]{1,5}[MG]$",
+                               "description": "드라이버 잡 메모리(기본 1G). DOE 수천 개 캠페인은 4G~8G 로."}
+        props["aux_inputs"] = {**EXTRA_INPUTS, "description": "시나리오가 이름으로 가리키는 보조 파일(각도 케이스 .txt·곡선 등) 절대경로. "
+                                                              "결과 폴더의 scenario.json 옆에 놓인다. scenario 안에 절대경로를 써도 같이 올라간다."}
+    if workflow is None:
+        props["postprocess"] = {"type": "boolean",
+                                "description": "끝난 뒤 KooChainRun postprocess(deep·sphere/impact 리포트) 실행 여부. 생략 = 사례 설정"}
+    if generic:
+        props["mode"] = {"type": "string", "enum": ["cumulative", "part_validation", "drop_weight_impact"],
+                         "default": "cumulative", "description": "cumulative = scenarios[].cumulative.mode_sequence 의 DROP/IMPACT/VIBRATION/THERM/REMAP 조합"}
+        props["scenario"]["description"] = ("전체 scenario.json(필수). 형식은 scenario_<모드> 도구 설명의 사례를 볼 것. "
+                                            + props["scenario"]["description"])
+    return props
+
+
+def gen_scenario(written, skipped, specs, index):
+    cat = _catalog("Runner.cli_help_kcr", PYKOOCAE)
+    for md in cat.modes:
+        if md.name not in SCENARIO_TOOLS:
+            continue
+        name = SCENARIO_TOOLS[md.name]
+        workflow = md.name if md.name in ("part_validation", "drop_weight_impact") else None
+        precision = "double" if md.name == "THERM" else "single"
+        skeleton = json.loads(md.examples[0].text)
+        props = _scenario_props(workflow, precision)
+        ex1 = {"model_path": f"{USER_EX}/model.k", "lstc_license_ip": "192.168.122.1", "dry_run": True}
+        ex2 = {**ex1, "scenario": {"simulation_params": {"tFinal": 0.002}}, "ncpu": 4, "memory": "8G"}
+        desc = [md.summary, ""]
+        if md.when:
+            desc += ["# 언제 쓰나"] + [f"- {w}" for w in md.when] + [""]
+        if md.keys:
+            desc += ["# 시나리오 키 (KooChainRun --help " + md.name + ")", _md_table(md.keys), ""]
+        for ex in md.examples:
+            desc += [f"# 사례 — {ex.title}", "```json", ex.text, "```"] + [f"- {e}" for e in ex.explain] + [""]
+        if md.notes:
+            desc += ["# 주의"] + [f"- {n}" for n in md.notes] + [""]
+        desc += ["# MCP 로 부르는 법",
+                 "- 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 "
+                 "scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).",
+                 "- environment(경로·SIF·솔버 명령)는 서버가 만든다 — ncpu·memory·time_limit·solver_precision·partition·"
+                 "lstc_license_ip 인자로만 조정한다. 시간 상한(environment.timeout_*_seconds 정수)은 scenario 로 줄 수 있다.",
+                 "- 드라이버 잡 하나(1 CPU)가 KooChainRun prepare→submit→자식 잡 대기→collect→(postprocess) 를 돈다. "
+                 "진행·결과는 job_status·job_collect·job_diagnose·job_postprocess·post_* 도구로.",
+                 "- dry_run=true 로 먼저 최종 scenario.json 을 확인할 것(PAT 없이 된다)."]
+        if workflow == "drop_weight_impact":
+            desc += ["- smarttwin-partial-impact 템플릿으로 나간다(보조 입력 없음)."]
+        _write_tool(name, f"KooChainRun {md.name} — {md.summary}"[:180], "\n".join(desc),
+                    ["koochainrun", "scenario", "campaign", "lsdyna", "doe"] + _ascii_tokens(md.name, *md.aliases),
+                    _schema_plain(name, props, ["model_path"]),
+                    [{"title": "dry_run 으로 최종 scenario.json 확인", "args": ex1},
+                     {"title": "시간·자원을 바꿔 제출", "args": {**ex2, "dry_run": False}}], written, skipped)
+        specs[name] = {"family": "scenario", "mode": md.name, "workflow": workflow, "skeleton": skeleton,
+                       "precision_default": precision}
+        index.append({"family": "KooChainRun", "category": md.category, "capability": md.name, "tool": name,
+                      "summary": md.summary})
+    # 범용
+    name = "scenario_submit"
+    props = _scenario_props(None, "single", generic=True)
+    props["aux_inputs"] = {**EXTRA_INPUTS, "description": "시나리오가 이름으로 가리키는 보조 파일 절대경로(DWI 는 불가)."}
+    ex = {"model_path": f"{USER_EX}/model.k", "lstc_license_ip": "192.168.122.1", "dry_run": True,
+          "scenario": json.loads(next(m for m in cat.modes if m.name == "DROP").examples[0].text)}
+    desc = ["임의의 KooChainRun scenario.json 을 그대로 제출한다(모드 조합 자유). 모드별 기본값이 필요하면 scenario_<모드> 를 쓸 것.", "",
+            "- mode=cumulative 면 scenarios[].cumulative.mode_sequence 로 DROP/IMPACT/VIBRATION/THERM/REMAP 를 섞는다.",
+            "- 잠금·문자열 규칙·environment 생성은 scenario_<모드> 와 같다.", "", MCP_HOW_COMMON.split("\n# 결과 받기")[0]]
+    _write_tool(name, "KooChainRun 임의 scenario.json 제출 (모드 조합 자유)", "\n".join(desc),
+                ["koochainrun", "scenario", "campaign", "submit", "generic"],
+                _schema_plain(name, props, ["model_path", "scenario"]),
+                [{"title": "전체 시나리오 dry_run", "args": ex}, {"title": "제출", "args": {**ex, "dry_run": False}}],
+                written, skipped)
+    specs[name] = {"family": "scenario", "generic": True}
+    index.append({"family": "KooChainRun", "category": "범용", "capability": "scenario.json", "tool": name,
+                  "summary": "임의 scenario.json 제출"})
+
+
+def _schema_plain(title: str, props: dict, required: list[str]) -> dict:
+    return {"$schema": "https://json-schema.org/draft/2020-12/schema", "title": f"{title} args", "type": "object",
+            "additionalProperties": False, "required": required, "properties": props}
+
+
 def main() -> int:
     written, skipped, specs, index = [], [], {}, []
     blocks = gen_kmm(written, skipped, specs, index)
     gen_kam(written, skipped, specs, index)
     gen_remap(written, skipped, specs, index)
     gen_post(written, skipped, specs, index)
+    gen_scenario(written, skipped, specs, index)
     rev = lambda p: subprocess.run(["git", "-C", str(p), "rev-parse", "--short", "HEAD"],  # noqa: E731
                                    capture_output=True, text=True).stdout.strip() or "?"
     out = {"version": 1, "sources": {"pykoocae": rev(PYKOOCAE), "post_bin": str(POST_BIN)},

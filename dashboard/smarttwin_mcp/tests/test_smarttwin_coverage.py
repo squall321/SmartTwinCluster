@@ -215,4 +215,122 @@ def test_every_generated_tool_renders_its_dry_run_example(tool):
     ex = next(e for e in entry.meta.examples if e.args.get("dry_run") is True)
     r = run_tool(entry, ex.args)
     assert r.ok, (tool, r.stdout[-800:], r.stderr[-400:])
-    assert r.parsed["dry_run"] is True and r.parsed["request"]["schema"] == "stmc-tool/1"
+    assert r.parsed["dry_run"] is True
+    if SPECS["tools"][tool]["family"] == "scenario":
+        assert r.parsed["template_id"] in ("smarttwin-scenario", "smarttwin-partial-impact")
+        assert r.parsed["scenario"]["environment"]          # 서버가 만든 environment
+    else:
+        assert r.parsed["request"]["schema"] == "stmc-tool/1"
+
+
+# ── KooChainRun 시나리오 도구 ────────────────────────────────────────────────────────────
+
+import subprocess  # noqa: E402
+
+import yaml  # noqa: E402
+
+SCENARIO_TEMPLATE = (ROOT.parent / "templates" / "official" / "simulation" / "smarttwin-scenario.yaml")
+
+
+def _scenario_validator_source() -> str:
+    t = yaml.safe_load(SCENARIO_TEMPLATE.read_text(encoding="utf-8"))
+    return t["script"]["pre_exec"].split("<<'STMC_SCENARIO'\n", 1)[1].split("\nSTMC_SCENARIO\n", 1)[0]
+
+
+def _template_validate(tmp_path, scenario: dict):
+    work = tmp_path / "res"
+    work.mkdir(exist_ok=True)
+    (work / "scenario.json").write_text(json.dumps(scenario))
+    env = {**os.environ, "RESULT_DIR": str(work), "MODEL_FILE": "model.k",
+           "SLURM_JOB_NAME": "stmc_t", "SLURM_JOB_ID": "77"}
+    env.pop("FILE_AUX_TGZ", None)
+    proc = subprocess.run([sys.executable, "-c", _scenario_validator_source()], env=env, cwd=str(work),
+                          capture_output=True, text=True)
+    return proc, json.loads((work / "scenario.json").read_text())
+
+
+@needs_pykoocae
+def test_every_kcr_scenario_mode_has_a_tool():
+    cat = _catalog_kcr()
+    modes = {m.name for m in cat.modes if not m.category.startswith("명령")}
+    tools = {s["mode"] for s in SPECS["tools"].values() if s["family"] == "scenario" and not s.get("generic")}
+    assert modes == tools
+
+
+def _catalog_kcr():
+    sys.path.insert(0, str(PYKOOCAE))
+    try:
+        m = importlib.import_module("Runner.cli_help_kcr")
+        return next(v for v in vars(m).values() if type(v).__name__ == "Catalog")
+    finally:
+        sys.path.pop(0)
+
+
+@pytest.mark.parametrize("tool", ["scenario_drop", "scenario_impact", "scenario_vibration", "scenario_therm",
+                                  "scenario_remap", "scenario_part_validation"])
+def test_mcp_built_scenario_passes_template_validation(tmp_path, tool):
+    r = _run(tool, {"model_path": "/data/single/u/case/model.k", "lstc_license_ip": "192.168.122.1", "dry_run": True})
+    assert r.ok, r.stdout
+    out = r.parsed
+    assert out["template_id"] == "smarttwin-scenario"
+    proc, normalized = _template_validate(tmp_path, out["scenario"])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert normalized["project_name"] == "stmc_t_77"
+    if tool == "scenario_part_validation":
+        assert normalized["mode"] == "part_validation" and normalized["model_file"] == "model.k"
+    else:
+        assert normalized["base_dir"] == str((tmp_path / "res").resolve())
+        assert all(s["template"] == "model.k" for s in normalized["scenarios"])
+
+
+def test_dwi_routes_to_partial_impact_template():
+    r = _run("scenario_drop_weight_impact", {"model_path": "/data/single/u/m.k", "lstc_license_ip": "10.1.2.3",
+                                             "dry_run": True})
+    assert r.ok, r.stdout
+    assert r.parsed["template_id"] == "smarttwin-partial-impact"
+    sc = r.parsed["scenario"]
+    assert sc["mode"] == "drop_weight_impact" and sc["model_file"] == "m.k"
+    assert "LSTC_LICENSE_SERVER=10.1.2.3" in sc["environment"]["solver_command"]
+
+
+def test_scenario_tool_locks_environment_and_unsafe_strings(tmp_path):
+    r = _run("scenario_drop", {"model_path": "/data/single/u/m.k", "lstc_license_ip": "192.168.122.1", "dry_run": True,
+                               "scenario": {"environment": {"solver_command": "id", "timeout_per_step_seconds": 900},
+                                            "postprocess": {"section_view_axes": ["x;id"]},
+                                            "simulation_params": {"height": 777}}})
+    assert r.ok, r.stdout
+    sc = r.parsed["scenario"]
+    assert sc["simulation_params"]["height"] == 777
+    assert sc["environment"]["timeout_per_step_seconds"] == 900 and "solver_command" not in sc["environment"]
+    assert "environment.solver_command" in r.parsed["locked_overrides_dropped"]
+    assert "postprocess.section_view_axes" in r.parsed["locked_overrides_dropped"]
+    proc, _ = _template_validate(tmp_path, sc)
+    assert proc.returncode == 0, proc.stdout
+
+
+@pytest.mark.parametrize("bad_env", [{"solver_command": "id; curl x"}, {"lsdyna_apptainer_sif": "/data/x.sif"},
+                                     {"koomeshmodifier_path": "/tmp/evil"}, {"unknown_key": 1},
+                                     {"lsdyna_apptainer_env": {"LSTC_LICENSE_SERVER": "1.2.3.4;id"}}])
+def test_template_rejects_crafted_environment(tmp_path, bad_env):
+    r = _run("scenario_drop", {"model_path": "/data/single/u/m.k", "lstc_license_ip": "192.168.122.1", "dry_run": True})
+    sc = r.parsed["scenario"]
+    sc["environment"].update(bad_env)   # backend 에 직접 제출한 경우를 흉내
+    proc, _ = _template_validate(tmp_path, sc)
+    assert proc.returncode == 1 and "ERROR" in proc.stdout
+
+
+def test_template_rejects_unsafe_string_and_dwi(tmp_path):
+    r = _run("scenario_drop", {"model_path": "/data/single/u/m.k", "lstc_license_ip": "192.168.122.1", "dry_run": True})
+    sc = r.parsed["scenario"]
+    sc["postprocess"] = {"deep_memory": "8G\nid"}
+    proc, _ = _template_validate(tmp_path, sc)
+    assert proc.returncode == 1 and "안전하지 않은 문자열" in proc.stdout
+    sc2 = dict(r.parsed["scenario"], mode="drop_weight_impact")
+    proc, _ = _template_validate(tmp_path, sc2)
+    assert proc.returncode == 1 and "smarttwin-partial-impact" in proc.stdout
+
+
+def test_scenario_requires_license_ip(monkeypatch):
+    monkeypatch.delenv("STMC_LSTC_LICENSE_IP", raising=False)
+    r = _run("scenario_drop", {"model_path": "/data/single/u/m.k", "dry_run": True})
+    assert not r.ok and "lstc_license_ip" in r.parsed["reason"]

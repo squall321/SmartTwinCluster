@@ -1,0 +1,271 @@
+template:
+  id: smarttwin-scenario
+  name: SmartTwin 시나리오 (KooChainRun, MCP·REST)
+  display_name: SmartTwin 시나리오 — 낙하·충격·진동·열·REMAP·파트검증 (KooChainRun)
+  description: smarttwin-mcp(:5013) scenario_* 도구·REST 가 만든 scenario.json 으로 KooChainRun 캠페인을 실행합니다. 누적 모드(DROP·IMPACT·VIBRATION·THERM·REMAP 조합)와 part_validation 워크플로우. 부분충격(drop_weight_impact)은 smarttwin-partial-impact 템플릿을 씁니다. scenario.json 은 실행 전에 검증합니다 — environment 는 키별 허용 규칙, 모든 문자열은 안전 토큰. 결과는 /data/single/<사용자>/<잡이름>_<잡ID>/.
+  category: simulation
+  version: 1.0.0
+  source: official
+  tags:
+  - smarttwin
+  - koochainrun
+  - scenario
+  - drop
+  - impact
+  - vibration
+  - thermal
+  - remap
+  - mcp
+  is_public: true
+slurm:
+  partition: ''
+  nodes: 1
+  ntasks: 1
+  cpus_per_task: 1
+  # 드라이버는 KooChainRun prepare/submit/status/collect 만 돈다. 4G 면 작은 노드(dev 4G)에서 자식 잡이 못 들어간다.
+  # 큰 캠페인은 smarttwin-mcp scenario_* 의 driver_mem 으로 올린다.
+  mem: 1G
+  time: '167:00:00'
+apptainer:
+  image_selection:
+    mode: any
+    required: false
+  bind: []
+  env:
+    CHAIN_NODES: '2'
+    CHAIN_JOBS_PER_NODE: '2'
+    CHAIN_NCPU: '4'
+    CHAIN_POSTPROCESS: 'true'
+files:
+  input_schema:
+    required:
+    - file_key: model_k
+      name: 모델 K 파일
+      description: LS-DYNA 입력 모델 — scenario 의 template/model_file 로 들어간다
+      validation:
+        extensions:
+        - .k
+        - .key
+        - .dyn
+        max_size: 1GB
+    - file_key: scenario_json
+      name: scenario.json
+      description: smarttwin-mcp 가 만든 시나리오(검증 후 실행)
+      validation:
+        extensions:
+        - .json
+        max_size: 4MB
+    optional:
+    - file_key: aux_tgz
+      name: 보조 입력 묶음 (aux.tgz)
+      description: 각도 케이스·하중 곡선 등 — scenario 옆에 풀린다
+      validation:
+        extensions:
+        - .tgz
+        max_size: 1GB
+script:
+  pre_exec: |
+    echo "========================================"
+    echo "SmartTwin Scenario (KooChainRun, MCP/REST)"
+    echo "Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)  User: $WEB_USER"
+    echo "Started: $(date)"
+    echo "========================================"
+    RUN_DIR="$RESULT_DIR"
+    mkdir -p "$RUN_DIR" || { echo "ERROR: RUN_DIR 생성 실패: $RUN_DIR"; exit 1; }
+    cd "$RUN_DIR"
+    cp "$FILE_MODEL_K" ./
+    cp "$FILE_SCENARIO_JSON" scenario.json
+    export MODEL_FILE=$(basename "$FILE_MODEL_K")
+    python3 - <<'STMC_SCENARIO'
+    import json, os, re, sys, tarfile
+
+    RES = os.path.realpath(os.environ["RESULT_DIR"])
+    MODEL = os.environ["MODEL_FILE"]
+    JOB = "%s_%s" % (os.environ.get("SLURM_JOB_NAME", "stmc"), os.environ.get("SLURM_JOB_ID", "0"))
+
+
+    def die(msg):
+        print("ERROR: " + msg, flush=True)
+        sys.exit(1)
+
+
+    s = json.load(open("scenario.json", encoding="utf-8"))
+    mode = s.get("mode")
+    if mode == "drop_weight_impact":
+        die("drop_weight_impact(부분충격)는 smarttwin-partial-impact 템플릿으로 제출할 것")
+    if mode not in (None, "part_validation"):
+        die("지원하지 않는 최상위 mode: %r" % mode)
+
+    # 문자열은 전부 안전 토큰 — KooChainRun 이 셸 스크립트·#SBATCH 에 따옴표 없이 넣는 값이 있다.
+    SAFE_STR = re.compile(r"^[\w.,:*?/@+%=-]{0,256}$")
+    SAFE_KEY = re.compile(r"^[\w.-]{1,64}$")
+    FORBIDDEN = ("--install-dir", "--ua")
+
+
+    def walk(o, path):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                p = "%s.%s" % (path, k) if path else str(k)
+                if not isinstance(k, str) or not SAFE_KEY.fullmatch(k):
+                    die("키 이름을 쓸 수 없다: %s" % p)
+                if path == "environment":
+                    continue  # 아래에서 키별 규칙으로 따로 본다
+                if k.endswith("_extra_args"):
+                    toks = v.split() if isinstance(v, str) else v
+                    if not isinstance(toks, list) or any(("\n" in str(t)) or str(t).split("=", 1)[0] in FORBIDDEN for t in toks):
+                        die("허용하지 않는 추가 인자: %s" % p)
+                    continue
+                walk(v, p)
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                walk(v, "%s[%d]" % (path, i))
+        elif isinstance(o, str) and not SAFE_STR.fullmatch(o):
+            die("안전하지 않은 문자열 값: %s = %r" % (path, o[:60]))
+
+
+    walk(s, "")
+
+    # environment — 키별 허용 규칙(경로·명령은 공백 없는 고정 위치, SIF 는 /opt/apptainers)
+    env = s.get("environment") or {}
+    PATHLIKE = re.compile(r"^[A-Za-z0-9_./-]+$")
+    RULES = {
+        "koomeshmodifier_path": "exe", "koochainrun_path": "exe", "lsdyna_path": "exe", "kooremapper_path": "exe",
+        "mpi_path": "exe", "mpi_launcher": "exe", "solver_command": "exe",
+        "apptainer_sif": "sif", "lsdyna_apptainer_sif": "sif", "sif_path": "sif",
+        "apptainer_bind": "bind", "lsdyna_apptainer_bind": "bind",
+        "apptainer_env": "envmap", "lsdyna_apptainer_env": "envmap",
+        "memory": r"^[0-9]+[MG]$", "lsdyna_memory": r"^[0-9]+[mMgG]?$", "time_limit": r"^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$",
+        "partition": r"^[A-Za-z0-9_-]{1,32}$", "apptainer_tmpdir": r"^/data/[A-Za-z0-9_./-]+$",
+        "ncpu": "int", "nodes_per_job": "int", "mpi_enabled": "bool",
+        "timeout_per_step_seconds": "int", "timeout_koomeshmodifier_seconds": "int", "timeout_dynain_seconds": "int",
+    }
+    for k, v in env.items():
+        rule = RULES.get(k)
+        bad = rule is None
+        if rule == "exe":
+            bad = not (isinstance(v, str) and PATHLIKE.fullmatch(v) and
+                       (not v.startswith("/") or v.startswith(("/opt/", "/data/SmartTwinPreprocessor/bin/"))))
+        elif rule == "sif":
+            bad = not (isinstance(v, str) and (v == "" or re.fullmatch(r"/opt/apptainers/[A-Za-z0-9._-]+\.sif", v)))
+        elif rule == "bind":
+            bad = not (isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_./:,-]+", v))
+        elif rule == "envmap":
+            bad = not (isinstance(v, dict) and all(re.fullmatch(r"[A-Z_][A-Z0-9_]*", str(a)) and
+                                                   re.fullmatch(r"[A-Za-z0-9_./:=,@+-]*", str(b)) for a, b in v.items()))
+        elif rule == "int":
+            bad = not (type(v) is int and v >= 0)
+        elif rule == "bool":
+            bad = not isinstance(v, bool)
+        elif isinstance(rule, str) and rule.startswith("^"):
+            bad = not (isinstance(v, str) and re.fullmatch(rule, v))
+        if bad:
+            die("environment.%s 값이 허용 규칙 밖이다: %r" % (k, v))
+    pp = s.get("postprocess") or {}
+    if pp.get("sif_path") and not re.fullmatch(r"/opt/apptainers/[A-Za-z0-9._-]+\.sif", str(pp["sif_path"])):
+        die("postprocess.sif_path 는 /opt/apptainers/*.sif 만")
+
+    if "%LSTC_LICENSE_SERVER%" in json.dumps(s):
+        die("LSTC_LICENSE_SERVER 미설정(%LSTC_LICENSE_SERVER% 잔존)")
+
+    # 보조 입력 묶음 — 결과 폴더(시나리오 옆)에 푼다. 절대경로·'..'·링크 거절, 실행 비트 제거.
+    tgz = os.environ.get("FILE_AUX_TGZ")
+    if tgz and os.path.isfile(tgz):
+        with tarfile.open(tgz, "r:gz") as tf:
+            for m in tf.getmembers():
+                if m.name.startswith("/") or ".." in m.name.split("/") or not m.isfile() or "/" in m.name:
+                    die("안전하지 않은 보조 입력 항목: %s" % m.name)
+            tf.extractall(RES)
+            for m in tf.getmembers():
+                os.chmod(os.path.join(RES, m.name), 0o644)
+
+    # 경로 키 정규화 — 이 잡의 결과 폴더·업로드한 모델로 고정
+    s["project_name"] = JOB
+    if mode == "part_validation":
+        s["model_file"] = MODEL
+        s["output_dir"] = "output"
+    else:
+        s["base_dir"] = RES
+        for sc in s.get("scenarios") or []:
+            sc["template"] = MODEL
+    json.dump(s, open("scenario.json", "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+    print("scenario.json 검증·정규화 완료 (mode=%s)" % (mode or "cumulative"), flush=True)
+    STMC_SCENARIO
+    [ $? -eq 0 ] || exit 1
+    echo "--- scenario.json (앞 40줄) ---"
+    head -40 scenario.json
+  main_exec: |
+    cd "$RESULT_DIR"
+    # 자식 잡 CPU 힌트 = scenario environment.ncpu(호출자가 준 값). 템플릿 고정값보다 우선.
+    _SC_NCPU=$(python3 -c "import json; print(int((json.load(open('scenario.json')).get('environment') or {}).get('ncpu') or 0))" 2>/dev/null || echo 0)
+    [ "${_SC_NCPU:-0}" -gt 0 ] 2>/dev/null && CHAIN_NCPU="$_SC_NCPU"
+    KCR=/data/SmartTwinPreprocessor/bin/KooChainRun
+    [ -x "$KCR" ] || { echo "ERROR: KooChainRun 없음: $KCR (/data NFS 마운트 확인)"; exit 1; }
+
+    echo "=== KooChainRun prepare ==="
+    "$KCR" prepare scenario.json -o runner_config.json || { echo "ERROR: prepare 실패"; exit 1; }
+
+    # ── 350노드 클러스터 인식: DOE 크기 + sinfo 로 병렬도 auto-tune (CHAIN_* 고정 탈피) ──
+    # 없으면 CHAIN_* 기본값 폴백. 대형 클러스터에서 2노드 고정 미활용을 방지.
+    AT_HELPER=/data/SmartTwinPreprocessor/bin/chain_autotune.py
+    DOE_COUNT=$(python3 -c "import json;rc=json.load(open('runner_config.json'));print((rc.get('scenario') or {}).get('doe_count') or rc.get('total_cases') or 0)" 2>/dev/null || echo 0)
+    SUBMIT_PART=""
+    if [ -f "$AT_HELPER" ] && AT=$(python3 "$AT_HELPER" --doe "$DOE_COUNT" --ncpu "$CHAIN_NCPU" 2>/dev/null); then
+      read -r AT_PART AT_NODES AT_JPN AT_NCPU <<< "$AT"
+      echo "auto-tune(sinfo, DOE=$DOE_COUNT): partition=$AT_PART nodes=$AT_NODES jobs/node=$AT_JPN ncpu=$AT_NCPU (CHAIN_* 대체)"
+      CHAIN_NODES="$AT_NODES"; CHAIN_JOBS_PER_NODE="$AT_JPN"; CHAIN_NCPU="$AT_NCPU"
+      [ -n "$AT_PART" ] && SUBMIT_PART="--partition $AT_PART"
+    else
+      echo "auto-tune 미적용 → CHAIN_* 기본값 사용(nodes=$CHAIN_NODES). (sinfo/도우미 $AT_HELPER 확인)"
+    fi
+
+    echo "=== KooChainRun submit (nodes=$CHAIN_NODES jobs/node=$CHAIN_JOBS_PER_NODE ncpu=$CHAIN_NCPU) ==="
+    "$KCR" submit runner_config.json \
+        --nodes "$CHAIN_NODES" --jobs-per-node "$CHAIN_JOBS_PER_NODE" --ncpu-per-job "$CHAIN_NCPU" $SUBMIT_PART \
+        2>&1 | tee submit.log
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+      echo "ERROR: submit 실패 (이 노드에서 sbatch 가능한지 확인)"
+      "$KCR" diagnose . 2>/dev/null | tail -20
+      exit 1
+    fi
+
+    # 자식 잡 ID 수집: submit 출력(권위) → jobs.json 폴백.
+    # 이름 매칭 폴링 폐기 — 자식명 불일치(조기종료)·부모 셀프매칭(무한대기) 사고의 근원.
+    JOB_IDS=$(grep -oE 'Submitted batch job [0-9]+' submit.log | awk '{print $4}' | sort -u | paste -sd, -)
+    if [ -z "$JOB_IDS" ] && [ -f jobs.json ]; then
+      JOB_IDS=$(grep -oE '"job_id"[^0-9]*[0-9]+' jobs.json | grep -oE '[0-9]+$' | sort -u | paste -sd, -)
+    fi
+    if [ -z "$JOB_IDS" ]; then
+      echo "ERROR: 자식 잡 ID 를 확인하지 못함 (submit 출력/jobs.json 모두 부재) — 대기 불가로 중단"
+      exit 1
+    fi
+    echo "자식 잡 ID: $JOB_IDS"
+
+    echo "=== 자식 잡 완료 대기 (60초 간격) ==="
+    while :; do
+      ACTIVE=$(squeue -h -j "$JOB_IDS" 2>/dev/null | wc -l)
+      [ "${ACTIVE:-0}" -eq 0 ] && break
+      echo "[$(date '+%F %T')] 실행/대기 중 자식 잡: $ACTIVE"
+      "$KCR" status runner_config.json 2>/dev/null | tail -6
+      sleep 60
+    done
+    echo "=== 자식 잡 전체 종료 ==="
+  post_exec: |
+    cd "$RESULT_DIR"
+    KCR=/data/SmartTwinPreprocessor/bin/KooChainRun
+
+    echo "=== KooChainRun collect ==="
+    "$KCR" collect runner_config.json "$RESULT_DIR/collected" \
+      || echo "WARN: collect 실패 — 원시 결과는 $RESULT_DIR 내 Run_* 에 존재"
+
+    if [ "${CHAIN_POSTPROCESS:-true}" = "true" ] && python3 -c "import json,sys; sys.exit(0 if (json.load(open('scenario.json')).get('postprocess') or {}).get('enabled') else 1)"; then
+      echo "=== KooChainRun postprocess (--all) ==="
+      "$KCR" postprocess runner_config.json --all || echo "WARN: postprocess 실패 (결과는 보존됨)"
+    fi
+
+    echo "=== 진단 요약 ==="
+    "$KCR" diagnose . 2>/dev/null | tail -20 || true
+
+    echo "========================================"
+    echo "완료: $(date)"
+    echo "결과 위치: $RESULT_DIR"
+    echo "========================================"

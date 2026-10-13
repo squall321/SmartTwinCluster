@@ -286,7 +286,48 @@ def run_post(tool: str, spec: dict, args: dict) -> dict:
     return _submit(tool, "post", spec["binary"], argv, bundle, args, ident, cwd=cwd, existing_dir=existing)
 
 
-RUNNERS = {"kmm": run_kmm, "kmm_chain": run_kmm, "kam": run_kam, "remap": run_remap, "post": run_post}
+# ── KooChainRun 시나리오 ─────────────────────────────────────────────────────────
+
+def run_scenario(tool: str, spec: dict, args: dict) -> dict:
+    import scenario_builder as sb
+    from stmc_exec import submit_scenario_job
+    workflow = spec.get("workflow")
+    if spec.get("generic"):
+        mode = args.get("mode", "cumulative")
+        workflow = None if mode == "cumulative" else mode
+    dry, ident, roots = _context(args)
+    mb, ab = Bundle(roots), Bundle(roots)
+    model = mb.add_file(args["model_path"])
+    for p in args.get("aux_inputs") or []:
+        ab.add_file(p)
+    overrides = ab.rewrite_paths(args.get("scenario") or {})
+    lstc = args.get("lstc_license_ip") or os.environ.get("STMC_LSTC_LICENSE_IP")
+    if not lstc:
+        raise StmcError("lstc_license_ip 가 필요하다(서버 env STMC_LSTC_LICENSE_IP 도 없다) — 계산 노드에서 보이는 라이선스 서버 IPv4")
+    try:
+        env = sb.mode_environment(workflow, lstc, ncpu=int(args.get("ncpu", 2)), memory=args.get("memory", "4G"),
+                                  time_limit=args.get("time_limit", "12:00:00"),
+                                  precision=args.get("solver_precision", spec.get("precision_default", "single")),
+                                  partition=args.get("partition"))
+    except ValueError as e:
+        raise StmcError(str(e)) from e
+    dropped: list = []
+    skeleton = {} if spec.get("generic") else spec["skeleton"]
+    scenario = sb.build_mode_scenario(skeleton, overrides, workflow=workflow, environment=env,
+                                      model_name=model, locked_dropped=dropped)
+    if "postprocess" in args and workflow is None:
+        scenario.setdefault("postprocess", {})["enabled"] = bool(args["postprocess"])
+    res = submit_scenario_job(tool=tool, scenario=scenario, model_bundle=mb, model_name=model, aux_bundle=ab,
+                              workflow=workflow, job_name=args.get("job_name"), dry_run=dry, identity=ident,
+                              driver_mem=args.get("driver_mem"))
+    res["locked_overrides_dropped"] = dropped
+    if dropped:
+        res["locked_note"] = "보안상 받지 않은 값(서버 고정 또는 안전 토큰이 아님): " + ", ".join(dropped)
+    return res
+
+
+RUNNERS = {"kmm": run_kmm, "kmm_chain": run_kmm, "kam": run_kam, "remap": run_remap, "post": run_post,
+           "scenario": run_scenario}
 
 
 def main(argv: list[str]) -> None:

@@ -1,0 +1,88 @@
+name: scenario_submit
+version: 1.0.0
+summary: KooChainRun 임의 scenario.json 제출 (모드 조합 자유)
+description: |
+  임의의 KooChainRun scenario.json 을 그대로 제출한다(모드 조합 자유). 모드별 기본값이 필요하면 scenario_<모드> 를 쓸 것.
+
+  - mode=cumulative 면 scenarios[].cumulative.mode_sequence 로 DROP/IMPACT/VIBRATION/THERM/REMAP 를 섞는다.
+  - 잠금·문자열 규칙·environment 생성은 scenario_<모드> 와 같다.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koochainrun
+- scenario
+- campaign
+- submit
+- generic
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: 전체 시나리오 dry_run
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: true
+    scenario: &id001
+      project_name: Drop_Fibonacci26
+      base_dir: /data/<사용자>/Drop_Fibonacci26
+      environment:
+        koomeshmodifier_path: /data/SmartTwinPreprocessor/bin/KooMeshModifier
+        koochainrun_path: /data/SmartTwinPreprocessor/bin/KooChainRun
+        lsdyna_path: /opt/ls-dyna/lsdyna_R16.1.1
+        apptainer_sif: /opt/apptainers/SmartTwinPreprocessor.sif
+        apptainer_bind: /data:/data
+        lsdyna_apptainer_sif: /opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif
+        lsdyna_apptainer_bind: /data:/data
+        lsdyna_apptainer_env:
+          LSTC_LICENSE_SERVER: 192.168.122.1
+          FI_PROVIDER: tcp
+        apptainer_tmpdir: /data/tmp
+        ncpu: 8
+        memory: 16G
+        partition: normal
+        timeout_per_step_seconds: 7200
+      simulation_params:
+        height: 1500
+        tFinal: 0.005
+        dt: 1.0e-05
+        density: 7.85e-09
+        youngs_modulus: 200000.0
+        poisson_ratio: 0.3
+        drop_surface:
+          type: Plane
+          size:
+          - 300
+          - 300
+          - 20
+          mesh:
+          - 30
+          - 30
+          - 2
+      scenarios:
+      - scenario_name: Fib26
+        template: model.k
+        angle_source:
+          source_type: fibonacci_lattice
+          fibonacci_lattice:
+            num_points: 26
+        cumulative:
+          num_steps: 1
+          mode_sequence:
+          - DROP
+- title: 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: false
+    scenario: *id001

@@ -1,0 +1,106 @@
+name: scenario_drop_weight_impact
+version: 1.0.0
+summary: KooChainRun drop_weight_impact — (구) 전위치 부분충격 워크플로우 — IMPACT 시나리오와 별도 스키마
+description: |
+  (구) 전위치 부분충격 워크플로우 — IMPACT 시나리오와 별도 스키마
+
+  # 언제 쓰나
+  - 기존 drop_weight_impact 설정을 이어 쓸 때. 새 작업은 IMPACT 시나리오 권장
+
+  # 시나리오 키 (KooChainRun --help drop_weight_impact)
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `simulation_params.impactor` | 객체 | - | type(Sphere\|Cylinder), radius, height, density, youngs_modulus, poisson_ratio |
+  | `simulation_params.locations` | 객체 | - | mode(grid\|list\|lhs\|part_center), x_count/y_count 또는 spacing, margin |
+  | `simulation_params.generation_mode` | 문자 | DampingSpring | DampingSpring \| OutsideRigidPart \| OutsideRigidElement |
+  | `simulation_params.boundary_distance / offset_distance` | 실수 | 0 / - | 강체화 반경 / 초기 간격 |
+
+  # 사례 — 구 충격추 3×3 위치
+  ```json
+  {
+    "project_name": "BallDrop",
+    "mode": "drop_weight_impact",
+    "model_file": "model.k",
+    "output_dir": "dwi_output",
+    "simulation_params": {
+      "tFinal": 0.001,
+      "dt": 1e-06,
+      "impactor": {
+        "type": "Sphere",
+        "radius": 5.0,
+        "height": 500,
+        "density": 7.85e-09,
+        "youngs_modulus": 200000.0,
+        "poisson_ratio": 0.3
+      },
+      "locations": {
+        "mode": "grid",
+        "margin": 0.9,
+        "x_count": 3,
+        "y_count": 3
+      },
+      "generation_mode": "DampingSpring",
+      "boundary_distance": 0.0,
+      "offset_distance": 0.05,
+      "wall": {
+        "density": 7.85e-09,
+        "youngs_modulus": 200000.0,
+        "poisson_ratio": 0.3
+      }
+    },
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+      "ncpu": 4,
+      "memory": "4G",
+      "partition": "normal"
+    }
+  }
+  ```
+
+  # 주의
+  - 이 워크플로우는 mm 단위를 전제해 Gravity,9810 을 넘긴다. 다른 단위계면 simulation_params.gravity 로 바꿀 것.
+
+  # MCP 로 부르는 법
+  - 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).
+  - environment(경로·SIF·솔버 명령)는 서버가 만든다 — ncpu·memory·time_limit·solver_precision·partition·lstc_license_ip 인자로만 조정한다. 시간 상한(environment.timeout_*_seconds 정수)은 scenario 로 줄 수 있다.
+  - 드라이버 잡 하나(1 CPU)가 KooChainRun prepare→submit→자식 잡 대기→collect→(postprocess) 를 돈다. 진행·결과는 job_status·job_collect·job_diagnose·job_postprocess·post_* 도구로.
+  - dry_run=true 로 먼저 최종 scenario.json 을 확인할 것(PAT 없이 된다).
+  - smarttwin-partial-impact 템플릿으로 나간다(보조 입력 없음).
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koochainrun
+- scenario
+- campaign
+- lsdyna
+- doe
+- drop
+- weight
+- impact
+- dwi
+- balldrop
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 최종 scenario.json 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: true
+- title: 시간·자원을 바꿔 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: false
+    scenario:
+      simulation_params:
+        tFinal: 0.002
+    ncpu: 4
+    memory: 8G

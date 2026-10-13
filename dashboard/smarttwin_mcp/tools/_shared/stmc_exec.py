@@ -41,6 +41,11 @@
   read_result(result_dir, *, inline_limit=32768) -> dict
   wait_result(result_dir, wait_sec, *, poll=5) -> dict | None
   safe_job_name(text) -> str   backend RESULT_DIR 규칙과 어긋나지 않는 ASCII 잡 이름
+
+  submit_scenario_job(*, tool, scenario, model_bundle, model_name, aux_bundle, workflow, job_name=None,
+                      dry_run=False, identity=None, driver_mem=None) -> dict
+      KooChainRun 캠페인 하나를 smarttwin-scenario(DWI 는 smarttwin-partial-impact) 드라이버 잡으로 제출.
+
 """
 from __future__ import annotations
 
@@ -439,3 +444,64 @@ def wait_result(result_dir: str, wait_sec: int, *, poll: int = 5) -> dict | None
         if time.time() >= deadline:
             return None
         time.sleep(poll)
+
+
+# ── KooChainRun 시나리오 잡 (smarttwin-scenario / smarttwin-partial-impact 드라이버) ──────────────
+
+SCENARIO_TEMPLATE_ID = "smarttwin-scenario"
+DWI_TEMPLATE_ID = "smarttwin-partial-impact"
+
+
+def submit_scenario_job(*, tool: str, scenario: dict, model_bundle: Bundle, model_name: str,
+                        aux_bundle: Bundle, workflow: str | None, job_name: str | None = None,
+                        dry_run: bool = False, identity: dict | None = None, driver_mem: str | None = None) -> dict:
+    """KooChainRun 캠페인 하나를 드라이버 잡으로 제출한다. DWI 는 smarttwin-partial-impact(보조 입력 없음)."""
+    template_id = DWI_TEMPLATE_ID if workflow == "drop_weight_impact" else SCENARIO_TEMPLATE_ID
+    if template_id == DWI_TEMPLATE_ID and (aux_bundle.files or aux_bundle.texts):
+        raise StmcError("drop_weight_impact 는 보조 입력(aux_inputs)을 받지 않는다")
+    name = safe_job_name(job_name or f"stmc_{tool}")
+    if dry_run:
+        return {"ok": True, "dry_run": True, "tool": tool, "template_id": template_id, "job_name": name,
+                "scenario": scenario, "inputs": model_bundle.listing() + aux_bundle.listing(),
+                "note": ("제출하지 않았다. dry_run=false 면 드라이버 잡 하나가 prepare→submit→자식 잡 대기→collect"
+                         "→(postprocess) 를 호출자 권한으로 돈다." + ("" if model_bundle.roots is not None else
+                         " PAT 가 없어 경로는 아직 검사하지 않았다."))}
+    ident = identity or caller_identity()
+    user = ident["username"]
+    with tempfile.TemporaryDirectory(prefix="stmc_sc_") as td:
+        sp = os.path.join(td, "scenario.json")
+        with open(sp, "w", encoding="utf-8") as f:
+            json.dump(scenario, f, indent=2, ensure_ascii=False)
+        files = {"file_model_k": (model_name, model_bundle.files[model_name]),
+                 "file_scenario_json": ("scenario.json", sp)}
+        tgz = aux_bundle.pack(td)
+        if tgz:
+            files["file_aux_tgz"] = ("aux.tgz", tgz)
+        drv = {"mem": driver_mem} if driver_mem and template_id == SCENARIO_TEMPLATE_ID else {}
+        status, data = backend_multipart("/api/jobs/submit", {"template_id": template_id, "job_name": name,
+                                                              "slurm_overrides": json.dumps(drv)}, files)
+    job_id = data.get("job_id") if isinstance(data, dict) else None
+    if not (200 <= status < 300 and job_id):
+        return {"ok": False, "tool": tool, "http": status, "error": "backend 제출 실패", "response": data}
+    result_dir = f"{user_area(user)}/{name}_{job_id}"
+    out = {"ok": True, "tool": tool, "template_id": template_id, "job_id": str(job_id), "result_dir": result_dir,
+           "submitted_by": user, "registry_id": None}
+    try:
+        import registry
+        out["registry_id"] = registry.record_submission(
+            tool_name=tool, work_dir=result_dir, output_dir=result_dir + "/output", project_name=name,
+            runner_config_path=result_dir + "/runner_config.json", slurm_job_ids=[str(job_id)],
+            extra={"kind": template_id, "workflow": workflow or "cumulative", "web_user": user})
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import audit
+        audit.record_event(actor=user, tool=tool, action="submit",
+                           summary=f"{tool}: KooChainRun 캠페인 via {template_id} -> job {job_id}",
+                           target_kind="job", target_id=str(out["registry_id"] or job_id),
+                           detail={"workflow": workflow or "cumulative", "result_dir": result_dir})
+    except Exception:  # noqa: BLE001
+        pass
+    out["follow_up_hint"] = (f"드라이버 잡 {job_id} 이 자식 잡들을 낸다. job_status·job_collect·job_diagnose·job_stop 에 "
+                             f"registry_id={out['registry_id']} 를 쓰고, 끝나면 post_* 도구를 {result_dir} 에 쓸 수 있다.")
+    return out

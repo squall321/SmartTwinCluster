@@ -1,0 +1,140 @@
+name: scenario_remap
+version: 1.0.0
+summary: KooChainRun REMAP — 누적 스텝 사이에 KooRemapper 변환(재질 교체 등)을 끼우는 러너 전용 스텝
+description: |
+  누적 스텝 사이에 KooRemapper 변환(재질 교체 등)을 끼우는 러너 전용 스텝
+
+  # 언제 쓰나
+  - 1차 낙하 후 재질·형상을 KooRemapper 로 바꾸고 2차 낙하를 이어갈 때
+
+  # 시나리오 키 (KooChainRun --help REMAP)
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `step_params.<n>.op` (필수) | 문자 | - | KooRemapper 명령 (matdb, map ...) |
+  | `step_params.<n>.config` | 객체 | - | YAML ops 설정. model/output 은 러너가 넣는다 |
+  | `step_params.<n>.argv` | 배열 | - | config 대신 위치 인자 (출력은 *_dti.k 로) |
+
+  # 사례 — 낙하 → matdb 재질 교체 → 누적 낙하
+  ```json
+  {
+    "project_name": "Drop_Remap_Drop",
+    "base_dir": "/data/<사용자>/Drop_Remap_Drop",
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+      "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
+      "apptainer_sif": "/opt/apptainers/SmartTwinPreprocessor.sif",
+      "apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_sif": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+      "lsdyna_apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_env": {
+        "LSTC_LICENSE_SERVER": "192.168.122.1",
+        "FI_PROVIDER": "tcp"
+      },
+      "apptainer_tmpdir": "/data/tmp",
+      "ncpu": 8,
+      "memory": "16G",
+      "partition": "normal",
+      "timeout_per_step_seconds": 7200
+    },
+    "simulation_params": {
+      "height": 1500,
+      "tFinal": 0.005,
+      "dt": 1e-05,
+      "density": 7.85e-09,
+      "youngs_modulus": 200000.0,
+      "poisson_ratio": 0.3,
+      "drop_surface": {
+        "type": "Plane",
+        "size": [
+          300,
+          300,
+          20
+        ],
+        "mesh": [
+          30,
+          30,
+          2
+        ]
+      }
+    },
+    "scenarios": [
+      {
+        "scenario_name": "RemapMat",
+        "template": "model.k",
+        "angle_source": {
+          "source_type": "fibonacci_lattice",
+          "fibonacci_lattice": {
+            "num_points": 2
+          }
+        },
+        "cumulative": {
+          "num_steps": 3,
+          "mode_sequence": [
+            "DROP",
+            "REMAP",
+            "DROP"
+          ],
+          "step_params": {
+            "2": {
+              "op": "matdb",
+              "config": {
+                "materials": [
+                  {
+                    "match": "*"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+  ```
+  - REMAP 스텝은 LS-DYNA 를 돌리지 않는다. 입력·출력 dynain 핸드오프는 러너가 한다.
+  - KooRemapper 명령 옵션은 KooRemapper help matdb.
+
+  # 주의
+  - REMAP 만 있는 시퀀스는 DROP 경로를 타서 기본 angle_source(26 방향)만큼 DOE 가 생긴다.
+
+  # MCP 로 부르는 법
+  - 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).
+  - environment(경로·SIF·솔버 명령)는 서버가 만든다 — ncpu·memory·time_limit·solver_precision·partition·lstc_license_ip 인자로만 조정한다. 시간 상한(environment.timeout_*_seconds 정수)은 scenario 로 줄 수 있다.
+  - 드라이버 잡 하나(1 CPU)가 KooChainRun prepare→submit→자식 잡 대기→collect→(postprocess) 를 돈다. 진행·결과는 job_status·job_collect·job_diagnose·job_postprocess·post_* 도구로.
+  - dry_run=true 로 먼저 최종 scenario.json 을 확인할 것(PAT 없이 된다).
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koochainrun
+- scenario
+- campaign
+- lsdyna
+- doe
+- remap
+- kooremapper
+- matdb
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 최종 scenario.json 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: true
+- title: 시간·자원을 바꿔 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: false
+    scenario:
+      simulation_params:
+        tFinal: 0.002
+    ncpu: 4
+    memory: 8G

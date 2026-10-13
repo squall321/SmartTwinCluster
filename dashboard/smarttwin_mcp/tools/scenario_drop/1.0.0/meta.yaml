@@ -1,0 +1,228 @@
+name: scenario_drop
+version: 1.0.0
+summary: KooChainRun DROP — 낙하 시나리오 — 자세 DOE(피보나치·육면체·스윕) × 누적 스텝
+description: |
+  낙하 시나리오 — 자세 DOE(피보나치·육면체·스윕) × 누적 스텝
+
+  # 언제 쓰나
+  - 여러 낙하 자세를 클러스터에 한꺼번에 돌릴 때
+  - 같은 제품을 여러 번 떨어뜨리는 누적 낙하 (num_steps ≥ 2)
+
+  # 시나리오 키 (KooChainRun --help DROP)
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `angle_source.source_type` | 문자 | cuboid_geometry | cuboid_geometry(면·모서리·꼭짓점 26) \| fibonacci_lattice \| pitching_sweep \| rolling_sweep \| case_txt_file |
+  | `angle_source.fibonacci_lattice.num_points` | 정수 | 26 | 피보나치 구면 점 수 (별칭 num_directions) |
+  | `angle_source.cuboid_geometry.include_faces/edges/corners` | bool | true | 육면체 방향 선택 |
+  | `angle_source.fibonacci_lattice.sampling_space` | physical \| latlon | physical | physical = 실제 낙하 방향 등간격. latlon = 옛 방식(방향이 적도에 몰림) |
+  | `tolerance.roll/pitch/yaw + doe_type/doe_count` | 객체 | lhs / 10 | 각도 공차 DOE 확장 |
+  | `cumulative.num_steps / mode_sequence` | 정수 / 배열 | 1 / DROP×n | 누적 스텝 |
+  | `cumulative.angle_mixing.strategy` | 문자 | same_angle | same_angle \| cyclic \| random \| opposite \| custom_mapping |
+  | `simulation_params.height` | 실수 | 1500 | 낙하 높이 (모델 단위) |
+  | `simulation_params.gravity` | 실수 | 재질 밀도로 판정 | 자유낙하 g (모델 단위, --help units) |
+  | `simulation_params.tFinal / dt` | 실수 | 0.005 / 1e-6 | 종료 시간 / d3plot 간격 |
+  | `simulation_params.density / youngs_modulus / poisson_ratio` | 실수 | 7.85e-9 / 2e5 / 0.3 | 바닥판 재질 |
+  | `simulation_params.offset_distance` | 실수 | 0.05 | 바닥판 초기 간격 |
+  | `simulation_params.drop_surface` | 객체 | Plane 300×300×20, 30×30×2 | type: Plane \| PlaneGraded(num_outer_layers, ratio) \| RigidWall \| PlanewithRoughness |
+  | `simulation_params.drop_contact` | 객체 | {} | 바닥판 접촉 카드 필드 (SOFT, DTSTIF, FS ...) |
+  | `simulation_params.robust_contact / robust_contact_tolerance` | bool / 실수 | false / 0.1 | Tied 면 제외 SINGLE_SURFACE |
+  | `simulation_params.rigidify_small_dt_threshold` | 실수 | 0 | 작은 dt 요소 강체화 |
+  | `simulation_params.control_timestep / control_hourglass` | 객체 | {} | *CONTROL_TIMESTEP(DT2MS 등) / *CONTROL_HOURGLASS 덮어쓰기 |
+  | `simulation_params.dynamic_relaxation` | bool \| 객체 | false | 누적 스텝 사이 DR (nrcyck, drtol, drfctr, drterm) |
+  | `simulation_params.dtmin` | 실수 | 1e-10 (DR 이면 0.01) | CONTROL_TERMINATION DTMIN |
+  | `simulation_params.non_reflecting_boundary / include_wall_in_general` | bool | false | 바닥판 옵션 |
+
+  # 사례 — 피보나치 26 자세 1.5 m 1회 낙하
+  ```json
+  {
+    "project_name": "Drop_Fibonacci26",
+    "base_dir": "/data/<사용자>/Drop_Fibonacci26",
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+      "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
+      "apptainer_sif": "/opt/apptainers/SmartTwinPreprocessor.sif",
+      "apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_sif": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+      "lsdyna_apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_env": {
+        "LSTC_LICENSE_SERVER": "192.168.122.1",
+        "FI_PROVIDER": "tcp"
+      },
+      "apptainer_tmpdir": "/data/tmp",
+      "ncpu": 8,
+      "memory": "16G",
+      "partition": "normal",
+      "timeout_per_step_seconds": 7200
+    },
+    "simulation_params": {
+      "height": 1500,
+      "tFinal": 0.005,
+      "dt": 1e-05,
+      "density": 7.85e-09,
+      "youngs_modulus": 200000.0,
+      "poisson_ratio": 0.3,
+      "drop_surface": {
+        "type": "Plane",
+        "size": [
+          300,
+          300,
+          20
+        ],
+        "mesh": [
+          30,
+          30,
+          2
+        ]
+      }
+    },
+    "scenarios": [
+      {
+        "scenario_name": "Fib26",
+        "template": "model.k",
+        "angle_source": {
+          "source_type": "fibonacci_lattice",
+          "fibonacci_lattice": {
+            "num_points": 26
+          }
+        },
+        "cumulative": {
+          "num_steps": 1,
+          "mode_sequence": [
+            "DROP"
+          ]
+        }
+      }
+    ]
+  }
+  ```
+  - model.k 는 scenario.json 옆에 둔다. prepare → submit → status → collect.
+
+  # 사례 — 육면 6 자세 × 3회 누적 (cyclic), 견고 접촉·작은 dt 강체화·DR
+  ```json
+  {
+    "project_name": "Drop_Cumulative3",
+    "base_dir": "/data/<사용자>/Drop_Cumulative3",
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+      "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
+      "apptainer_sif": "/opt/apptainers/SmartTwinPreprocessor.sif",
+      "apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_sif": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+      "lsdyna_apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_env": {
+        "LSTC_LICENSE_SERVER": "192.168.122.1",
+        "FI_PROVIDER": "tcp"
+      },
+      "apptainer_tmpdir": "/data/tmp",
+      "ncpu": 8,
+      "memory": "16G",
+      "partition": "normal",
+      "timeout_per_step_seconds": 7200
+    },
+    "simulation_params": {
+      "height": 1000,
+      "tFinal": 0.003,
+      "dt": 5e-05,
+      "density": 7.85e-09,
+      "youngs_modulus": 200000.0,
+      "poisson_ratio": 0.3,
+      "drop_surface": {
+        "type": "PlaneGraded",
+        "size": [
+          200,
+          200,
+          20
+        ],
+        "mesh": [
+          10,
+          10,
+          2
+        ],
+        "num_outer_layers": 5,
+        "ratio": 1.5
+      },
+      "robust_contact": true,
+      "rigidify_small_dt_threshold": 1e-07,
+      "drop_contact": {
+        "SOFT": 2,
+        "DTSTIF": 3e-08
+      },
+      "dynamic_relaxation": true
+    },
+    "scenarios": [
+      {
+        "scenario_name": "Face6_Cum3",
+        "template": "model.k",
+        "angle_source": {
+          "source_type": "cuboid_geometry",
+          "cuboid_geometry": {
+            "include_faces": true,
+            "include_edges": false,
+            "include_corners": false
+          }
+        },
+        "cumulative": {
+          "num_steps": 3,
+          "mode_sequence": [
+            "DROP",
+            "DROP",
+            "DROP"
+          ],
+          "angle_mixing": {
+            "strategy": "cyclic",
+            "cyclic_offset": 1
+          }
+        }
+      }
+    ]
+  }
+  ```
+  - step 2 부터 앞 스텝 dynain(변형+응력)을 이어받는다.
+  - dynamic_relaxation 이 켜져 있으면 dtmin 미지정 시 0.01 이 자동으로 들어간다.
+
+  # 주의
+  - 자세 수 × 스텝 수만큼 LS-DYNA 가 돈다 — 먼저 작은 num_points 로 확인할 것.
+  - 발산 대비 environment.timeout_per_step_seconds 를 실제 walltime 의 2~3 배로.
+
+  # MCP 로 부르는 법
+  - 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).
+  - environment(경로·SIF·솔버 명령)는 서버가 만든다 — ncpu·memory·time_limit·solver_precision·partition·lstc_license_ip 인자로만 조정한다. 시간 상한(environment.timeout_*_seconds 정수)은 scenario 로 줄 수 있다.
+  - 드라이버 잡 하나(1 CPU)가 KooChainRun prepare→submit→자식 잡 대기→collect→(postprocess) 를 돈다. 진행·결과는 job_status·job_collect·job_diagnose·job_postprocess·post_* 도구로.
+  - dry_run=true 로 먼저 최종 scenario.json 을 확인할 것(PAT 없이 된다).
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koochainrun
+- scenario
+- campaign
+- lsdyna
+- doe
+- drop
+- fibonacci
+- cuboid
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 최종 scenario.json 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: true
+- title: 시간·자원을 바꿔 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: false
+    scenario:
+      simulation_params:
+        tFinal: 0.002
+    ncpu: 4
+    memory: 8G

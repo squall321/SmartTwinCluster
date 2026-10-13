@@ -1,0 +1,241 @@
+name: scenario_impact
+version: 1.0.0
+summary: KooChainRun IMPACT — 충격 시나리오 — 모델 윗면 격자 위치마다 구·다단 실린더 충격추 낙하
+description: |
+  충격 시나리오 — 모델 윗면 격자 위치마다 구·다단 실린더 충격추 낙하
+
+  # 언제 쓰나
+  - 화면·배면 여러 위치에 충격추를 떨어뜨려 취약 위치를 찾을 때
+
+  # 시나리오 키 (KooChainRun --help IMPACT)
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `position_source.source_type` | 문자 | grid_nxm | grid_nxm(nx, ny, bbox) \| grid_spacing(spacing_x, spacing_y, bbox) \| manual |
+  | `position_source.grid_nxm.bbox` | [xmin,ymin,xmax,ymax] | 모델 bbox | 위치 격자 범위 |
+  | `simulation_params.impact.type` | Sphere \| cylinder | Sphere | 충격추 형상 |
+  | `simulation_params.impact.dimension` | 실수 | 0.008 | 구 반지름 |
+  | `simulation_params.impact.cylinder_stages` | 배열 | - | [front, back] 또는 [front, mid, back]. 각 role, diameter, outer_diameter(front), height, density, youngs_modulus, poisson |
+  | `simulation_params.impact.height` | 실수 | 0.5 | 낙하 높이 (모델 단위) |
+  | `simulation_params.impact.gravity` | 실수 | 재질 밀도로 판정 | 자유낙하 g (모델 단위, --help units) |
+  | `simulation_params.impact.mesh_size / offset_distance` | 실수 | 0.001 / 1e-5 | 충격추 요소 크기 / 초기 간격 |
+  | `simulation_params.impact.density / youngs_modulus / poisson_ratio` | 실수 | 7.85e-9 / 2.01e5 / 0.3 | 구 재질 (실린더는 stage 값 우선, back 단 = 본체) |
+  | `simulation_params.impact.tFinal / dt / dtmin` | 실수 | 0.001 / 1e-6 / - | 시간 |
+  | `simulation_params.wall.density / youngs_modulus / poisson_ratio / num_x,y,z` | - | 1e-9 / 1e4 / 0.3 / 10 | 바닥 벽 |
+
+  # 사례 — 반지름 8 mm 강구, 80×80 영역 3×3 위치, 500 mm 낙하
+  ```json
+  {
+    "project_name": "Impact_Grid3x3",
+    "base_dir": "/data/<사용자>/Impact_Grid3x3",
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+      "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
+      "apptainer_sif": "/opt/apptainers/SmartTwinPreprocessor.sif",
+      "apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_sif": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+      "lsdyna_apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_env": {
+        "LSTC_LICENSE_SERVER": "192.168.122.1",
+        "FI_PROVIDER": "tcp"
+      },
+      "apptainer_tmpdir": "/data/tmp",
+      "ncpu": 8,
+      "memory": "16G",
+      "partition": "normal",
+      "timeout_per_step_seconds": 7200
+    },
+    "simulation_params": {
+      "impact": {
+        "type": "Sphere",
+        "dimension": 8,
+        "height": 500,
+        "mesh_size": 1,
+        "dimension_damper": [
+          1,
+          1,
+          1
+        ],
+        "density": 7.85e-09,
+        "youngs_modulus": 201000.0,
+        "poisson_ratio": 0.3,
+        "tFinal": 0.001,
+        "dt": 1e-05,
+        "offset_distance": 0.01
+      },
+      "wall": {
+        "density": 1e-09,
+        "youngs_modulus": 10000.0,
+        "poisson_ratio": 0.3
+      }
+    },
+    "scenarios": [
+      {
+        "scenario_name": "Grid3x3",
+        "template": "model.k",
+        "position_source": {
+          "source_type": "grid_nxm",
+          "grid_nxm": {
+            "nx": 3,
+            "ny": 3,
+            "bbox": [
+              -40,
+              -40,
+              40,
+              40
+            ]
+          }
+        },
+        "cumulative": {
+          "num_steps": 1,
+          "mode_sequence": [
+            "IMPACT"
+          ]
+        }
+      }
+    ]
+  }
+  ```
+
+  # 사례 — 3단 실린더 충격추 2×2 위치 + 자동 후처리
+  ```json
+  {
+    "project_name": "Impact_Cylinder3Stage",
+    "base_dir": "/data/<사용자>/Impact_Cylinder3Stage",
+    "environment": {
+      "koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier",
+      "koochainrun_path": "/data/SmartTwinPreprocessor/bin/KooChainRun",
+      "lsdyna_path": "/opt/ls-dyna/lsdyna_R16.1.1",
+      "apptainer_sif": "/opt/apptainers/SmartTwinPreprocessor.sif",
+      "apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_sif": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+      "lsdyna_apptainer_bind": "/data:/data",
+      "lsdyna_apptainer_env": {
+        "LSTC_LICENSE_SERVER": "192.168.122.1",
+        "FI_PROVIDER": "tcp"
+      },
+      "apptainer_tmpdir": "/data/tmp",
+      "ncpu": 8,
+      "memory": "16G",
+      "partition": "normal",
+      "timeout_per_step_seconds": 7200
+    },
+    "simulation_params": {
+      "impact": {
+        "type": "cylinder",
+        "height": 200,
+        "mesh_size": 2,
+        "tFinal": 0.001,
+        "dt": 1e-05,
+        "offset_distance": 0.01,
+        "cylinder_stages": [
+          {
+            "role": "front",
+            "diameter": 8,
+            "outer_diameter": 20,
+            "height": 6,
+            "density": 1.18e-09,
+            "youngs_modulus": 100.0,
+            "poisson": 0.49
+          },
+          {
+            "role": "mid",
+            "diameter": 20,
+            "height": 14,
+            "density": 6.57e-09,
+            "youngs_modulus": 207000.0,
+            "poisson": 0.3
+          },
+          {
+            "role": "back",
+            "diameter": 44.5,
+            "height": 38.003,
+            "density": 6.57e-09,
+            "youngs_modulus": 207000.0,
+            "poisson": 0.3
+          }
+        ]
+      },
+      "wall": {
+        "density": 1e-09,
+        "youngs_modulus": 10000.0,
+        "poisson_ratio": 0.3
+      }
+    },
+    "scenarios": [
+      {
+        "scenario_name": "Cyl8pi",
+        "template": "model.k",
+        "position_source": {
+          "source_type": "grid_nxm",
+          "grid_nxm": {
+            "nx": 2,
+            "ny": 2,
+            "bbox": [
+              -20,
+              -20,
+              20,
+              20
+            ]
+          }
+        },
+        "cumulative": {
+          "num_steps": 1,
+          "mode_sequence": [
+            "IMPACT"
+          ]
+        }
+      }
+    ],
+    "postprocess": {
+      "enabled": true,
+      "sif_path": "/opt/apptainers/SmartTwinPostprocessor.sif",
+      "auto_deep": true,
+      "auto_deep_mode": "inline",
+      "auto_impact": true
+    }
+  }
+  ```
+  - back 단 재질이 KMM 의 *Impactor 슬롯(본체)으로 들어간다.
+
+  # MCP 로 부르는 법
+  - 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).
+  - environment(경로·SIF·솔버 명령)는 서버가 만든다 — ncpu·memory·time_limit·solver_precision·partition·lstc_license_ip 인자로만 조정한다. 시간 상한(environment.timeout_*_seconds 정수)은 scenario 로 줄 수 있다.
+  - 드라이버 잡 하나(1 CPU)가 KooChainRun prepare→submit→자식 잡 대기→collect→(postprocess) 를 돈다. 진행·결과는 job_status·job_collect·job_diagnose·job_postprocess·post_* 도구로.
+  - dry_run=true 로 먼저 최종 scenario.json 을 확인할 것(PAT 없이 된다).
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koochainrun
+- scenario
+- campaign
+- lsdyna
+- doe
+- impact
+- ball
+- drop
+- cylinder
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 최종 scenario.json 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: true
+- title: 시간·자원을 바꿔 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    lstc_license_ip: 192.168.122.1
+    dry_run: false
+    scenario:
+      simulation_params:
+        tFinal: 0.002
+    ncpu: 4
+    memory: 8G
