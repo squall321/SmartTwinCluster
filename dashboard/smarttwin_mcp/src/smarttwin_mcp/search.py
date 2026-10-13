@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from .spec import ToolEntry
 
 
-_TOK = re.compile(r"[a-z0-9_]+")
+# 한글 토큰도 뽑는다 — SmartTwin 도구 설명은 대부분 한글이다. 한글은 조사가 붙어 있으므로
+# ("낙하를", "재질의") 부분 문자열로 맞춘다(_score). 영문·숫자는 예전처럼 토큰 일치.
+_TOK = re.compile(r"[a-z0-9_]+|[가-힣]+")
+_HANGUL = re.compile(r"^[가-힣]+$")
 
 
 def _tokens(s: str) -> list[str]:
@@ -48,7 +51,8 @@ def _score(entry: ToolEntry, q_tokens: list[str]) -> float:
     score = 0.0
     for field_text, weight in haystacks.values():
         toks = set(_tokens(field_text))
-        score += weight * sum(1 for t in q_tokens if t in toks)
+        low = field_text.lower()
+        score += weight * sum(1 for t in q_tokens if t in toks or (_HANGUL.match(t) and t in low))
     if entry.meta.deprecated:
         score *= 0.3
     return score
