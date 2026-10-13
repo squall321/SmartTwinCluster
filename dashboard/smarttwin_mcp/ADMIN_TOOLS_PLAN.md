@@ -79,8 +79,8 @@ git show 6f1f8698^:dashboard/mcp_slurm/server.py
 ## 단계
 
 - **Phase 0 (backend).** 위 1~4 결정·반영. backend 변경은 `start_production.sh`로 dashboard_backend 재기동.
-- **Phase 1 (공용 헬퍼).** `tools/_shared/backend_client.py` 신설.
-  `require_user()`(GET /api/me → username·role·permissions, 401/403/연결실패는 fail-closed),
+- **Phase 1 (공용 헬퍼).** 호출자 확인(GET /api/me → username·role·permissions, 401/403/연결실패는 fail-closed)은
+  병행 작업 중인 `tools/_shared/stmc_exec.py`의 헬퍼를 재사용한다(새로 만들지 않는다). 거기 없는 것만 보탠다 —
   `backend_get()`/`backend_post()`(STMC_CLUSTER_URL + Bearer STMC_CLUSTER_TOKEN, 타임아웃 15초),
   `validate_job_id()`/`validate_node()`, 목록 상한 헬퍼. 기존 `job_helpers.py`와 같은 env 규약을 따른다.
   관리자 쓰기 도구용 `mode-admin` 태그를 신설할지 정한다(lint.py:76 `_MODE_TAG_RE`, AGENT_GUIDE §18.2).
@@ -100,7 +100,8 @@ git show 6f1f8698^:dashboard/mcp_slurm/server.py
 - [ ] 운영 SSO-on 여부 확인
 
 ### Phase 1 — 공용 헬퍼
-- [ ] `tools/_shared/backend_client.py` 작성(require_user, backend_get/post, validate_*, 상한)
+- [ ] `stmc_exec.py`의 /api/me 호출자 확인 헬퍼 확인(함수명·반환 형태) 후 재사용
+- [ ] 부족분(backend_get/post, validate_*, 상한) 추가 — 위치는 stmc_exec.py 작성 세션과 협의
 - [ ] `mode-admin` 태그 신설 여부 결정 → 신설 시 lint.py `_MODE_TAG_RE` + AGENT_GUIDE §18.2 갱신
 
 ### Phase 2 — 읽기 9종 (도구마다 meta.yaml · args.schema.json · script.sh · latest 심링크 · 예시 2개 이상)
@@ -153,3 +154,6 @@ git show 6f1f8698^:dashboard/mcp_slurm/server.py
 - `node_management_api_fixed.py`, `node_management_api_with_path.py`는 등록되지 않은 사본이다. 실제 등록은 `node_management_api`(app.py:121).
 - 같은 쓰기 API를 프론트도 쓴다 — `frontend_3010/src/components/SlurmManagement/index.tsx`, `NodeManagement/index.tsx`, `src/utils/api.ts`.
 - `catalog_reload`(server.py:191)는 카탈로그를 다시 읽어 새 도구·버전을 재시작 없이 반영한다.
+- (2026-10-13) 다른 세션(pykoocae)이 smarttwin_mcp를 병행 수정 중 — `tools/_shared/{scenario_builder,job_helpers,stmc_exec,stmc_tools}.py`,
+  `src/smarttwin_mcp/{server,search}.py`, 신규 도구(kmm_·kam_·remap_·post_·scenario_*)는 그쪽 담당. 이관 작업 시 이 파일들은
+  직접 고치지 말고 협의한다. `stmc_exec.py`에 fail-closed /api/me 헬퍼가 들어온다고 해서 Phase 1을 재사용으로 바꿨다.
