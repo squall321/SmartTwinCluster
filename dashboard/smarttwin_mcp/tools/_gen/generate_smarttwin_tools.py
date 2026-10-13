@@ -646,6 +646,14 @@ def gen_post(written, skipped, specs, index):
 SCENARIO_TOOLS = {"DROP": "scenario_drop", "IMPACT": "scenario_impact", "VIBRATION": "scenario_vibration",
                   "THERM": "scenario_therm", "REMAP": "scenario_remap",
                   "part_validation": "scenario_part_validation", "drop_weight_impact": "scenario_drop_weight_impact"}
+# KooChainRun 명령 → 손으로 쓴 도구. 새 명령이 생기면 생성이 멈춘다(대응 도구를 정할 것).
+KCR_COMMAND_TOOLS = {"prepare": "scenario_submit", "submit": "scenario_submit", "status": "job_status",
+                     "collect": "job_collect", "postprocess": "job_postprocess", "diagnose": "job_diagnose",
+                     "rerun": "job_rerun", "stop": "job_stop", "reprioritize": "job_reprioritize",
+                     "harvest": "job_harvest"}
+KCR_INTERNAL_COMMANDS = {"run"}  # 계산 노드에서 submit 이 부르는 내부 명령
+ONE_CLICK_TOOLS = {"fullangle_drop_simulation": "전각도 낙하 원클릭 — 모델 하나로 피보나치 N 방향 낙하 + 자동 후처리",
+                   "single_drop_simulation": "지정 각도(roll/pitch/yaw) 1방향 낙하 원클릭"}
 _IPV4 = "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
 
 
@@ -741,6 +749,15 @@ def gen_scenario(written, skipped, specs, index):
     specs[name] = {"family": "scenario", "generic": True}
     index.append({"family": "KooChainRun", "category": "범용", "capability": "scenario.json", "tool": name,
                   "summary": "임의 scenario.json 제출"})
+    for md in cat.modes:
+        if md.category != "명령" or md.name in KCR_INTERNAL_COMMANDS:
+            continue
+        if md.name not in KCR_COMMAND_TOOLS:
+            raise SystemExit(f"KooChainRun 명령 {md.name} 에 대응 도구가 없다 — KCR_COMMAND_TOOLS 에 정할 것")
+        index.append({"family": "KooChainRun", "category": "명령", "capability": md.name,
+                      "tool": KCR_COMMAND_TOOLS[md.name], "summary": md.summary})
+    for tool, summary in ONE_CLICK_TOOLS.items():
+        index.append({"family": "KooChainRun", "category": "원클릭", "capability": tool, "tool": tool, "summary": summary})
 
 
 def _schema_plain(title: str, props: dict, required: list[str]) -> dict:
@@ -762,7 +779,8 @@ def main() -> int:
     (SHARED / "stmc_specs.json").write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     cov = ["<!-- 생성됨: tools/_gen/generate_smarttwin_tools.py — SmartTwin 기능 ↔ MCP/REST 도구 대응표 -->",
            "# SmartTwin 기능 커버리지", "",
-           f"정본 pyKooCAE `{out['sources']['pykoocae']}` · 후처리 `{POST_BIN}` 기준. 도구 {len(index)}개.", "",
+           f"정본 pyKooCAE `{out['sources']['pykoocae']}` · 후처리 `{POST_BIN}` 기준. "
+           f"기능 {len(index)}개 → 도구 {len({r['tool'] for r in index})}개.", "",
            "| 제품 | 분류 | 기능 | MCP 도구 (REST: POST /smarttwin-api/v1/tools/<도구>/run) | 요약 |", "|---|---|---|---|---|"]
     for r in index:
         cov.append(f"| {r['family']} | {r['category']} | {r['capability']} | `{r['tool']}` | {str(r['summary'])[:80]} |")

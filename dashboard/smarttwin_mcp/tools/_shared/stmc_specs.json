@@ -1890,6 +1890,90 @@
    "capability": "scenario.json",
    "tool": "scenario_submit",
    "summary": "임의 scenario.json 제출"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "prepare",
+   "tool": "scenario_submit",
+   "summary": "scenario.json → runner_config.json"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "submit",
+   "tool": "scenario_submit",
+   "summary": "Slurm 제출"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "status",
+   "tool": "job_status",
+   "summary": "진행 상황"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "collect",
+   "tool": "job_collect",
+   "summary": "결과 수집"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "postprocess",
+   "tool": "job_postprocess",
+   "summary": "후처리 수동 실행"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "diagnose",
+   "tool": "job_diagnose",
+   "summary": "실패 원인 진단"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "rerun",
+   "tool": "job_rerun",
+   "summary": "실패·미완료 재실행"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "stop",
+   "tool": "job_stop",
+   "summary": "잡 전부 취소"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "reprioritize",
+   "tool": "job_reprioritize",
+   "summary": "대기 잡 우선순위 재배치"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "harvest",
+   "tool": "job_harvest",
+   "summary": "취약 조건 JSON 추출"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "원클릭",
+   "capability": "fullangle_drop_simulation",
+   "tool": "fullangle_drop_simulation",
+   "summary": "전각도 낙하 원클릭 — 모델 하나로 피보나치 N 방향 낙하 + 자동 후처리"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "원클릭",
+   "capability": "single_drop_simulation",
+   "tool": "single_drop_simulation",
+   "summary": "지정 각도(roll/pitch/yaw) 1방향 낙하 원클릭"
   }
  ]
 }

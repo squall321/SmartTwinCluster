@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "oneOf": [{"required": ["registry_id"]}, {"required": ["job_id"]}, {"required": ["work_dir"]}],
+  "properties": {
+    "registry_id": {"type": "integer", "minimum": 1, "description": "캠페인 제출 응답의 registry_id"},
+    "job_id": {"type": ["string", "integer"], "pattern": "^[0-9]{1,12}$", "minimum": 1, "description": "캠페인 드라이버 잡의 Slurm job_id"},
+    "work_dir": {"type": "string", "pattern": "^/.+", "description": "캠페인 결과 폴더 절대경로(/data/single/<사용자>/ 아래)"},
+    "apply": {"type": "boolean", "default": false, "description": "true 면 실제 scontrol top/hold (admin 만)"},
+    "release_held": {"type": "boolean", "default": false, "description": "true 면 이 캠페인의 hold 된 대기 잡을 푼다(apply 와 함께 못 씀)"},
+    "radius_deg": {"type": "number", "minimum": 1, "maximum": 180, "description": "핫 방향 근접 반경(°, 기본 25)"},
+    "z_thr": {"type": "number", "minimum": 0, "description": "핫 판정 z-score 임계(기본 1.5)"},
+    "yield_factor": {"type": "number", "minimum": 0, "description": "핫 판정 항복 절대비 임계(기본 1.0)"},
+    "top_n": {"type": "integer", "minimum": 1, "description": "top 으로 올릴 최대 잡 수(기본 전체)"}
+  }
+}

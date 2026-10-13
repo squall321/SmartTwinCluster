@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "oneOf": [{"required": ["registry_id"]}, {"required": ["job_id"]}, {"required": ["work_dir"]}],
+  "properties": {
+    "registry_id": {"type": "integer", "minimum": 1, "description": "캠페인 제출 응답의 registry_id"},
+    "job_id": {"type": ["string", "integer"], "pattern": "^[0-9]{1,12}$", "minimum": 1, "description": "캠페인 드라이버 잡의 Slurm job_id"},
+    "work_dir": {"type": "string", "pattern": "^/.+", "description": "캠페인 결과 폴더 절대경로(/data/single/<사용자>/ 아래)"},
+    "top": {"type": "integer", "minimum": 1, "description": "위험도 상위 N개만(기본 전체)"},
+    "hot_only": {"type": "boolean", "default": false, "description": "핫 판정된 조건만"},
+    "z_thr": {"type": "number", "minimum": 0, "description": "핫 판정 z-score 임계(기본 1.5)"},
+    "yield_factor": {"type": "number", "minimum": 0, "description": "핫 판정 항복 절대비 임계(기본 1.0)"},
+    "parts": {"type": "string", "pattern": "^[0-9]{1,10}(,[0-9]{1,10}){0,99}$", "description": "이 파트(콤마 PID)만 기준으로"},
+    "from_scenario": {"type": "string", "pattern": "^/.+\\.json$", "description": "이 scenario.json 의 part_doe 파트를 기준으로(절대경로, 호출자 영역 안)"},
+    "yield_mpa": {"type": "number", "exclusiveMinimum": 0, "description": "전 파트 공통 항복강도(MPa)"},
+    "yield_by_part": {"type": "string", "pattern": "^[0-9]{1,10}:[0-9]+(\\.[0-9]+)?(,[0-9]{1,10}:[0-9]+(\\.[0-9]+)?){0,199}$",
+                      "description": "파트별 항복강도 \"3:350,7:120\"(yield_mpa 보다 우선)"}
+  }
+}

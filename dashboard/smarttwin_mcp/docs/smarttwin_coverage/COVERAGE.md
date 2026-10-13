@@ -1,7 +1,7 @@
 <!-- 생성됨: tools/_gen/generate_smarttwin_tools.py — SmartTwin 기능 ↔ MCP/REST 도구 대응표 -->
 # SmartTwin 기능 커버리지
 
-정본 pyKooCAE `7711e10` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 도구 116개.
+정본 pyKooCAE `7711e10` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 기능 128개 → 도구 126개.
 
 | 제품 | 분류 | 기능 | MCP 도구 (REST: POST /smarttwin-api/v1/tools/<도구>/run) | 요약 |
 |---|---|---|---|---|
@@ -121,3 +121,15 @@
 | KooChainRun | 워크플로우 (최상위 mode) | part_validation | `scenario_part_validation` | 파트별 0° 낙하 검증 — 파트마다 독립 .k 로 쪼개 해석 가능 여부 사전 점검 |
 | KooChainRun | 워크플로우 (최상위 mode) | drop_weight_impact | `scenario_drop_weight_impact` | (구) 전위치 부분충격 워크플로우 — IMPACT 시나리오와 별도 스키마 |
 | KooChainRun | 범용 | scenario.json | `scenario_submit` | 임의 scenario.json 제출 |
+| KooChainRun | 명령 | prepare | `scenario_submit` | scenario.json → runner_config.json |
+| KooChainRun | 명령 | submit | `scenario_submit` | Slurm 제출 |
+| KooChainRun | 명령 | status | `job_status` | 진행 상황 |
+| KooChainRun | 명령 | collect | `job_collect` | 결과 수집 |
+| KooChainRun | 명령 | postprocess | `job_postprocess` | 후처리 수동 실행 |
+| KooChainRun | 명령 | diagnose | `job_diagnose` | 실패 원인 진단 |
+| KooChainRun | 명령 | rerun | `job_rerun` | 실패·미완료 재실행 |
+| KooChainRun | 명령 | stop | `job_stop` | 잡 전부 취소 |
+| KooChainRun | 명령 | reprioritize | `job_reprioritize` | 대기 잡 우선순위 재배치 |
+| KooChainRun | 명령 | harvest | `job_harvest` | 취약 조건 JSON 추출 |
+| KooChainRun | 원클릭 | fullangle_drop_simulation | `fullangle_drop_simulation` | 전각도 낙하 원클릭 — 모델 하나로 피보나치 N 방향 낙하 + 자동 후처리 |
+| KooChainRun | 원클릭 | single_drop_simulation | `single_drop_simulation` | 지정 각도(roll/pitch/yaw) 1방향 낙하 원클릭 |

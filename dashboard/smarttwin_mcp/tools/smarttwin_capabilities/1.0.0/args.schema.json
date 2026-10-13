@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "family": {"type": "string", "enum": ["KooMeshModifier", "KooAutomatedModeller", "KooRemapper", "KooChainRun", "SmartTwinPostprocessor"],
+               "description": "제품으로 좁히기"},
+    "query": {"type": "string", "maxLength": 100, "description": "기능 이름·요약·도구 이름 부분 일치(대소문자 무시)"}
+  }
+}

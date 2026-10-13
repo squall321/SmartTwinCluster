@@ -46,6 +46,11 @@
                       dry_run=False, identity=None, driver_mem=None) -> dict
       KooChainRun 캠페인 하나를 smarttwin-scenario(DWI 는 smarttwin-partial-impact) 드라이버 잡으로 제출.
 
+  find_owned_job(args, username) -> (잡 폴더 realpath, registry 행 | None)
+      args 의 registry_id·job_id·work_dir 로 찾고 호출자 영역 밖이면 StmcError.
+  campaign_dir(job_dir, row=None) -> runner_config.json 이 있는 KooChainRun 테스트 폴더
+  campaign_queue(test_dir) -> ({잡ID: {state, reason, command}}, [남의 잡 ID])
+      jobs.json 의 잡 중 큐에 있는 것. command(배치 스크립트)가 test_dir 밖이면 남의 잡 — scontrol 전에 거른다.
 """
 from __future__ import annotations
 
@@ -505,3 +510,65 @@ def submit_scenario_job(*, tool: str, scenario: dict, model_bundle: Bundle, mode
     out["follow_up_hint"] = (f"드라이버 잡 {job_id} 이 자식 잡들을 낸다. job_status·job_collect·job_diagnose·job_stop 에 "
                              f"registry_id={out['registry_id']} 를 쓰고, 끝나면 post_* 도구를 {result_dir} 에 쓸 수 있다.")
     return out
+
+
+# ── 후속 도구 (tool_result · job_reprioritize · job_harvest) ───────────────────────────────────
+
+def find_owned_job(args: dict, username: str) -> tuple[str, dict | None]:
+    """registry_id·job_id·work_dir 중 하나로 잡 폴더를 찾는다. 폴더는 호출자 영역(/data/single/<사용자>) 안이어야 한다.
+    registry 로 찾은 폴더는 아직 없을 수 있다(큐 대기) — 그때는 상위 폴더만 확인한다."""
+    import registry
+    row = None
+    if args.get("registry_id") is not None:
+        row = registry.get_by_id(int(args["registry_id"]))
+        if not row:
+            raise StmcError(f"registry_id {args['registry_id']} 가 없다")
+    elif args.get("job_id"):
+        jid = str(args["job_id"])
+        row = next((r for r in registry.list_recent(limit=5000) if jid in (r.get("slurm_job_ids") or [])), None)
+        if not row:
+            raise StmcError(f"job_id {jid} 를 registry 에서 못 찾았다 — work_dir 로 줄 것")
+    elif not args.get("work_dir"):
+        raise StmcError("registry_id·job_id·work_dir 중 하나가 필요하다")
+    path = row["work_dir"] if row else args["work_dir"]
+    return check_under(path, [user_area(username)], kind="parent" if row else "dir"), row
+
+
+def campaign_dir(job_dir: str, row: dict | None = None) -> str:
+    """runner_config.json 이 있는 KooChainRun 테스트 폴더(잡 폴더 자신 또는 그 output/)."""
+    cands = [os.path.dirname(row["runner_config_path"])] if row and row.get("runner_config_path") else []
+    for c in cands + [job_dir, os.path.join(job_dir, "output")]:
+        real = os.path.realpath(c)
+        if _inside(real, [job_dir]) and os.path.isfile(os.path.join(real, "runner_config.json")):
+            return real
+    raise StmcError(f"KooChainRun 캠페인 폴더가 아니다(runner_config.json 없음): {job_dir}")
+
+
+def parse_squeue(text: str) -> dict:
+    """`squeue -h -o %i|%T|%r|%o` 출력 → {잡ID: {state, reason, command}}."""
+    out = {}
+    for line in text.splitlines():
+        parts = line.strip().split("|", 3)
+        if len(parts) == 4 and parts[0].isdigit():
+            out[parts[0]] = {"state": parts[1], "reason": parts[2], "command": parts[3]}
+    return out
+
+
+def campaign_queue(test_dir: str) -> tuple[dict, list[str]]:
+    """jobs.json 의 잡 중 아직 큐에 있는 것과, 그중 이 캠페인 스크립트로 제출되지 않은 잡(남의 잡)을 돌려준다.
+    jobs.json 은 사용자 폴더에 있어 손댈 수 있으므로 scontrol 을 걸기 전에 반드시 이것으로 걸러야 한다."""
+    try:
+        with open(os.path.join(test_dir, "jobs.json"), encoding="utf-8") as f:
+            jobs = json.load(f).get("jobs", {})
+    except (OSError, ValueError, AttributeError) as e:
+        raise StmcError(f"jobs.json 을 읽지 못했다({test_dir}): {e}")
+    ids = {str(j.get("job_id")) for j in (jobs.values() if isinstance(jobs, dict) else jobs)
+           if isinstance(j, dict) and str(j.get("job_id", "")).isdigit()}
+    import subprocess
+    r = subprocess.run(["squeue", "-h", "-o", "%i|%T|%r|%o"], capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        raise StmcError(f"squeue 실패: {r.stderr.strip()[:300]}")
+    queued = {j: q for j, q in parse_squeue(r.stdout).items() if j in ids}
+    foreign = sorted(j for j, q in queued.items()
+                     if not _inside(os.path.realpath(q["command"]), [test_dir]))
+    return queued, foreign

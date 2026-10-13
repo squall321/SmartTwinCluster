@@ -1,0 +1,24 @@
+name: tool_result
+version: 1.0.0
+summary: SmartTwin 도구 잡(kmm_*·kam_*·remap_*·post_*)의 상태·rc·산출물·로그 꼬리를 본다 (기다리기 가능)
+description: |
+  kmm_*/kam_*/remap_*/post_* 가 낸 smarttwin-tool 잡의 결과를 읽는다. 제출 응답의 job_id 나 registry_id 하나면 된다.
+
+  # 돌려주는 것
+  - result.state: pending(큐 대기·시작 전) | running | done
+  - done 이면 result 에 rc·outputs(경로·크기)·stdout_tail·stderr_tail·inline_outputs(32KB 이하 텍스트 산출물 최대 8개)
+  - queue: 아직 큐에 있으면 squeue 한 줄(잡ID 상태 경과 사유)
+
+  # 주의
+  - wait_sec 를 주면 그 시간 안에 끝나기를 기다린다(최대 1800초).
+  - 시나리오 캠페인(scenario_*·fullangle_drop_simulation) 잡은 job_status·job_collect·job_diagnose 를 쓸 것 — 이 도구는 폴더 목록만 준다.
+  - 호출자 영역(/data/single/<사용자>/) 의 잡만 볼 수 있다(PAT 필요).
+tags: [result, status, outputs, smarttwin, mode-own]
+aliases: [result, outputs]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 1900}
+expose: direct
+examples:
+  - title: job_id 로 결과 보기
+    args: {job_id: "1173"}
+  - title: 끝날 때까지 2분 기다리기
+    args: {registry_id: 12, wait_sec: 120}

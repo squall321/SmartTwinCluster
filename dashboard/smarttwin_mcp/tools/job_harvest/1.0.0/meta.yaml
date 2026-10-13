@@ -1,0 +1,25 @@
+name: job_harvest
+version: 1.0.0
+summary: KooChainRun harvest — 끝난 전각도·전위치 결과에서 위험 상위 각도/위치를 다음 시나리오용 JSON 으로 뽑는다
+description: |
+  sphere_report.json(전각도 낙하) 또는 impact_report.json(전위치 충격) 결과에서 위험도 상위 조건을 골라,
+  scenario.json 의 angle_source.explicit.file / position_source.manual.file 에 그대로 물릴 수 있는 JSON 을
+  캠페인 폴더에 만든다(risk_angles.json · risk_positions.json). 통합 리포트가 없으면 개별 result.json 을 훑는다(각도만).
+
+  # 쓰는 법
+  - 돌려준 risk_files 경로를 다음 scenario_drop·scenario_impact 의 aux_inputs 로 넘기고, scenario 의
+    angle_source.explicit.file(또는 position_source.manual.file)에 파일 이름을 적는다.
+  - 통합 리포트에는 항복강도가 없다 — yield_mpa(또는 yield_by_part)를 줘야 절대 기준(σ/항복)이 켜진다.
+  - parts 또는 from_scenario(그 시나리오의 part_doe 파트)로 특정 파트 기준 위험만 볼 수 있다(둘은 함께 못 씀).
+  - registry_id·job_id·work_dir 중 하나. 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+tags: [koochainrun, harvest, risk, doe, mode-own]
+aliases: [harvest, risk]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 600}
+expose: catalog
+examples:
+  - title: 위험 상위 20개
+    args: {registry_id: 42, top: 20}
+  - title: 핫만 + 항복 350MPa
+    args: {work_dir: /data/single/USER/campaign_1182, hot_only: true, yield_mpa: 350}
+  - title: 파트 12·15 기준
+    args: {registry_id: 42, parts: "12,15", top: 10}
