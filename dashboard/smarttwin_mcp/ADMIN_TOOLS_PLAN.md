@@ -78,10 +78,13 @@ mcp_slurm 19개 도구 중 smarttwin_mcp에 대응 도구가 없는 아래 11개
 ## 단계
 
 - **Phase 0 (backend).** 위 1~4 결정·반영. backend 변경은 `start_production.sh`로 dashboard_backend 재기동.
-- **Phase 1 (공용 헬퍼).** 호출자 확인(GET /api/me → username·role·permissions, 401/403/연결실패는 fail-closed)은
-  병행 작업 중인 `tools/_shared/stmc_exec.py`의 헬퍼를 재사용한다(새로 만들지 않는다). 거기 없는 것만 보탠다 —
-  `backend_get()`/`backend_post()`(STMC_CLUSTER_URL + Bearer STMC_CLUSTER_TOKEN, 타임아웃 15초),
-  `validate_job_id()`/`validate_node()`, 목록 상한 헬퍼. 기존 `job_helpers.py`와 같은 env 규약을 따른다.
+- **Phase 1 (공용 헬퍼).** 병행 작업 중인 `tools/_shared/stmc_exec.py`(표준 라이브러리만, 아직 미커밋)를 재사용한다.
+  작성 세션이 알려준 API는 다음과 같다.
+  `caller_identity(timeout=15)` → `{username, role, permissions, groups, raw}`(GET /api/me, URL·토큰 누락·비2xx·
+  username 형식 불일치 시 `StmcError`), `backend_request(method, path, *, json_body, query, timeout)` → `(status, data)`
+  (Bearer 인증, 4xx/5xx는 예외가 아니라 status로 반환, URL·토큰 누락·네트워크 오류는 `StmcError`).
+  가져오는 방법은 `sys.path.insert(0, SHARED_DIR); from stmc_exec import StmcError, caller_identity, backend_request`.
+  거기 없는 `validate_job_id()`/`validate_node()`와 목록 상한 헬퍼만 보탠다(위치는 작성 세션과 협의).
   관리자 쓰기 도구용 `mode-admin` 태그를 신설할지 정한다(lint.py:76 `_MODE_TAG_RE`, AGENT_GUIDE §18.2).
 - **Phase 2 (읽기 9종).** `query_job_accounting`은 Phase 0의 2번 이후.
 - **Phase 3 (쓰기 2종).** Phase 0의 1번 결정·반영 이후.
@@ -99,8 +102,8 @@ mcp_slurm 19개 도구 중 smarttwin_mcp에 대응 도구가 없는 아래 11개
 - [ ] 운영 SSO-on 여부 확인
 
 ### Phase 1 — 공용 헬퍼
-- [ ] `stmc_exec.py`의 /api/me 호출자 확인 헬퍼 확인(함수명·반환 형태) 후 재사용
-- [ ] 부족분(backend_get/post, validate_*, 상한) 추가 — 위치는 stmc_exec.py 작성 세션과 협의
+- [ ] `stmc_exec.py` 커밋 확인 후 `caller_identity`/`backend_request`/`StmcError` 재사용
+- [ ] 부족분(validate_job_id/validate_node, 목록 상한) 추가 — 위치는 stmc_exec.py 작성 세션과 협의
 - [ ] `mode-admin` 태그 신설 여부 결정 → 신설 시 lint.py `_MODE_TAG_RE` + AGENT_GUIDE §18.2 갱신
 
 ### Phase 2 — 읽기 9종 (도구마다 meta.yaml · args.schema.json · script.sh · latest 심링크 · 예시 2개 이상)
@@ -122,7 +125,9 @@ mcp_slurm 19개 도구 중 smarttwin_mcp에 대응 도구가 없는 아래 11개
 - [ ] `smarttwin-mcp lint tools/` 오류 0
 - [ ] `pytest tests/test_catalog.py tests/test_lint.py` 통과
 - [ ] `scripts/smoke_all_tools.py`의 `MINIMAL_ARGS`/`EXTERNAL_DEPS`에 신규 도구 등록 후 스모크
-- [ ] dev e2e — PAT 있음=실데이터, PAT 없음=fail-closed, 일반 사용자 PAT로 쓰기=403, 쓰기 기본 dry_run 확인
+- [ ] dev e2e — PAT 있음=실데이터, PAT 없음=fail-closed, 쓰기 기본 dry_run 확인
+- [ ] 권한(일반 사용자 PAT로 쓰기=403) 검증 — dev 는 SSO off 라 모든 PAT 가 mock admin 이 되어 불가.
+      SSO-on 환경(스테이징/운영)에서 하거나, backend 권한 함수 단위 테스트로 대체
 - [ ] dev 실동작 1회(사용자 승인 후) — node002 drain→resume, 테스트 잡 hold→release
 - [ ] AGENT_GUIDE §21(Slurm 래퍼) 목록 갱신
 - [ ] deploy/RUNBOOK.md "미이관 도구" 섹션 → 이관 완료로 갱신, MIGRATION.md 체크
