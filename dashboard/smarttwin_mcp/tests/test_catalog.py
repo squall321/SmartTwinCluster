@@ -58,11 +58,12 @@ def test_run_echo_local():
     assert result.parsed["echoed"] == ["hi", "hi"]
 
 
-def test_run_submit_job_local():
+def test_run_submit_job_local(monkeypatch):
+    # submit_job@1.2.0 은 backend_5010 실제출(07-16)이라 서버 env 가 없으면 fail-closed 여야 한다.
+    monkeypatch.delenv("STMC_CLUSTER_URL", raising=False)
     cat = load_catalog(TOOLS_ROOT)
     entry = cat.resolve("submit_job")
-    result = run_tool(entry, {"case_dir": "/data/x", "solver": "smarttwin-dyna"})
-    assert result.ok, (result.stderr, result.stdout)
+    result = run_tool(entry, {"template_id": "lsdyna-r16-basic", "dry_run": True})
+    assert not result.ok, (result.stderr, result.stdout)
     assert result.parsed is not None
-    assert result.parsed["job_id"].startswith("stc-")
-    assert result.parsed["solver"] == "smarttwin-dyna"
+    assert "STMC_CLUSTER_URL" in result.parsed["error"]

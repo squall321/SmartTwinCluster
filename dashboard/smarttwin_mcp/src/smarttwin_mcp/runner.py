@@ -218,6 +218,13 @@ def _run_http(entry: ToolEntry, args: dict, t: HttpTransport, extra_env: dict | 
     env = {**os.environ, **(extra_env or {})}
 
     url, miss_url = _interpolate_env(t.url, env)
+    # 남은 ${VAR} 의 {VAR} 를 아래 format_map 이 인자로 오인하므로 env 누락을 먼저 보고한다.
+    if miss_url:
+        return RunResult(
+            ok=False, exit_code=None, stdout="",
+            stderr=f"missing env vars: {', '.join(sorted(set(miss_url)))}",
+            parsed=None, transport="http", command=f"{t.method} {t.url}",
+        )
     # env(${VAR}) 보간 후, args({arg}) 도 URL 에 보간 — 경로 파라미터(예: /api/jobs/{job_id}/info)
     # 를 args 로 채우기 위함. body_template 과 동일한 format_map 규약(누락 arg → KeyError).
     try:
