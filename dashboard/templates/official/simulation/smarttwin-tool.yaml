@@ -20,8 +20,9 @@ slurm:
   partition: ""
   nodes: 1
   ntasks: 1
-  cpus_per_task: 4
-  mem: 16G
+  # 최소값 — smarttwin-mcp 가 도구 종류별 기본(2~4 CPU, 8~16G)을 클러스터 최대 노드에 맞춰 slurm_overrides 로 준다.
+  cpus_per_task: 1
+  mem: 2G
   time: "24:00:00"
 
 apptainer:
@@ -85,6 +86,10 @@ script:
     }
     # SIF 안의 읽기 전용 번들(재질 DB 등) — 인자에 나와도 된다.
     RO_PREFIXES = ("/opt/kooremapper/", "/opt/kood3plot/", "/opt/SmartTwinPreprocessor/")
+    # 실행 파일을 고르게 하는 옵션 — 이걸 열면 화이트리스트를 우회한다(/bin/sh 를 가리키면 업로드 없이도 실행).
+    FORBIDDEN_FLAGS = ("--install-dir", "--ua")
+    FORBIDDEN_KEY_RE = re.compile(r"""(?m)(?:^|[\s{,;])["']?(lsprepost_path|install_dir|ua_path)["']?\s*[:=]""")
+    TEXT_SUFFIXES = (".yaml", ".yml", ".json", ".txt", ".cfg", ".ini", ".csv", ".tsv", ".dat")
 
 
     def write_result(**kw):
@@ -145,6 +150,12 @@ script:
                     die("안전하지 않은 입력 묶음 항목: %s" % m.name)
             tf.extractall(WORK)
             inputs = sorted(m.name for m in members if m.isfile())
+        # 올라온 파일은 실행할 수 없게 한다(어떤 옵션이 실행 경로로 쓰더라도 막히도록).
+        for dp, dns, fns in os.walk(WORK):
+            for dn in dns:
+                os.chmod(os.path.join(dp, dn), 0o755)
+            for fn in fns:
+                os.chmod(os.path.join(dp, fn), 0o644)
 
     # 작업 폴더: work(기본) 또는 기존 결과 폴더(후처리 제자리 실행).
     cwd = WORK
@@ -159,27 +170,49 @@ script:
     # 생성된 텍스트 입력(옵션·YAML·JSON)의 자리표시자 치환 + 그 안의 절대경로 검사.
     DOTDOT = re.compile(r"""(?:^|[\s,:=\"'\[(/])\.\.(?:/|$)""", re.M)
     PATH_IN_TEXT = re.compile(r"""(?:(?<=[\s,:=\"'\[(])|^)(/(?:data|home|shared|etc|root|tmp|var|usr|proc|srv|mnt|opt)(?:/[^\s,\"'\]\)]*)?)""", re.M)
-    for name in req.get("texts") or []:
+    def check_text(label, body):
+        m = FORBIDDEN_KEY_RE.search(body)
+        if m:
+            die("%s 에 실행 경로를 바꾸는 키가 있다: %s — 허용하지 않는다" % (label, m.group(1)))
+        if DOTDOT.search(body):
+            die("%s 에 '..' 경로가 있다 — 입력은 묶음 안 파일 이름으로만 참조할 것" % label)
+        for m in PATH_IN_TEXT.finditer(body):
+            q = m.group(1)
+            if not (q.startswith(RO_PREFIXES) or inside(os.path.realpath(q), roots)):
+                die("%s 안의 경로가 허용 범위 밖이다: %s" % (label, q))
+
+    texts = set(req.get("texts") or [])
+    for name in sorted(texts):
         p = os.path.realpath(os.path.join(WORK, name))
         if not inside(p, [WORK]) or not os.path.isfile(p):
             die("texts 항목이 입력 묶음에 없다: %s" % name)
         body = subst(open(p, encoding="utf-8", errors="replace").read())
-        if DOTDOT.search(body):
-            die("%s 에 '..' 경로가 있다 — 입력은 묶음 안 파일 이름으로만 참조할 것" % name)
-        for m in PATH_IN_TEXT.finditer(body):
-            q = m.group(1)
-            if not (q.startswith(RO_PREFIXES) or inside(os.path.realpath(q), roots)):
-                die("%s 안의 경로가 허용 범위 밖이다: %s" % (name, q))
+        check_text(name, body)
         open(p, "w", encoding="utf-8").write(body)
+    # 생성 텍스트가 아니어도 올라온 텍스트형 파일(설정 YAML 등)은 같은 검사를 받는다.
+    for name in inputs:
+        p = os.path.join(WORK, name)
+        if name not in texts and name.lower().endswith(TEXT_SUFFIXES) and os.path.getsize(p) <= 4 << 20:
+            check_text(name, open(p, encoding="utf-8", errors="replace").read())
 
     # 인자의 절대경로 검사 (--opt=/path 형태 포함).
     argv = [subst(a) for a in argv]
+    # 금지 옵션은 다른 검사보다 먼저, 인자 전체를 공백 조각까지 본다(post_analyze --*-opts 통과 문자열 포함).
+    for a in argv:
+        for piece in a.split():
+            if piece.split("=", 1)[0] in FORBIDDEN_FLAGS:
+                die("실행 파일을 고르는 옵션은 허용하지 않는다: %s" % piece.split("=", 1)[0])
     for a in argv:
         if ".." in re.split(r"[/=]", a):
             die("인자에 '..' 경로가 있다: %s" % a)
         m = re.match(r"^(?:--?[\w-]+=)?(/.*)$", a)
         if m and not (m.group(1).startswith(RO_PREFIXES) or inside(os.path.realpath(m.group(1)), roots)):
             die("인자의 경로가 허용 범위 밖이다: %s" % a)
+        if m:
+            q = os.path.realpath(m.group(1))
+            if os.path.isfile(q) and q.lower().endswith(TEXT_SUFFIXES) and os.path.getsize(q) <= 4 << 20 \
+                    and not q.startswith(RO_PREFIXES):
+                check_text(os.path.basename(q), open(q, encoding="utf-8", errors="replace").read())
 
     cmd = ["apptainer", "exec", "--bind", "/data:/data"]
     if os.path.isdir("/shared"):

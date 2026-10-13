@@ -196,3 +196,66 @@ def test_existing_dir_must_be_inside_user_area(env, tmp_path):
 def test_missing_sif_fails_cleanly(env):
     proc, res = _run(env, _req(), extra_env={"STMC_PRE_SIF": "/nonexistent.sif"})
     assert proc.returncode == 1 and "SIF" in res["error"]
+
+
+# ── 실행 경로 우회 차단 (후처리 --install-dir/--ua, lsprepost_path) ─────────────────────
+
+def _post(**kw):
+    return _req(family="post", binary="koo_deep_report", **kw)
+
+
+@pytest.mark.parametrize("argv", [
+    ["--install-dir", "/data/x"],
+    ["--ua=/bin/sh"],
+    ["--ua", "/bin/sh"],
+    ["/x", "--deep-opts", "--parts 100 --install-dir /tmp"],   # post_analyze 통과 문자열 안
+])
+def test_rejects_executable_selecting_flags(env, argv):
+    proc, res = _run(env, _post(argv=argv))
+    assert proc.returncode == 1 and "실행 파일을 고르는 옵션" in res["error"], res
+
+
+def test_rejects_forbidden_key_in_uploaded_yaml(env):
+    cfg = "render:\n  lsprepost_path: /bin/sh\n"
+    proc, res = _run(env, _post(argv=["--config", "@@WORK@@/cfg.yaml"]), files={"cfg.yaml": cfg})
+    assert proc.returncode == 1 and "lsprepost_path" in res["error"]
+
+
+def test_rejects_forbidden_key_in_argv_referenced_config(env):
+    cfgdir = env["user_area"] / "case"
+    cfgdir.mkdir()
+    (cfgdir / "ua.yaml").write_text('{"install_dir": "/tmp"}')
+    proc, res = _run(env, _post(argv=["--config", str(cfgdir / "ua.yaml")]))
+    assert proc.returncode == 1 and "install_dir" in res["error"]
+
+
+def test_rejects_foreign_path_in_uploaded_yaml(env):
+    cfg = "d3plot: /data/single/bob/run1/d3plot\n"
+    proc, res = _run(env, _post(argv=["--config", "@@WORK@@/cfg.yaml"]), files={"cfg.yaml": cfg})
+    assert proc.returncode == 1 and "허용 범위 밖" in res["error"]
+
+
+def test_uploaded_files_lose_exec_bit(env):
+    tmp = env["tmp"]
+    req = tmp / "request.json"
+    req.write_text(json.dumps(_req(argv=["info", "@@WORK@@/run.sh"])))
+    src = tmp / "run.sh"
+    src.write_text("#!/bin/sh\necho hi\n")
+    src.chmod(0o755)
+    tgz = tmp / "inputs.tgz"
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(src, arcname="run.sh")
+    e = {**env["env"], "FILE_REQUEST_JSON": str(req), "FILE_INPUTS_TGZ": str(tgz)}
+    proc = subprocess.run([sys.executable, "-c", _dispatcher_source()], env=e,
+                          capture_output=True, text=True, cwd=str(env["result"]))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    mode = (env["result"] / "work" / "run.sh").stat().st_mode & 0o777
+    assert mode == 0o644
+
+
+@pytest.mark.parametrize("cfg", ['{"lsprepost_path": "sh"}', "{render: {lsprepost_path: sh}}",
+                                 "a: 1\n  ua_path : sh\n", "x=1;install_dir=sh"])
+def test_forbidden_key_with_relative_value_is_caught(env, cfg):
+    # 상대 값(sh)은 경로 검사에 걸리지 않으므로 키 검사만이 막는다 — 한 줄 JSON·flow 매핑 포함.
+    proc, res = _run(env, _post(argv=["--config", "@@WORK@@/c.json"]), files={"c.json": cfg})
+    assert proc.returncode == 1 and "실행 경로를 바꾸는 키" in res["error"], res
