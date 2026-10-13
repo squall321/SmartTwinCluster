@@ -78,8 +78,8 @@ mcp_slurm 19개 도구 중 smarttwin_mcp에 대응 도구가 없는 아래 11개
 ## 단계
 
 - **Phase 0 (backend).** 위 1~4 결정·반영. backend 변경은 `start_production.sh`로 dashboard_backend 재기동.
-- **Phase 1 (공용 헬퍼).** 병행 작업 중인 `tools/_shared/stmc_exec.py`(표준 라이브러리만, 아직 미커밋)를 재사용한다.
-  작성 세션이 알려준 API는 다음과 같다.
+- **Phase 1 (공용 헬퍼).** `tools/_shared/stmc_exec.py`(표준 라이브러리만, 커밋 8216b84e)를 재사용한다.
+  API는 모듈 docstring과 AGENT_GUIDE §9.6에 있고, 요점은 다음과 같다.
   `caller_identity(timeout=15)` → `{username, role, permissions, groups, raw}`(GET /api/me, URL·토큰 누락·비2xx·
   username 형식 불일치 시 `StmcError`), `backend_request(method, path, *, json_body, query, timeout)` → `(status, data)`
   (Bearer 인증, 4xx/5xx는 예외가 아니라 status로 반환, URL·토큰 누락·네트워크 오류는 `StmcError`).
@@ -102,7 +102,8 @@ mcp_slurm 19개 도구 중 smarttwin_mcp에 대응 도구가 없는 아래 11개
 - [ ] 운영 SSO-on 여부 확인
 
 ### Phase 1 — 공용 헬퍼
-- [ ] `stmc_exec.py` 커밋 확인 후 `caller_identity`/`backend_request`/`StmcError` 재사용
+- [ ] `stmc_exec.py`(8216b84e)의 `caller_identity`/`backend_request`/`StmcError` 재사용 — PAT 없을 때 fail-closed는
+      `tests/test_smarttwin_coverage.py`에서 이미 검증됨
 - [ ] 부족분(validate_job_id/validate_node, 목록 상한) 추가 — 위치는 stmc_exec.py 작성 세션과 협의
 - [ ] `mode-admin` 태그 신설 여부 결정 → 신설 시 lint.py `_MODE_TAG_RE` + AGENT_GUIDE §18.2 갱신
 
