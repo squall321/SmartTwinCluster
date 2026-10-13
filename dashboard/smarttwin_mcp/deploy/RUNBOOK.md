@@ -2,12 +2,12 @@
 # RUNBOOK — smarttwin_mcp 운영(icn401) 오프라인 배포
 
 대상. icn401 = **Ubuntu 24.04, 오프라인, Python 3.12+**. 스테이징(이 박스)에서 검증 완료된 절차.
-스트랭글러 컷오버 — mcp-slurm(:5012) 는 폴백으로 계속 가동.
+컷오버 완료 후 구 mcp-slurm(:5012) 은 제거됨(2026-10-13) — 5012 폴백/롤백 경로는 더 이상 없다.
 
 경로·계정은 하드코딩하지 않는다. `install_offline.sh --install-service` 가
 **계정 = env SERVICE_USER → YAML web_services.service_user → users.ssh_user → cluster_info.head_nodes[0].ssh_user**,
 **경로 = repo 위치에서 유도** 하여 `smarttwin-mcp.service.example` 의 placeholder 를 치환한다
-(mcp_slurm 의 `.service.example` + install_offline.sh 규약과 동일).
+(MCP류 공통 `.service.example` + install_offline.sh 규약).
 
 ## 0. 사전 조건
 - Python 3.12+ 확인: `python3.12 --version`. 없으면 apt(오프라인)로 —
@@ -58,23 +58,22 @@ sudo sed -i -e 's#proxy_pass http://127.0.0.1:5012;#proxy_pass http://127.0.0.1:
             -e 's#proxy_set_header Host 127.0.0.1:5012;#proxy_set_header Host 127.0.0.1:5013;#' \
             /etc/nginx/conf.d/hpc-portal.conf
 sudo nginx -t && sudo nginx -s reload
-# ★ mcp-slurm.service(:5012) 는 중지하지 말 것 — 폴백.
 ```
 
 ## 5. 라이브 검증 (nginx 443 경유, PAT 필요)
 initialize 200(serverInfo `SmartTwinMCP`), 인증 read(get_cluster_health), write dry_run(submit_job
 dry_run → /api/jobs/preview 200), PAT 없이 호출 시 fail-closed.
 
-## 6. 롤백 (즉시, 무중단)
-```
-sudo sed -i -e 's#proxy_pass http://127.0.0.1:5013;#proxy_pass http://127.0.0.1:5012;#' \
-            -e 's#proxy_set_header Host 127.0.0.1:5013;#proxy_set_header Host 127.0.0.1:5012;#' \
-            /etc/nginx/conf.d/hpc-portal.conf
-sudo nginx -t && sudo nginx -s reload    # /mcp → mcp-slurm(:5012). smarttwin-mcp 는 남겨둬도 무해.
-```
+## 6. 장애 시
+mcp-slurm(:5012) 이 제거돼 nginx 를 5012 로 되돌리는 롤백은 불가. smarttwin-mcp 자체를 진단한다 —
+`journalctl -u smarttwin-mcp -n 50`, `systemctl restart smarttwin-mcp`(backend_5010 가동 확인 후).
+코드 단위로 되돌려야 하면 git 이력의 이전 커밋으로 checkout 후 재기동.
 
-## 파리티 확인 후에만
-- smarttwin_mcp 운영 안정 판단 후 mcp-slurm.service disable 검토(그 전엔 유지).
+## mcp-slurm 제거 시 미이관 도구 (2026-10-13)
+mcp_slurm 19툴 중 smarttwin_mcp 에 대응 도구가 없는 것 — 필요 시 git 이력의
+`dashboard/mcp_slurm/server.py` 를 참고해 카탈로그 도구로 이관.
+노드 drain/resume(slurm_node_set_state), 잡 hold/release/requeue(slurm_job_control, cancel 만 이관),
+fairshare, job priority, reservation, QOS, sacct 회계, sdiag, sstat, 전체 사용자 잡·노드 목록.
 
 ## 알려진 함정
 - systemd 지시어 줄의 인라인 주석은 값으로 읽힘 → `User=x # 주석` 은 217/USER 로 기동 실패.

@@ -133,7 +133,7 @@ const McpTokens: React.FC = () => {
   };
 
   // 연결 가이드(토큰 주입). MCP 는 대시보드와 ★같은 오리진의 /mcp★ 로 노출된다
-  // (nginx 가 내부 127.0.0.1:5012 streamable-http 로 프록시 — TLS·단일포트, PAT 암호화 전송).
+  // (nginx 가 내부 127.0.0.1:5013 streamable-http 로 프록시 — TLS·단일포트, PAT 암호화 전송).
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://localhost';
   const mcpUrl = `${origin}/mcp`;
 

@@ -70,7 +70,9 @@ SmartTwinMCP(카탈로그 인덱스 + 버전드 도구 + 메타툴 아키텍처)
       폴백 가동 유지. nginx 443 경유 e2e(read/write dry_run/auth) 검증.
 - [x] 오프라인 운영 준비: cp312 휠 68개 → offline_packages_2404/python_wheels/smarttwin_mcp/python3.12/,
       requirements.txt 전체 핀, --no-index 재현 검증, deploy/RUNBOOK.md(icn401 절차).
-- [ ] 운영(icn401) 실배포: origin push + RUNBOOK 실행(사용자 승인/접근 필요). /data 템플릿 동기화 포함.
+- [x] 운영(icn401) 실배포: origin push + RUNBOOK 실행(사용자 확인 — 운영도 5013 전환 완료).
+- [x] 구 mcp_slurm(:5012) 제거(2026-10-13): dev 서비스 중지·disable·유닛 삭제, start_production.sh
+      재기동 대상에서 제외, `dashboard/mcp_slurm/` git rm. 미이관 관리 도구 목록은 deploy/RUNBOOK.md 참고.
 
 ## 컨텍스트 노트 (이관 중 결정 기록 — 계속 추가)
 - vendoring 방식 = **copy(코드 종속)**. git-subtree(히스토리 보존) 아님. 원본 repo 는 upstream 으로 보존(삭제 안 함).
