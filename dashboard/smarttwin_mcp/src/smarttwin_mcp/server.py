@@ -98,7 +98,7 @@ def _validate_args(schema: dict, args: dict) -> str | None:
     return None
 
 
-def build_server(tools_root: Path) -> FastMCP:
+def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
     mcp = FastMCP(
         name="SmartTwinMCP",
         instructions=(
@@ -117,14 +117,8 @@ def build_server(tools_root: Path) -> FastMCP:
     def _catalog() -> Catalog:
         return state["catalog"]
 
-    @mcp.tool(
-        description=(
-            "Find SmartTwinCluster tools by free-text query. "
-            "Returns ranked hits (name, version=latest, summary, tags). "
-            "Pass an empty string to list all tools."
-        )
-    )
-    def catalog_search(query: str = "", limit: int = 20) -> dict:
+    # 메타툴 구현 — MCP 도구와 REST(/api/v1, rest.py)가 같은 함수를 부른다(동작 패리티).
+    def _search_impl(query: str = "", limit: int = 20) -> dict:
         hits = search_tools(_catalog().all_entries(), query, limit=limit)
         return {
             "query": query,
@@ -132,22 +126,13 @@ def build_server(tools_root: Path) -> FastMCP:
             "hits": [h.to_dict() for h in hits],
         }
 
-    @mcp.tool(
-        description=(
-            "Show full usage info for a tool: summary, description, args JSON Schema, "
-            "examples, available versions. Accepts 'name' or 'name@version'."
-        )
-    )
-    def catalog_describe(name: str) -> dict:
+    def _describe_impl(name: str) -> dict:
         entry = _catalog().resolve(name)
         if entry is None:
             return {"error": f"tool not found: {name}", "did_you_mean": _suggest(name, _catalog())}
         return _format_describe(entry, _catalog())
 
-    @mcp.tool(
-        description="List all versions of a tool, marking the latest."
-    )
-    def catalog_versions(name: str) -> dict:
+    def _versions_impl(name: str) -> dict:
         base = name.split("@", 1)[0]
         versions = _catalog().versions_by_name.get(base)
         if not versions:
@@ -159,14 +144,7 @@ def build_server(tools_root: Path) -> FastMCP:
             "versions": versions,
         }
 
-    @mcp.tool(
-        description=(
-            "Execute a SmartTwinCluster tool. Required: name, args (object). "
-            "Optional: version (pin a specific version; default = latest). "
-            "Args are validated against the tool's JSON Schema before execution."
-        )
-    )
-    def catalog_run(name: str, args: dict | None = None, version: str | None = None) -> dict:
+    def _run_impl(name: str, args: dict | None, version: str | None, extra_env: dict) -> dict:
         args = args or {}
         identifier = _identifier_for(name, version, _catalog())
         entry = _catalog().resolve(identifier)
@@ -179,8 +157,52 @@ def build_server(tools_root: Path) -> FastMCP:
         err = _validate_args(entry.args_schema, args)
         if err:
             return {"ok": False, "error": err, "tool": entry.qualified_name}
-        result = run_tool(entry, args, extra_env=_auth_extra_env())
+        result = run_tool(entry, args, extra_env=extra_env)
         return {"tool": entry.qualified_name, **result.to_dict()}
+
+    def _reload_impl() -> dict:
+        state["catalog"] = load_catalog(tools_root)
+        c = state["catalog"]
+        return {
+            "tools": len(c.latest_by_name),
+            "versions": len(c.by_qualified),
+            "issues": [{"path": str(i.path), "message": i.message} for i in c.issues],
+        }
+
+    @mcp.tool(
+        description=(
+            "Find SmartTwinCluster tools by free-text query. "
+            "Returns ranked hits (name, version=latest, summary, tags). "
+            "Pass an empty string to list all tools."
+        )
+    )
+    def catalog_search(query: str = "", limit: int = 20) -> dict:
+        return _search_impl(query, limit)
+
+    @mcp.tool(
+        description=(
+            "Show full usage info for a tool: summary, description, args JSON Schema, "
+            "examples, available versions. Accepts 'name' or 'name@version'."
+        )
+    )
+    def catalog_describe(name: str) -> dict:
+        return _describe_impl(name)
+
+    @mcp.tool(
+        description="List all versions of a tool, marking the latest."
+    )
+    def catalog_versions(name: str) -> dict:
+        return _versions_impl(name)
+
+    @mcp.tool(
+        description=(
+            "Execute a SmartTwinCluster tool. Required: name, args (object). "
+            "Optional: version (pin a specific version; default = latest). "
+            "Args are validated against the tool's JSON Schema before execution."
+        )
+    )
+    def catalog_run(name: str, args: dict | None = None, version: str | None = None) -> dict:
+        return _run_impl(name, args, version, _auth_extra_env())
 
     @mcp.tool(
         description=(
@@ -189,13 +211,7 @@ def build_server(tools_root: Path) -> FastMCP:
         )
     )
     def catalog_reload() -> dict:
-        state["catalog"] = load_catalog(tools_root)
-        c = state["catalog"]
-        return {
-            "tools": len(c.latest_by_name),
-            "versions": len(c.by_qualified),
-            "issues": [{"path": str(i.path), "message": i.message} for i in c.issues],
-        }
+        return _reload_impl()
 
     # Direct-exposed tools.
     for entry in _catalog().all_entries():
@@ -205,6 +221,10 @@ def build_server(tools_root: Path) -> FastMCP:
             continue
         _register_direct(mcp, entry, state)
 
+    from . import rest
+    rest.register(mcp, get_catalog=_catalog, search=_search_impl, describe=_describe_impl,
+                  versions=_versions_impl, execute=_run_impl, reload=_reload_impl,
+                  verifier=rest_verifier)
     return mcp
 
 
