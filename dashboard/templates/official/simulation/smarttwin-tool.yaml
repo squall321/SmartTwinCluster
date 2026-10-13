@@ -1,0 +1,236 @@
+template:
+  id: smarttwin-tool
+  name: SmartTwin 도구 실행 (MCP·REST)
+  display_name: SmartTwin 도구 실행 (KooMeshModifier·KooAutomatedModeller·KooRemapper·후처리)
+  description: >
+    smarttwin-mcp(:5013) 또는 REST 가 만든 request.json 대로 SmartTwin 전처리
+    (KooMeshModifier·KooAutomatedModeller·KooRemapper) 또는 후처리(KooD3plotReader)
+    실행 파일 하나를 SIF 안에서 실행합니다. 실행 파일은 고정 목록에서만 고르고 인자는 배열로
+    넘기므로 셸 해석이 없습니다. 입력 묶음(inputs.tgz)은 결과 폴더 work/ 에 풀리고,
+    기존 결과 폴더에 대한 후처리는 /data/single/<사용자>/ 아래에서만 실행됩니다.
+    결과는 /data/single/<사용자>/<잡이름>_<잡ID>/ (stmc_result.json · work/ · 로그).
+  category: simulation
+  version: 1.0.0
+  source: official
+  tags: [smarttwin, mcp, rest, koomeshmodifier, kooautomatedmodeller, kooremapper, postprocess]
+  is_public: true
+
+slurm:
+  # partition 비움 = 클러스터 기본 파티션
+  partition: ""
+  nodes: 1
+  ntasks: 1
+  cpus_per_task: 4
+  mem: 16G
+  time: "24:00:00"
+
+apptainer:
+  # SIF 는 request.json 의 family 로 디스패처가 고른다(전처리/후처리). 대시보드 이미지 선택 불필요.
+  image_selection:
+    mode: any
+    required: false
+  bind: []
+  env:
+    STMC_PRE_SIF: /opt/apptainers/SmartTwinPreprocessor.sif
+    STMC_POST_SIF: /opt/apptainers/SmartTwinPostprocessor.sif
+    # 추가 허용 루트(쉼표 구분, 관리자 설정). 비우면 /data/single/<사용자>/ 와 결과 폴더만.
+    STMC_EXTRA_ROOTS: ""
+
+files:
+  input_schema:
+    required:
+      - file_key: request_json
+        name: 실행 요청 (request.json)
+        description: smarttwin-mcp 가 만든 실행 요청 — 도구·실행 파일·인자·작업 폴더
+        validation:
+          extensions: [.json]
+          max_size: 4MB
+    optional:
+      - file_key: inputs_tgz
+        name: 입력 묶음 (inputs.tgz)
+        description: 모델·옵션·보조 파일 묶음 — 결과 폴더 work/ 에 풀림
+        validation:
+          extensions: [.tgz]
+          max_size: 1GB
+
+script:
+  pre_exec: |
+    echo "========================================"
+    echo "SmartTwin Tool Run (MCP/REST)"
+    echo "Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)  User: $WEB_USER"
+    echo "Started: $(date)"
+    echo "========================================"
+    mkdir -p "$RESULT_DIR/work" || { echo "ERROR: RESULT_DIR 생성 실패: $RESULT_DIR"; exit 1; }
+    command -v apptainer >/dev/null 2>&1 || { echo "ERROR: apptainer 없음"; exit 1; }
+
+  main_exec: |
+    cd "$RESULT_DIR"
+    python3 - <<'STMC_DISPATCH'
+    import json, os, re, subprocess, sys, tarfile, time
+
+    RESULT_DIR = os.path.realpath(os.environ["RESULT_DIR"])
+    WORK = os.path.join(RESULT_DIR, "work")
+    WEB_USER = os.environ.get("WEB_USER", "")
+    RESULT_JSON = os.path.join(RESULT_DIR, "stmc_result.json")
+
+    # 실행 파일 화이트리스트 — family 별 (SIF, {이름: SIF 안 경로}).
+    POST_BINS = ("post_analyze", "unified_analyzer", "koo_deep_report", "koo_sphere_report",
+                 "koo_impact_report", "koo_federate_report", "koo_custom_report",
+                 "koo_scatter_report", "koo_dyna_diag", "make_stl")
+    WHITELIST = {
+        "kmm": ("STMC_PRE_SIF", {"KooMeshModifier": "/opt/SmartTwinPreprocessor/bin/KooMeshModifier"}),
+        "kam": ("STMC_PRE_SIF", {"KooAutomatedModeller": "/opt/SmartTwinPreprocessor/bin/KooAutomatedModeller"}),
+        "remap": ("STMC_PRE_SIF", {"KooRemapper": "/opt/kooremapper/bin/KooRemapper"}),
+        "post": ("STMC_POST_SIF", {b: "/opt/kood3plot/bin/" + b for b in POST_BINS}),
+    }
+    # SIF 안의 읽기 전용 번들(재질 DB 등) — 인자에 나와도 된다.
+    RO_PREFIXES = ("/opt/kooremapper/", "/opt/kood3plot/", "/opt/SmartTwinPreprocessor/")
+
+
+    def write_result(**kw):
+        tmp = RESULT_JSON + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"schema": "stmc-result/1", **kw}, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, RESULT_JSON)
+
+
+    def die(msg, **kw):
+        print("ERROR: " + msg, flush=True)
+        write_result(ok=False, rc=None, error=msg, finished=time.time(), **kw)
+        sys.exit(1)
+
+
+    def inside(p, roots):
+        return any(p == r or p.startswith(r.rstrip("/") + "/") for r in roots)
+
+
+    # 허용 루트: 이 잡의 결과 폴더 + /data/single/<사용자>/ (+ 관리자 추가 루트).
+    # WEB_USER 는 backend 가 JWT 로 넣는 값이라 사용자가 바꿀 수 없다.
+    roots = [RESULT_DIR]
+    if re.fullmatch(r"[A-Za-z0-9._-]{1,32}", WEB_USER or "") and WEB_USER not in (".", ".."):
+        roots.append(os.path.realpath("/data/single/" + WEB_USER))
+    roots += [os.path.realpath(r.strip()) for r in os.environ.get("STMC_EXTRA_ROOTS", "").split(",") if r.strip()]
+
+    req_path = os.environ.get("FILE_REQUEST_JSON")
+    if not req_path or not os.path.isfile(req_path):
+        die("request.json 이 없다")
+    try:
+        req = json.load(open(req_path, encoding="utf-8"))
+    except ValueError as e:
+        die("request.json 을 읽지 못했다: %s" % e)
+    if req.get("schema") != "stmc-tool/1":
+        die("지원하지 않는 request schema: %r" % req.get("schema"))
+
+    family, binary, argv = req.get("family"), req.get("binary"), req.get("argv")
+    if family not in WHITELIST:
+        die("허용되지 않은 family: %r" % family)
+    sif_env, bins = WHITELIST[family]
+    if binary not in bins:
+        die("허용되지 않은 실행 파일: %r (family=%s)" % (binary, family))
+    if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
+        die("argv 는 문자열 배열이어야 한다")
+    sif = os.environ.get(sif_env, "")
+    if not os.path.isfile(sif):
+        die("SIF 가 없다: %s (%s)" % (sif, sif_env))
+
+    # 입력 묶음 풀기 — 절대경로·'..'·링크·장치 파일은 거절한다.
+    inputs = []
+    tgz = os.environ.get("FILE_INPUTS_TGZ")
+    if tgz and os.path.isfile(tgz):
+        with tarfile.open(tgz, "r:gz") as tf:
+            members = tf.getmembers()
+            for m in members:
+                parts = m.name.split("/")
+                if m.name.startswith("/") or ".." in parts or not (m.isfile() or m.isdir()):
+                    die("안전하지 않은 입력 묶음 항목: %s" % m.name)
+            tf.extractall(WORK)
+            inputs = sorted(m.name for m in members if m.isfile())
+
+    # 작업 폴더: work(기본) 또는 기존 결과 폴더(후처리 제자리 실행).
+    cwd = WORK
+    if req.get("cwd") == "existing":
+        cwd = os.path.realpath(req.get("existing_dir") or "")
+        if not (os.path.isdir(cwd) and inside(cwd, roots)):
+            die("기존 폴더는 /data/single/%s/ 아래만 허용된다: %s" % (WEB_USER, req.get("existing_dir")))
+
+    def subst(s):
+        return s.replace("@@WORK@@", WORK).replace("@@RESULT@@", RESULT_DIR)
+
+    # 생성된 텍스트 입력(옵션·YAML·JSON)의 자리표시자 치환 + 그 안의 절대경로 검사.
+    DOTDOT = re.compile(r"""(?:^|[\s,:=\"'\[(/])\.\.(?:/|$)""", re.M)
+    PATH_IN_TEXT = re.compile(r"""(?:(?<=[\s,:=\"'\[(])|^)(/(?:data|home|shared|etc|root|tmp|var|usr|proc|srv|mnt|opt)(?:/[^\s,\"'\]\)]*)?)""", re.M)
+    for name in req.get("texts") or []:
+        p = os.path.realpath(os.path.join(WORK, name))
+        if not inside(p, [WORK]) or not os.path.isfile(p):
+            die("texts 항목이 입력 묶음에 없다: %s" % name)
+        body = subst(open(p, encoding="utf-8", errors="replace").read())
+        if DOTDOT.search(body):
+            die("%s 에 '..' 경로가 있다 — 입력은 묶음 안 파일 이름으로만 참조할 것" % name)
+        for m in PATH_IN_TEXT.finditer(body):
+            q = m.group(1)
+            if not (q.startswith(RO_PREFIXES) or inside(os.path.realpath(q), roots)):
+                die("%s 안의 경로가 허용 범위 밖이다: %s" % (name, q))
+        open(p, "w", encoding="utf-8").write(body)
+
+    # 인자의 절대경로 검사 (--opt=/path 형태 포함).
+    argv = [subst(a) for a in argv]
+    for a in argv:
+        if ".." in re.split(r"[/=]", a):
+            die("인자에 '..' 경로가 있다: %s" % a)
+        m = re.match(r"^(?:--?[\w-]+=)?(/.*)$", a)
+        if m and not (m.group(1).startswith(RO_PREFIXES) or inside(os.path.realpath(m.group(1)), roots)):
+            die("인자의 경로가 허용 범위 밖이다: %s" % a)
+
+    cmd = ["apptainer", "exec", "--bind", "/data:/data"]
+    if os.path.isdir("/shared"):
+        cmd += ["--bind", "/shared:/shared"]
+    cmd += ["--pwd", cwd, sif, bins[binary]] + argv
+    env = dict(os.environ)
+    env["OMP_NUM_THREADS"] = os.environ.get("SLURM_CPUS_PER_TASK", "4")
+
+    started = time.time()
+    write_result(ok=None, rc=None, state="running", tool=req.get("tool"), family=family,
+                 binary=binary, argv=argv, cwd=cwd, inputs=inputs, started=started)
+    print("[stmc] " + " ".join(cmd), flush=True)
+    so_path = os.path.join(RESULT_DIR, "stmc_stdout.log")
+    se_path = os.path.join(RESULT_DIR, "stmc_stderr.log")
+    with open(so_path, "w") as so, open(se_path, "w") as se:
+        rc = subprocess.run(cmd, cwd=cwd, stdout=so, stderr=se, env=env).returncode
+    finished = time.time()
+
+    # 산출물: 작업 폴더에서 이번 실행 중 생기거나 바뀐 파일(입력 제외), 최대 500개.
+    outputs, scanned = [], 0
+    for dp, dns, fns in os.walk(cwd):
+        scanned += len(fns)
+        if scanned > 200000:
+            break
+        for fn in fns:
+            fp = os.path.join(dp, fn)
+            rel = os.path.relpath(fp, cwd)
+            try:
+                st = os.stat(fp)
+            except OSError:
+                continue
+            if rel in inputs or st.st_mtime < started - 1:
+                continue
+            outputs.append({"path": fp, "size": st.st_size})
+            if len(outputs) >= 500:
+                break
+        if len(outputs) >= 500:
+            break
+
+    write_result(ok=(rc == 0), rc=rc, state="done", tool=req.get("tool"), family=family,
+                 binary=binary, argv=argv, cwd=cwd, inputs=inputs, outputs=outputs,
+                 started=started, finished=finished, duration_s=round(finished - started, 1),
+                 stdout_log=so_path, stderr_log=se_path)
+    print("[stmc] rc=%d  duration=%.1fs  outputs=%d" % (rc, finished - started, len(outputs)), flush=True)
+    sys.exit(rc)
+    STMC_DISPATCH
+    STMC_RC=$?
+
+  post_exec: |
+    echo "========================================"
+    echo "완료: $(date)"
+    echo "결과: $RESULT_DIR (stmc_result.json)  rc=${STMC_RC:-?}"
+    echo "========================================"
+    exit ${STMC_RC:-1}
