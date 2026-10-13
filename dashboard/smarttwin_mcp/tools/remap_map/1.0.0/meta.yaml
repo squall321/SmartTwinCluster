@@ -1,0 +1,161 @@
+name: remap_map
+version: 1.0.0
+summary: KooRemapper map — Map a flat unstructured mesh onto a bent structured mesh
+description: |
+  Map a flat unstructured mesh onto a bent structured mesh
+
+  Map a flat unstructured mesh onto a bent HEX8 structured mesh using isoparametric mapping. Automatically detects and aligns detail/bent axes by ranked bounding box lengths. Supports output and input mirroring, bbox-stretch elimination, optional prestress chaining, and selective part targeting. Preserves material and part definitions from flat source mesh.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `single` | boolean |  | Use single-threaded mode for mapping. Default is parallel processing. |
+  | `force_positive` | boolean |  | Force every mapped HEX8 Jacobian positive by swapping connectivity. Use when source mesh has unreliable handedness. |
+  | `flip_x` | boolean |  | Mirror output along global X axis. Swaps HEX8 connectivity when odd-parity flips would invert Jacobian. |
+  | `flip_y` | boolean |  | Mirror output along global Y axis. Can be combined with --flip-x and/or --flip-z. |
+  | `flip_z` | boolean |  | Mirror output along global Z axis. Can be combined with --flip-x and/or --flip-y. |
+  | `flip_input_x` | boolean |  | Pre-map detail flat mirror along X. Mirrors detail BEFORE mapping so features land on opposite face of bent target. Use for slit/hole face swap. |
+  | `flip_input_y` | boolean |  | Pre-map detail flat mirror along Y axis. Can be combined with --flip-input-x and/or --flip-input-z. |
+  | `flip_input_z` | boolean |  | Pre-map detail flat mirror along Z axis. Can be combined with --flip-input-x and/or --flip-input-y. |
+  | `bbox_align` | enum |  | Auto-rescale to remove uniform stretch. 'source' rescales detail to bent ijk lengths; 'target' rescales bent to detail XYZ lengths; 'none' disables (default). |
+  | `bbox_align_max_drift` | number |  | Reject scaling if any axis ratio drifts beyond this percent. Default 2.0%. |
+  | `target_pid` | string |  | Target specific part IDs for mapping (comma or space separated). Default: all parts. Example: --target-pid '1,2,3' or --target-pids '1 2 3'. |
+  | `bent_mesh` | file | 예 | Bent structured reference mesh (LS-DYNA .k file). Must contain HEX8 elements. |
+  | `flat_mesh` | file | 예 | Flat unstructured mesh to be mapped (LS-DYNA .k file). CAD-derived with material/section definitions. |
+  | `output` | output | 예 | Output file path for mapped mesh (LS-DYNA .k). Contains remapped geometry with all source material/part definitions. |
+
+  # config 키 (YAML)
+  - `None` (file): Path to bent structured reference mesh (LS-DYNA .k format). Must contain HEX8 elements and be structurally regular.
+  - `None` (file): Path to flat unstructured detail mesh (LS-DYNA .k format). CAD-derived mesh with material and section definitions. Can be HEX8, TET4, or other solid elements.
+  - `None` (file): Path to output mapped mesh (LS-DYNA .k format). Contains remapped geometry with all source material/part/section definitions.
+  - `None` (boolean): Enable parallel processing (OpenMP). Set to false for single-threaded mode (debugging, no OpenMP available).
+  - `None` (boolean): Force all mapped HEX8 element Jacobians positive by swapping connectivity. Use when source mesh handedness is unreliable.
+  - `None` (boolean): Mirror output result along global X axis (negate node X coordinates). HEX8 connectivity swapped if odd-parity flip would invert Jacobian.
+  - `None` (boolean): Mirror output result along global Y axis. Can be combined with flip_x and/or flip_z for multi-axis reflection.
+  - `None` (boolean): Mirror output result along global Z axis. Can be combined with flip_x and/or flip_y.
+  - `None` (boolean): PRE-map detail flat mirror along X axis (before mapping). Mirrors detail IN PLACE so features land on opposite face of bent target while keeping result coordinates unchanged. Use for slit/hole face swap independent of bent location.
+  - `None` (boolean): PRE-map detail flat mirror along Y axis. Can be combined with flip_input_x and/or flip_input_z.
+  - `None` (boolean): PRE-map detail flat mirror along Z axis. Can be combined with flip_input_x and/or flip_input_y. HEX8 connectivity swapped on odd-parity flips to preserve source Jacobian sign.
+  - `None` (enum): Auto-rescale meshes to remove uniform stretch in mapping. 'source': rescale detail flat to match bent ijk neutral lengths; 'target': rescale bent to match detail XYZ lengths; 'none': no rescaling (default).
+  - `None` (number): Reject bbox-align scaling if any axis ratio drifts beyond this percent threshold (safety guard). Default 2.0%. Example: 5.0 allows up to 5% axis ratio deviation.
+  - `None` (object): Optional nested section for post-map prestress/strain chaining (YAML only). Computes strain/stress from flat (reference) to mapped (deformed) configuration.
+  - `None` (boolean): Enable prestress computation. If true, after mapping completes, treat original flat mesh as reference and mapped output as deformed, computing strain/stress.
+  - `None` (file): Path to output prestress file (dynain format or CSV, depends on prestress.csv flag). Required if prestress.enabled is true.
+  - `None` (enum): Strain calculation method. 'green': Green-Lagrange (large deformation); 'engineering': small-deformation Note: 'log' is accepted only by the 'strain' command (StrainCalculator). The prestress path computes Green-Lagrange for anything but 'engineering', so prestress rejects 'log' with rc=1.
+  - `None` (number): Young's modulus in MPa (optional). If omitted, strain-only computation (no stress). If provided, overrides K-file material definitions entirely.
+  - `None` (number): Poisson's ratio (optional, unitless). Valid range typically [0, 0.5). Ignored if E is not specified.
+  - `None` (boolean): Output CSV file instead of LS-DYNA dynain format. CSV contains node strain/stress data; filename derived from prestress.output path.
+
+  # 주의
+  - CRITICAL GOTCHAS & DESIGN POINTS:
+
+  1. FLIP SEMANTICS — Two orthogonal mirroring subsystems:
+     - flip_input_x/y/z: Mirror DETAIL FLAT BEFORE mapping. Features (slits, holes, asymmetric thickness) swap faces of bent target. Result coordinates unchanged. Useful for inner/outer surface swap independent of bent location.
+     - flip_x/y/z: Mirror RESULT AFTER mapping. Negates output node coordinates. Applies post-mapping transformation.
+     - Both can be combined. HEX8 connectivity swapped automatically on odd-parity flips to preserve Jacobian sign.
+
+  2. BBOX_ALIGN MODE & AXIS PAIRING:
+     - Uses rank-based axis matching (smallest detail axis ↔ smallest bent axis) to survive axis permutations without explicit axis mapping.
+     - 'source' mode: Scales detail flat to match bent ijk neutral lengths, then maps. Flat geometry slightly stretched per-axis. Temp file written (.__preproc_flat.k) for prestress reference.
+     - 'target' mode: Scales bent to match detail XYZ lengths, then maps. Detail untouched. No temp file needed.
+     - bbox_align_max_drift rejects scaling if any single axis ratio drifts beyond threshold (e.g., 2.0% = max ratio 1.02).
+
+  3. PRESTRESS CHAINING (YAML ONLY):
+     - Available ONLY in YAML config form, not CLI positional form.
+     - Runs AFTER mapping completes. Treats original flat mesh as reference, just-written mapped output as deformed.
+     - If E/nu given in prestress block, overrides K-file materials entirely.
+     - If prestress.enabled is true but output missing, returns error.
+     - Reference mesh selection: if bbox_align=source, uses .__preproc_flat.k temp (already scaled/flipped); else uses original flat.
+
+  4. MESH REQUIREMENTS & TOPOLOGY:
+     - bent mesh: MUST be structurally regular HEX8 grid (no mixed element types at mapping stage). Validated before mapping starts.
+     - flat mesh: Can be unstructured HEX8, TET4, or other solid elements. Material/section/part cards from flat preserved in output.
+     - Flat nodes outside bent domain issue warning (no error) and pass through unchanged.
+
+  5. AXIS AUTO-MAPPING:
+     - Automatically detects which detail axis (X, Y, Z) pairs with which bent axis (I, J, K) by comparing bounding box lengths.
+     - Reported in console output as "Auto Axis Mapping" diagnostic.
+     - Survives detail/bent axis permutations (e.g., detail ZYX ↔ bent IJK).
+
+  6. JACOBIAN & ELEMENT QUALITY:
+     - Mapping preserves source mesh (flat) winding/orientation. If mixed positive/negative Jacobians detected, use force_positive=true to unify.
+     - Output statistics show min/max/avg Jacobian, count of invalid (negative) elements, and reoriented elements (connectivity swaps for sign match).
+
+  7. PARALLEL PROCESSING (DEFAULT):
+     - parallel=true (default) uses OpenMP for node mapping. Set to false for reproducibility, debugging, or environments without OpenMP.
+
+  8. PRESTRESS REFERENCE WITH PREPROCESSING:
+     - If bbox_align=source is used, maps generates .__preproc_flat.k temp file. Prestress reference MUST use this scaled flat (automatically selected by map).
+     - If prestress runs against original unscaled flat, it will reintroduce the stretch that bbox-align just removed.
+
+  9. CLI vs YAML PRECEDENCE:
+     - CLI flags always override YAML values (CLI takes precedence).
+     - Example: 'KooRemapper map config.yaml --flip-x' overrides any flip_x setting in YAML.
+
+  10. TARGET_PID FILTERING:
+      - Available ONLY via CLI flags (--target-pid / --target-pids), NOT in YAML.
+      - Accepts comma or space-separated list. Example: --target-pids '1,2,3' or --target-pids '1 2 3'.
+      - Only nodes referenced by elements in target PIDs are mapped; all others (other PIDs, orphan nodes) pass through unchanged.
+      - Empty target set (default) maps all parts.
+
+  11. ENVIRONMENT & DEBUG:
+      - Set KOO_MAP_DEBUG=1 for detailed internal orientation/axis-pairing diagnostics to stderr.
+
+  12. GRID LOOKUP OPTIMIZATION:
+      - Interior grid acceleration structure optionally built during mapping. Reported in "Interior grid lookup" line showing fill percentage and active status."
+
+  YAML INPUT — `map` has its own parser, but only ONE rule still differs:
+  ---
+  - `map <config.yaml>` is parsed in the CLI front-end rather than by the shared YAML reader.
+  - A leading UTF-8 BOM IS stripped now (verified 2026-09-18: a BOM'd map config maps and writes its output with rc=0).
+  - TAB indentation IS rejected now: `[ERROR] [map] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`, rc=1.
+  - THE ONE REMAINING DIFFERENCE — PATHS: `bent`, `flat` and `output` are still resolved against the CURRENT WORKING DIRECTORY, not the YAML folder. `KooRemapper map cfg/map.yaml` with `bent: bent.k` looks for `./bent.k` and fails with `[ERROR] Failed to load bent mesh: Cannot open file: bent.k`, rc=1. Run from the folder that holds the YAML, or use absolute paths. The positional form `KooRemapper map <bent> <flat> <output>` is unaffected.
+  - NOTE: the binary's own `--help` common-rules block still lists map (and squeeze) as BOM/tab exceptions; those two help lines are stale at this commit.
+
+  사례 메모: Basic mapping: flat mesh onto bent reference. Auto-detects axis alignment by ranked bounding box lengths.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper map` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- core
+- map
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    bent_mesh: arc30_bent.k
+    flat_mesh: arc30_flat.k
+    output: arc30_mapped.k
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/arc30_bent.k
+    - /data/single/USER/case/arc30_flat.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    bent_mesh: arc30_bent.k
+    flat_mesh: arc30_flat.k
+    output: arc30_mapped.k
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

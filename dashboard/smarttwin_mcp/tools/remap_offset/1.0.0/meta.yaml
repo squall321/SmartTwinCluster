@@ -1,0 +1,117 @@
+name: remap_offset
+version: 1.0.0
+summary: KooRemapper offset — Extrude surface elements to solid HEX8 layer(s) with optional tied/CZM/contact
+  connections.
+description: |
+  Extrude surface elements to solid HEX8 layer(s) with optional tied/CZM/contact connections.
+
+  Extrude surface elements (solid/TSHELL/shell) to HEX8/TSHELL/QUAD4 solid layers with optional tied/CZM/contact connections. Supports fixed directions (±x/±y/±z), adaptive surface normals (±normal), variable thickness formulas, region filtering, multi-layer generation, and per-layer material definitions.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 전체 YAML 설정 객체 (config.yaml 로 기록되어 실행됨) |
+
+  # config 키 (YAML)
+  - `None` (enum): Operation type; must be 'offset'
+  - `None` (integer): Source part ID to offset (surface elements extracted from this part)
+  - `None` (enum): Offset direction: +normal or -normal for adaptive surface normals; 'both' offsets to both sides (inner + outer); ±x/±y/±z for fixed global axes. Optional — defaults to '+normal'.
+  - `None` (number): Uniform extrusion distance in model units (mm). Ignored if thickness_formula is specified — give thickness OR thickness_formula (one of the two is required).
+  - `None` (string): Optional variable thickness formula using x,y,z coordinates; e.g., '1.0 + 0.01*x'. If set, overrides thickness parameter.
+  - `None` (integer): Number of HEX8/TSHELL/QUAD4 layers to generate. Total thickness is divided equally per layer.
+  - `None` (enum): Output element type: solid (HEX8), tshell (TSHELL, thick shell), shell (QUAD4)
+  - `None` (boolean): If true, use per-node averaged surface normals for better element quality on curved surfaces. If false, use global averaged normal. Phase 2+ feature.
+  - `None` (enum): Interface connection type between source and offset surfaces: tied (shared nodes), czm (cohesive zone elements), contact (duplicated nodes for user-defined *CONTACT), none (no interface treatment).
+  - `None` (integer): Part ID for offset elements. 0 = auto-increment.
+  - `None` (integer): Section ID for offset elements. 0 = auto-increment. Used for *SECTION_SOLID/*SECTION_SHELL.
+  - `None` (integer): Material ID for offset elements. 0 = auto-increment. Used for *MAT_* keyword.
+  - `None` (string): *PART title for offset elements
+  - `None` (string): Raw LS-DYNA *MAT_* keyword block for offset elements. Use @MID@ as placeholder for auto-assigned material ID.
+  - `None` (integer): Part ID for cohesive zone elements (when connection_mode=czm). 0 = auto-increment.
+  - `None` (integer): Material ID for cohesive zone elements (when connection_mode=czm). 0 = auto-increment.
+  - `None` (string): Raw *MAT_COHESIVE_* keyword block for CZM interface (when connection_mode=czm). Use @CZM_MID@ as placeholder for auto-assigned CZM material ID.
+  - `None` (number): Explicit shell element thickness (TSHELL/QUAD4 only). If 0, defaults to thickness parameter.
+  - `None` (number): Shell mid-plane offset (TSHELL/QUAD4 only). -1 = use thickness/2 (mid-plane). Positive/negative shifts integration points above/below mid-plane.
+  - `None` (number): Minimum X coordinate for bounding box region filter. Elements outside are ignored.
+  - `None` (number): Maximum X coordinate for bounding box region filter.
+  - `None` (number): Minimum Y coordinate for bounding box region filter.
+  - `None` (number): Maximum Y coordinate for bounding box region filter.
+  - `None` (number): Minimum Z coordinate for bounding box region filter.
+  - `None` (number): Maximum Z coordinate for bounding box region filter.
+  - `None` (integer): Minimum node ID range filter. 0 = no filter. Only nodes in range [node_id_min, node_id_max] are offset.
+  - `None` (integer): Maximum node ID range filter. 0 = no filter.
+  - `None` (integer): Minimum element ID range filter. 0 = no filter. Only elements in range [element_id_min, element_id_max] are offset.
+  - `None` (integer): Maximum element ID range filter. 0 = no filter.
+  - `None` (enum): Advanced dual-offset prestress mode (Phase 3+). When 'dual_offset', creates inner (deformed) and outer (relaxed) offset layers with prestress calculation.
+  - `None` (number): Inner offset distance for dual_offset mode (negative value, represents deformed shape).
+  - `None` (number): Outer offset distance for dual_offset mode (positive value, represents relaxed reference shape).
+
+  # 주의
+  - CRITICAL CONSTRAINTS AND GOTCHAS:\n\n(1) REQUIRED PARAMETERS:\n    - source_pid, offset_direction, thickness (unless thickness_formula), num_layers, connection_mode are mandatory\n    - Missing any triggers validation error\n\n(2) CONNECTION MODES:\n    - tied: shares nodes at interface (lowest cost, zero gap)\n    - czm: inserts cohesive elements with czm_material_card (requires *MAT_COHESIVE_*)\n    - contact: duplicates nodes, user must add *CONTACT_* afterward\n    - connection_mode=\"czm\" REQUIRES czm_material_card; without it, validation fails\n\n(3) ELEMENT TYPES AND RESTRICTIONS:\n    - solid (HEX8): all features supported (tied/czm/contact, multi-layer, normal offset)\n    - tshell (TSHELL): tied/contact only, NO czm mode\n    - shell (QUAD4): tied/contact only, NO czm mode\n    - When element_type is tshell/shell, shell_thickness MUST be set or defaults to thickness\n\n(4) OFFSET DIRECTION:\n    - +normal/-normal: auto-detects surface normal per element (best for curved surfaces; use with use_local_normals=true for better quality)\n    - ±x/±y/±z: fixed global direction (simpler, faster)\n    - v1.1.0+: -normal direction fixed (prior versions had negative Jacobian bugs)\n\n(5) THICKNESS & LAYERS:\n    - thickness: uniform per-layer thickness; with num_layers=3, creates 3 layers each of (thickness/3)\n    - thickness_formula: if set, overrides thickness; supports x,y,z variables (e.g., \"1.0 + 0.01*x\")\n    - num_layers must be ≥ 1\n    - Multi-layer with different materials: use material_cards[] (array), one entry per layer\n\n(6) MATERIAL CARD MAGIC:\n    - Use @MID@ placeholder in material_card; auto-replaced with assigned material ID\n    - Use @CZM_MID@ placeholder in czm_material_card; auto-replaced with CZM material ID\n    - If new_mid=0, MID auto-increments; if new_mid > 0, uses that ID\n    - Multi-layer material_cards[] must have length == num_layers\n    - material_card and material_cards[] are mutually exclusive\n\n(7) REGION FILTERS:\n    - bbox_xmin/max, bbox_ymin/max, bbox_zmin/max: bounding box filter (all 6 values optional)\n    - node_id_min/max: only offset nodes in this range (0 = disabled)\n    - element_id_min/max: only offset elements in this range (0 = disabled)\n    - Multiple filters can be combined (logical AND)\n    - Filters apply to SOURCE elements; offset surfaces inherit the subset\n\n(8) QUALITY WARNINGS:\n    - Aspect Ratio > 10: warning; > 20: error\n    - Jacobian < 0.1: warning; < 1e-10: error (negative = degenerate)\n    - Warping > 30°: warning; > 45°: error\n    - -normal offset on highly concave surfaces may cause self-intersection → check warnings\n\n(9) PHASE/VERSION FEATURES:\n    - use_local_normals, shell_offset, shell_thickness: Phase 2+\n    - region filters (bbox_*, node_id_*, element_id_*): Phase 3+\n    - thickness_formula: Phase 4+\n    - prestress_mode=\"dual_offset\": Phase 3+ (advanced)\n    - material_cards[]: Phase 3+\n\n(10) SOURCE ELEMENT SUPPORT:\n    - Solid source elements: HEX8, TET4 (TET4 output quality degrades; HEX8 recommended)\n    - Shell source elements: QUAD4, TRIA3 (auto-detected and handled)\n    - Cannot use shell elements generated by prior offset in same operations[] list (PID tracking limitation)\n\n(11) YAML STRUCTURE:\n    - operations[] array; each offset entry is one offset operation\n    - Can chain multiple offset operations (e.g., offset PID 1 → PID 10, then offset PID 10 → PID 11)\n    - Base model, output, and operations are at root level\n\n(12) @MID@ SUBSTITUTION:\n    - material_card: \"*MAT_ELASTIC ... @MID@ ... \" → auto-replaces @MID@ with new_mid (or auto ID)\n    - Each occurrence of @MID@ replaced; OK to have multiple @MID@ in same card\n    - If material_card is empty/missing, no material written (user adds manually or via matswap)\n\n(13) COMMON MISTAKES:\n    - Forgetting material_card when connection_mode=czm (validation will fail)\n    - Using connection_mode=czm with element_type=tshell/shell (not supported)\n    - Setting thickness_formula but leaving variables undefined in coord system\n    - Not setting shell_thickness for tshell/shell element types\n    - Mixing material_card and material_cards[] (use one, not both)\n    - Trying to offset shell elements created by prior offset in same operations[] call"
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: arc30_flat.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper offset` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- offset
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: arc30_flat.k
+      output: offset_result
+      operations:
+      - type: offset
+        source_pid: 1
+        element_type: solid
+        thickness: 1
+        num_layers: 1
+        offset_direction: +z
+        connection_mode: tied
+        new_pid: 10
+        part_title: Offset_Layer
+        use_local_normals: false
+        material_card: |
+          *MAT_ELASTIC
+          $#     mid        ro         e        pr
+               @MID@       2.0     12000      0.25
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/arc30_flat.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

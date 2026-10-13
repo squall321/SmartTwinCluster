@@ -1,0 +1,116 @@
+name: post_analyze
+version: 1.0.0
+summary: 통합 후처리 — unified_analyzer → sphere/impact report → deep report (기존 결과 자동 스킵)
+description: |
+  통합 후처리 — unified_analyzer → sphere/impact report → deep report (기존 결과 자동 스킵)
+
+  # 명령 도움말 (post_analyze --help)
+  ```text
+  사용법:
+      post_analyze <test_dir> [options]
+
+    전체 파이프라인: unified_analyzer → sphere_report (빠름) → deep_report (느림)
+    각 단계는 기존 결과가 있으면 자동 스킵 (--force 로 강제 재계산)
+
+  [모드]
+      --deep-only             deep report 만
+      --sphere-only           sphere report 만 (DROP 전각도 강제)
+      --impact-only           impact report 만 (IMPACT 부분충격 DOE 강제)
+      --force                 기존 결과 무시하고 전체 재계산
+      --no-schema-check       산출물이 낡아도 재분석하지 않음 (존재하면 스킵).
+                              새 산출물(주응력 등)은 보고서에서 빈 칸으로,
+                              수정 전 분석기가 낸 값은 그대로 남음
+
+      (scenario.json 의 cumulative.mode_sequence 로 자동 감지:
+         ['DROP', ...]   → sphere_report
+         ['IMPACT', ...] → impact_report)
+
+  [설정]
+      --config YAML           unified_analyzer 용 YAML (common_analysis.yaml)
+      --deep-config YAML      koo_deep_report 용 YAML
+      --threads N             병렬 스레드 수 (기본 4)
+      --yield-stress MPa      항복응력
+
+  [렌더 (deep_report 전달)]
+      --no-render
+      --per-part-render
+      --element-quality
+      --render-threads N
+      --ua-threads N
+      --parts ID...
+      --part-pattern PATTERN
+      --strain-limit EPS
+      --design-overrides JSON
+      --material-overrides JSON
+
+  [섹션뷰 (deep_report 전달)]
+      --section-view
+      --section-view-backend {lsprepost|software}
+      --section-view-mode {section|section_3d}
+      --section-view-per-part
+      --section-view-axes x y z
+      --section-view-fields von_mises eps strain ...
+      --section-view-target-ids ID...
+      --section-view-target-patterns PAT...
+      --section-view-fade DIST
+      --sv-threads N
+
+  [고급]
+      --deep-opts "..."       koo_deep_report 추가 옵션 pass-through
+      --sphere-opts "..."     koo_sphere_report 추가 옵션 pass-through
+      --scatter               각도 산포 리포트(koo_scatter_report) 추가 생성
+      --scatter-opts "..."    koo_scatter_report 옵션 pass-through
+                              (예: '--criterion max_principal --ground-truth ng.tsv')
+      --impact-opts "..."     koo_impact_report 추가 옵션 pass-through (예: '--units ton-mm-s')
+      -h|--help
+
+  예시:
+      post_analyze /data/drop_test_001
+      post_analyze /data/drop_test_001 --yield-stress 250 --threads 8
+      post_analyze /data/drop_test_001 --deep-only --no-render
+      post_analyze /data/drop_test_001 --sphere-only
+      post_analyze /data/Test_Impact_A                       # 자동: IMPACT 감지
+      post_analyze /data/Test_Impact_A --impact-only         # 명시
+      post_analyze /data/test_001 --section-view --section-view-backend lsprepost
+  ```
+
+  # MCP 로 부르는 법
+  - target 은 기존 결과(d3plot 이 있는 폴더 등)의 절대경로. 업로드하지 않고 그 자리에서 읽는다 — /data/single/<사용자>/ 아래만 된다(전각도·부분충격 잡의 결과 폴더가 거기 있다).
+  - options 의 키는 위 도움말의 --옵션 이름. 값이 객체면 YAML 파일로 만들어 넘긴다.
+  - --install-dir·--ua 와 설정의 lsprepost_path 처럼 실행 파일을 고르는 항목은 거절된다(보안).
+  - 후처리 SIF(/opt/apptainers/SmartTwinPostprocessor.sif) 안에서 돈다. 큰 캠페인은 slurm.mem·time 을 넉넉히.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- postprocess
+- kood3plot
+- report
+- d3plot
+- post
+- analyze
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 명령 확인
+  args:
+    dry_run: true
+    target: /data/single/USER/case/run1
+- title: 제출하고 15분까지 기다리기
+  args:
+    dry_run: false
+    target: /data/single/USER/case/run1
+    wait_sec: 900
+    slurm:
+      cpus_per_task: 8
+      mem: 32G

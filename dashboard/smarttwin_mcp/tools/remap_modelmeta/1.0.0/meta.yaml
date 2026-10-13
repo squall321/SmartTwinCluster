@@ -1,0 +1,87 @@
+name: remap_modelmeta
+version: 1.0.0
+summary: KooRemapper modelmeta — Extract structured model metadata JSON — per-part free-surface area,
+  volume, x/y/z projected areas, material (K-file card + bundled DB), and part-to-part co
+description: |
+  Extract structured model metadata JSON — per-part free-surface area, volume, x/y/z projected areas, material (K-file card + bundled DB), and part-to-part contact connectivity.
+
+  Reads a K-file and writes <output>_modelmeta.json with per-part geometric metrics (external free-surface area, volume via face-pyramid decomposition, projected areas onto the x/y/z planes), material metadata (PID→MID mapping, *MAT card keyword/title plus structurally parsed E/nu/rho/sigy, and a bundled material-DB lookup with name/category/representative properties reported with an explicit match_basis), and part connectivity resolved from *CONTACT definitions (SSID/MSID of PID, SET_PART, SET_NODE and SET_SEGMENT are resolved to part id lists; single-surface contacts are recorded as a scope, not exploded into pairs). Optional geometric contact-pair detection finds touching parts without *CONTACT cards. Conventions: solid parts use closed free-surface sums with projected areas halved (front/back faces cancel); shell parts use one-sided element areas without halving and volume 0. Read-only: the input model is never modified.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Input LS-DYNA K-file to analyze (read-only; *INCLUDE followed one level) |
+  | `output` | string |  | Output basename; _modelmeta.json auto-appended (default: model name without extension) |
+  | `detect` | boolean |  | Also run geometric contact-pair detection (spatial hash + gap tolerance) and report geometric_edges — finds touching parts even without *CONTACT cards (default false) |
+  | `gap_tol` | number |  | Gap tolerance for geometric detection, model length units (default 0.1) |
+  | `normal_angle` | number |  | Max face-normal angle in degrees for geometric detection (default 45) |
+  | `material_db` | file |  | Material DB JSON path (default: bundled materials/material_db.json next to the executable) |
+  | `db_mid_fallback` | boolean |  | Allow DB lookup by MID equality when name matching fails — off by default because model-local MIDs collide with DB numbering by coincidence |
+  | `max_edges` | integer |  | Cap on emitted contact edges; edges_truncated flag set when hit (default 2000) |
+
+  # config 키 (YAML)
+  - `None` (file): Input K-file to analyze
+  - `None` (string): Output basename; _modelmeta.json appended
+  - `None` (boolean): Geometric contact-pair detection on/off
+  - `None` (number): Detection gap tolerance
+  - `None` (number): Detection normal angle limit (deg)
+  - `None` (file): Material DB JSON (default: bundled)
+  - `None` (boolean): Opt-in MID-equality DB fallback
+  - `None` (integer): Contact edge cap (default 2000)
+
+  # 주의
+  - Read-only inspection op — emits JSON only, never modifies the model. match_basis in the db block reports how the material was matched (name-mat: *MAT_TITLE name, name-part: part title, mid: opt-in MID equality). Single-surface contacts are reported with their part scope instead of pairwise edges. Designed as the metadata source for AI Data Hub SIM-record enrichment (parts/connectivity/material linkage).
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 파트별 외부 표면적·부피·정사영 면적·재료(카드+DB)·접촉 connectivity를 clip_board_modelmeta.json으로 추출. detect: true면 *CONTACT 없이도 기하학적으로 닿는 파트쌍을 찾는다. Extracts per-part metrics, materials, and part connectivity to JSON; with detect the op also finds geometrically touching part pairs.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper modelmeta` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- inspect
+- modelmeta
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: clip_board.k
+    detect: true
+    gap_tol: 0.2
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/clip_board.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: clip_board.k
+    detect: true
+    gap_tol: 0.2
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

@@ -1,0 +1,77 @@
+name: remap_update
+version: 1.0.0
+summary: KooRemapper update — Update node coordinates from a dynain or K-file with *NODE block.
+description: |
+  Update node coordinates from a dynain or K-file with *NODE block.
+
+  The update operation reads *NODE block from a dynain or K-file and overwrites matching node positions in the base model. Only nodes present in both the model and source file are updated; unmatched nodes remain unchanged. Supports any file containing a *NODE block (dynain, K-file, etc.) and can be chained with other assemble operations.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Original K-file to be updated (also accepts 'base_model' as alias key) |
+  | `output` | output | 예 | Output file prefix (without .k extension; .k will be appended automatically) |
+  | `dynain` | file | 예 | dynain or K-file with *NODE block to read coordinates from |
+
+  # config 키 (YAML)
+  - `None` (string): Original K-file to be updated (alias: base_model). Path is resolved relative to the YAML config directory.
+  - `None` (string): Output file prefix (without .k extension; .k will be appended automatically). Path resolved relative to YAML config directory.
+  - `None` (file): dynain or K-file with *NODE block to read coordinates from. Must contain valid *NODE section with free-format or fixed-width LS-DYNA node cards (NID, X, Y, Z). Path resolved relative to YAML config directory.
+
+  # 주의
+  - Can be invoked as standalone command: KooRemapper update config.yaml OR as part of assemble operations list with type: update. When used in assemble, coordinates are updated in the existing base_model context. Only nodes present in BOTH files are updated; nodes only in dynain are discarded (silently skipped), nodes only in model are left untouched. Supports both free-format (space/comma-separated) and fixed-width LS-DYNA *NODE blocks. YAML keys 'model' and 'base_model' are equivalent aliases. Returns error if dynain file cannot be opened or if no *NODE data is found in the dynain file. All file paths are resolved relative to the YAML config file directory."
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: base_model.k, assembled_replace_result.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper update` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- update
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: base_model.k
+    output: updated_model
+    dynain: assembled_replace_result.k
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/base_model.k
+    - /data/single/USER/case/assembled_replace_result.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: base_model.k
+    output: updated_model
+    dynain: assembled_replace_result.k
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

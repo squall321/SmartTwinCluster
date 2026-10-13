@@ -1,0 +1,151 @@
+name: remap_implicit
+version: 1.0.0
+summary: KooRemapper implicit — LS-DYNA explicit K-file을 implicit 솔버 세팅으로 변환하며, 명시적 전용 카드 제거 및 CONTROL_IMPLICIT_*
+  블록 삽입
+description: |
+  LS-DYNA explicit K-file을 implicit 솔버 세팅으로 변환하며, 명시적 전용 카드 제거 및 CONTROL_IMPLICIT_* 블록 삽입
+
+  Converts an explicit LS-DYNA K-file to implicit solver configuration by inserting CONTROL_IMPLICIT_* cards and removing explicit-only keywords. Selectable convergence levels (1-8) auto-tune solver parameters (NSOLVR, tolerances, time-stepping, stabilization, arc-length). Supports static/dynamic modes and fine-grained parameter overrides.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | 입력 explicit K-파일 |
+  | `output` | output | 예 | 출력 implicit K-파일 |
+  | `mode` | enum |  | 동역학 모드: static(IMASS=0, GAMMA=0.5, BETA=0.25), dynamic(IMASS=1, GAMMA=0.6, BETA=0.30) |
+  | `level` | integer |  | 수렴성 레벨 1(공격적)~8(좌굴/스냅스루). 각 레벨은 NSOLVR, 수렴 tolerance, 시간스텝, 안정화 기능을 결정 |
+  | `endtime` | number |  | 해석 종료시간. DT0/DTMAX/DTMIN 계산 기준. 미지정시 *CONTROL_TERMINATION에서 읽음 |
+  | `dctol` | number |  | 변위 수렴 tolerance (CONTROL_IMPLICIT_SOLUTION). 미지정시 level 기본값 |
+  | `ectol` | number |  | 에너지 수렴 tolerance (CONTROL_IMPLICIT_SOLUTION). 미지정시 level 기본값 |
+  | `dt0` | number |  | 초기 타임스텝 (CONTROL_IMPLICIT_GENERAL). 미지정시 level 기본값 |
+  | `dtmax` | number |  | 최대 타임스텝 (CONTROL_IMPLICIT_AUTO). 미지정시 level 기본값 |
+  | `nsolvr` | integer |  | 비선형 솔버: 12=BFGS, -2=BFGS+line search, 7=Full Newton (CONTROL_IMPLICIT_SOLUTION). 미지정시 level 기본값 |
+  | `kfail` | integer |  | 스텝 이등분 이후 강성 개혁 (CONTROL_IMPLICIT_AUTO). 미지정시 level 기본값 |
+  | `rctol` | number |  | 잔여력 norm tolerance (CONTROL_IMPLICIT_SOLUTION). 1e10=비활성화. 미지정시 level 기본값 |
+  | `lsolvr` | integer |  | 선형 솔버: 7=default sparse, 30=MUMPS (CONTROL_IMPLICIT_SOLVER). 미지정시 level 기본값 |
+  | `stab` | boolean |  | *CONTROL_IMPLICIT_STABILIZATION on/off override. 미지정시 level 기본값 |
+  | `stab_scale` | number |  | 안정화 SCALE 인수 (작을수록 안정화 강함, 스프링백용 0.001) |
+  | `arc_length` | boolean |  | Arc-length(Crisfield) 방법 on/off. true일 때 필요시 NSOLVR=7로 자동 설정. 좌굴/스냅스루 경로 추적 |
+  | `fix_shell_elform` | boolean |  | true: *SECTION_SHELL ELFORM=16 자동 수정→2 (Belytschko-Tsay). false: 경고만 출력 |
+  | `keep_dr_curves` | boolean |  | true: SIDR=1인 *DEFINE_CURVE 유지. false(기본): 제거 |
+  | `strip` | boolean |  | true: *CONTROL_IMPLICIT_* 카드만 제거 (삽입 없음) |
+
+  # config 키 (YAML)
+  - `None` (file): Input explicit K-file path (can be relative; resolved from YAML directory)
+  - `None` (file): Output implicit K-file path (created with implicit cards)
+  - `None` (enum): Solver mode. static: quasi-static (IMASS=0, GAMMA=0.5, BETA=0.25); dynamic: structural dynamics (IMASS=1, GAMMA=0.6, BETA=0.30 with damping)
+  - `None` (integer): Convergence preset (1=aggressive to 8=buckle/snap-through). Each level sets NSOLVR, tolerances, time-stepping, and features. Must be 1-8
+  - `None` (number): Analysis end time (used as base for DT0/DTMAX/DTMIN scaling). If omitted, reads from *CONTROL_TERMINATION; if endtime=0 (DR mode), warns and uses 1.0 fallback
+  - `None` (number): Displacement convergence tolerance (CONTROL_IMPLICIT_SOLUTION). Overrides level default if >0
+  - `None` (number): Energy convergence tolerance (CONTROL_IMPLICIT_SOLUTION). Overrides level default if >0
+  - `None` (number): Initial timestep (CONTROL_IMPLICIT_GENERAL). Overrides level default if >0
+  - `None` (number): Maximum timestep (CONTROL_IMPLICIT_AUTO). Overrides level default if >0
+  - `None` (integer): Nonlinear solver (CONTROL_IMPLICIT_SOLUTION): 12=BFGS, -2=BFGS+line-search, 6/7/8/9=Full Newton variants for arc-length. Overrides level default if nonzero
+  - `None` (integer): Consecutive step bisections before stiffness matrix reform (CONTROL_IMPLICIT_AUTO). Overrides level default if >=0
+  - `None` (number): Residual force norm tolerance (CONTROL_IMPLICIT_SOLUTION). 1e10=disabled (default); 0.1/0.01=enabled. Overrides level default if >0
+  - `None` (integer): Linear solver (CONTROL_IMPLICIT_SOLVER): 7=default sparse, 30=MUMPS (parallel direct, robust for ill-conditioned). Overrides level default if >0
+  - `None` (boolean): Enable *CONTROL_IMPLICIT_STABILIZATION (artificial stiffness to prevent rigid-body singularities). Parsed as true/yes/1 or false. Overrides level default if specified
+  - `None` (number): Stabilization scale factor (smaller=stronger damping; 1.0=normal, 0.001=springback). Only used if stab=true or level>=5. Overrides level default if >0
+  - `None` (boolean): Enable Crisfield arc-length method (CONTROL_IMPLICIT_SOLUTION Card3 + ARCCTL/ARCMTH/ARCDMP). Auto-sets NSOLVR=7 if NSOLVR not in 6-9. For load-displacement paths with negative slope. Overrides level default if specified
+  - `None` (boolean): Auto-fix *SECTION_SHELL ELFORM=16 (implicit-incompatible) to ELFORM=2 (Belytschko-Tsay). false=warn only, true=auto-fix. Parsed as true/yes/1 or false
+  - `None` (boolean): Preserve *DEFINE_CURVE blocks where SIDR=1 (explicit DR load curves). false=remove, true=keep as-is. Parsed as true/yes/1 or false
+  - `None` (boolean): Strip-only mode: remove all *CONTROL_IMPLICIT_* cards (and DR artifacts) without inserting new cards. Ignores level/mode/overrides. Parsed as true/yes/1 or false
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "Level 1 (공격적 - Aggressive)",
+    "summary": "NSOLVR=12 (BFGS), DCTOL=0.005, ECTOL=0.050, DT0=T/100, DTMAX=T/20, KFAIL=0, STAB=off, LSOLVR=7, ARC-LENGTH=off. Fastest convergence, least stable. For well-behaved problems."
+   },
+   {
+    "name": "Level 2 (표준 - Standard)",
+    "summary": "NSOLVR=12 (BFGS), DCTOL=0.001, ECTOL=0.010, DT0=T/500, DTMAX=T/100, KFAIL=0, STAB=off, LSOLVR=7, ARC-LENGTH=off. Balanced; default choice."
+   },
+   {
+    "name": "Level 3 (안정 - Stable)",
+    "summary": "NSOLVR=12 (BFGS), DCTOL=0.001, ECTOL=0.010, DT0=T/1000, DTMAX=T/200, KFAIL=0, STAB=off, LSOLVR=7, ARC-LENGTH=off. Tighter tolerances, smaller time-steps."
+   },
+   {
+    "name": "Level 4 (수렴우선 - Convergence First)",
+    "summary": "NSOLVR=-2 (BFGS+line-search), DCTOL=0.001, ECTOL=0.010, DT0=T/2000, DTMAX=T/500, KFAIL=3, STAB=off, LSOLVR=7, ARC-LENGTH=off. Line-search improves robustness."
+   },
+   {
+    "name": "Level 5 (강건 - Robust)",
+    "summary": "NSOLVR=-2, DCTOL=0.001, ECTOL=0.005, DT0=T/5000, DTMAX=T/1000, KFAIL=5, STAB=ON (SCALE=1.0), LSOLVR=7, ARC-LENGTH=off, RCTOL=1e10. First level to enable stabilization."
+   },
+   {
+    "name": "Level 6 (고강건 - High Robustness)",
+    "summary": "NSOLVR=-2, DCTOL=0.0005, ECTOL=0.002, DT0=T/10000, DTMAX=T/2000, KFAIL=8, STAB=ON, LSOLVR=30 (MUMPS), ARC-LENGTH=off, RCTOL=0.1. MUMPS solver for ill-conditioned matrices."
+   },
+   {
+    "name": "Level 7 (최대안정 - Maximum Stability)",
+    "summary": "NSOLVR=-2, DCTOL=0.0001, ECTOL=0.001, DT0=T/50000, DTMAX=T/10000, KFAIL=15, STAB=ON, LSOLVR=30 (MUMPS), ARC-LENGTH=off, RCTOL=0.01. Very fine tolerances and time-steps."
+   },
+   {
+    "name": "Level 8 (좌굴/스냅스루 - Buckling/Snap-Through)",
+    "summary": "NSOLVR=7 (Full Newton), DCTOL=0.0001, ECTOL=0.001, DT0=T/50000, DTMAX=T/10000, KFAIL=15, STAB=ON, LSOLVR=30 (MUMPS), ARC-LENGTH=ON (Crisfield). For load-displacement paths with negative slope; requires arc-length."
+   }
+  ]
+  ```
+
+  # 주의
+  - CRITICAL GOTCHAS: (1) Arc-length (level 8 or arc_length:true) forces NSOLVR to [6..9]; if manually set outside this range, auto-corrects to 7. (2) endtime is MANDATORY for DR-mode models (endtim=0 in *CONTROL_TERMINATION) — omitting triggers fallback=1.0 warning. (3) Level-based defaults are overridden only if explicit override >0 (dctol/ectol/dt0/dtmax) or >=0 (kfail/stabOvr/arcOvr); nsolvr/lsolvr/rctol override if value!=0/>0 respectively. (4) STAB (stabilization) activates automatically at level 5+; explicit stab:false overrides. (5) MUMPS (LSOLVR=30) at level 6+; sparse (LSOLVR=7) at levels 1-5. (6) Removed keywords: *CONTROL_DYNAMIC_RELAXATION, *CONTROL_BULK_VISCOSITY, *DATABASE_BINARY_D3DRLF, *CONTROL_DYNAMICS, DEFINE_CURVE (SIDR=1 unless keep_dr_curves:true). (7) Modified: *CONTROL_TIMESTEP (TSSFAC=0.90, DT2MS=0.0), *CONTROL_TERMINATION (if endtime: specified). (8) fix_shell_elform: ELFORM=16 unsupported in implicit; auto-fix to ELFORM=2 (Belytschko-Tsay) if true. (9) strip:true removes all implicit cards without insertion (ignores mode/level/overrides). (10) Path resolution: relative paths (no /, no drive letter, no backslash) resolved from YAML dir; absolute/UNC paths passed as-is."
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: examples/implicit/level2.yaml에서 실제 파일명 확인. 최소 설정으로 레벨별 기본값 사용
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper implicit` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- implicit
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: explicit.k
+    output: implicit.k
+    mode: static
+    level: 2
+    endtime: 1
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/explicit.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: explicit.k
+    output: implicit.k
+    mode: static
+    level: 2
+    endtime: 1
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

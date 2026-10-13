@@ -1,0 +1,88 @@
+name: post_dyna_diag
+version: 1.0.0
+summary: LS-DYNA 결과 진단 — 에러·경고·성능 프로파일 JSON/HTML (단일 폴더 또는 일괄 색인)
+description: |
+  LS-DYNA 결과 진단 — 에러·경고·성능 프로파일 JSON/HTML (단일 폴더 또는 일괄 색인)
+
+  # 명령 도움말 (koo_dyna_diag --help)
+  ```text
+  usage: koodyna [-h] [-o OUTPUT] [-v] [--html HTML] [--no-color] [--version]
+                 [--scan BASE_DIR] [--index INDEX_PATH] [--list-index]
+                 [--analyze] [--output-dir OUTPUT_DIR] [--limit N] [--reanalyze]
+                 [--no-html] [-k KEYWORD] [--np N]
+                 [result_dir]
+
+  LS-DYNA simulation result analyzer for debugging and performance profiling
+
+  positional arguments:
+    result_dir            Path to LS-DYNA result folder (omit for GUI mode)
+
+  options:
+    -h, --help            show this help message and exit
+    -o OUTPUT, --output OUTPUT
+                          Write JSON report to file
+    -v, --verbose         Show detailed parsing progress
+    --html HTML           Write HTML report to file (Korean output)
+    --no-color            Disable colored terminal output
+    --version             show program's version number and exit
+    --scan BASE_DIR       Scan BASE_DIR recursively for d3plot directories and
+                          update the index
+    --index INDEX_PATH    Index file path (default: ~/.koodyna/index.json)
+    --list-index          Print the contents of the result index
+    --analyze             Analyze all pending entries in the index (use with
+                          --scan or alone)
+    --output-dir OUTPUT_DIR
+                          Directory for batch analysis JSON reports (default:
+                          ~/.koodyna/reports/)
+    --limit N             Max number of cases to analyze in batch mode (0 = all)
+    --reanalyze           Re-run analysis even for already-analyzed entries
+    --no-html             Skip HTML report generation in batch mode (JSON only)
+    -k KEYWORD, --keyword KEYWORD
+                          Filter subdirectories containing KEYWORD (use with
+                          result_dir for parallel batch)
+    --np N                Number of parallel processes for batch analysis
+                          (default: 4)
+  ```
+
+  # MCP 로 부르는 법
+  - target 은 기존 결과(d3plot 이 있는 폴더 등)의 절대경로. 업로드하지 않고 그 자리에서 읽는다 — /data/single/<사용자>/ 아래만 된다(전각도·부분충격 잡의 결과 폴더가 거기 있다).
+  - options 의 키는 위 도움말의 --옵션 이름. 값이 객체면 YAML 파일로 만들어 넘긴다.
+  - --install-dir·--ua 와 설정의 lsprepost_path 처럼 실행 파일을 고르는 항목은 거절된다(보안).
+  - 후처리 SIF(/opt/apptainers/SmartTwinPostprocessor.sif) 안에서 돈다. 큰 캠페인은 slurm.mem·time 을 넉넉히.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- postprocess
+- kood3plot
+- report
+- d3plot
+- post
+- dyna
+- diag
+- koo
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 명령 확인
+  args:
+    dry_run: true
+    target: /data/single/USER/case/run1
+- title: 제출하고 15분까지 기다리기
+  args:
+    dry_run: false
+    target: /data/single/USER/case/run1
+    wait_sec: 900
+    slurm:
+      cpus_per_task: 8
+      mem: 32G

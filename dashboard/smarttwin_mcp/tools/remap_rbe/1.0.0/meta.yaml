@@ -1,0 +1,101 @@
+name: remap_rbe
+version: 1.0.0
+summary: KooRemapper rbe — RBE2/RBE3 rigid body element constraints from YAML config
+description: |
+  RBE2/RBE3 rigid body element constraints from YAML config
+
+  Generates RBE2 (rigid body) or RBE3 (distributed interpolation) rigid body element constraints from YAML configuration. Creates *CONSTRAINED_NODAL_RIGID_BODY (RBE2) or *CONSTRAINED_INTERPOLATION (RBE3) keywords with automatic centroid master node selection. Supports directional filtering, angle thresholding, and spider/face modes for grouping surface nodes.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | YAML 설정 객체. model, output, rbe 배열을 포함합니다. |
+
+  # config 키 (YAML)
+  - `None` (file): Input LS-DYNA K-file path; relative to YAML directory
+  - `None` (file): Output K-file path (or stem without .k); defaults to input model if omitted. Relative to YAML directory.
+  - `None` (array): List of RBE constraint definitions; each item is a constraint configuration
+  - `None` (string|integer): Part ID (PID) or part name string; identifies the surface part to constrain
+  - `None` (enum): Face selection mode: 'direction' (filter the part's faces by normal direction + angle) or 'all' (use all surface faces). ONLY these two — 'set' and typos are rejected with rc=1: "rbe: constraints[i]: unsupported select '<value>' (allowed: direction, all)"; they used to fall through to 'all' silently. rbe and boundary differ: boundary takes direction/all/set, rbe takes direction/all.
+  - `None` (array): Normal direction vector [x, y, z] for filtering; required if select='direction'. Auto-normalized internally. Default: [0, 0, 0]
+  - `None` (number): Max deviation angle in degrees between face normal and direction vector; faces outside this cone are excluded. Default: 45.0 degrees
+  - `None` (enum): Constraint type: 'rbe2' (rigid, slave moves exactly with master) or 'rbe3' (interpolated, master is weighted average of slave motions)
+  - `None` (enum): Master node grouping: 'spider' (single centroid for all selected faces) or 'face' (one centroid per selected face)
+
+  # 주의
+  -
+  - **Selection flow**: part → faces → filter by direction & angle (if select='direction') → mode (spider or face) → create centroid node(s) + constraint.
+  - **rbe2 output**: Generates *SET_NODE (centroid + corner/surface nodes) + *CONSTRAINED_NODAL_RIGID_BODY (CNRB). All slave nodes move rigidly with master (strong coupling).
+  - **rbe3 output**: Generates *CONSTRAINED_INTERPOLATION with centroid as dependent, corner nodes as independent. Master is kinematic average of slave motions (soft coupling, distributes load).
+  - **Spider mode**: Creates 1 centroid node for ALL selected faces; one constraint per rbe[] item. Efficient for large surfaces.
+  - **Face mode**: Creates 1 centroid per face; generates separate constraints for each face. Use when faces must move independently or for local load distribution.
+  - **Direction + angle combo**: Required if select='direction'. Angle is deviation threshold in degrees; if undefined, any face with normal aligned to direction (within floating-point tolerance) passes.
+  - **Part resolution**: part can be numeric PID or string name; names are resolved from existing *PART keywords in the model.
+  - **Node numbering**: Centroid nodes are auto-generated with IDs > max existing NID; *SET_ID for RBE2 are > max existing SET_ID; constraint IDs (*CONSTRAINED_INTERPOLATION ICID) > max existing ICID.
+  - **Model path handling**: Relative paths in 'model' are resolved relative to YAML file directory; absolute paths are used as-is.
+  - **Output naming**: If output ends in .k, it is used as-is; otherwise .k is appended. Paths relative to YAML directory.
+  - **Multi-item rbe list**: Each rbe[] item is processed independently; constraints do not interact.
+  - **Warnings**: If no faces match selection criteria (e.g., direction filter rejects all faces), that rbe[] item is skipped with a warning; processing continues.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: rbe_spider.yaml 예제: 부품 PID=9 하단면(z-)에 1개 centroid 마스터 노드와 CONSTRAINED_INTERPOLATION 생성
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper rbe` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- bc
+- rbe
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: mesh.k
+      output: mesh_rbe_spider.k
+      rbe:
+      - part: 9
+        select: direction
+        direction:
+        - 0
+        - 0
+        - -1
+        angle: 45
+        type: rbe3
+        mode: spider
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/mesh.k
+    - /data/single/USER/case/mesh_rbe_spider.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

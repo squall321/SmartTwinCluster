@@ -1,0 +1,78 @@
+name: remap_refshell
+version: 1.0.0
+summary: KooRemapper refshell — 2D 곡선을 폭 방향으로 쓸어 QUAD4 기준 셸 덱 생성 (shellmap 의 기준면).
+description: |
+  2D 곡선을 폭 방향으로 쓸어 QUAD4 기준 셸 덱 생성 (shellmap 의 기준면).
+
+  Sweep a 2D curve across a width into a structured QUAD4 shell deck — the reference surface that `shellmap` maps a flat detailed mesh onto. The curve is read from a CSV that has `x` and `y` columns (named, not positional — `foldsurface` writes exactly this), the curve lies in the x-y plane and the width runs along +z. With `divisions` set, the curve is resampled to equal chord lengths so the elements are uniform; with `width_divisions` left at 0, the width is divided to give a 1:1 aspect ratio. Element winding is (a, d, c, b) over the grid corners a=(i,j), b=(i+1,j), c=(i+1,j+1), d=(i,j+1), which puts the normal along w x u — exactly +y for a straight curve swept along +z. Writes *NODE, *ELEMENT_SHELL, *PART, *SECTION_SHELL and *MAT_ELASTIC, so the deck stands on its own with no undefined references.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `curve` | file | 예 | Curve CSV with named `x` and `y` columns (e.g. foldsurface's <output>_curve.csv) |
+  | `output` | output | 예 | Output deck path (.k) |
+  | `width` | number | 예 | Width swept along +z |
+  | `thickness` | number | 예 | Shell thickness written to *SECTION_SHELL |
+  | `divisions` | integer |  | Elements along the curve; 0 uses the CSV points as given, otherwise the curve is resampled to equal chord lengths |
+  | `width_divisions` | integer |  | Elements across the width; 0 picks the count that gives a 1:1 aspect ratio |
+  | `part_title` | string |  | *PART title |
+  | `pid` | integer |  | Part ID |
+  | `secid` | integer |  | Section ID |
+  | `mid` | integer |  | Material ID |
+  | `rho` | number |  | Density for *MAT_ELASTIC |
+  | `E` | number |  | Young's modulus for *MAT_ELASTIC |
+  | `nu` | number |  | Poisson's ratio for *MAT_ELASTIC |
+
+  # 주의
+  - The chord sum of the discretised curve is always shorter than the arc it approximates, so the op prints the deviation from the input polyline length and warns past 0.01 percent — raise `divisions` to close it. The aspect ratio is printed too and warned about outside 0.5..2. The deck is written through the shared DeckWriter layer with LF newlines; it creates a deck rather than editing one, so there is no original newline to preserve.
+
+  사례 메모: Sweeps a foldsurface curve into a 20 x 4 QUAD4 grid (80 elements) with a 1:1 aspect ratio
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper refshell` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- refshell
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    curve: fold_curve.csv
+    output: refshell.k
+    width: 2.0
+    thickness: 0.05
+    divisions: 20
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/fold_curve.csv
+- title: 제출하고 5분까지 기다리기
+  args:
+    curve: fold_curve.csv
+    output: refshell.k
+    width: 2.0
+    thickness: 0.05
+    divisions: 20
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

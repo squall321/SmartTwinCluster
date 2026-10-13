@@ -1,0 +1,78 @@
+name: remap_extract_parts
+version: 1.0.0
+summary: KooRemapper extract-parts — Write a deck holding only the chosen parts, keeping every ID, the
+  deck's field width and its newlines, then read it back and report any missing referenc
+description: |
+  Write a deck holding only the chosen parts, keeping every ID, the deck's field width and its newlines, then read it back and report any missing reference.
+
+  Pulls selected parts out of a large deck into a smaller one that still runs. Parts are chosen by PID or by title wildcard, which matters on a 61-part deck where nobody remembers the numbers. The hard part is not the pulling — it is whether what is left is intact, because a deck that references a node, part, section or material it no longer contains dies somewhere else entirely and the cause is not obvious. So the op reads its own output back and reports undefined nodes, parts, sections and materials, exiting non-zero if any are found. *INCLUDE files are inlined rather than skipped: decks of this size are almost always split, and not reading them produces a deck with no elements at all for a part that lives in an include. The output is therefore one self-contained file, and an include that cannot be opened is refused rather than silently dropping the parts inside it. Beam, discrete, mass, seatbelt and plotel elements are read too, from manual-derived field positions; the variants still not understood are refused when they hold elements of a chosen part, because a deck that quietly lost structure runs and looks plausible, and dropped with a count when they only hold other parts. Everything dropped is listed by keyword in the report, so there is no invisible loss. IDs are preserved by default; renumber: true renumbers nodes and elements from 1 and writes the old-to-new map beside the deck, without which the extraction cannot be undone.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Input LS-DYNA K-file (or 'input'). *INCLUDE files are followed and inlined into the output. |
+  | `output` | output |  | Output K-file. Defaults to the input name with an '_extracted' suffix. |
+  | `parts` | array |  | PIDs to extract. A PID that is not in the deck is refused rather than silently producing an empty deck. Either this or part_titles is required. |
+  | `part_titles` | array |  | Part title patterns with '*' and '?' wildcards, matched case-insensitively against the *PART title line. A pattern that matches nothing is refused. |
+  | `renumber` | boolean |  | Renumber nodes and elements from 1 and write <output>_renumber_map.json with the old-to-new pairs. Only field 0 of each line is rewritten in place, so coordinate text is preserved byte for byte. Refused when two element families share an element ID. |
+  | `verify` | boolean |  | Read the written deck back and report undefined nodes, parts, sections and materials. Non-zero exit if any. |
+  | `include.nodes` | boolean |  | Carry the *NODE lines the extracted elements use. |
+  | `include.sets` | enum |  | referenced trims *SET_NODE / *SET_PART / *SET_SOLID / *SET_SHELL / *SET_TSHELL to what the output contains and keeps *SET_SEGMENT faces whose four nodes all survive. Variants whose members cannot be read as IDs (_GENERATE, _GENERAL, _ADD, _INTERSECT) are dropped and their SIDs listed. |
+  | `include.materials` | boolean |  | Carry *MAT_*, *EOS_*, *HOURGLASS blocks the chosen parts name, plus *DEFINE_CURVE and *DEFINE_TABLE (pure numbers, no node references). A block holding several definitions is carried whole and counted. |
+  | `include.sections` | boolean |  | Carry the *SECTION_* blocks the chosen parts name. |
+  | `report` | output |  | Write the result as JSON: selected parts, picked counts, needed section/material IDs, sets trimmed and dropped, dropped keywords, renumber map path and the read-back verification. |
+
+  # 주의
+  - What is carried: *KEYWORD, *TITLE, *PARAMETER*, *CONTROL_*, *DATABASE_ other than *DATABASE_HISTORY_*, the chosen parts' *PART pairs, their *SECTION_*/*MAT_*/*EOS_*/*HOURGLASS blocks, *DEFINE_CURVE/TABLE, the *NODE lines their elements use, their *ELEMENT_{SOLID,SHELL,TSHELL} cards and the trimmed sets. *DATABASE_HISTORY_* is dropped because it holds node and element IDs that may not survive. Everything else is dropped and counted by keyword in the report. A *PART_* variant the op cannot chunk (*PART_INERTIA and friends) is carried whole when one of its first-field PIDs was chosen, which may bring unselected parts along; LS-DYNA warns about a part with no elements, and that is far better than losing a rigid body silently. Card line counts come from the one shared judge, ElementCardLayout::elementCardSpan, so a higher-order solid's second node card is carried too. Field widths follow the deck: *NODE and *ELEMENT_* at the width *KEYWORD declares (8, i10=y 10, long=y 20) or the keyword suffix, *SET_* and *PART* at I10 (I20 under long). Lines are copied, not re-rendered, so fixed-width exponents are never truncated and original newlines survive; renumbering replaces single fields in place for the same reason. Relative paths resolve against the YAML file's directory.
+
+  사례 메모: 실행 검증된 예제 (입력: assembly.k — 파트 2 는 *INCLUDE 안에 있어서 펼쳐 넣는다)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper extract-parts` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- extract
+- parts
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: assembly.k
+    output: extracted.k
+    parts: &id001
+    - 1
+    - 2
+    report: extract_report.json
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/assembly.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: assembly.k
+    output: extracted.k
+    parts: *id001
+    report: extract_report.json
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "remap_cnrb2spring args",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model",
+    "output",
+    "axis"
+  ],
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "입력 K-파일 (*CONSTRAINED_NODAL_RIGID_BODY 포함)",
+      "x-kind": "session_file"
+    },
+    "output": {
+      "type": "string",
+      "description": "출력 K-파일"
+    },
+    "axis": {
+      "type": "string",
+      "description": "나사 축 — 빔의 로컬 r 이 된다. r 에 k_axial 이, s·t 에 ±gap 유격 곡선이 붙는다. auto 없음(필수)",
+      "enum": [
+        "x",
+        "y",
+        "z"
+      ]
+    },
+    "target_pids": {
+      "type": "array",
+      "description": "변환할 CNRB 의 PID 목록. 생략하면 덱의 모든 CNRB",
+      "default": "[]"
+    },
+    "gap": {
+      "type": "number",
+      "description": "반경 유격 ±[mm], 로컬 s·t(전단)에 적용 (가정값)",
+      "default": 0.1
+    },
+    "k_engage": {
+      "type": "number",
+      "description": "유격 소진 후 전단 강성 [N/mm] (가정값)",
+      "default": 100000.0
+    },
+    "k_axial": {
+      "type": "number",
+      "description": "축방향(로컬 r, 나사 헤드 클램핑) 강성 [N/mm] (가정값)",
+      "default": 10000000.0
+    },
+    "k_rot": {
+      "type": "number",
+      "description": "회전 3자유도 강성 [N*mm/rad] (가정값). 0 이면 회전을 풀어 둔다 — 원 CNRB 와 달라진다",
+      "default": 10000000.0
+    },
+    "curve_range": {
+      "type": "number",
+      "description": "곡선 가로축 반범위 [mm]. gap 보다 커야 한다",
+      "default": 1.0
+    },
+    "node_id_start": {
+      "type": "integer",
+      "description": "팬텀 노드 시작 ID (조인트당 2개, 같은 좌표). 충돌하면 rc=1",
+      "default": 90000001
+    },
+    "elem_id_start": {
+      "type": "integer",
+      "description": "*ELEMENT_BEAM 시작 ID (조인트당 1개). 충돌하면 rc=1",
+      "default": 9900001
+    },
+    "card_id_start": {
+      "type": "integer",
+      "description": "곡선·재질·섹션·좌표계·파트·세트 시작 ID. 충돌하면 rc=1",
+      "default": 990001
+    },
+    "pid_refs": {
+      "type": "string",
+      "description": "지운 CNRB PID·SET SID 를 가리키던 참조가 남았을 때: strict=rc=1, warn=경고만",
+      "enum": [
+        "strict",
+        "warn"
+      ],
+      "default": "strict"
+    },
+    "extra_inputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/.+"
+      },
+      "maxItems": 64,
+      "description": "옵션이 가리키는 보조 파일의 절대경로. 잡 work/ 폴더로 같이 올라가므로 옵션 값에는 파일 이름만 쓰면 된다. 허용 범위: /data/single/<사용자>/, /shared/uploads/users/<사용자>/, /data/scenario/."
+    },
+    "slurm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "잡 자원(선택). 생략하면 도구 종류별 기본(전처리 2 CPU·8G, 후처리 4 CPU·16G, 24시간)을 클러스터에서 가장 큰 노드에 맞춰 줄여 쓴다.",
+      "properties": {
+        "cpus_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "CPU 수"
+        },
+        "mem": {
+          "type": "string",
+          "pattern": "^[0-9]{1,6}[MG]$",
+          "description": "메모리 (예: 32G)"
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$",
+          "description": "시간 상한 HH:MM:SS"
+        },
+        "partition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "파티션 이름 (생략 = 클러스터 기본)"
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "true 면 제출하지 않고 생성될 입력 파일·명령만 돌려준다(PAT 없이도 된다). 먼저 이걸로 확인할 것."
+    },
+    "wait_sec": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1800,
+      "default": 0,
+      "description": "제출 후 이 시간(초) 안에 끝나면 결과(rc·로그 꼬리·작은 산출물)를 함께 돌려준다. 0 = job_id 만."
+    },
+    "job_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,48}$",
+      "description": "잡 이름(결과 폴더 이름이 된다). 생략하면 stmc_<도구이름>."
+    }
+  }
+}

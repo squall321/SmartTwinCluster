@@ -1,0 +1,157 @@
+name: remap_database
+version: 1.0.0
+summary: KooRemapper database — Insert DATABASE output control keywords into K-file with presets or custom
+  settings
+description: |
+  Insert DATABASE output control keywords into K-file with presets or custom settings
+
+  Insert LS-DYNA *DATABASE_* output control keywords into K-file. Supports 8 presets (all/drop/crash/static/thermal/forming/modal/minimal) or fine-grained custom ASCII/binary/extent options. Automatically detects and skips existing keywords, injecting results before *END or at file end.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | Complete YAML configuration object for database output control. Use either preset mode (model, output, preset, dt, dt_plot) or custom mode (model, output, ascii, binary, extent sections). Existing keywords in the K-file are automatically detected and skipped. |
+
+  # config 키 (YAML)
+  - `None` (file): Path to input K-file (LS-DYNA model). Relative paths resolved from YAML directory.
+  - `None` (file): Path to output K-file with inserted DATABASE keywords. Relative paths resolved from YAML directory.
+  - `None` (enum): Named preset selecting standard ASCII/binary keyword combinations. Mutually exclusive with custom ascii:/binary:/extent: sections. Default is 'all' if preset and custom sections are both absent.
+  - `None` (number): Output time interval for ASCII keywords (seconds). Used as dt parameter in *DATABASE_GLSTAT, *DATABASE_NODOUT, etc.
+  - `None` (number): Output time interval for d3plot and d3drlf binaries (seconds). If <= 0, defaults to dt*10.
+  - `None` (number): Output time interval for d3thdt binary (seconds). If <= 0, defaults to dt.
+  - `None` (number): Output time interval for d3dump and runrsf binaries (seconds). If <= 0, defaults to dt_plot*10.
+  - `None` (object): Section defining custom ASCII keyword toggles. Mutually exclusive with preset. Each key is an ASCII keyword name (glstat, matsum, nodout, elout, rcforc, sleout, spcforc, nodfor, rwforc, secforc, jntforc, bndout, abstat, swforc, ssstat, deforc, disbout, ncforc, tprint, massout) with boolean/string values (true/'1'/'on' = enabled).
+  - `None` (boolean): Global statistics (energies, timestep, velocities). *DATABASE_GLSTAT with dt, binary=0, lcur=0, ioopt=1.
+  - `None` (boolean): Material energies per part. *DATABASE_MATSUM.
+  - `None` (boolean): Nodal point output (displacement/velocity/acceleration at history nodes). *DATABASE_NODOUT.
+  - `None` (boolean): Element output (stress/strain at history elements). *DATABASE_ELOUT.
+  - `None` (boolean): Resultant contact interface forces. *DATABASE_RCFORC.
+  - `None` (boolean): Sliding interface energy. *DATABASE_SLEOUT.
+  - `None` (boolean): SPC (single point constraint) reaction forces. *DATABASE_SPCFORC.
+  - `None` (boolean): Nodal force groups. *DATABASE_NODFOR.
+  - `None` (boolean): Rigid wall forces. *DATABASE_RWFORC.
+  - `None` (boolean): Cross-section forces. *DATABASE_SECFORC.
+  - `None` (boolean): Joint forces. *DATABASE_JNTFORC.
+  - `None` (boolean): Boundary condition output. *DATABASE_BNDOUT.
+  - `None` (boolean): Airbag statistics. *DATABASE_ABSTAT.
+  - `None` (boolean): Spot weld/rivet forces. *DATABASE_SWFORC.
+  - `None` (boolean): Subsystem statistics. *DATABASE_SSSTAT.
+  - `None` (boolean): Discrete element forces. *DATABASE_DEFORC.
+  - `None` (boolean): Displacement output (binary). *DATABASE_DISBOUT.
+  - `None` (boolean): Nodal contact forces. *DATABASE_NCFORC.
+  - `None` (boolean): Thermal print interval. *DATABASE_TPRINT.
+  - `None` (boolean): Added mass output. *DATABASE_MASSOUT.
+  - `None` (object): Section defining custom binary keyword toggles. Mutually exclusive with preset. Each key is a binary keyword name (d3plot, d3thdt, d3dump, runrsf, intfor, d3drlf) with boolean/string values (true/'1'/'on' = enabled). Time intervals controlled by dt_plot, dt_thdt, dt_dump.
+  - `None` (boolean): Full state output file. *DATABASE_BINARY_D3PLOT with interval dt_plot. Standard binary output format.
+  - `None` (boolean): Time history output. *DATABASE_BINARY_D3THDT with interval dt_thdt.
+  - `None` (boolean): Restart dump files. *DATABASE_BINARY_D3DUMP with interval dt_dump.
+  - `None` (boolean): Running restart files. *DATABASE_BINARY_RUNRSF with interval dt_dump.
+  - `None` (boolean): Interface force file. *DATABASE_BINARY_INTFOR.
+  - `None` (boolean): Dynamic relaxation output. *DATABASE_BINARY_D3DRLF with interval dt_plot.
+  - `None` (object): Optional *DATABASE_EXTENT_BINARY configuration. Enables extended binary output with additional integration point and stress/strain field options. Only inserted if any key is specified or preset includes extent.
+  - `None` (integer): Number of additional integration point history variables (neiph field in *DATABASE_EXTENT_BINARY Card 1).
+  - `None` (integer): Number of stress/strain samples at integration points (neips field).
+  - `None` (integer): Maximum number of integration points to output (maxint field). Default 3.
+  - `None` (integer): Strain tensor output flag (strflg field, Card 1). 0=off, 1=on. Default 1.
+  - `None` (integer): Stress tensor output flag (sigflg field, Card 1). 0=off, 1=on. Default 1.
+  - `None` (integer): Effective plastic strain output flag (epsflg field, Card 1). 0=off, 1=on. Default 1.
+  - `None` (integer): Relative thickness strain output flag (rltflg field, Card 1). 0=off, 1=on. Default 1.
+  - `None` (integer): Energy flag (engflg field, Card 1). 0=off, 1=on. Default 1.
+  - `None` (integer): Component (element) output compression flag (cmpflg field, Card 2). 0=off (full output), 1=on (compressed). Default 0.
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "all",
+    "summary": "Maximum output for comprehensive analysis. ASCII: 20 keywords (glstat, matsum, nodout, elout, rcforc, sleout, spcforc, nodfor, rwforc, secforc, jntforc, bndout, abstat, swforc, ssstat, deforc, disbout, ncforc, tprint, massout). Binary: d3plot, d3thdt, d3dump, runrsf. EXTENT: enabled."
+   },
+   {
+    "name": "drop",
+    "summary": "Drop test analysis. ASCII: glstat, matsum, nodout, elout, rcforc, sleout, spcforc, rwforc, nodfor, secforc, bndout, ncforc. Binary: d3plot, d3thdt, d3dump. EXTENT: enabled."
+   },
+   {
+    "name": "crash",
+    "summary": "Crash/impact analysis. ASCII: glstat, matsum, nodout, elout, rcforc, sleout, spcforc, rwforc, nodfor, secforc, swforc, ncforc, abstat. Binary: d3plot, d3thdt, d3dump. EXTENT: enabled."
+   },
+   {
+    "name": "static",
+    "summary": "Static/implicit analysis. ASCII: glstat, matsum, nodout, elout, spcforc, nodfor, bndout, secforc. Binary: d3plot, d3thdt. EXTENT: enabled."
+   },
+   {
+    "name": "thermal",
+    "summary": "Thermal analysis. ASCII: glstat, matsum, nodout, elout, spcforc, tprint, bndout. Binary: d3plot, d3thdt. EXTENT: enabled."
+   },
+   {
+    "name": "forming",
+    "summary": "Metal forming analysis. ASCII: glstat, matsum, nodout, elout, rcforc, sleout, spcforc, nodfor, secforc, ncforc, swforc. Binary: d3plot, d3thdt, d3dump. EXTENT: enabled."
+   },
+   {
+    "name": "modal",
+    "summary": "Modal/eigenvalue analysis. ASCII: glstat, matsum, nodout, elout, spcforc. Binary: d3plot. EXTENT: disabled."
+   },
+   {
+    "name": "minimal",
+    "summary": "Minimal essential output. ASCII: glstat, matsum. Binary: d3plot. EXTENT: disabled."
+   }
+  ]
+  ```
+
+  # 주의
+  - **MODE SELECTION**: Use preset (preferred) OR custom ascii:/binary:/extent: sections, never both together (mutually exclusive). If neither preset nor custom sections specified, defaults to preset='all'. **TIME DEFAULTS**: dt_plot, dt_thdt, dt_dump auto-calculated if <= 0 (dt_plot=dt*10, dt_thdt=dt, dt_dump=dt_plot*10). **EXTENT BINARY**: Only inserted if extent: section present AND (preset includes extent OR extent has >=1 key). **KEYWORD SKIPPING**: Parser scans existing K-file for *DATABASE_* keywords (case-insensitive). Found keywords logged as [SKIP] and not re-inserted. **INJECTION POINT**: All generated keywords inserted as block immediately before *END (if *END found), else at file end. **YAML PATHS**: model/output paths relative to YAML directory (auto-resolved). **VALIDATION**: Presets must match exact name (case-sensitive: all/drop/crash/static/thermal/forming/modal/minimal); unknown preset returns error. Custom ascii/binary boolean values: accepts 'true', '1', 'on' (case-insensitive) for enabled; anything else treated as disabled."
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Run as: KooRemapper database config.yaml (where config.yaml contains the above structure). Example files: database_all.yaml, database_drop.yaml in examples/database/
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper database` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- database
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: test_model.k
+      output: test_model_db.k
+      preset: all
+      dt: 0.001
+      dt_plot: 0.01
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/test_model.k
+    - /data/single/USER/case/test_model_db.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

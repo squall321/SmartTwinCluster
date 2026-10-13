@@ -1,0 +1,185 @@
+name: remap_restack
+version: 1.0.0
+summary: KooRemapper restack — Re-divide an extruded solid part into stacked layers, each with its own
+  thickness and material.
+description: |
+  Re-divide an extruded solid part into stacked layers, each with its own thickness and material.
+
+  Extrude a single solid part into stacked multi-layer geometry with independent material per layer. Replaces target part with new PID/SECID/MID per layer, supporting mixed solid+shell, tied/CZM contact interfaces, and automatic thickness mismatch compensation via initial strain.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 전체 YAML 설정 객체 (base_model, output, operations: [type: restack, ...]) |
+
+  # config 키 (YAML)
+  - `None` (enum): Operation type identifier
+  - `None` (integer): Target part ID to extrude (must exist in base_model)
+  - `None` (enum): Extrusion axis: auto (auto-detect from part geometry), x, y, or z
+  - `None` (enum): Default element type for all layers: solid (HEX8), tshell (TSHELL) or shell (QUAD4). Rejected with rc=1 and no output otherwise — 'hex', a typo, or an uppercase 'SOLID' all fail with "restack: unsupported element_type '<value>' (allowed: solid, tshell, shell)". Older configs that relied on any other value being silently treated as solid now break.
+  - `None` (number): Target element edge length [mm] in thickness direction; auto-computes num_elements per layer. 0=disabled (use num_elements explicitly)
+  - `None` (enum): Contact mode between adjacent layers: tied (node-shared or CONTACT_TIED_SURFACE_TO_SURFACE_OFFSET for shell-solid), czm (CONTACT_TIED_SURFACE_TO_SURFACE_FAILURE with manual czm_normal/czm_shear), or czm_auto (czm + auto viscous damping VC from Prony series and drop_height)
+  - `None` (number): CZM normal tensile stress at failure [MPa], applied to all layer interfaces unless per-layer override. Required if interface_contact=czm or czm_auto
+  - `None` (number): CZM shear stress at failure [MPa], applied to all layer interfaces unless per-layer override. Required if interface_contact=czm or czm_auto
+  - `None` (number): Drop height [mm] for czm_auto mode only; used to compute impact velocity (v = sqrt(2*9810*h)) and viscoelastic damping VC from Prony series. Ignored if interface_contact!=czm_auto
+  - `None` (enum): Policy for references that still point at what restack/merge emptied — the dead PID, the deleted elements, the deleted nodes. strict (default): the deck is still written, but if anything could not be migrated the run ends with rc=1. warn: the same report, rc=0 — the escape hatch for existing pipelines (못 옮기면 rc=1, warn 은 rc=0). Any other value is rejected with rc=1 and "invalid pid_refs '<value>' (must be one of strict, warn)", and no output is written. The full list is in the `$ KOOREMAPPER-PIDREF` block at the head of the output deck (right after *KEYWORD); findings graded `maybe` are reported but never raise rc. MCP/web jobs and the pyKooCAE chain judge success by exit code only, so rc=1 shows up as a failed job — read the deck-head block, not the config.
+  - `None` (int): First part ID to hand out to layers that do not set their own 'pid'. Omit (or 0) to keep the old behaviour (model max PID + 1). IDs already used by the model, and IDs pinned by layers[].pid, are skipped. Use it to keep restack layers out of a reserved ID band.
+  - `None` (array): List of layer definitions (inner to outer order along direction axis)
+  - `None` (number): Layer thickness [mm]; must be > 0. Sum of all layer thicknesses need not equal original part thickness (automatic scaling + *INITIAL_STRAIN_SOLID will compensate)
+  - `None` (int): Part ID for this layer. Omit (or 0) to take the next free ID above the model's max PID, which is what earlier versions always did. Give it when the model reserves ID bands (e.g. a downstream tool that generates its own parts): a collision with an ID the model already uses, or with another layer in the same operation, exits 1 and writes nothing.
+  - `None` (integer): Number of elements in thickness direction (0 or omitted = auto-compute from element_size, minimum 1). Synonyms: nz
+  - `None` (enum): Layer-specific element type override (solid, tshell, shell); empty/omitted inherits the op-level element_type. Rejected with rc=1 and no output otherwise — 'hex', a typo, or an uppercase 'SOLID' all fail with "restack: unsupported element_type '<value>' (allowed: solid, tshell, shell)". Older configs that relied on any other value being silently treated as solid now break.
+  - `None` (string): *PART title for this layer; if empty, auto-generated as 'Restack Layer N'. Synonyms: name
+  - `None` (number): Per-layer override of CZM normal failure stress [MPa] at the interface below this layer (-1 = use parent czm_normal)
+  - `None` (number): Per-layer override of CZM shear failure stress [MPa] at the interface below this layer (-1 = use parent czm_shear)
+  - `None` (string): LS-DYNA material keyword block (e.g., *MAT_ELASTIC with 5 data lines). Raw multi-line text; placeholders like MID001, MID002 are auto-renumbered. Can include *MAT_GENERAL_VISCOELASTIC (Prony series) for czm_auto mode
+
+  # 주의
+  - **Critical requirements:**
+  - target_pid: must exist in base_model and be a solid/tshell part.
+  - layers[].thickness: each layer must have thickness > 0.
+  - layers[].material_card: each layer must have non-empty material card.
+  - At least one layer required.
+
+  **Mutually exclusive / conditional:**
+  - interface_contact=tied: does not require czm_normal/czm_shear (shell layers auto-generate tied contacts).
+  - interface_contact=czm: requires czm_normal and czm_shear (and/or per-layer overrides).
+  - interface_contact=czm_auto: requires czm_normal, czm_shear, AND drop_height; also requires layers to have *MAT_GENERAL_VISCOELASTIC or *MAT_VISCOELASTIC material cards (Prony series).
+
+  **Defaults & behavior:**
+  - direction=auto: parser inspects part bbox to infer extrusion axis (e.g., if dz >> dx,dy → z).
+  - element_size=0: disables auto num_elements; each layer's num_elements must be explicit (or defaults to 0→error).
+  - If total layer thickness != original part thickness: nodes are force-scaled and *INITIAL_STRAIN_SOLID is auto-inserted (solid layers only; shell layers are skipped).
+  - Shell layers: create independent mid-plane nodes (not shared with adjacent solids); each interface gets separate tied/CZM contact.
+  - Material ID placeholder handling: MID001, MID002, etc. in material_card are auto-renumbered to avoid collisions.
+
+  **Common mistakes:**
+  - Forgetting material_card in a layer (parser will error).
+  - Using mismatched total thickness without understanding *INITIAL_STRAIN_SOLID will be applied (may produce unexpected pre-stress).
+  - Mixing solid and shell without specifying interface_contact=tied (shell requires tied/CZM to stay attached).
+  - Setting czm_auto without drop_height (required for VC auto-calc)."
+
+  **참조 이전 — restack 은 원 파트를 비운다 (`pid_refs`, 2026-09-18 실행 확인):**
+  - restack 은 대상 파트를 층으로 나누며 층마다 새 PID/SECID/MID 를 준다. 원 `*PART` 카드는 요소 0 개로 남고,
+    두께 방향 요소가 2 개 이상이면 원 중간면 노드도 사라진다. 그래서 그것들을 가리키던 카드가 아무 일도
+    하지 않는 채 덱에 남는다(`*BOUNDARY_SPC_NODE`·`*SET_SEGMENT` 가 사라진 노드에 매달린다).
+  - 도구가 세 축 — 죽은 PID / 지워진 요소(EID) / 지워진 노드(NODE) — 을 훑어 옮길 수 있는 것은 옮기고 나머지는 보고한다.
+    - 체적 의미로 쓰이는 `*SET_PART_LIST`/`_TITLE` → 층 PID 전부(한 줄 8 개 규칙을 지켜 줄을 늘린다).
+      `*SET_PART_COLUMN` 은 구성원마다 딸린 칸이 있어 8 개씩 묶지 않고 죽은 PID 줄을 층마다 한 줄씩으로
+      늘린다(딸린 칸은 그대로 복사한다).
+    - tied 계열 접촉(`*CONTACT_*TIED*`/`*TIEBREAK*`/`*SPOTWELD*`/`*CONTACT_CONSTRAINT_*`) → 상대측(SURFB) 기하를
+      적층 축에 투영해 **층이 유일하게 정해질 때만** 그 층으로. 애매하거나 shell 층이 섞이면 옮기지 않고 보고만 한다.
+    - 한 세트를 tied 와 체적 소비자가 함께 쓰면 세트를 복제해 가른다(새 SID 를 발급한다).
+    - 미끄러지는 계열(이름에 AUTOMATIC·ERODING·SINGLE_SURFACE·SLIDING·FORMING·DRAWBEAD·ONE_WAY·
+      SURFACE_TO_SURFACE·NODES_TO_SURFACE 가 있는 것)은 모든 층이 solid 일 때 층 전부를 담은 세트로 바꾼다(STYP 3→2).
+      두 목록 어디에도 없는 이름은 안전한 쪽인 tied 로 본다 — `*CONTACT_ENTITY`·`*CONTACT_FORCE_TRANSDUCER_PENALTY`
+      처럼 묶지 않는 카드도 한 층으로 붙으니 결과를 확인해라.
+  - **스칼라 PID 칸은 restack 이 옮기지 못한다** — 칸 하나에 층 N 개를 담을 수 없어서다. `*DAMPING_PART_MASS`/`_STIFFNESS`,
+    `*DATABASE_HISTORY_PART`, `*MAT_ADD_THERMAL_EXPANSION`, `*PART_MOVE`, `*BOUNDARY_PRESCRIBED_MOTION_RIGID`,
+    `*DEFORMABLE_TO_RIGID`, `*INITIAL_VELOCITY_GENERATION` 의 PID 칸은 `manual`(직접 고치세요) 로 남는다.
+    새 PID 가 하나뿐인 `merge` 는 이 칸들을 실제로 바꿔 준다 — 두 op 의 차이다.
+    단 `*ELEMENT_MASS`(`_PART` 포함)는 두 op 모두 `manual` 이다 — 집중질량을 나눠 주지 않으므로 직접 배분해야 한다.
+  - `*INCLUDE` 가 있는 덱은 그 세트의 소비자를 다 볼 수 없어 세트를 펴지 않고 보고만 한다.
+  - 가리키던 자리를 하나라도 찾으면 산출 덱 머리(`*KEYWORD` 바로 뒤)에 `$ KOOREMAPPER-PIDREF` 블록이 들어간다
+    (찾은 것이 없으면 블록도 없다). 등급은 `moved`(옮겼다) / `left`(못 옮겼다, 이유가 붙는다) /
+    `manual`(직접 고치세요) / `unknown`(칸 자리 미확정) / `maybe`(화이트리스트 밖 — **rc 에는 넣지 않는다**).
+    블록의 줄 번호는 **입력 덱 기준**이다(이 블록과 이관으로 늘어난 줄만큼 산출 덱에서는 아래로 밀려 있다).
+  - **rc 정책:** `maybe` 를 뺀 못 옮긴 자리가 하나라도 남으면 **덱은 쓰고 rc=1** 로 끝낸다(기본 `pid_refs: strict`).
+    `pid_refs: warn` 은 같은 보고를 하고 rc=0 이다. 이 op 을 MCP·웹에서 돌리면 rc=1 은 job `failed` 로 보인다 —
+    플랫폼 워커가 `exit_code == 0` 만 `succeeded` 로 치고(`worker/runner_loop.py`), pyKooCAE 의
+    `Runner/KooRemapperStep.py` 는 `returncode != 0` 에 `RuntimeError` 를 던지기 때문이다. 설정이 틀린 것이 아니라
+    '옮기지 못한 참조가 있다' 는 뜻이니 **산출 덱 머리의 `$ KOOREMAPPER-PIDREF` 블록을 먼저 읽어라**.
+
+  **재질 카드·대상 파트 (2026-09-18 실행 확인):**
+  - `material_card` 의 MID 칸에 **숫자를 직접 적으면 그 번호를 그대로 쓴다**. 이미 쓰이는 번호면 새 번호를 주고
+    `Restack layer 2: material MID 90 is already in use -> assigned MID 91` 로 알린다
+    (`MID001` 같은 자리표시자는 예전처럼 자동 채번한다).
+  - `*MAT_..._TITLE` 카드에 **제목 줄이 없으면** 데이터 줄을 제대로 읽고
+    `[WARN] Restack layer N: *MAT_..._TITLE card had no title line -> filled it with '<layers[].title>'` 를 낸 뒤
+    **빠진 제목 줄을 그 층 제목으로 채워** 내보낸다(`title` 키가 없으면 `Restack Layer N`).
+    **단 데이터 줄이 하나뿐인 카드에서만 그렇다** — 빠진 제목 줄을 '키워드 줄 뒤 비주석 줄이 하나뿐인가' 로 찾기 때문이다.
+    `*MAT_RIGID_TITLE`·`*MAT_PIECEWISE_LINEAR_PLASTICITY_TITLE` 처럼 데이터 줄이 두 줄 이상인 카드에서 제목 줄을 빠뜨리면
+    탐지하지 못하고 첫 데이터 줄이 제목으로 먹힌다 — 그런 카드에는 제목 줄을 반드시 적어라.
+    키워드 줄 뒤에 **데이터 줄 자체가 없는** 카드는 rc=1 이다.
+  - 대상 파트가 **강체**(`*MAT_RIGID`/`*MAT_020` 또는 `*PART_INERTIA`)면 restack 을 시작하지 않고 rc=1 로 거부한다
+    (`restack: PID 1 는 *MAT_RIGID(MID 1) 강체 파트입니다 … / cannot restack a rigid part`).
+  - 새 층이 원 `*SECTION` 의 **ELFORM** 과 원 `*PART` 의 **HGID·TMID** 를 물려받는다. ELFORM 은 같은 요소 종류끼리만
+    물려준다(`*SECTION_SOLID` 의 2 와 `*SECTION_SHELL` 의 2 는 다른 정식이다). **EOSID 는 물려주지 않는다.**
+  - 층 재질 카드도 `MaterialCardValidator` 를 거친다 — 구조가 깨진 카드('*MAT 키워드 없음'·'데이터 줄 없음')만 rc=1 이고,
+    칸 수·값 범위 지적은 `[WARN] Restack layer N material_card: …` 로만 나온다.
+
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+  ELEMENT COUNT CHECK: restack prints a per-part element count table (input -> output) and, before writing, re-reads the output buffer to confirm the counts match what it intended — including parts it never touched, and the total. A mismatch exits 1 and writes nothing. This exists because a field deck once lost a whole part silently and 485 solver runs completed 'normally' on a model with the chip missing.
+
+
+  사례 메모: 실행 검증된 예제 (입력: restack_base.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper restack` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- restack
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: restack_base.k
+      output: restack_result_test
+      operations:
+      - type: restack
+        target_pid: 1
+        direction: auto
+        element_type: solid
+        layers:
+        - thickness: 0.3
+          material_card: |
+            *MAT_ELASTIC
+            $#     mid        ro         e        pr
+                MID001  7.85E-09  2.10E+05       0.3
+        - thickness: 0.4
+          material_card: |
+            *MAT_ELASTIC
+            $#     mid        ro         e        pr
+                MID002  7.85E-09  1.50E+05      0.25
+        - thickness: 0.3
+          material_card: |
+            *MAT_ELASTIC
+            $#     mid        ro         e        pr
+                MID001  7.85E-09  2.10E+05       0.3
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/restack_base.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

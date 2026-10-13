@@ -1,0 +1,171 @@
+name: remap_cnrb2solid
+version: 1.0.0
+summary: KooRemapper cnrb2solid — CNRB 강체 볼트를 O-grid HEX8 원형 솔리드 메시로 변환
+description: |
+  CNRB 강체 볼트를 O-grid HEX8 원형 솔리드 메시로 변환
+
+  Converts CONSTRAINED_NODAL_RIGID_BODY (CNRB) rigid bolt definitions into structured HEX8 O-grid cylinder meshes. Automatically detects cylinder axis via PCA, identifies Z-levels (cross-sections), determines bolt-hole radius per level, and generates a layered HEX8 solid with optional bolt head (flange). Result mesh is connected via Tied Contact to the surrounding structure. Removed CNRB definitions are replaced with generated nodes, elements, parts, sections, materials, and contact definitions.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | 입력 K-파일 (*CONSTRAINED_NODAL_RIGID_BODY 포함) |
+  | `output` | output | 예 | 출력 K-파일 (HEX8 솔리드 요소 포함) |
+  | `E` | number |  | Young의 탄성계수 [MPa] |
+  | `PR` | number |  | Poisson 비율 (0.0~0.5) |
+  | `RHO` | number |  | 재료 밀도 [t/mm³] (예: 강철 7.85e-9) |
+  | `radius_scale` | number |  | 링 노드 반경 = 볼트홀 반경 × 이 값 (1.0 이하로 체결 간격 유지) |
+  | `num_circum_nodes` | integer |  | 원주 노드 수 (4의 배수; 0=자동 감지) |
+  | `inner_radius_ratio` | number |  | 코어 사각형 반변 / 링 반경 비율 |
+  | `axis_direction` | enum |  | 실린더 축 방향 (auto=PCA 자동 감지) |
+  | `z_tolerance` | number |  | Z-레벨 그룹핑 허용 오차 [mm] |
+  | `r_tolerance` | number |  | 반경 클러스터링 허용 오차 [mm] (단계형 볼트용) |
+  | `head_offset_r` | number |  | 볼트 헤드 반경 오프셋 [mm] (0.0=헤드 미생성) |
+  | `head_thickness` | number |  | 볼트 헤드 축방향 두께 [mm] |
+  | `head_position` | enum |  | 헤드 위치 (auto=큰 R 또는 Z_max 쪽, none=헤드 미생성) |
+
+  # config 키 (YAML)
+  - `None` (file): Input K-file containing one or more *CONSTRAINED_NODAL_RIGID_BODY definitions. Each CNRB specifies PID, NSID (node set of hole nodes), PNODE (center point, optional).
+  - `None` (file): Output K-file path. Contains generated HEX8 solid elements, nodes, parts, sections, materials, node sets, and tied contact definitions.
+  - `None` (number): Young's modulus [MPa]. Optional — defaults to 200000 (steel 200 GPa). Used to create *MAT_ELASTIC material for each converted CNRB.
+  - `None` (number): Poisson's ratio (0.0–0.5). Optional — defaults to 0.3 (steel). Used in *MAT_ELASTIC.
+  - `None` (number): Mass density [t/mm³]. Optional — defaults to 7.85e-9 for steel (= 7850 kg/m³, t/mm/s unit system). Used in *MAT_ELASTIC.
+  - `None` (number): Scaling factor for outer ring node radii. Ring radius = detected bolt-hole R × radius_scale. Must be ≤ 1.0 to maintain gap for tied contact (~0.001 gap at 0.999). Typical range: 0.95–0.999.
+  - `None` (integer): Number of circumferential nodes per ring (must be multiple of 4). Set to 0 (default) for auto-detection: N = max(8, round_to_4(max_nodes_per_z_level / 4)). Override with explicit value (e.g. 8, 12, 16, 20) to control mesh density.
+  - `None` (number): Core square half-side length divided by first ring radius. Determines central square mesh size relative to bolt hole. Typical: 0.3 (core side ≈ 60% of bolt diameter). Higher ratio → larger core, fewer ring cells; lower → smaller core, more ring cells.
+  - `None` (enum): Cylinder axis direction. 'auto' = principal axis detected via PCA of hole-node cloud, then snapped to nearest canonical axis (x, y, or z). Override with 'x', 'y', or 'z' to force a specific axis.
+  - `None` (number): Z-level grouping tolerance [mm]. Nodes within this distance along the cylinder axis are merged into the same cross-section level. Controls layer discretization; smaller = finer Z-discretization.
+  - `None` (number): Radial cluster tolerance [mm]. Groups distinct bolt radii (e.g., stepped bolts with multiple diameters) into clusters. Each cluster → one ring. Nodes within r_tolerance of the previous cluster are merged; clusters farther apart → separate rings. Controls radial ring count.
+  - `None` (number): Bolt head (flange) radius offset [mm]. Head radius = R_shaft + head_offset_r. Set to 0.0 (default) to skip head generation. Typical: 1.0–3.0 for visible head. Must be ≥ 0.
+  - `None` (number): Bolt head axial (Z-direction) thickness [mm]. Only used if head_offset_r > 0. Extra Z-level added at shaft extremity ± head_thickness. Typical: 1.0–3.0. Must be > 0.
+  - `None` (enum): 'auto' = place head at Z_max (or at end with larger radius if auto-selected). 'top' = force Z_max side. 'bottom' = force Z_min side. 'none' = disable head (same as head_offset_r: 0).
+
+  # 주의
+  - GOTCHAS & DESIGN NOTES:
+
+  1. **Input Requirements**: CNRB file must contain:
+     - *CONSTRAINED_NODAL_RIGID_BODY [_TITLE] keyword block
+     - NSID pointing to a valid *SET_NODE_LIST with ≥4 nodes
+     - At least 2 distinct Z-levels in the hole-node cloud (else skipped with warning)
+
+  2. **PNODE (Center Node)**: If PNODE > 0 in the CNRB data line, that node is used as bolt center; otherwise, centroid of NSID nodes is computed. PNODE (if present) is **removed** from the output *NODE section.
+
+  3. **Mesh Topology** (O-grid HEX8):
+     - **Core**: m × m = (N/4)² square elements (4-sided with inner nodes)
+     - **Ring 0**: N elements from core boundary to first outer ring
+     - **Additional Rings**: One per distinct R cluster (shaft) or head rings (if head_offset_r > 0)
+     - **Total per layer**: m² + N × (number of rings)
+     - **Total layers**: (# Z-levels) + (1 if head added, for head top level)
+
+  4. **Auto Circumferential Nodes**: If num_circum_nodes = 0:
+     - Count max nodes in any Z-level
+     - N = max(8, round_to_multiple_of_4(max_nodes_per_level / 4))
+     - Ensures N ≥ 8 for acceptable mesh density
+
+  5. **Axis Direction Auto-Snap**: PCA detects elongation direction; if abs(axis.x) > 0.9 → snap to (±1, 0, 0), etc. Avoids floating-point tilt artifacts.
+
+  6. **Z-Level Grouping**: Nodes are rounded to nearest z_tolerance grid point, then grouped. All rounded Z-values within a level are treated as same cross-section.
+
+  7. **Radial Ring Clustering**: Distinct R values (max R per Z-level) are clustered. Running mean used for cluster centers. Each cluster (group of similar R values) becomes one ring. Head rings (if enabled) are additional concentric rings from R_shaft to R_head.
+
+  8. **Radius Scale < 1.0**: Ring nodes placed **inside** the hole by factor radius_scale. Critical for Tied Contact to work (maintains gap for contact algorithms). Typical 0.999 → ~0.001 gap at R=3mm.
+
+  9. **Head Placement Logic**:
+     - If head_position = 'auto' AND rMin_side < rMax_side (comparing R at Z_min vs Z_max), place head at Z_max.
+     - If head_position = 'top', always place at Z_max.
+     - If head_position = 'bottom', always place at Z_min.
+     - If 'none', no head (equivalently, head_offset_r: 0).
+
+  10. **Material & Section**: One *MAT_ELASTIC and *SECTION_SOLID per converted CNRB, using fresh secId and matId. Part PID remains same as original CNRB PID.
+
+  11. **Tied Contact**: A *SET_NODE_LIST (NSID nodes) and *CONTACT_TIED_SURFACE_TO_SURFACE_OFFSET are generated. Users must ensure conformal or near-conformal mesh between solid bolt surface and surrounding structure.
+
+  12. **Multiple CNRBs**: All non-empty CNRBs converted unless targetPids filter is set (not exposed in YAML; C++ API only). Each gets own nodes, elements, part, section, material, contact.
+
+  13. **File Modifications**: CNRB blocks removed; PNODE removed from *NODE section; *END marker preserved. All insertion done before *END.
+
+  14. **Supported Unit System**: Designed for t/mm/s: E in MPa, RHO in t/mm³, geometry in mm, time in s. Other systems require manual unit conversion on input/output.
+
+  15. **Mesh Constraints**:
+      - Inner core cannot exceed first ring radius (forced via inner_radius_ratio)
+      - All rings within Z-layer must have distinct, monotonic radii
+      - Minimum 4 nodes per CNRB (auto-skipped if fewer)
+      - Minimum 2 Z-levels (auto-skipped if 1 level only)
+
+  16. **Preset Levels**: No presets or modes; all parameters explicit. No relax/implicit/stabilize modes.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실제 예제 폴더의 bolt_simple.k 파일을 사용하며, 기본 설정은 헤드 없음(head_offset_r=0). head_offset_r>0으로 설정하면 볼트 헤드가 추가됨.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper cnrb2solid` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- cnrb2solid
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: bolt_simple.k
+    output: bolt_simple_solid.k
+    E: 200000
+    PR: 0.3
+    RHO: 7.85e-09
+    radius_scale: 0.999
+    num_circum_nodes: 8
+    inner_radius_ratio: 0.3
+    axis_direction: auto
+    z_tolerance: 0.1
+    r_tolerance: 0.5
+    head_offset_r: 0
+    head_thickness: 2
+    head_position: auto
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/bolt_simple.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: bolt_simple.k
+    output: bolt_simple_solid.k
+    E: 200000
+    PR: 0.3
+    RHO: 7.85e-09
+    radius_scale: 0.999
+    num_circum_nodes: 8
+    inner_radius_ratio: 0.3
+    axis_direction: auto
+    z_tolerance: 0.1
+    r_tolerance: 0.5
+    head_offset_r: 0
+    head_thickness: 2
+    head_position: auto
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

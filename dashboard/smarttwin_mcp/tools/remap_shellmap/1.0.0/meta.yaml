@@ -1,0 +1,81 @@
+name: remap_shellmap
+version: 1.0.0
+summary: KooRemapper shellmap — Map a flat detail mesh onto a bent QUAD4 shell reference mesh
+description: |
+  Map a flat detail mesh onto a bent QUAD4 shell reference mesh
+
+  Maps a flat detail mesh (solid or shell elements) onto a bent QUAD4 shell reference mesh by unfolding the shell to preserve edge lengths, then mapping the flat detail onto the bent surface. Automatically detects or accepts explicit thickness for Z-offset positioning. Best suited for developable surfaces with single curvature (cylinders, cones).
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `bent_shell` | file | 예 | Bent shell reference mesh with QUAD4 elements (k-file) |
+  | `flat_detail` | file | 예 | Flat detail mesh to be mapped (solid or shell elements, k-file) |
+  | `output` | output | 예 | Output file path for the mapped mesh |
+  | `thickness` | number |  | Shell thickness for Z-offset mapping (default: auto-detect from flat mesh Z-range) |
+
+  # config 키 (YAML)
+  - `None` (file): Bent shell reference mesh (k-file, QUAD4 elements only). Unstructured quadrilateral surface that defines the target 3D geometry. Parser calls: shellReader.readFile()
+  - `None` (file): Flat detail mesh to be mapped onto bent shell (k-file, solid or shell elements). Parser calls: reader.readFile() → KFileReader
+  - `None` (file): Output k-file path containing the mapped mesh. Parser calls: writer.writeFileWithSource() preserving non-geometry cards from flat_detail source
+  - `None` (number): Explicit shell thickness (mm or model units). If ≤0, auto-detects from flat_detail Z-extent (bbMax.z − bbMin.z). If flat has no Z-extent, sets thickness=0 (shell detail). Parser: std::stod(argv[++i]) into double thickness variable, default -1.0 signals auto-detect
+
+  # 주의
+  -
+  - **QUAD4-only**: bent_shell MUST contain exclusively QUAD4 elements; TRIA3 or other types are not supported. Validation happens in bentShell.validate(validationError).
+  - **Thickness auto-detection**: When thickness ≤0, code computes Z-range of flat_detail's bounding box. If Z-range < 1e-15, interprets mesh as shell geometry (thickness→0). Log message: "Auto-detected thickness from Z-range: X".
+  - **Developable surface warning**: After unfolding, if max distortion > 5%, code warns: "High area distortion detected (>5%). Surface may not be developable." Non-developable surfaces (double curvature) produce mapping artifacts.
+  - **Axis swap**: If flat_detail bounding box aspect ratio doesn't match unfolded shell, mapper auto-swaps X↔Y axes. Logged: "Auto-alignment: axes swapped (flat X<->Y) to match unfolded shell".
+  - **Unmapped nodes**: If nodes fall outside shell domain during 3D projection, they remain at their in-plane (u,v) position with thickness offset. Count logged as warning: "N nodes could not be mapped (outside shell domain)".
+  - **Non-geometry card preservation**: Output k-file includes all MAT_*, PART, SECTION, and other non-geometry cards from flat_detail source (via writeFileWithSource withSourceCards=true).
+  - **CLI-only operation**: No YAML/assemble pipeline support; shellmap is standalone positional CLI command only. The assemble 'replace' operation uses different internal logic (shell unfolding + mapping), not shellmap directly.
+  - **Parser parsing**: Iterates argv[2..argc) collecting non-flag strings as positional args; only --thickness is recognized as flag. Unknown flags or options are silently skipped (not validated). Requires exactly 3 positional args.
+
+
+  사례 메모: Maps a flat 8x4 detail mesh onto a 30-degree cylindrical arc shell. Auto-detects thickness from flat mesh Z-range (-0.1 to +0.1 = 0.2). Output contains mapped quad4 or hex elements on the bent surface.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper shellmap` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- core
+- shellmap
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    bent_shell: arc_shell.k
+    flat_detail: arc_flat.k
+    output: arc_mapped.k
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/arc_shell.k
+    - /data/single/USER/case/arc_flat.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    bent_shell: arc_shell.k
+    flat_detail: arc_flat.k
+    output: arc_mapped.k
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

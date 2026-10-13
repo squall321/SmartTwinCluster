@@ -1,0 +1,136 @@
+name: remap_formstrain
+version: 1.0.0
+summary: KooRemapper formstrain — Compute plastic strain from shell mesh dihedral angles using curvature
+  estimation.
+description: |
+  Compute plastic strain from shell mesh dihedral angles using curvature estimation.
+
+  Computes equivalent plastic strain (EPS) from shell mesh dihedral angles using curvature estimation. Maps local bending curvature (kappa = theta/L) at each QUAD4 element to plastic equivalent strain via EPS = (t/2*kappa - sigy/E)_max, then embeds result as *INITIAL_STRAIN_SHELL in output LS-DYNA .k file. Requires shell elements with material yield stress for strain calculation.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | Full YAML configuration object with base_model, output, and operations array |
+
+  # config 키 (YAML)
+  - `None` (file): Path to input K-file (LS-DYNA deck) containing base shell mesh and materials. Must have *ELEMENT_SHELL (QUAD4), *SECTION_SHELL, and *MAT_PIECEWISE_LINEAR_PLASTICITY (MAT_024) with SIGY > 0.
+  - `None` (string): Output prefix for result files. Output written as <output>.k with *INITIAL_STRAIN_SHELL keyword containing EPS values.
+  - `None` (boolean): If true, embeds *INITIAL_STRAIN_SHELL inline in output .k file. If false, skips stress output keyword (strain-only mode).
+  - `None` (string): Operation type; set to 'formstrain' to compute plastic strain from mesh curvature.
+  - `None` (integer): Target part ID for formstrain calculation. 0 or omitted = auto-detect all eligible shell parts (those with SECTION_SHELL, MAT_024 with SIGY > 0, and QUAD4 elements). -1 = use target_pids list (if provided). Positive integer = single part ID only.
+  - `None` (array): List of part IDs when target_pid = -1 or when multiple PIDs need processing. Each element is a positive integer (part ID). Range syntax supported (e.g., '1-5' expands to [1,2,3,4,5]).
+  - `None` (number): Shell thickness override in mm (or model units). If 0 or omitted, thickness is auto-read from *SECTION_SHELL T1 field for each part. Positive value overrides all parts.
+  - `None` (number): Minimum curvature threshold (1/mm) to filter out noise. Elements with max κ < min_curvature are assigned EPS=0. Typical range 0.001–0.01 depending on mesh scale and desired sensitivity. Use 0 to disable filter.
+
+  # 주의
+  -
+  MATERIAL & SECTION REQUIREMENTS:
+  - Requires shell parts with *ELEMENT_SHELL QUAD4 elements only (TRIA3 not supported).
+  - Must have associated *SECTION_SHELL card with T1 (thickness) > 0 per part.
+  - Must have associated *MAT_PIECEWISE_LINEAR_PLASTICITY (MAT_024) with SIGY (yield stress) > 0; other material types (MAT_ELASTIC, MAT_JOHNSON_COOK, etc.) are skipped with a logged message.
+  - E (Young's modulus) and SIGY are read from MAT_024 Card 1 Fields 3 & 5.
+
+  AUTO-DETECTION LOGIC (when target_pid = 0):
+  - Scans all parts in base_model.
+  - For each part: checks if SECTION_SHELL exists AND thickness > 0, AND material is MAT_024 with SIGY > 0.
+  - Parts not meeting all three conditions are silently skipped (logged as info, not error).
+
+  CURVATURE CALCULATION:
+  - For each QUAD4 element pair sharing an edge: computes dihedral angle θ from element normals (via diagonal cross product).
+  - Curvature κ = θ / L where L = centroid-to-centroid distance (in model units, typically mm).
+  - Per-element curvature = max(κ_edge_1, κ_edge_2, κ_edge_3, κ_edge_4). Free boundary edges (no neighbor) contribute 0.
+  - Plastic strain EPS = max(0, κ*t/2 - SIGY/E) where t is shell thickness.
+
+  OUTPUT KEYWORD:
+  - *INITIAL_STRAIN_SHELL written with NPLANE=1, NTHICK=2 (dual integration points for top/bottom surfaces).
+  - Both top (T=+1) and bottom (T=-1) surfaces receive identical EPS (symmetric bending assumption).
+  - STRESS fields (sigxx, sigyy, …) set to zero (springback-relaxed state; formstrain provides history via plastic strain only).
+
+  MULTI-OPERATION MERGING:
+  - When multiple operations (e.g., indent + formstrain) write to same elements, EPS values merged via max(), not sum.
+  - Stress values sum when present (indent adds stress; formstrain adds 0).
+
+  LOGGING & VALIDATION:
+  - When loading, info message lists each processed part: "FormStrain PID <pid>: t=<thickness> SIGY=<sigy> E=<E> → <element_count> elements with EPS".
+  - Normal consistency check: edges with normal dot product < -0.5 (likely flipped normals) are skipped; warning counter incremented. CAD meshes generally have correct normals; no auto-repair.
+  - Missing material or thickness produces info log (not error); that part is skipped.
+
+  MATHEMATICAL MODEL:
+  - EPS assumes pure bending (no extension/compression); inappropriate for complex forming (deep drawing, coining).
+  - Strain path independent: only final curvature used; intermediate forming history ignored.
+  - Perfectly plastic model: ε_plastic = max(0, strain - sigy/E). Real strain-hardening materials may require explicit curve (MAT_024 hardening table) which is not used here (conservative estimate).
+
+  EXAMPLE WORKFLOW:
+  1. Create/obtain bent shell mesh (e.g., press-formed bracket, shielding can).
+  2. Ensure parts have SECTION_SHELL and MAT_024 material with SIGY > 0.
+  3. Run with minimal YAML:
+     base_model: bent_can.k
+     output: result
+     operations:
+       - type: formstrain
+  4. Output result.k has *INITIAL_STRAIN_SHELL with EPS per element for use in subsequent impact/drop analysis.
+
+  GOTCHAS & LIMITATIONS:
+  - QUAD4 ONLY: TRIA3 shells silently skipped (no conversion).
+  - MAT_024 only: MAT_ELASTIC, MAT_ELASTIC_PLASTIC_HYDRO, etc. will not provide SIGY; parts using those materials are auto-skipped.
+  - Mesh-dependent: element-to-element curvature via dihedral angles; coarse mesh underestimates curvature; fine mesh better fidelity.
+  - No springback residual stress: EPS field models strain history; stress output is zero (assumes relaxed state post-forming).
+  - Noise sensitivity: flat regions (κ ≈ 0) produce very small EPS; min_curvature threshold helps; if too high, genuine gentle curves are zeroed.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Example shows a single operation targeting PID 1 with explicit thickness override and curvature floor. Omit target_pid to auto-detect all shell parts; omit shell_thickness/min_curvature for defaults.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper formstrain` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- formstrain
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: bent_shell.k
+      output: formstrain_result
+      dynain_embed: true
+      operations:
+      - type: formstrain
+        target_pid: 1
+        shell_thickness: 0.3
+        min_curvature: 0.001
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/bent_shell.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

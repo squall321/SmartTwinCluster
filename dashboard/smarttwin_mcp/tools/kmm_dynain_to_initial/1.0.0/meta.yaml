@@ -1,0 +1,113 @@
+name: kmm_dynain_to_initial
+version: 1.0.0
+summary: KooMeshModifier DYNAIN_TO_INITIAL — 이전 해석 dynain(변형 형상+응력)을 다음 해석 초기 상태로
+description: |
+  이전 해석 dynain(변형 형상+응력)을 다음 해석 초기 상태로
+
+  # 언제 쓰나
+  - 누적 낙하처럼 앞 해석의 변형·응력을 이어받아 다음 해석을 만들 때
+
+  # 옵션 블록 문법 (KooMeshModifier --help DYNAIN_TO_INITIAL)
+  ```text
+  **DynainToInitial,<ID>
+  *Key,Value
+  **EndDynainToInitial
+  ```
+
+  # 키
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `*DynainPath` | 경로 | dynain | dynain 파일 |
+  | `*IncludeStress` | True/False | True | 응력도 이어받기 |
+  | `*RemoveDynamicRelaxation` | True/False | True | 기존 DR 카드 제거 |
+  | `*DynamicRelaxation` | True/False | False | 새 DR 추가 (Nrcyck/Tol/Fctr/Term 접미 키) |
+  | `*MovetoOriginAutomatic` | True/False | False | 모델을 원점으로 |
+  | `*MovetoOriginbyNode` | 정수 | [] | 지정 절점 기준 원점 이동 |
+  | `*RemovePartbyID / *RemovePartbyName` | 리스트 | [] | 파트 제거 (바닥판 등) |
+  | `*RemoveContactbyID` | 정수 리스트 | [] | 접촉 제거 |
+
+  # 사례 — dynain 응력 이어받고 바닥판(파트 23) 제거
+  ```text
+  *Inputfile
+  drop_step1.k
+  *Mode
+  DYNAIN_TO_INITIAL,1
+  **DynainToInitial,1
+  *DynainPath,dynain
+  *IncludeStress,True
+  *RemoveDynamicRelaxation,True
+  *MovetoOriginAutomatic,True
+  *RemovePartbyID,23
+  **EndDynainToInitial
+  *End
+  ```
+
+  관련 모드: DROP_ATTITUDE
+
+  # MCP 로 부르는 법
+  - model_path 를 주면 옵션 파일 `*Inputfile` / `*Mode DYNAIN_TO_INITIAL,1` / `**DynainToInitial,1` … `**EndDynainToInitial` 을 만들어 준다.
+  - options 의 `키: 값` 과 lines 의 원문 줄이 블록 안에 들어간다(options 먼저).
+  - 키는 부분 문자열로 찾는 모드가 많고 모르는 키는 조용히 무시된다 — 위 표의 키 이름을 그대로 쓸 것.
+  - 단위는 모델 .k 를 따른다(KooMeshModifier 는 변환하지 않는다).
+  - 여러 모드를 한 번에: `kmm_chain`.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  # 옵션 파일 형식 (요약)
+      KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.
+
+        *Inputfile                         다음 줄에 모델 파일명 (옵션 파일 폴더 기준 상대경로)
+        model.k
+        *RunDirectoryMode,True,Data/Results[,Data/Metadata]   (선택) 결과를 Run_<시각>_<해시>/ 폴더에
+        *Info,<모델이름>,<단계>                (선택) 메타데이터
+        *Description,<설명>                   (선택)
+        *Creator,<이름>,<메일>,<그룹>,<팀>      (선택)
+        *PreserveIncludes                    (선택) 다음 줄들 = 원문 그대로 둘 *INCLUDE 파일 패턴
+        *Mode                                실행할 모드 목록, 한 줄에 하나 `모드이름,모드ID`
+        DROP_ATTITUDE,1
+        **DropAttitude,1                     모드별 옵션 블록 — 헤더 뒤 숫자가 *Mode 의 모드ID 와 짝
+        Key,Value
+        **EndDropAttitude                    `**End` 로 시작하는 줄이면 블록 종료 (**End 만 써도 됨)
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koomeshmodifier
+- kmm
+- preprocess
+- lsdyna
+- dynain
+- to
+- initial
+- restart
+- dti
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 옵션 파일 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: true
+    lines: &id001
+    - '*DynainPath,dynain'
+    - '*IncludeStress,True'
+    - '*RemoveDynamicRelaxation,True'
+    - '*MovetoOriginAutomatic,True'
+    - '*RemovePartbyID,23'
+- title: 제출하고 5분까지 기다리기
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: false
+    lines: *id001
+    wait_sec: 300
+    slurm:
+      cpus_per_task: 4
+      mem: 16G

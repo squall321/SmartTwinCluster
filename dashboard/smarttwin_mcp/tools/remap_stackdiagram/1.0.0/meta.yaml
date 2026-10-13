@@ -1,0 +1,70 @@
+name: remap_stackdiagram
+version: 1.0.0
+summary: KooRemapper stackdiagram — 파트별 축 범위로 층 모식도를 그리고 중립축·기하 중심면을 함께 긋는다 (포개지는 적층은 거절한다).
+description: |
+  파트별 축 범위로 층 모식도를 그리고 중립축·기하 중심면을 함께 긋는다 (포개지는 적층은 거절한다).
+
+  Draw the stack as a schematic from each part's extent along one axis, into <output>_stackdiagram.svg, with the EI-weighted neutral axis, the geometric mid-plane and axis=0 drawn across it. This is a schematic, not a cut: unlike `section`, which intersects the real geometry with a plane, this op uses only the axis-aligned extent of each part — effectively its AABB. That trade buys two things. No plane has to be chosen (`section` on a 61-part deck meets only one part if the axis is wrong), and the neutral axis appears in the same picture as the layers it was computed from. It costs the ability to read wound or folded stacks: measured on the wound deck `wrapped.k`, all three parts span z 0..1.0, so all three pairs overlap and no layer order exists to draw. In that case the op refuses and points at `section` rather than stacking overlapping ranges, because a schematic that invents a layer order looks entirely plausible and is the worst kind of wrong figure. Parts that strictly contain other layers (a case, a tab, a pouch) are separated out and drawn as dashed outlines instead of bars; the test is containment, not a fraction of the span, because a fraction threshold measured 88.4% on the battery deck's case and its denominator was inflated by shell bands sticking out past both ends. Layers whose modulus could not be read still draw — only the neutral axis is omitted, and the figure says so — because on real decks the *MAT cards live in an *INCLUDE file.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Deck to read (k-file); a deck holding only *INCLUDE cards is refused rather than drawn empty |
+  | `output` | string | 예 | Output prefix — writes <output>_stackdiagram.svg |
+  | `axis` | string |  | Stacking axis: x, y or z. This is the direction layers are measured along, the same axis `neutralaxis` takes |
+  | `force` | boolean |  | true draws the figure even when solid parts' ranges overlap along the axis. The figure then carries a warning not to trust the layer order; use `section` instead |
+  | `enclosure_min_inside` | integer |  | How many other layers a part must strictly contain before it counts as enclosing (drawn as a dashed outline) rather than as a layer. Must be >= 1 |
+  | `min_bar_px` | number |  | Floor in px for a layer's bar so a thin layer stays visible. A floored layer's drawn thickness is exaggerated, so the op counts how many were floored and the figure says the printed number is the truth, not the bar |
+  | `width` | integer |  | SVG width in px (>= 430) |
+  | `height` | integer |  | SVG height in px (>= 240) |
+  | `max_parts` | integer |  | Layers labelled before the rest are counted as omitted |
+
+  # 주의
+  - The neutral axis, geometric mid-plane and bending stiffness come from the same computeNeutralAxis() as the `neutralaxis` op, so the two ops disagreeing on a deck is a defect, not a difference of method. Shell parts are expected to overlap solids — a shell is a mid-surface with a thickness band around it — so shell overlaps are reported separately and never refuse the figure; only solid-solid overlap does. Part titles go through the same escaping as `section`, including the non-UTF-8 title that would otherwise make the whole SVG unparseable. Second-order solid parts are refused: ELFORM 16/17 (10-node tets) and 25-28 put mid-side nodes into the corner slots the reader keeps, so the figure is silently wrong — measured, the same geometry converted by this tool's own `convert type: tet10` yields a section of total area 0.19 against the linear original's 0.665, and both report 2 polygons, so a reader cannot tell. In the standard layout (an `eid pid` card followed by all ten node fields on one line) the element count survives and only the geometry is wrong; a deck that splits the node fields 8+2 across two lines also loses elements, because the second line is read as the next element's first card (measured: two TET10 read as one). ELFORM 23 (20-node hex) keeps its corners in the first eight slots and is drawn: measured, its section is identical to the linear original's (120 polygons, total area 4.712178200).
+
+  사례 메모: Draws the bundled 3-layer stack with its neutral axis at z = 0.350465116279 — the same value `neutralaxis` reports on the same deck, because both call one computation
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper stackdiagram` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- inspect
+- stackdiagram
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: flat_stack.k
+    output: flat_stack
+    axis: z
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/flat_stack.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: flat_stack.k
+    output: flat_stack
+    axis: z
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

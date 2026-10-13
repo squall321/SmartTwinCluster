@@ -1,0 +1,115 @@
+name: remap_ale
+version: 1.0.0
+summary: KooRemapper ale — LS-DYNA 파트를 ALE(임의 라그랑-오일러) 형식으로 변환, 물성 프리셋 및 FSI 커플링 적용
+description: |
+  LS-DYNA 파트를 ALE(임의 라그랑-오일러) 형식으로 변환, 물성 프리셋 및 FSI 커플링 적용
+
+  LS-DYNA의 arbitrary Lagrangian-Eulerian(ALE) 형식으로 지정 파트를 변환하고 물성 프리셋 또는 커스텀 번들을 적용. *CONTROL_ALE, *HOURGLASS, *ALE_MULTI-MATERIAL_GROUP, FSI 커플링(*CONSTRAINED_LAGRANGE_IN_SOLID), 기폭점(*INITIAL_DETONATION) 카드 자동 삽입.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | ALE 변환 설정을 정의하는 전체 YAML 객체. 하위 필드: model, output, ale_parts (필수), fsi_pids, elform, dct, nadv, meth, ctype, direc, nquad, pfac, detonation |
+
+  # config 키 (YAML)
+  - `None` (string): 입력 LS-DYNA K 파일 경로
+  - `None` (string): 출력 K 파일 경로 (확장자 .k 제외)
+  - `None` (array): ALE 변환 대상 파트 리스트. 각 항목은 pid, material 필드 포함
+  - `None` (integer): ALE 변환할 파트 ID
+  - `None` (string): 물성 이름: 기체(air/nitrogen/argon), 액체(water/electrolyte/gasoline/oil/coolant/resin/tim/silicone), 폭약(tnt/c4), 진공(vacuum), 또는 커스텀 번들 파일 경로
+  - `None` (array): FSI 커플링 대상 라그랑지안 파트 ID 리스트. ALE 파트 ID와 중복 불가
+  - `None` (integer): ALE 요소 공식 코드. 11=Multi-Material ALE(권장), 12=Single Material+Void
+  - `None` (integer): ALE advection 로직. 1=기본(Eulerian formulation), -1=개선형(multi-step, 배터리/충격 해석에 권장)
+  - `None` (integer): 이송(advection) 스텝 수 (≥1)
+  - `None` (integer): 이송 방법. 2=Van Leer(권장, 안정적), 기타 값은 LS-DYNA 문서 참고
+  - `None` (integer): FSI 커플링 유형 (CONSTRAINED_LAGRANGE_IN_SOLID Card 1). 2=가속+속도 구속(권장)
+  - `None` (integer): FSI 커플링 방향. 1=법선 방향(NORMAL), 2=tangential, 3=both
+  - `None` (integer): 접촉 검색 적분점 수 (CONSTRAINED_LAGRANGE_IN_SOLID Card 1)
+  - `None` (number): 페널티 계수 (CONSTRAINED_LAGRANGE_IN_SOLID Card B PFAC). 0.01~1.0 범위 권장
+  - `None` (object): 폭약(tnt/c4) 프리셋 사용 시 기폭점 정의. pid, x, y, z, lt 필드
+  - `None` (integer): 폭약 파트 ID (ale_parts에 정의된 tnt/c4 파트)
+  - `None` (number): 기폭점 X 좌표 [mm]
+  - `None` (number): 기폭점 Y 좌표 [mm]
+  - `None` (number): 기폭점 Z 좌표 [mm]
+  - `None` (number): 기폭 시간(time zero) [s]. 0=해석 시작점
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "기체 프리셋",
+    "summary": "air (ρ=1.293e-12 t/mm³, γ=1.40), nitrogen (ρ=1.165e-12, γ=1.40), argon (ρ=1.661e-12, γ=1.67). 모두 *MAT_NULL + *EOS_LINEAR_POLYNOMIAL 사용"
+   },
+   {
+    "name": "액체 프리셋",
+    "summary": "water (ρ=1.00e-9 t/mm³, c=1484 m/s, s1=1.979), electrolyte (ρ=1.18e-9, c=1200, s1=1.58), gasoline (ρ=7.5e-10, c=1250, s1=1.60), oil (ρ=8.7e-10, c=1350, s1=1.80), coolant (ρ=1.08e-9, c=1600, s1=1.85), resin (ρ=1.15e-9, c=1700, s1=1.70, μ=1e-5), tim (ρ=2.80e-9, c=1800, s1=1.60, μ=5e-4), silicone (ρ=1.05e-9, c=1050, s1=1.50, μ=1e-4). 모두 *MAT_NULL + *EOS_GRUNEISEN 사용"
+   },
+   {
+    "name": "폭약 프리셋",
+    "summary": "tnt (ρ=1.63e-9 t/mm³, D=6.93e6 m/s, PCJ=2.1e4 MPa, JWL A=3.712e5, B=3.231e3), c4 (ρ=1.601e-9, D=8.193e6, PCJ=2.8e4, A=6.098e5, B=1.295e4). 둘 다 *MAT_HIGH_EXPLOSIVE_BURN + *EOS_JWL 사용. detonation 섹션 필수"
+   },
+   {
+    "name": "진공 프리셋",
+    "summary": "vacuum (ρ=1e-18 t/mm³). *MAT_VACUUM만 사용, EOS 불포함"
+   }
+  ]
+  ```
+
+  # 주의
+  - 기본 단위: t/mm/s (프리셋 물성값은 MPa 기준). 공유 섹션(*SECTION_SOLID)은 새 SECID로 복제되고 ELFORM이 변경됨. fsi_pids에 ALE 파트 PID를 포함시킬 수 없음(자기-커플링 불가, 오버래핑 감지). 커스텀 번들 파일은 *MAT_*, *EOS_, *HOURGLASS 블록 포함 가능. 폭약(tnt/c4) 프리셋 사용 시 detonation 섹션 권장(없으면 경고). 폐쇄 대상: 기존 *CONTROL_ALE, *ALE_MULTI-MATERIAL_GROUP, *ALE_REFERENCE_SYSTEM_GROUP, *CONSTRAINED_LAGRANGE_IN_SOLID는 자동 교체됨.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 최소 구성: explicit.k에서 PID 3을 air ALE로 변환하여 ale_minimal.k로 저장. ale_parts는 필수 배열.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper ale` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- ale
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: explicit.k
+      output: ale_minimal.k
+      ale_parts:
+      - pid: 3
+        material: air
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/explicit.k
+    - /data/single/USER/case/ale_minimal.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

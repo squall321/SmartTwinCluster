@@ -1,0 +1,167 @@
+name: remap_meshfix
+version: 1.0.0
+summary: KooRemapper meshfix — TET4 Gmsh-based adaptive remesh with quality control
+description: |
+  TET4 Gmsh-based adaptive remesh with quality control
+
+  TET4 Gmsh-based adaptive remesh with quality control. Gmsh-driven adaptive TET4 remesh with element quality improvement via scaled-Jacobian checking and optional patch polishing. Extracts boundary STL, runs Gmsh with configurable 3D algorithms, and splices remeshed elements back into the model. Supports thin-solid detection, distance-field size adaptation, and boundary node handling strategies.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Input LS-DYNA .k file containing the TET4 part to remesh |
+  | `output` | output | 예 | Output LS-DYNA .k file with remeshed part (other parts preserved) |
+  | `pid` | integer | 예 | Part ID of the TET4 element part to remesh |
+  | `lc_target` | number |  | Target average element size for remesh |
+  | `lc_min` | number |  | Minimum element size (-1 = auto from edge_min*0.8 or min_dt-based) |
+  | `lc_max` | number |  | Maximum element size (-1 = lc_target * 2) |
+  | `min_dt` | number |  | LS-DYNA explicit time step lower bound (for auto lc_min calculation) |
+  | `density` | number |  | Material density (t/mm³, used with min_dt) |
+  | `E` | number |  | Young's modulus (MPa, used with min_dt) |
+  | `nu` | number |  | Poisson's ratio (used with min_dt) |
+  | `min_layers_thin` | integer |  | Minimum element layers through thin dimension for thin-solid handling |
+  | `adaptive` | boolean |  | Enable MathEval distance-field size adaptation around bbox corners |
+  | `decay_factor` | number |  | Corner refinement decay distance = lc_min * decay_factor |
+  | `boundary_nodes` | enum |  | Boundary node handling: free (new IDs) \| fixed (match original) \| snap (merge to neighbors) |
+  | `snap_tolerance` | number |  | Search radius for snap mode boundary node merging |
+  | `algorithm` | enum |  | Gmsh 3D mesh algorithm (hxt=parallel hybrid, frontal3d=advancing front, del3d=Delaunay) |
+  | `optimize_netgen` | boolean |  | Enable Gmsh built-in Netgen optimization after Mesh 3 |
+  | `optimize_passes` | integer |  | Number of additional OptimizeMesh Netgen passes after Mesh 3 (skipped for thin geometry) |
+  | `quality_check` | boolean |  | Report scaled-Jacobian quality statistics after remesh |
+  | `warn_min_jac` | number |  | Warn if elements have scaled Jacobian below this threshold |
+  | `refine_surface` | integer |  | STL surface refinement levels (-1=auto, 0=off, 1-3=conforming feature-edge bisection) |
+  | `smooth_surface` | integer |  | Laplacian smoothing steps on STL feature-edge vertices (0=off) |
+  | `polish` | boolean |  | Enable local bad-element patch re-meshing (experimental) |
+  | `polish_jac` | number |  | Polish target: re-mesh patches with scaled Jacobian below this |
+  | `polish_max_iter` | integer |  | Maximum iterations for patch polishing |
+
+  # config 키 (YAML)
+  - `None` (file): Input LS-DYNA .k file containing the TET4 part to remesh
+  - `None` (file): Output LS-DYNA .k file with remeshed part (other parts preserved)
+  - `None` (integer): Part ID of the TET4 element part to remesh
+  - `None` (number): Target average element size for remesh (model units). Sets the background field size for the interior mesh.
+  - `None` (number): Minimum element size; -1 = auto from edge_min*0.8 or dt-based calculation. Controls the finest elements near 90° corners via the distance field.
+  - `None` (number): Maximum element size; -1 = lc_target * 2. Hard ceiling on all elements (CharacteristicLengthMax).
+  - `None` (number): LS-DYNA explicit time step lower bound (seconds). Used with density, E, nu to compute lc_min via wave speed: lc = dt * sqrt(E*(1-nu) / (rho*(1+nu)*(1-2*nu)))
+  - `None` (number): Material density (t/mm³). Required when min_dt is set for dt-based lc_min calculation.
+  - `None` (number): Young's modulus (MPa). Required when min_dt is set for dt-based lc_min calculation.
+  - `None` (number): Poisson's ratio (dimensionless). Required when min_dt is set for dt-based lc_min calculation.
+  - `None` (integer): Minimum element layers through the thin dimension for thin-solid handling. When thin geometry is detected (min_bbox < avg_bbox*0.3), this controls the lcMinField = thin_dimension / min_layers_thin.
+  - `None` (boolean): Enable MathEval distance-field size adaptation around bounding-box corners. When true, emits a distance formula to refine elements near 90° corners.
+  - `None` (number): Corner refinement decay distance = lc_min * decay_factor. Controls the Threshold field DistMax; larger values spread the fine zone further from corners.
+  - `None` (enum): Boundary node handling strategy: 'free' assigns new IDs to all Gmsh nodes; 'fixed' matches Gmsh boundary nodes to original model nodes by coordinate (within snap_tolerance); 'snap' snaps new boundary nodes to adjacent part nodes within snap_tolerance.
+  - `None` (number): Search radius (model units) for snap mode boundary node merging and fixed-mode coordinate matching tolerance.
+  - `None` (enum): Gmsh 3D mesh algorithm: 'hxt' = parallel hybrid (fast, default), 'frontal3d' = advancing front, 'del3d' = Delaunay (serial). Stored as Mesh.Algorithm3D {10, 4, 1} in the .geo script.
+  - `None` (boolean): Enable Gmsh built-in Netgen optimization after Mesh 3 (sets Mesh.OptimizeNetgen). Skipped automatically for thin geometry.
+  - `None` (integer): Number of additional OptimizeMesh 'Netgen' passes after Mesh 3. Skipped for thin geometry (geomThin=true).
+  - `None` (boolean): Report scaled-Jacobian quality statistics after remesh (min, avg, max Jacobian and count of elements below warn_min_jac).
+  - `None` (number): Warn if elements have scaled Jacobian below this threshold. Also used in polish mode to identify 'bad' elements for re-meshing.
+  - `None` (integer): STL surface refinement levels: -1 = auto-detect (1 level for thin geom if edge_avg > lc_target*1.5, 0 for normal geom), 0 = off, 1-3 = conforming feature-edge bisection (subdivides only dihedral > 40° edges).
+  - `None` (integer): Laplacian smoothing steps on STL feature-edge vertices (dihedral > 40°); 0 = off. Rounds 90° corners slightly to raise minimum Jacobian.
+  - `None` (boolean): Enable local bad-element patch re-meshing (experimental). When true, identifies connected clusters of elements with Jacobian < polish_jac and re-meshes them locally if quality gates pass.
+  - `None` (number): Polish target: identifies elements with scaled Jacobian below this threshold as candidates for patch re-meshing.
+  - `None` (integer): Maximum iterations of patch polishing. Each iteration finds new bad clusters and attempts re-mesh if no improvements remain, loop exits.
+
+  # 주의
+  -
+  CRITICAL REQUIREMENTS:
+  - Gmsh executable is searched in this order: (0) $KOOREMAPPER_GMSH (full path to the executable), (1) <exe-dir>/gmsh/gmsh or gmsh.exe, (2) <exe-dir>/gmsh-<ver>/[bin/]gmsh(.exe), (3) PATH (Linux), (4) /opt/gmsh-*/bin/gmsh (Linux). Note 'dist/gmsh/' next to the executable is NOT searched. Without a hit, the operation fails immediately with 'Gmsh not found'.
+  - Input must be TET4 elements or degenerate HEX8 (nodes[3..7] all equal node[3]).
+
+  SECTION HEADERS (optional YAML organization):
+  All top-level keys can also be nested under optional section headers for readability: [material], [adaptive], [gmsh], [boundary], [quality]. Keys under sections use slightly different names:
+  - Under [boundary]: use 'nodes' instead of 'boundary_nodes'
+  - Other section keys match top-level names (e.g., 'min_dt', 'E', 'nu' under [material]).
+
+  AUTO-DETECTION & GEOMETRY:
+  - lc_min auto-calc: If lc_min < 0 AND all of (min_dt, density, E, nu) > 0, computed from wave speed. Otherwise: lc_min = min(edge_min*0.8, lc_target*0.2).
+  - THIN SOLID DETECTION: If min_bbox_dimension < avg_bbox_dimension * 0.3, geomThin=true → Mesh 2 skipped, 4-corner in-plane field used, Netgen passes skipped, autoRefineSurface=1 if needed.
+  - AUTO refine_surface: Only applies when refine_surface=-1. Disabled for normal geometry (Mesh 2 handles it); applies 1 level for thin geometry if edge_avg > lc_target*1.5.
+
+  DISTANCE FIELD SCALING (when adaptive=true):
+  - Normal geometry: 8-corner field. DistMin = lcMinField*2, DistMax = lcMinField * decay_factor.
+  - Thin geometry (thin axis detected): 4-corner in-plane field. DistMin = lcMinField*2, DistMax = lcMinField*4 (smaller decay to avoid flooding thin dim).
+
+  POLISH MODE (experimental):
+  - Requires polish=true.
+  - Identifies connected components of bad elements (Jac < polish_jac).
+  - Each component expanded 2 rings, then patch re-meshed independently.
+  - DUAL QUALITY GATES (both must pass to accept):
+    1. Min Jacobian retention: new_min_jac >= orig_min_jac * 0.95
+    2. Bad-element reduction: new_bad_count < orig_bad_count
+  - If either gate fails, patch is discarded and original elements kept.
+  - Mesh 2 skipped for patches; uses serial Delaunay (safer for small patches).
+
+  BOUNDARY NODES:
+  - free: all Gmsh nodes receive new sequential IDs (maxNodeId+1, maxNodeId+2, ...). Useful for independent part re-meshes.
+  - fixed: Gmsh surface nodes matched to original model boundary nodes by coordinate (within snap_tolerance). Interior nodes get new IDs. Preserves node IDs at the interface for contact definitions.
+  - snap: All Gmsh nodes get new IDs, but boundary nodes near adjacent parts are snapped to those part's nodes (within snap_tolerance). Allows loose coupling without strict coordinate matching.
+
+  GOTCHAS & MUTUALLY EXCLUSIVE:
+  - lc_min AND (min_dt, density, E, nu): if lc_min >= 0, dt-based calculation is skipped (explicit value takes priority).
+  - optimize_netgen & optimize_passes: both skipped automatically for thin geometry regardless of setting.
+  - refine_surface=-1 AND geomThin: auto refinement only applies to thin geometry. Normal geometry uses Mesh 2 instead.
+  - polish=true AND 90° corners: if geometry has unrounded 90° corners, polish often cannot reduce bad elements (theoretical min ~0.03), so patches will be rejected.
+
+  GMSH TIMEOUT & FAILURES:
+  - No explicit timeout; Gmsh may hang on malformed STL or recursive ClassifySurfaces. If hung, Ctrl+C and check STL for open edges / non-manifold geometry.
+  - Exit code 1 from Gmsh is often OK (warnings like ClassifySurfaces recursion). Check if .msh file was written before failing.
+
+  PERFORMANCE HINTS:
+  - Large meshes (100k+ TET4) take minutes. Use lc_target wisely to control output size.
+  - Thin geometry disables Mesh 2 and Netgen, speeding up processing significantly.
+  - Polish mode adds significant time; use sparingly on already-good meshes.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: tetramesh.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper meshfix` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 예 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- meshfix
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: tetramesh.k
+    output: meshfix_out.k
+    pid: 1
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/tetramesh.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: tetramesh.k
+    output: meshfix_out.k
+    pid: 1
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

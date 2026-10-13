@@ -1,0 +1,105 @@
+name: kmm_translation_doe
+version: 1.0.0
+summary: KooMeshModifier TRANSLATION_DOE — 파트 위치 DOE — 파트별 이동량 목록마다 .k 한 개씩 (원복)
+description: |
+  파트 위치 DOE — 파트별 이동량 목록마다 .k 한 개씩 (원복)
+
+  # 언제 쓰나
+  - 파트 위치를 여러 값으로 바꾼 모델 세트를 만들 때
+
+  # 옵션 블록 문법 (KooMeshModifier --help TRANSLATION_DOE)
+  ```text
+  **Translation_DOE,<ID>
+  TranslationX,<pid>,<x0>,<x1>,...
+  TranslationY,<pid>,...
+  TranslationZ,<pid>,...
+  **End
+  ```
+
+  # 키
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `TranslationX/Y/Z` | pid + 실수 리스트 | - | i 번째 값끼리 케이스 i. 파트마다 세 줄 |
+
+  # 사례 — 파트 100 을 x 0 / 5 두 케이스
+  ```text
+  *Inputfile
+  MinimumModel.k
+  *Mode
+  TRANSLATION_DOE,1
+  **Translation_DOE,1
+  TranslationX,100,0.0,5.0
+  TranslationY,100,0.0,0.0
+  TranslationZ,100,0.0,0.0
+  **End
+  *End
+  ```
+  - 결과: MinimumModel_TranslationDOE_0.k, _1.k 와 MinimumModel_TranslationDOE.json.
+
+  # 주의
+  - 옵션 블록은 *Mode 목록 바로 뒤, *End 앞에 둘 것 (*End 뒤 블록은 읽지 않는다).
+
+  관련 모드: PART_TRANSLATE, PART_LOCATION_DOE
+
+  # MCP 로 부르는 법
+  - model_path 를 주면 옵션 파일 `*Inputfile` / `*Mode TRANSLATION_DOE,1` / `**Translation_DOE,1` … `**EndTranslation_DOE` 을 만들어 준다.
+  - options 의 `키: 값` 과 lines 의 원문 줄이 블록 안에 들어간다(options 먼저).
+  - 키는 부분 문자열로 찾는 모드가 많고 모르는 키는 조용히 무시된다 — 위 표의 키 이름을 그대로 쓸 것.
+  - 단위는 모델 .k 를 따른다(KooMeshModifier 는 변환하지 않는다).
+  - 여러 모드를 한 번에: `kmm_chain`.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  # 옵션 파일 형식 (요약)
+      KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.
+
+        *Inputfile                         다음 줄에 모델 파일명 (옵션 파일 폴더 기준 상대경로)
+        model.k
+        *RunDirectoryMode,True,Data/Results[,Data/Metadata]   (선택) 결과를 Run_<시각>_<해시>/ 폴더에
+        *Info,<모델이름>,<단계>                (선택) 메타데이터
+        *Description,<설명>                   (선택)
+        *Creator,<이름>,<메일>,<그룹>,<팀>      (선택)
+        *PreserveIncludes                    (선택) 다음 줄들 = 원문 그대로 둘 *INCLUDE 파일 패턴
+        *Mode                                실행할 모드 목록, 한 줄에 하나 `모드이름,모드ID`
+        DROP_ATTITUDE,1
+        **DropAttitude,1                     모드별 옵션 블록 — 헤더 뒤 숫자가 *Mode 의 모드ID 와 짝
+        Key,Value
+        **EndDropAttitude                    `**End` 로 시작하는 줄이면 블록 종료 (**End 만 써도 됨)
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koomeshmodifier
+- kmm
+- preprocess
+- lsdyna
+- translation
+- doe
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 옵션 파일 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: true
+    lines: &id001
+    - TranslationX,100,0.0,5.0
+    - TranslationY,100,0.0,0.0
+    - TranslationZ,100,0.0,0.0
+- title: 제출하고 5분까지 기다리기
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: false
+    lines: *id001
+    wait_sec: 300
+    slurm:
+      cpus_per_task: 4
+      mem: 16G

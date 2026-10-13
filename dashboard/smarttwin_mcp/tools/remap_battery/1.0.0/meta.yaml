@@ -1,0 +1,245 @@
+name: remap_battery
+version: 1.0.0
+summary: KooRemapper battery — Generate LS-DYNA battery cell model (stacked/wound, Phase 1+2, swelling
+  support)
+description: |
+  Generate LS-DYNA battery cell model (stacked/wound, Phase 1+2, swelling support)
+
+  Generates parametric LS-DYNA battery cell models (stacked layer or wound jelly-roll geometry) with complete mesh, materials, contacts, and control cards from YAML config. Supports Phase 1 mechanical/thermal and Phase 2 intercalation-swelling analysis with dynamic relaxation equilibration and batch generation of multiple tier/phase/model-type combinations.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 배터리 셀 생성 설정 객체(geometry/layer_thickness/swelling 등 중첩) |
+
+  # config 키 (YAML)
+  - `None` (string): Output filename prefix; .k, tier suffix (e.g., _tier0), and phase suffix (e.g., _phase1) appended automatically
+  - `None` (enum): Cell geometry: stacked (layer-by-layer) or wound (jelly-roll spiral)
+  - `None` (number): Mesh refinement level: -1 (5mm), 0 (2.5mm), 0.5 (1.5mm), 1 (1mm), 2 (0.5mm); controls element density for contact/accuracy tradeoff
+  - `None` (integer): Analysis phase: 1 = initial condition + loading, 2 = swelling post-processing (auto-enables swelling.enabled if phase==2)
+  - `None` (enum): Loading scenario: dent (flat punch top-face), side (cylinder/nail on +X face along Y), bare (fixture-free DR with external pressure), swell (thermal expansion + DR equilibration)
+  - `None` (number): Cell X-dimension (mm)
+  - `None` (number): Cell Y-dimension (mm)
+  - `None` (integer): Number of stacked unit cells (stacked model only); overridden if capacity > 0
+  - `None` (number): Cell capacity (Ah); if > 0, auto-computes n_unit_cells from capacity/arealCap. Default arealCap = 3.0 mAh/cm²/side
+  - `None` (number): Al current collector foil thickness (mm)
+  - `None` (number): NMC cathode half-coating thickness (mm); Phase 1 solid = 2×cathode, Phase 2 TSHELL = 1×cathode
+  - `None` (number): PE separator thickness (mm)
+  - `None` (number): Graphite anode half-coating thickness (mm); Phase 1 solid = 2×anode, Phase 2 TSHELL = 1×anode
+  - `None` (number): Cu current collector foil thickness (mm)
+  - `None` (number): Separator lateral overhang beyond electrode edges (each side, mm)
+  - `None` (number): Pouch laminate foil thickness (each face, mm)
+  - `None` (number): Electrolyte buffer spacing between pouch and jellyroll (mm)
+  - `None` (string): Al current collector material name (written to *MAT_*_TITLE)
+  - `None` (number): Young's modulus for Al foil (MPa)
+  - `None` (number): Poisson's ratio for Al foil
+  - `None` (number): Density of Al foil (ton/mm³)
+  - `None` (string): Cu current collector material name
+  - `None` (number): Young's modulus for Cu foil (MPa)
+  - `None` (number): Poisson's ratio for Cu foil
+  - `None` (number): Density of Cu foil (ton/mm³)
+  - `None` (string): NMC cathode material name
+  - `None` (number): Density of NMC cathode (ton/mm³)
+  - `None` (number): Instantaneous shear modulus (Phase 1 MAT_VISCOELASTIC, MPa)
+  - `None` (number): Long-term shear modulus (Phase 1 MAT_VISCOELASTIC, MPa)
+  - `None` (number): Viscoelastic decay constant (1/s)
+  - `None` (number): Bulk modulus for NMC cathode (Phase 1, MPa)
+  - `None` (number): Young's modulus for NMC cathode (Phase 2 MAT_ELASTIC, MPa)
+  - `None` (number): Poisson's ratio for NMC cathode (Phase 2)
+  - `None` (number): Intercalation strain per unit SOC (Phase 2 swelling, dimensionless fraction)
+  - `None` (string): Graphite anode material name
+  - `None` (number): Density of graphite anode (ton/mm³)
+  - `None` (number): Instantaneous shear modulus (Phase 1 MAT_VISCOELASTIC, MPa)
+  - `None` (number): Long-term shear modulus (Phase 1 MAT_VISCOELASTIC, MPa)
+  - `None` (number): Viscoelastic decay constant (1/s)
+  - `None` (number): Bulk modulus for graphite anode (Phase 1, MPa)
+  - `None` (number): Young's modulus for graphite anode (Phase 2 MAT_ELASTIC, MPa)
+  - `None` (number): Poisson's ratio for graphite anode (Phase 2)
+  - `None` (number): Intercalation strain per unit SOC (Phase 2 swelling, dimensionless fraction)
+  - `None` (string): PE separator material name
+  - `None` (number): Density of PE separator (ton/mm³)
+  - `None` (number): Young's modulus for PE separator (MPa)
+  - `None` (number): Poisson's ratio for PE separator
+  - `None` (string): Pouch laminate material name
+  - `None` (number): Density of pouch laminate (ton/mm³)
+  - `None` (number): Young's modulus for pouch laminate (MPa)
+  - `None` (number): Poisson's ratio for pouch laminate
+  - `None` (number): Punch/indenter displacement (mm; negative = indentation/downward motion)
+  - `None` (number): Displacement ramp time (s)
+  - `None` (boolean): After ramp, maintain peak displacement (true) or release (false)
+  - `None` (number): Initial vertical gap between cell top and indenter/punch bottom (mm)
+  - `None` (number): Punch radius for dent mode (mm; diameter = 8mm)
+  - `None` (number): Punch thickness in Z (mm)
+  - `None` (number): Initial gap between cell top and punch bottom (mm)
+  - `None` (number): Punch center X-coordinate (mm); -1 = auto (cell center)
+  - `None` (number): Punch center Y-coordinate (mm); -1 = auto (cell center)
+  - `None` (integer): Circumferential segments for circular punch mesh
+  - `None` (integer): Radial mesh layers for circular punch
+  - `None` (enum): Indenter type for side mode: cylinder (smooth rod) or nail (cone-tip + shaft)
+  - `None` (number): Cylinder/nail axial length (Y-direction, mm)
+  - `None` (number): Nail cone section length (mm; type=nail only)
+  - `None` (number): Nail cone tip radius (sharp end, mm; type=nail only)
+  - `None` (number): Nail cylindrical shaft radius (mm; type=nail only)
+  - `None` (number): Ground plate rigid body thickness (mm)
+  - `None` (number): Gap between cell bottom (z=0) and rigid ground plate top (mm)
+  - `None` (number): Lateral margin beyond cell edge (mm)
+  - `None` (integer): Element count in both X and Y for rigid plate (sets n_x and n_y)
+  - `None` (integer): Element count in X for rigid plate
+  - `None` (integer): Element count in Y for rigid plate
+  - `None` (number): Vertical corner fillet radius (mm)
+  - `None` (integer): Arc segments per fillet quadrant (mesh subdivision)
+  - `None` (number): Side electrolyte buffer in X-direction (mm)
+  - `None` (number): Side electrolyte buffer in Y-direction (mm)
+  - `None` (boolean): Curved top/bottom pouch cap (true) or flat (false)
+  - `None` (number): Tab X-extent (mm)
+  - `None` (number): Tab protrusion from cell edge in Y (mm)
+  - `None` (number): Positive (Al) tab X-center coordinate (mm)
+  - `None` (number): Negative (Cu) tab X-center coordinate (mm)
+  - `None` (number): PCM board X-extent (mm)
+  - `None` (number): PCM protrusion beyond tab tip in Y (mm)
+  - `None` (number): PCM board Z-thickness (mm)
+  - `None` (boolean): Wound geometry: flat (non-conformal layer stacking) vs. Archimedean spiral (false)
+  - `None` (number): Arc x-radius = height × flat_ratio (1.0 = semicircle, 0.3 = flatter profile)
+  - `None` (integer): Number of spiral windings (wound model only); overridden by target_thickness if set
+  - `None` (number): Mandrel inner radius (mm; spiral/Archimedean mode only)
+  - `None` (number): Mesh size along spiral path (mm); 0 = auto (meshSize × 0.8)
+  - `None` (boolean): Enable swelling physics (auto-set to true if phase==2 or mode==swell)
+  - `None` (number): State-of-charge snapshot for swelling (0–1); strain = cte × soc
+  - `None` (number): NMC cathode coefficient of thermal expansion (Phase 2 swelling override, dimensionless)
+  - `None` (number): Graphite anode coefficient of thermal expansion (Phase 2 swelling override, dimensionless)
+  - `None` (boolean): Enable solid electrolyte interphase (SEI) growth model (unused; reserved)
+  - `None` (integer): SOFT contact flag (always 1, read-only)
+  - `None` (number): Base penalty scale factor for tier -1 (5mm mesh); scales with tier via sofscl_power
+  - `None` (number): Exponent for SOFSCL mesh-size scaling: sofscl_final = base × (ref_size / mesh_size)^power
+  - `None` (number): External contact (pouch/ground) shell thickness for penalty (mm)
+  - `None` (number): Self-contact (inter-layer) shell thickness for penalty (mm)
+  - `None` (integer): Contact search depth (elements)
+  - `None` (boolean): Electrodes as ELEMENT_SOLID (true) vs. TSHELL (false); Phase 1 default = false (shells), Phase 2 = TSHELL
+  - `None` (integer): Solid element formulation for wound solid electrodes: 1 = reduced integration (stable), 2 = fully integrated
+  - `None` (boolean): Merge Al+Cu current collectors into composite (Cu 40% + Al 60% by volume) at unit cell boundaries
+  - `None` (boolean): Fill core void with AIRBAG_LINEAR_FLUID cavity (electrolyte simulation)
+  - `None` (boolean): Force electrodes to SHELL elements (suppress TSHELL in Phase 2)
+  - `None` (number): Biaxial pre-tension for pouch (strain fraction); creates INITIAL_STRESS_SHELL cards if > 0
+  - `None` (boolean): Skip PCM board, positive/negative tabs (true = fixture-free)
+  - `None` (boolean): Skip indenter/punch and ground rigid plate
+  - `None` (boolean): Skip all fixture (PCM + tabs + indenter + ground plate); auto-set by modes bare/swell
+  - `None` (boolean): Fill inner core void with electrolyte solid (stacked only)
+  - `None` (boolean): Leave mandrel core empty (wound only, bare/swell mode)
+  - `None` (boolean): Force TMID=0 (pure mechanical, no thermal properties)
+  - `None` (boolean): Write SID 201 (Al_CC outer) and SID 202 (Cu_CC outer) isopotential node sets for EM RANDLES coupling
+  - `None` (number): Simulation end time (s)
+  - `None` (number): TSSFAC timestep safety factor (fraction of CFL limit)
+  - `None` (number): Explicit time integration parameter (0 = standard central difference)
+  - `None` (number): Database output interval (s); controls frequency of d3plot/d3thdt writes
+  - `None` (number): External uniform pressure applied to pouch faces (bare mode, MPa)
+  - `None` (number): Dynamic relaxation convergence criterion (KE/IE ratio); typical 1e-3 to 1e-4
+  - `None` (number): DR pseudo-time limit (arbitrary pseudo-time units for relaxation)
+  - `None` (number): Per-cycle kinetic energy damping (0.95 = 5% dissipation/cycle)
+  - `None` (integer): Convergence check interval for DR (steps between KE/IE checks)
+  - `None` (number): Initial gap between pouch and jellyroll (bare/swell mode, mm)
+  - `None` (number): Target jellyroll thickness (mm); if > 0, auto-computes n_winds (wound) or n_unit_cells (stacked) from layer stack
+  - `None` (number): Inter-winding gap as fraction of unit cell height (flat wound only; debug parameter)
+  - `None` (boolean): Phase 2: insert *INCLUDE_DYNAIN to restart from Phase 1 deformed state; if true and dynain_file empty, auto-computes filename
+  - `None` (string): Explicit dynain path for Phase 2; if empty and use_dynain=true, auto-computes from output+tier+phase1 suffix
+  - `None` (array): Comma-separated list of tier values for batch generation (e.g., [-1, 0, 1]); if empty, uses single tier from tier field
+  - `None` (array): Comma-separated list of model types for batch generation (e.g., [stacked, wound]); if empty, uses single type from model_type field
+  - `None` (array): Comma-separated list of phases for batch generation (e.g., [1, 2]); if empty, uses single phase from phase field
+  - `None` (array): Per-phase mode overrides (parallel to phases list); e.g., [swell, dent] → phase 1 uses swell, phase 2 uses dent
+
+  # 주의
+  - CRITICAL FEATURES & GOTCHAS:
+  1. **Output filename auto-construction**: output + tier suffix (_tier-1, _tier0, _tier0_5, _tier1, _tier2) + phase suffix (_phase1, _phase2) + .k extension. The output field sets the base prefix only.
+  2. **Phase 2 swelling auto-enable**: If phase==2, swelling.enabled is automatically set to true regardless of swelling config. Phase 2 is post-processing only (no displacement applied).
+  3. **Mode side-effects**: Modes 'bare' and 'swell' auto-set no_fixture=true (removes PCM + tabs + impactor + ground plate). Mode 'swell' auto-enables swelling and switches to CONTROL_DYNAMIC_RELAXATION for equilibration.
+  4. **no_fixture implications**: Setting no_fixture=true also auto-sets noPcm=true and noImpactor=true. These modes are fixture-free DR only.
+  5. **Layer thickness semantics**: cathode/anode are "half-coatings"; stacked phase 1 solids are 2× thickness, Phase 2 TSHELL are 1×. Wound solids are also 2× (one side per electrode).
+  6. **Auto-sizing**: If target_thickness > 0, automatically computes n_winds (wound) or n_unit_cells (stacked) from layer stack, overriding manual values.
+  7. **Batch generation**: Active if any of batch.tiers[], batch.phases[], batch.model_types[] are non-empty. Generates nested loop across model_types → tiers → phases. Per-phase mode overrides via batch.phase_modes (parallel array).
+  8. **Phase chaining (Dynain)**: If use_dynain=true and both phase 1 and 2 are in batch.phases, auto-computes Phase 2 dynain_file from Phase 1 output filename + tier + _phase1.dynain suffix. Manual dynain_file overrides auto-computation.
+  9. **Mesh tier to element size mapping**: tier=-1 (5mm), tier=0 (2.5mm), tier=0.5 (1.5mm), tier=1 (1mm), tier=2 (0.5mm). Higher tier = finer mesh, more nodes/elements, higher cost.
+  10. **Contact penalty scaling**: SOFSCL = sofscl_base × (ref_size / mesh_size)^sofscl_power, where ref_size=5mm is tier=-1 baseline. Finer meshes get larger SOFSCL for same stiffness behavior.
+  11. **Solid electrode formulations**: solid_elform=1 (reduced, stable, default) or 2 (full integration, more accurate but slower). Only used for wound model with solid_electrode=true.
+  12. **Material property fallback**: If not specified in YAML, all material E, nu, rho, viscoelastic params use built-in defaults from BatteryConfig.h (e.g., NMC G0=307.7, Al E=69000).
+  13. **Mutually exclusive options**: solid_electrode vs. all_shell (solid_electrode=false → TSHELL Phase 2, all_shell=true → force SHELL). merge_cc incompatible with standard dual-CC model.
+  14. **DR parameters (bare/swell modes)**: dr_tolerance (convergence KE/IE), dr_endtim (pseudo-time limit), dr_factor (damping 0.95 = 5%/cycle), dr_nrcyck (check interval). Tighter tolerance requires more iterations.
+  15. **Wound-specific**: flat=true (non-conformal layers) vs. flat=false (Archimedean spiral, uses mandrel). flat_ratio affects layer profile curvature. mesh_size_path=0 auto-computes from tier meshSize.
+  16. **Dimensions**: All thicknesses in mm, densities in t/mm³, moduli in MPa, CTE in dimensionless fraction (strain per unit SOC).
+  17. **No positional arguments**: battery takes ONLY YAML config file via invocation directive; no CLI flags. All config via YAML keys.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: )
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper battery` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- battery
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      output: battery_output
+      model_type: stacked
+      tier: 0
+      phase: 1
+      mode: swell
+      geometry:
+        cell_width: 66.4
+        cell_height: 89.8
+        n_unit_cells: 11
+      layer_thickness:
+        al_cc: 0.012
+        cathode: 0.065
+        separator: 0.02
+        anode: 0.07
+        cu_cc: 0.008
+        pouch: 0.153
+        electrolyte_buffer: 0.2
+      solid_electrode: true
+      airbag_fill: true
+      no_pcm: true
+      no_thermal: true
+      swelling:
+        soc: 1
+        nmc_cte: 0.04
+        graphite_cte: 0.1
+      dr_endtim: 0.0005
+      dr_tolerance: 0.001
+      dr_factor: 0.995
+      dr_nrcyck: 250
+      timestep_safety: 0.67
+      output_interval: 5.0e-05
+    dry_run: true
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    wait_sec: 300

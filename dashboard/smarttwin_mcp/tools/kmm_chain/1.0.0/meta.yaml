@@ -1,0 +1,70 @@
+name: kmm_chain
+version: 1.0.0
+summary: KooMeshModifier 여러 모드를 한 번에 순서대로 적용 (체인)
+description: |
+  KooMeshModifier 여러 모드를 한 옵션 파일에 순서대로 적용한다 (--help chain).
+
+  ```text
+  *Mode 목록 순서대로 같은 모델에 차례로 적용하고 마지막에 한 번 저장한다.
+  예) 파트 5 를 제외하고 강체화 → 파트 5 의 재료·단면 교체
+
+    *Inputfile
+    model.k
+    *Mode
+    ELASTIC_TO_RIGID,1
+    PART_EXCHANGE,2
+    **ElastictoRigid,1
+    *PIDExcept,5
+    **EndElastictoRigid
+    **PartExchange,2
+    ...
+    **EndPartExchange
+    *End
+
+  - 모드ID 는 모드마다 다르게. 블록 순서는 상관없고 *Mode 목록 순서가 실행 순서다.
+  - 출력 이름에는 모드 접미사가 순서대로 붙는다 (model_etor_pex.k).
+  - PART_TRANSLATE 는 이동을 유지하므로 뒤이은 DROP_ATTITUDE 가 이동된 형상 위에서 동작한다.
+  ```
+
+  모드별 키·문법은 `kmm_<모드>` 도구의 설명을 볼 것(catalog_describe).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koomeshmodifier
+- kmm
+- chain
+- preprocess
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: 강체화 후 이동 (dry_run)
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: true
+    modes: &id001
+    - mode: ELASTIC_TO_RIGID
+      lines:
+      - '*PIDExcept,5'
+    - mode: TRANSFORM
+      options:
+        Translation:
+        - 0
+        - 0
+        - 10
+- title: 제출
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: false
+    modes: *id001
+    wait_sec: 300

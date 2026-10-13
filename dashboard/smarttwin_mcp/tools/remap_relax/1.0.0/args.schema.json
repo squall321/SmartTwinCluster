@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "remap_relax args",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model",
+    "output"
+  ],
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "Input LS-DYNA .k file to apply Dynamic Relaxation",
+      "x-kind": "session_file"
+    },
+    "output": {
+      "type": "string",
+      "description": "Output .k file with DR keywords inserted"
+    },
+    "level": {
+      "type": "integer",
+      "description": "DR convergence level: 1(빠름/fast)~5(최대/max conservative)",
+      "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "default": 2
+    },
+    "mode": {
+      "type": "string",
+      "description": "DR mode: explicit(IDRFLG=1) or implicit(IDRFLG=5)",
+      "enum": [
+        "explicit",
+        "implicit"
+      ],
+      "default": "explicit"
+    },
+    "drterm": {
+      "type": "number",
+      "description": "DR termination time in seconds (0=convergence only)",
+      "default": 0.0
+    },
+    "endtime": {
+      "type": "number",
+      "description": "Post-DR analysis endtime (optional, for continuing transient)"
+    },
+    "nrcyck": {
+      "type": "integer",
+      "description": "Convergence check interval (overrides level preset)"
+    },
+    "drtol": {
+      "type": "number",
+      "description": "Convergence tolerance (overrides level preset)"
+    },
+    "drfctr": {
+      "type": "number",
+      "description": "Velocity damping factor 0~1 (overrides level preset)"
+    },
+    "tssfdr": {
+      "type": "number",
+      "description": "DR timestep scale factor (overrides level preset)"
+    },
+    "irelal": {
+      "type": "integer",
+      "description": "Auto control: 0=off, 1=Papadrakakis (overrides level preset)",
+      "enum": [
+        0,
+        1
+      ]
+    },
+    "edttl": {
+      "type": "number",
+      "description": "Auto control convergence tolerance (overrides level preset)"
+    },
+    "d3drlf": {
+      "type": "boolean",
+      "description": "Enable *DATABASE_BINARY_D3DRLF output for DR database",
+      "default": true
+    },
+    "fix_shell_elform": {
+      "type": "boolean",
+      "description": "Fix shell element formulation issues if present",
+      "default": false
+    },
+    "strip": {
+      "type": "boolean",
+      "description": "Strip mode: true removes all DR keywords without insertion",
+      "default": false
+    },
+    "extra_inputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/.+"
+      },
+      "maxItems": 64,
+      "description": "옵션이 가리키는 보조 파일의 절대경로. 잡 work/ 폴더로 같이 올라가므로 옵션 값에는 파일 이름만 쓰면 된다. 허용 범위: /data/single/<사용자>/, /shared/uploads/users/<사용자>/, /data/scenario/."
+    },
+    "slurm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "잡 자원(선택). 생략하면 도구 종류별 기본(전처리 2 CPU·8G, 후처리 4 CPU·16G, 24시간)을 클러스터에서 가장 큰 노드에 맞춰 줄여 쓴다.",
+      "properties": {
+        "cpus_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "CPU 수"
+        },
+        "mem": {
+          "type": "string",
+          "pattern": "^[0-9]{1,6}[MG]$",
+          "description": "메모리 (예: 32G)"
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$",
+          "description": "시간 상한 HH:MM:SS"
+        },
+        "partition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "파티션 이름 (생략 = 클러스터 기본)"
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "true 면 제출하지 않고 생성될 입력 파일·명령만 돌려준다(PAT 없이도 된다). 먼저 이걸로 확인할 것."
+    },
+    "wait_sec": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1800,
+      "default": 0,
+      "description": "제출 후 이 시간(초) 안에 끝나면 결과(rc·로그 꼬리·작은 산출물)를 함께 돌려준다. 0 = job_id 만."
+    },
+    "job_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,48}$",
+      "description": "잡 이름(결과 폴더 이름이 된다). 생략하면 stmc_<도구이름>."
+    }
+  }
+}

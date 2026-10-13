@@ -1,0 +1,158 @@
+name: remap_generate
+version: 1.0.0
+summary: KooRemapper generate — Generate example test meshes (curved/bent types or box solids) with customizable
+  grid dimensions.
+description: |
+  Generate example test meshes (curved/bent types or box solids) with customizable grid dimensions.
+
+  Generate example test meshes or uniform hexahedral (HEX8) solid boxes. Supports two invocation modes: (1) type-based mode generates curved geometry bent-flat mesh pairs (teardrop, arc, torus, wave, etc.) as standalone command; (2) box mode generates uniform solid boxes from YAML config within assemble operations, serving as the initial base_model when no base_model is specified.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `subcommand` | enum |  | Sub-command selector. Set to 'box' to run `KooRemapper generate box <config.yaml>`, which writes ONE HEX8 box .k file from a YAML config; pass the config as `box_config`. Leave it out for the default type mode (`type` + `output_prefix`). Mutually exclusive with type/output_prefix/--dim-*. |
+  | `type` | enum |  | Mesh geometry type for the default type mode: determines the curved shape for bent/flat mesh pair generation. waterdrop is a foldable display geometry (160x70x1mm default). REQUIRED in type mode (together with output_prefix); leave both out when subcommand='box'. |
+  | `output_prefix` | string |  | Prefix for output file names in the default type mode. Generates {prefix}_bent.k, {prefix}_flat.k, {prefix}_flat_fine.k, {prefix}_flat_tet.k. REQUIRED in type mode; not used with subcommand='box' (the box config's own `output` key names the file). |
+  | `box_config` | config |  | Box YAML config, used only with subcommand='box'. Keys: output (required, the .k path — relative paths resolve against the config file's own folder), lx, ly, lz, nx, ny, nz, rho, E, nu, mid, secid, pid, part_title. Written to box_config.yaml next to the job's other files. |
+  | `dim-i` | integer |  | Number of elements in I (first parametric) direction. Only used with type mode. |
+  | `dim-j` | integer |  | Number of elements in J (second parametric) direction. Only used with type mode. |
+  | `dim-k` | integer |  | Number of elements in K (thickness) direction. Only used with type mode. |
+
+  # config 키 (YAML)
+  - `None` (enum): Mesh geometry type for curved shape generation. Only used in standalone mode (not assemble generate operations). waterdrop is foldable display geometry (160×70×1 mm default with 2mm fold radius). Mutually exclusive with box shape.
+  - `None` (enum): Shape type within assemble generate operations. Currently only 'box' is supported; generates uniform hexahedral solid. When shape=box, lx/ly/lz/nx/ny/nz/rho/E/nu/mid/secid/pid/part_title are read.
+  - `None` (number): Length in X direction [mm]. Default 100.0.
+  - `None` (number): Length in Y direction [mm]. Default 20.0.
+  - `None` (number): Length in Z direction (thickness) [mm]. Default 10.0.
+  - `None` (integer): Number of HEX8 elements in X direction. Minimum 1. Default 10.
+  - `None` (integer): Number of HEX8 elements in Y direction. Minimum 1. Default 4.
+  - `None` (integer): Number of HEX8 elements in Z direction. Minimum 1. Default 2.
+  - `None` (number): Mass density [t/mm³]. Default 7.85e-9 (steel ~7850 kg/m³). Used in *MAT_ELASTIC card.
+  - `None` (number): Young's modulus [MPa]. Default 210000.0 (steel). Used in *MAT_ELASTIC card.
+  - `None` (number): Poisson's ratio (dimensionless). Default 0.3 (steel). Used in *MAT_ELASTIC card.
+  - `None` (integer): Material ID for *MAT_ELASTIC card. Default 1. Must be positive.
+  - `None` (integer): Section ID for *SECTION_SOLID card (HEX8 solid form=1). Default 1. Must be positive.
+  - `None` (integer): Part ID (*PART card). Default 1. Must be positive.
+  - `None` (string): Part title (second line of *PART card). Default 'Box'. Appears in LS-DYNA output/postprocessors.
+
+  # 주의
+  -
+  OPERATIONAL MODES:
+  ---
+  1. STANDALONE TYPE MODE:
+     - Used OUTSIDE assemble operations to generate test meshes quickly
+     - Command: `KooRemapper generate <type> [--dim-i N] [--dim-j M] [--dim-k K] <output_prefix>`
+     - Generates FOUR output files: {prefix}_bent.k, {prefix}_flat.k, {prefix}_flat_fine.k, {prefix}_flat_tet.k
+     - Flags: --dim-i (default 10), --dim-j (default 5), --dim-k (default 5) control element grid in parametric directions
+
+  1b. BOX SUB-COMMAND (`KooRemapper generate box <config.yaml>`):
+     - Writes ONE HEX8 box .k file from a YAML config; no bent/flat pair, no prefix
+     - Platform/MCP args: {"subcommand": "box", "box_config": {...}} — `type` and `output_prefix` are then omitted
+     - The config's `output` key names the file; a relative path resolves against the config file's folder
+
+  2. ASSEMBLE BOX MODE (operations[].type = generate):
+     - Used AS FIRST OPERATION when base_model is NOT specified
+     - Must be the FIRST operation in the operations list to serve as initial base model
+     - Generates a single uniform HEX8 box solid (shape=box only)
+     - Keys read: shape, lx, ly, lz, nx, ny, nz, rho, E, nu, mid, secid, pid, part_title
+     - Creates *MAT_ELASTIC, *SECTION_SOLID, *PART, *NODE, *ELEMENT_SOLID cards automatically
+     - Subsequent operations (restack, offset, etc.) can then operate on pid=1 (or specified pid)
+
+  YAML PARSING (assemble mode):
+  ---
+  - All keys are case-sensitive and use underscores (not hyphens)
+  - Numeric values are parsed via std::stod (double) or std::stoi (integer); unparseable values default to defaults above
+  - String values (shape, part_title) are trimmed and quoted-stripped
+  - No validation error thrown on invalid input; default values silently used instead
+
+  CONSTRAINTS & DEFAULTS:
+  ---
+  - shape: only "box" supported in assemble; empty string defaults to "box"
+  - nx, ny, nz: must be >= 1; generates (nx+1)×(ny+1)×(nz+1) nodes, nx×ny×nz elements
+  - mid, secid, pid: must be positive (0 auto-corrected to 1 on write); no duplicate check
+  - Element formulation: HEX8 (8-node solid), section elform=1 (fully integrated)
+  - Material model: *MAT_ELASTIC (linear elastic isotropic)
+  - Node numbering: 1-based, sequential in Z-major order (iz varies slowest, ix fastest)
+  - Element numbering: 1-based, same Z-major order; HEX8 node order = bottom CCW then top CCW (standard ABAQUS/LS-DYNA convention)
+
+  MUTUALLY EXCLUSIVE / DEPENDENCIES:
+  ---
+  - shape must be "box" (waterdrop, teardrop, etc. only in standalone type mode, not assemble)
+  - Cannot specify both shape= and type= (different command invocations)
+  - Part, section, material IDs (pid, secid, mid) should be unique in the model; no auto-increment collision avoidance
+
+  WATERDROP SPECIAL CASE (standalone type mode only):
+  ---
+  - type: waterdrop
+  - Automatically uses lx=160.0, ly=70.0, lz=1.0 (foldable display geometry, 160mm fold direction, 70mm width, 1mm thick)
+  - Sets waterdropFoldRadius=2.0 (U-bend radius in mm), waterdropFlatRatio=0.45 (45% flat on each end, 10% fold in middle)
+  - Generates bent/flat pair suitable for flexible/foldable smartphone display drop-test modeling
+
+  OUTPUT FILES (standalone type mode):
+  ---
+  - {prefix}_bent.k: curved bent geometry (parametric ijk surface mapped to 3D XYZ)
+  - {prefix}_flat.k: undeformed flat reference mesh
+  - {prefix}_flat_fine.k: refined unstructured quad mesh (2x subdivision) for mapping sensitivity studies
+  - {prefix}_flat_tet.k: tetrahedral (TET4) variant for non-structured test cases
+
+  OUTPUT FILE (box mode):
+  ---
+  - Single .k file specified in YAML 'output' key (or --output flag)
+  - Must have .k extension; auto-added if missing
+  - Contains *MAT_ELASTIC, *SECTION_SOLID, *PART, *NODE (*ELEMENT_SOLID, *END
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+  - These rules apply to the `generate box <config.yaml>` sub-command (the tab error is printed as `[generate]`). The type mode takes no YAML.
+
+  사례 메모: Generates torus_bent.k, torus_flat.k, torus_flat_fine.k, torus_flat_tet.k with 10x5x5 elements. For the box sub-command use args = {"subcommand": "box", "box_config": {"output": "box.k", "nx": 10, "ny": 5, "nz": 2}} — see alternative_invocations.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper generate` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- core
+- generate
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    type: torus
+    output_prefix: torus
+    dim-i: 10
+    dim-j: 5
+    dim-k: 5
+    dry_run: true
+- title: 제출하고 5분까지 기다리기
+  args:
+    type: torus
+    output_prefix: torus
+    dim-i: 10
+    dim-j: 5
+    dim-k: 5
+    dry_run: false
+    wait_sec: 300

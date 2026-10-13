@@ -1,0 +1,65 @@
+name: remap_applyfold
+version: 1.0.0
+summary: KooRemapper applyfold — linkage-fit 이 적은 군별 변환을 덱에 찍기 — 빠지는 절점이 하나도 없어야 한다.
+description: |
+  linkage-fit 이 적은 군별 변환을 덱에 찍기 — 빠지는 절점이 하나도 없어야 한다.
+
+  Stamp the per-group rigid transforms written by `linkage-fit` onto a deck. Only node coordinates change; the rewrite goes through the shared ModelAssembler path so the deck's own field widths and newlines are preserved and the output is normally byte-for-byte the same size. The op refuses rather than losing anything: every part named in the groups file must exist in the deck, no two groups may share a node (parts joined at their nodes have no well-defined fold — use `disconnect` first), every node of a group must be transformed, and the written deck is read back and each node compared against the position the requested transform demands. It reports the node counts, the worst deviation from the requested transform, the nodes that moved although no group claimed them, the bounding box before and after, and the byte size before and after.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Deck to fold (k-file) |
+  | `groups` | file | 예 | Groups YAML written by `linkage-fit` |
+  | `output` | string | 예 | Output prefix — writes <output>.k |
+
+  # 주의
+  - "No node left behind" is checked by counting, not assumed: the field report measured 712,103 nodes silently dropped because an id-indexed array had been sized by the node count rather than by the maximum id. This implementation looks nodes up in a map, so that particular trap does not exist, but the count is still verified and a mismatch fails. Note that "no unmoved node" is the wrong criterion on its own — nodes lying on a rotation axis stay put under a correct transform — so the readback compares against the computed target position instead.
+
+  사례 메모: Folds the bundled flat arm with the transforms linkage-fit recovered, reproducing arm_folded.k; the bbox goes from 120 x 20 to 60 x 60 and the byte size is unchanged
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper applyfold` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- applyfold
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: arm_flat.k
+    groups: fold_groups.yaml
+    output: arm_refolded
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/arm_flat.k
+    - /data/single/USER/case/fold_groups.yaml
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: arm_flat.k
+    groups: fold_groups.yaml
+    output: arm_refolded
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

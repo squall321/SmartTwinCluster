@@ -1,0 +1,140 @@
+name: remap_cclip
+version: 1.0.0
+summary: KooRemapper cclip — Replace hex box parts with F-δ calibrated C-clip shell strips (smartphone
+  spring contacts) in pressed state with *INITIAL_STRESS_SHELL.
+description: |
+  Replace hex box parts with F-δ calibrated C-clip shell strips (smartphone spring contacts) in pressed state with *INITIAL_STRESS_SHELL.
+
+  Replaces selected hexahedral (box) parts with simplified C-shaped shell-strip clips — the spring contacts (C-clip / ground spring / antenna contact) SMT-mounted on smartphone PBAs that are compressed during assembly. Clip stiffness is calibrated against measured force-deflection data from a detailed-model compression analysis (a full F-δ curve or a single operating point) via Castigliano closed-form thickness solve, then the clip is written in its pressed (installed) state with *INITIAL_STRESS_SHELL bending prestress whose moment field equilibrates the calibrated contact force. Default analytic mode needs no solver; deck mode additionally emits an LS-DYNA rigid-plate compression deck for solver-based preloading (rcforc validation, dynain chaining).
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Input LS-DYNA K-file containing the hex box part(s) standing in for C-clips |
+  | `output` | output | 예 | Output basename (without .k). Writes <output>.k (pressed clip, original PID kept), <output>_cclip_report.json; include mode adds <output>.dynain; deck mode adds <output>_cclip_deck_<pid>.k per clip free_output adds <output>_free.k (un-pressed as-designed model). |
+  | `clips` | array | 예 | Per-clip target rules, processed in order: [{pid: N} \| {match_part: "CCLIP_*"}] with optional per-clip overrides (free_height \| overtravel, width, thickness, profile{flat_bottom,flat_top,radius,tip_rise}, n_arc, n_flat, n_width, elform, match_mass, axis, material, calibration) |
+  | `calibration` | object |  | F-δ calibration: {point: {deflection, force}} for a single operating point, or {curve: [[deflection, force], ...], operating_deflection: d}. Optional at top level — every clip must end up with a calibration, so give it here OR per clip in clips[]. Optional sub-keys: tolerance (default 0.05), calibrate (thickness\|modulus), t_min, t_max |
+  | `material` | object |  | Clip material {E, nu, rho, sigy} [MPa, -, t/mm3, MPa]. Default: inherit from the box part's K-file material, else BeCu (E=131000, nu=0.3, rho=8.36e-9, sigy=900) |
+  | `mode` | enum |  | analytic (default): closed-form pressed state + *INITIAL_STRESS_SHELL, no solver needed. deck: additionally emit an LS-DYNA compression deck per clip for solver-based preloading |
+  | `attach` | enum |  | Clip foot attachment: none (leave to contact/user) or cnrb (*CONSTRAINED_NODAL_RIGID_BODY spanning foot nodes + board nodes within attach_tol) |
+  | `stress_output` | enum |  | embed (default): *INITIAL_STRESS_SHELL written before *END in <output>.k. include: separate <output>.dynain + *INCLUDE |
+  | `element` | enum |  | Clip element type. shell (default): thin QUAD4 strip, exact through-thickness bending prestress (best for thin spring contacts). solid: HEX8 layers through thickness (n_thick, default 2) — matches an all-solid assembly, no shell contact-thickness offset; for thin clips the shell idealization is more efficient. |
+  | `axis` | enum |  | Compression axis and press-from side. auto = shortest bbox edge, pressed from the + side. Signed forms set the side the mating part presses from (foot on the opposite face): e.g. -z = pressed from below, foot on the top face. |
+  | `open` | enum |  | C opening/bulge direction along the length axis (+ default). '-' mirrors the profile — use it to match the real clip orientation (wipe direction, keep-out). |
+  | `attach_tol` | number |  | Board-node capture distance [mm] for attach=cnrb |
+  | `free_output` | boolean |  | Also emit the un-pressed (as-designed) model <output>_free.k — same clip geometry at free height, no initial stress. analytic mode only (deck mode's main output is already the free state). |
+  | `report` | boolean |  | Write <output>_cclip_report.json (target vs achieved stiffness, calibrated thickness, working force, sig_max/sigy, mass, orphan nodes) |
+
+  # config 키 (YAML)
+  - `None` (file): Input K-file with hex box parts standing in for clips
+  - `None` (string): Output basename; .k auto-appended
+  - `None` (array): Clip target rules, processed in order
+  - `None` (integer): Part ID of the hex box to replace. Takes precedence over match_part
+  - `None` (string): Glob vs *PART title (e.g. 'CCLIP_*'); each match becomes one clip
+  - `None` (boolean): Auto-detect clip parts by name keyword (no pid/match_part needed). Only parts with elements are eligible; each detection is reported
+  - `None` (array): Override the built-in clip name keywords for auto (default: clip/cclip/contact/spring/gnd/ground/shield/finger/pogo)
+  - `None` (number): Free (uncompressed) clip height [mm]; must exceed installed height
+  - `None` (number): Alternative to free_height: H_free = installed height + overtravel [mm]; default = calibration deflection
+  - `None` (number): Strip width [mm]; default = box width
+  - `None` (number): Shell thickness [mm]; omitted = solved by calibration
+  - `None` (number): Foot flat length [mm]; default 0.6·L
+  - `None` (number): Contact arm length [mm]; default 0.4·L
+  - `None` (number): Bend radius [mm]; default min(arc-height/2, L-flat_bottom)
+  - `None` (number): Contact tip height above arc shoulder [mm]; default 1.2x working deflection
+  - `None` (integer): Elements along the bend arc
+  - `None` (integer): Elements per flat/arm segment
+  - `None` (integer): Elements across the strip width
+  - `None` (integer): Through-thickness element layers (element=solid only)
+  - `None` (integer): *SECTION_SHELL ELFORM
+  - `None` (boolean): Scale clip density to preserve the box mass
+  - `None` (string): Per-clip press-from override (auto|[+|-]x|y|z, e.g. -z = pressed from below)
+  - `None` (string): Per-clip C opening direction override
+  - `None` (object): Per-clip material override (same shape as global material)
+  - `None` (object): Per-clip calibration override (same shape as global calibration)
+  - `None` (number): Operating-point deflection [mm]; also the installed deflection. Mutually exclusive with curve
+  - `None` (number): Operating-point contact force [N]
+  - `None` (array): F-δ pairs [[deflection, force], ...] ascending; REQUIRES operating_deflection. Mutually exclusive with point
+  - `None` (number): Installed deflection [mm]; required with curve
+  - `None` (number): Max allowed relative stiffness error; op fails above this
+  - `None` (string): Quantity the solver adjusts (modulus requires explicit thickness)
+  - `None` (number): Thickness clamp lower bound [mm]
+  - `None` (number): Thickness clamp upper bound [mm]
+  - `None` (number): Young's modulus [MPa] (BeCu default; inherits box material when omitted)
+  - `None` (number): Poisson's ratio
+  - `None` (number): Density [t/mm3]
+  - `None` (number): Yield stress [MPa]; used for the plasticity warning (sig_max > 0.8·sigy)
+  - `None` (string): Prestress generation path
+  - `None` (string): Clip foot attachment cards
+  - `None` (string): Initial stress placement
+  - `None` (string): Clip element type (shell strip or through-thickness solid)
+  - `None` (string): Global compression axis + press-from side (auto = shortest edge, + side)
+  - `None` (string): Global C opening/bulge direction along the length axis
+  - `None` (number): Board-node capture distance for cnrb [mm]
+  - `None` (boolean): Also write <output>_free.k (as-designed, un-pressed, no prestress)
+  - `None` (boolean): Emit <output>_cclip_report.json
+
+  # 주의
+  - TARGET SELECTION: clips[] rules processed in order; pid takes precedence over match_part, and {auto: true} auto-detects clip parts by name keyword (spring contacts are conventionally named clip/contact/spring/gnd/shield; override via keywords) so no pid is needed. Detections are reported. pid > match_part > auto (glob vs *PART title, each match becomes one clip). Each matched hex part's solid elements are deleted and replaced by one shell-strip clip; the ORIGINAL PID IS KEPT (*PART SECID/MID retargeted) so existing *SET_PART/*CONTACT references stay valid; old *SECTION/*MAT removed only when unshared; box nodes preserved (orphan count reported). ELEMENT: element=shell (default) writes a QUAD4 strip with *SECTION_SHELL and exact 2-point through-thickness *INITIAL_STRESS_SHELL. element=solid extrudes n_thick HEX8 layers (*SECTION_SOLID, ELFORM -2 assumed-strain for thin bending) with per-layer *INITIAL_STRESS_SOLID; the solid carries real ±t/2 thickness so its bbox height exceeds the installed height by up to ~t (the shell contact-offset limitation, made geometric). deck mode always uses a shell idealization for the F-δ validation deck. DIRECTION: axis accepts signed press-from values (+z default / -z = pressed from below with the foot on the top face); open (+|-) mirrors the C bulge along the length axis. Both settable globally and per clip; report carries press_from/open. GEOMETRY: foot flat → bend arc (semicircle, or quarter arcs + vertical legs when radius < height/2) → inclined contact arm whose tip is the apex; default tip_rise = 1.2x working deflection keeps the pressed shoulder clear of the mating plane. CALIBRATION: Castigliano unit-load integral J=∫m²ds gives k(t)=E·W·t³/(12·J); thickness solved in closed form (calibrate=thickness, default) or E scaled with fixed thickness (calibrate=modulus). Curve input uses the secant at operating_deflection (guarantees the working contact force; LSQ slope and max residual reported — v1 matches LINEAR stiffness only). Fails if achieved-vs-target stiffness error exceeds tolerance. PRESSED STATE: pressed geometry solved so max clip height equals the installed height (box height); the *INITIAL_STRESS_SHELL bending field (NPLANE=1, NTHICK=2) is scaled by the calibrated working force so dynamic relaxation pushes the mating surface with that force. free_output=true also writes <output>_free.k — the same box replacement with the clip at its free (uncompressed) height and no initial stress, i.e. the as-designed model paired with the as-installed <output>.k. VALIDATION: tools/cclip_check.py verifies geometry/stiffness/bending-pattern/stress→force consistency without a solver. DECK MODE: per-clip <output>_cclip_deck_<pid>.k with free-state clip, rigid plate, *BOUNDARY_PRESCRIBED_MOTION_RIGID displacement ramp, implicit quasi-static controls, *DATABASE_RCFORC and *INTERFACE_SPRINGBACK_LSDYNA (dynain for chaining). LIMITS (v1): linear secant stiffness match; elastic bending prestress only (warns when sig_max > 0.8·sigy); axis-aligned boxes assumed; shell contact gap ~t/2 not compensated. Relative paths resolved vs config YAML directory.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: PID 2 육면체를 C형 쉘 클립으로 치환 — 작동점(0.15mm 눌림에서 1.2N)으로 두께를 캘리브레이션하고 0.15mm 눌린 상태 + *INITIAL_STRESS_SHELL로 출력. Replaces hex part PID 2 with a C-clip calibrated to the operating point, written in the pressed state; the prestress moment field equilibrates the 1.2N contact force.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper cclip` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- cclip
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: clip_board.k
+    output: clip_board_cclip
+    calibration: &id001
+      point:
+        deflection: 0.15
+        force: 1.2
+    clips: &id002
+    - pid: 2
+      overtravel: 0.15
+    mode: analytic
+    dry_run: true
+    extra_inputs: &id003
+    - /data/single/USER/case/clip_board.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: clip_board.k
+    output: clip_board_cclip
+    calibration: *id001
+    clips: *id002
+    mode: analytic
+    dry_run: false
+    extra_inputs: *id003
+    wait_sec: 300

@@ -1,0 +1,116 @@
+name: remap_optimize
+version: 1.0.0
+summary: KooRemapper optimize — Apply material-specific global card optimization for rubber/foam analysis
+  in LS-DYNA models.
+description: |
+  Apply material-specific global card optimization for rubber/foam analysis in LS-DYNA models.
+
+  Applies material-specific optimizations to LS-DYNA K-files for dynamic impact analysis (e.g., rubber/foam). Currently supports 'rubber' mode which enforces control card settings (CONTROL_ACCURACY INN=4, CONTROL_ENERGY HGEN/RWEN/SLNTEN/RYLEN=2, CONTROL_TIMESTEP TSSFAC, CONTACT SOFT/SBOPT) and validates bulk viscosity parameters. Idempotent: correct values are not rewritten.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 전체 YAML 설정 객체. model, output, optimize 필수; pids, tssfac, analysis_type 선택. |
+
+  # config 키 (YAML)
+  - `None` (file): Path to input LS-DYNA K-file (.k) to be optimized. Relative paths resolve from YAML directory.
+  - `None` (file): Path to output optimized K-file. Relative paths resolve from YAML directory.
+  - `None` (enum): Optimization mode/preset. Currently only 'rubber' supported; future modes may include 'foam', 'battery', etc.
+  - `None` (number): Time step scale factor for CONTROL_TIMESTEP (explicit analysis only). Applied to TSSFAC field as double. Scales the critical time step for stability. Skipped for implicit analysis.
+  - `None` (enum): Analysis type detection. 'explicit' or 'implicit' forces behavior; empty string '' (or omitted) auto-detects from *CONTROL_IMPLICIT presence in model. Default is auto-detect.
+  - `None` (integer): Single target part ID for contact SOFT/SBOPT patching (alternative to pids). Converted to single-element list internally. Mutually exclusive with pids.
+  - `None` (array): List of target part IDs (as YAML array [id1, id2, ...] or comma-separated [id1,id2,id3]) for contact SOFT/SBOPT patching. Only contacts involving these PIDs are modified. Empty pids skips contact processing. Mutually exclusive with pid.
+
+  # 주의
+  - 1. **Idempotent**: Running optimize twice on the same model produces identical output. Already-correct values are not rewritten.
+
+  2. **YAML Parsing**: Keys are case-sensitive. Accepts 'key: value' format with '#' comments. Whitespace-tolerant (leading/trailing spaces trimmed).
+
+  3. **Path Resolution**: Relative paths (model, output) are resolved from the YAML file directory, not cwd. Absolute paths (starting with '/' or Windows drive 'C:') are used as-is.
+
+  4. **pids vs pid**: Both options target the same feature (contact SOFT/SBOPT patching). Use pids=[...] for multiple IDs or pid=N for single ID. If both are specified, pid is processed first then overwritten by pids (last wins).
+
+  5. **Global Cards (Always Applied)**:
+     - *CONTROL_ACCURACY: Forces INN=4 (high accuracy). Inserted if missing.
+     - *CONTROL_ENERGY: Forces HGEN=2, RWEN=2, SLNTEN=2, RYLEN=2 (energy tracking for damping). Inserted if missing.
+     - Applies to both explicit and implicit analyses.
+
+  6. **Explicit-Only Cards** (skipped silently for implicit):
+     - *CONTROL_TIMESTEP: Sets TSSFAC field to tssfac value (default 0.67). Also patches DTINIT=0 on insert. Warns if DT2MS>0 (should be 0 for dynamic impact).
+     - *CONTROL_BULK_VISCOSITY: Warnings only (read-only). Recommends Q1=1.5, Q2=0.06 if present and non-standard.
+
+  7. **Implicit-Only Behavior**:
+     - *CONTROL_TIMESTEP is skipped; manual CONTROL_IMPLICIT_AUTO dt0/dtmax tuning required instead.
+     - Analysis type auto-detection scans for *CONTROL_IMPLICIT keyword.
+
+  8. **Contact Patching** (when pids is specified):
+     - Modifies contact cards involving target PIDs only.
+     - Card A (3rd data card after title): SOFT field → 0, SBOPT field → 2.
+     - Only contacts with both SSTYP and MSTYP ≠ 0 are verified; contact with SSTYP=0 triggers 'SSTYP=0 side' warning.
+     - If contact has no Card A, SOFT/SBOPT cannot be patched (warning logged).
+
+  9. **Error Cases**:
+     - Missing 'model' or 'output' keys → fatal error, returns code 1.
+     - Cannot open model or output file → fatal error.
+     - Unknown optimize mode (not 'rubber') → fatal error.
+
+  10. **Output**: All operations logged to console with [optimize] prefix. Messages distinguish between 'inserted', 'modified', 'OK' (unchanged), and 'WARNING' (read-only alerts)."
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Standalone rubber optimization config. Targets PIDs 3 and 5 for contact SOFT=0 / SBOPT=2.0 patching. analysis_type auto-detects if omitted. Run: KooRemapper optimize <this-yaml>
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper optimize` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- optimize
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: model.k
+      output: optimized.k
+      optimize: rubber
+      pids:
+      - 3
+      - 5
+      tssfac: 0.67
+      analysis_type: explicit
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/model.k
+    - /data/single/USER/case/optimized.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

@@ -1,0 +1,128 @@
+name: remap_tetremesh
+version: 1.0.0
+summary: 'KooRemapper tetremesh — TET4 local remesh: improve quality via Laplacian smoothing/swap (localimprove)
+  or constrained Delaunay (tetgen)'
+description: |
+  TET4 local remesh: improve quality via Laplacian smoothing/swap (localimprove) or constrained Delaunay (tetgen)
+
+  TET4 local remesh: improves tetrahedral mesh quality via Laplacian smoothing/face-edge swap (localimprove backend) or constrained Delaunay tetrahedralization (tetgen backend). Identifies poorly-shaped elements (min Jacobian, aspect ratio) or explicitly selected elements, extracts local patches, and improves them while preserving multi-material boundaries. Supports report-only mode and iterative remeshing until target quality is reached.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 전체 YAML 설정 객체 (config.yaml 로 기록되어 실행됨) |
+
+  # config 키 (YAML)
+  - `None` (file): Input K file path; TET4/HEX8/mixed elements loaded for mesh quality analysis
+  - `None` (file): Output K file path; remeshed mesh written here (only if report_only=false)
+  - `None` (enum): Primary remeshing backend. localimprove: Laplacian smoothing + face/edge flips, no dependencies. tetgen: constrained Delaunay (AGPL, requires compile flag ON). Default localimprove (always available)
+  - `None` (enum): Secondary backend if primary fails on a patch. Empty string (default) disables fallback. When set, if backend fails on a patch, attempt retry with fallback backend
+  - `None` (boolean): If true: scan mesh quality and report statistics without modifying or writing output. Useful for quality audits
+  - `None` (array): Part IDs to remesh; empty array (default) processes all parts. Restrict remeshing to specific material parts via integer list [1, 2, 3]
+  - `None` (enum): Element selection strategy. bad_quality: auto-detect poorly-shaped elements. explicit_ids: use element_ids array as seed set. Note: 'explicit' is an alias for 'explicit_ids'
+  - `None` (array): Explicit element IDs to include in remesh patches (used only if selection_mode=explicit_ids). Specify as integer list [10, 20, 30]
+  - `None` (enum): Neighborhood extraction mode. node: extract elements via node adjacency (larger patches). face: extract via face adjacency (smaller patches, tighter boundaries)
+  - `None` (number): Scaled Jacobian quality threshold (0.0=degenerate, 1.0=perfect tet). Elements below this marked as bad_quality. Typical thresholds: <0.1 very poor, 0.2-0.5 acceptable, >0.7 excellent
+  - `None` (number): Maximum aspect ratio threshold (longest edge / shortest edge). Elements exceeding this ratio flagged for remesh when using bad_quality mode. Higher = more lenient (e.g., 10.0)
+  - `None` (integer): Neighborhood expansion rings around selected elements. Higher = larger patches, longer processing. Typical range 1-3. Applies to both bad_quality and explicit_ids modes
+  - `None` (number): Surface flatness tolerance in degrees for boundary preservation. Controls how much patch surface can deviate from original. Lower = stricter boundary fidelity
+  - `None` (number): Maximum boundary node displacement tolerance (model units). Zero (default) allows surface nodes to move freely within flatness_deg constraint. Positive values restrict node movement
+  - `None` (boolean): If true: prevent remeshing across material boundaries (preserve interface edges between different PIDs). If false: allow mixing of different materials in patch
+  - `None` (integer): Laplacian smoothing iteration count (localimprove only). Higher = more smoothing, slower. Typical range 1-10. Improves element shape after flips
+  - `None` (integer): Maximum outer improvement loop iterations (localimprove only). Repeat flip+smooth cycles up to this count until convergence. Typical 2-5
+  - `None` (boolean): If true: allow element subdivision during improvement (localimprove may split elements). If false: improvement via flips and smoothing only
+  - `None` (number): TetGen quality ratio parameter (q flag). Controls minimum dihedral angle enforcement. Typical 1.0-2.0. Higher = stricter quality, longer runtime
+  - `None` (number): TetGen minimum dihedral angle (degrees). Enforces all dihedral angles >= this value. Typical 5.0-20.0. Higher = better quality but may fail on constrained patches
+  - `None` (boolean): Enable iterative remesh mode as simple boolean flag. Set to true for default iterative behavior with max_iterations=10, quality_target=0.3, convergence_tol=0.01, keep_best=true. To customize iteration parameters, use the iterate section instead
+  - `None` (integer): Maximum iterations for iterative remesh mode (nested under iterate section). Loop until quality_target reached or this limit exhausted. Typical 5-20. Any sub-key under iterate section enables iteration
+  - `None` (number): Target minimum Jacobian in iterative mode (nested under iterate section). Iteration stops when all elements >= this value or max_iterations exhausted. Typical 0.2-0.5
+  - `None` (number): Convergence tolerance for early stopping in iterative mode (nested under iterate section). If improvement between iterations < this, stop early. Typical 0.005-0.05
+  - `None` (boolean): If true in iterative mode (nested under iterate section): keep best mesh state across all iterations. If false: keep final state only
+  - `None` (enum): Element selection strategy within selection section. Equivalent to top-level selection_mode key
+  - `None` (array): Explicit element IDs within selection section. Equivalent to top-level element_ids key
+  - `None` (integer): Neighborhood expansion rings within selection section. Equivalent to patch.ring_expand key. Can be specified in either location
+  - `None` (enum): Neighborhood extraction mode within selection section. Equivalent to top-level ring_mode key
+
+  # 주의
+  - CRITICAL GOTCHAS: (1) **Scaled Jacobian interpretation**: 1.0=perfect regular tet, 0.0=degenerate, <0=inverted. Threshold 0.2 is *minimum acceptable*, not aspirational. (2) **Iterative mode** keeps BEST mesh state (if keep_best=true), not the final state—check best_iteration in output. (3) **fallback backend** only retries failed patches; primary backend success is still used if it works. (4) **Multi-material boundaries**: preserve_multi_material=true blocks remeshing across PID edges—this can constrain local patches and reduce quality gains if material boundaries cut through bad elements. (5) **Element expansion**: ring_mode='node' extracts larger neighborhoods than 'face'; choose based on patch size needs. (6) **Selection mode default** is bad_quality—explicit_ids requires non-empty element_ids list; empty element_ids with explicit_ids mode logs warning but continues (no-op). (7) **surface_move_tolerance=0.0 (default)** allows full boundary movement; positive values lock boundary nodes closer to original position, which may prevent quality improvements. (8) **TetGen AGPL license**: requires explicit compile flag KOOREMAPPER_BUILD_TETGEN; some deployments may not include it. Check backend availability in logs. (9) **Report-only mode** (report_only=true) skips output file write—useful for quality audits without mesh changes. (10) **Ring_expand=0 is invalid**; minimum is 1."
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Two TET4 elements from examples/tet10/. Uses localimprove backend to improve Jacobian. Set backend:tetgen to use TetGen (requires KOOREMAPPER_BUILD_TETGEN). Set report_only:true to scan quality without changes. selection.mode can be 'bad_quality' (auto-detect poor elements) or 'explicit_ids' (user element_ids list). iterate section enables iterative remesh until quality_target met.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper tetremesh` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- tetremesh
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: two_tets.k
+      output: tet10_result.k
+      backend: localimprove
+      fallback: tetgen
+      report_only: false
+      target_pids: []
+      selection:
+        mode: bad_quality
+        ring_expand: 2
+        ring_mode: node
+      quality:
+        min_jacobian: 0.2
+        max_aspect_ratio: 8
+      patch:
+        ring_expand: 2
+        surface_flatness_deg: 5
+        surface_move_tolerance: 0
+        preserve_multi_material: true
+      improve:
+        laplacian_iters: 5
+        max_outer_iters: 3
+        allow_subdivide: true
+      tetgen:
+        quality_ratio: 1.4
+        min_dihedral_deg: 10
+      iterate:
+        max_iterations: 10
+        quality_target: 0.3
+        convergence_tol: 0.01
+        keep_best: true
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/two_tets.k
+    - /data/single/USER/case/tet10_result.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

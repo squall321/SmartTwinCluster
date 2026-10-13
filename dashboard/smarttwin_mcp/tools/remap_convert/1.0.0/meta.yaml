@@ -1,0 +1,99 @@
+name: remap_convert
+version: 1.0.0
+summary: KooRemapper convert — 선형 요소를 2차 요소로 변환 (TET10/HEX20/QUAD8/TRIA6)
+description: |
+  선형 요소를 2차 요소로 변환 (TET10/HEX20/QUAD8/TRIA6)
+
+  선형 요소(TET4, HEX8, QUAD4, TRIA3)에 중간 절점을 추가하여 2차 요소(TET10, HEX20, QUAD8, TRIA6)로 변환합니다. 각 YAML 설정 파일당 하나의 변환 작업을 수행하며, 지정된 파트 또는 모든 요소에 적용할 수 있습니다.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | YAML 설정 객체 (base_model, output, type, target_pid, elform 포함) |
+
+  # config 키 (YAML)
+  - `None` (file): 입력 K 파일 경로 (소스 메시)
+  - `None` (string): 출력 파일 이름(확장자 제외). _result.k / _result_properties.txt 생성됨
+  - `None` (enum): 변환할 요소 유형 (또는 convert_type 키 사용)
+  - `None` (enum): type의 별칭 키. type과 동일한 values 허용
+  - `None` (integer): 변환 대상 파트 ID. 0 또는 생략=모든 파트의 해당 요소 변환
+  - `None` (integer): LS-DYNA ELFORM 번호. 0 또는 생략=요소 유형별 기본값 사용
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "tet10",
+    "summary": "TET4 → TET10 변환, ELFORM=17 (10절점 사면체)"
+   },
+   {
+    "name": "hex20",
+    "summary": "HEX8 → HEX20 변환, ELFORM=23 (20절점 육면체)"
+   },
+   {
+    "name": "quad8",
+    "summary": "QUAD4 → QUAD8 변환, ELFORM=23 (8절점 사각형, 셸)"
+   },
+   {
+    "name": "tria6",
+    "summary": "TRIA3 → TRIA6 변환, ELFORM=24 (6절점 삼각형, 셸)"
+   }
+  ]
+  ```
+
+  # 주의
+  - - type (또는 convert_type) 키는 필수이며, 4개 유형 중 정확히 1개만 지정 가능\n- ELFORM 자동 매핑: tet10→17, hex20→23, quad8→23, tria6→24\n- target_pid=0 또는 생략시 해당 요소 유형의 모든 요소 변환; 양수 PID 지정시 해당 파트만 변환\n- 한 번에 여러 요소 유형을 변환하려면(예: TET4→TET10 + HEX8→HEX20) 각각 별도 실행 필요\n- 변환 중 공유 엣지 노드는 자동 생성되며, 메모리에서 중복 제거됨\n- 출력 파일은 변환된 요소만 포함하고, 다른 요소·재료·부품 정의는 입력 K 파일 그대로 유지\n- QUAD4 중 n4==n3 또는 n4==0인 경우 TRIA3으로 식별 (tria6 변환시 자동 필터링)\n- HEX8 mid-edge 노드 순서: 하단면 N9-N12, 상단면 N13-N16, 수직 에지 N17-N20 (LS-DYNA 규약 준수)"
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 두 개의 선형 사면체를 2차 사면체(TET10)로 변환. type은 필수(tet10|hex20|quad8|tria6), elform과 target_pid는 선택사항. target_pid를 생략하면 모든 요소 변환
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper convert` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- convert
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: two_tets.k
+      output: tet10_result
+      type: tet10
+      elform: 17
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/two_tets.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

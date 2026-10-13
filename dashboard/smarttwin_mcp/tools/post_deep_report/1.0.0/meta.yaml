@@ -1,0 +1,208 @@
+name: post_deep_report
+version: 1.0.0
+summary: 단일 시뮬 깊은 분석 HTML 리포트 — 파트별 응력·변형률·핫스팟 군집·단면뷰
+description: |
+  단일 시뮬 깊은 분석 HTML 리포트 — 파트별 응력·변형률·핫스팟 군집·단면뷰
+
+  # 명령 도움말 (koo_deep_report --help)
+  ```text
+  usage: koo_deep_report [-h] [--config YAML] [--output OUTPUT] [--label LABEL]
+                         [--yield-stress MPa] [--strain-limit EPS]
+                         [--parts ID [ID ...]] [--part-pattern PATTERN]
+                         [--no-render] [--per-part-render]
+                         [--ua-threads UA_THREADS]
+                         [--render-threads RENDER_THREADS] [--element-quality]
+                         [--design-overrides JSON] [--material-overrides JSON]
+                         [--install-dir DIR] [--verbose] [--section-view]
+                         [--section-view-backend {lsprepost,software}]
+                         [--section-view-mode {section,section_3d,iso_surface}]
+                         [--section-view-background-alpha A]
+                         [--section-view-per-part] [--no-section-view-per-part]
+                         [--section-view-axes AXIS [AXIS ...]]
+                         [--section-view-fields FIELD [FIELD ...]]
+                         [--section-view-target-ids ID [ID ...]]
+                         [--section-view-target-patterns PAT [PAT ...]]
+                         [--section-view-fade DIST] [--sv-threads N]
+                         [--hotspot-clusters] [--hotspot-top-percent P]
+                         [--hotspot-distance-factor F]
+                         [--hotspot-min-elements N] [--hotspot-max-clusters N]
+                         [--hotspot-criterion C[,C]] [--section-view-iso-clip]
+                         [--no-section-view-iso-clip]
+                         [--section-view-section-position P]
+                         [--section-view-section-margin M]
+                         [--section-view-iso-clip-margin M]
+                         [--section-view-edge-width N] [--section-view-crf N]
+                         [--section-view-reverse-cut]
+                         [--no-section-view-reverse-cut]
+                         [--section-view-sliding]
+                         [--section-view-sliding-steps N]
+                         [--section-view-sliding-near-to-far]
+                         [--section-view-sliding-far-to-near]
+                         [--section-view-sliding-pad P]
+                         [--section-view-sliding-freeze-time]
+                         [--section-view-sliding-peak-time T]
+                         [--section-view-sliding-section-style]
+                         [--no-section-view-sliding-section-style]
+                         [--section-view-sliding-iso-style]
+                         [--no-section-view-sliding-iso-style]
+                         [path]
+
+  LS-DYNA 단일 시뮬레이션 깊은 분석 + HTML 리포트
+
+  positional arguments:
+    path                  시뮬 디렉토리 또는 d3plot 파일 경로
+
+  options:
+    -h, --help            show this help message and exit
+    --config, -c YAML     YAML 설정 파일 (GUI에서 생성. CLI 인수보다 우선)
+    --output, -o OUTPUT   출력 디렉토리 (기본: ./single_report)
+    --label LABEL         리포트 제목 레이블
+    --yield-stress MPa    글로벌 항복 응력 (MPa). keyword 없을 때 fallback
+    --strain-limit EPS    글로벌 변형률 한계 (0 = keyword 자동 또는 기본 0.2%)
+    --parts ID [ID ...]   분석할 부품 ID 목록 (기본: 전체)
+    --part-pattern PATTERN
+                          렌더 부품 필터 패턴 (예: PKG*)
+    --no-render           렌더링 비활성화
+    --per-part-render     부품별 개별 렌더링 활성화
+    --ua-threads UA_THREADS
+                          unified_analyzer 스레드 수 (0=자동)
+    --render-threads RENDER_THREADS
+                          병렬 렌더링 LSPrePost 인스턴스 수 (기본 1)
+    --element-quality     요소 품질 분석 활성화 (aspect ratio, Jacobian 등)
+    --design-overrides JSON
+                          per-part 설계 기준 JSON 파일 (GUI에서 자동 생성)
+    --material-overrides JSON
+                          per-material 설계 기준 JSON 파일 (MID 또는 MAT 타입 키)
+    --install-dir DIR     설치 디렉토리 (unified_analyzer, lsprepost 자동 탐색 기준)
+    --verbose, -v         unified_analyzer 출력 표시
+    --section-view        단면뷰 렌더링 활성화 (기본: LSPrePost 백엔드)
+    --section-view-backend {lsprepost,software}
+                          단면뷰 백엔드: lsprepost=LSPrePost drawcut (기본, 고품질),
+                          software=내장 래스터라이저
+    --section-view-mode {section,section_3d,iso_surface}
+                          단면뷰 모드: section=2D, section_3d=3D 반절단, iso_surface=cut
+                          없는 iso 외곽 (기본: section)
+    --section-view-background-alpha A
+                          (iso_surface) 비대상 파트 alpha 0..1 (default 0.3 ≈ 70% 투명)
+    --section-view-per-part
+                          파트별 단면뷰 렌더링 강제 ON (기본은 target ID/pattern 미지정 시 자동 ON)
+    --no-section-view-per-part
+                          파트별 단면뷰 렌더링 강제 OFF
+    --section-view-axes AXIS [AXIS ...]
+                          단면 축 목록 (기본: x y z). 예: --section-view-axes x y z
+    --section-view-fields FIELD [FIELD ...]
+                          단면뷰 스칼라 필드 (기본: von_mises strain). strain=변위기반 총변형률,
+                          eps=소성변형률
+    --section-view-target-ids ID [ID ...]
+                          단면뷰 타겟 파트 ID 목록 (미지정=전체)
+    --section-view-target-patterns PAT [PAT ...]
+                          단면뷰 타겟 파트 패턴 (예: "*PKG*")
+    --section-view-fade DIST
+                          비타겟 파트 페이드 거리 (0=단색, >0=거리별 반투명)
+    --sv-threads N        병렬 단면뷰 렌더러 수 (default 2)
+    --hotspot-clusters    파트 내 상위 백분위 요소를 공간 군집화해 덩어리별로 보고
+    --hotspot-top-percent P
+                          파트별 상위 백분위 % (default 5.0). 실제 응력 집중 범위에 맞춰 잡을 것 — N 이
+                          핫한 요소 수보다 크면 배경 요소가 딸려와 평균이 희석된다
+    --hotspot-distance-factor F
+                          군집 거리 임계 = F x 파트 대표 요소 크기 (default 1.5)
+    --hotspot-min-elements N
+                          이 개수 미만 덩어리는 노이즈로 버림 (default 5)
+    --hotspot-max-clusters N
+                          파트당 보고 최대 덩어리 수, 0=무제한 (default 20)
+    --hotspot-criterion C[,C]
+                          군집 선별 기준량. von_mises | max_principal | min_principal,
+                          쉼표로 여러 개 (default von_mises). 여러 개면 파트x기준 항목이 각각 나온다.
+                          min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이
+                          된다
+    --section-view-iso-clip
+                          (per-part 전용) iso clip view 추가 생성 (LSPrePost backend)
+    --no-section-view-iso-clip
+                          (per-part 전용) iso clip view 비활성
+    --section-view-section-position P
+                          (per-part) 단면 위치 part bbox 비율 0..1 (default 0.5)
+    --section-view-section-margin M
+                          (per-part) section view zin 마진 (default -0.3)
+    --section-view-iso-clip-margin M
+                          (per-part) iso clip zin 마진 (default -0.3, 더 음수=더 zoom
+                          out)
+    --section-view-edge-width N
+                          (per-part) edge width 1-5 (default 2)
+    --section-view-crf N  H264 CRF for ffmpeg re-encode (default 23)
+    --section-view-reverse-cut
+                          (per-part) cut 방향 뒤집기 — 카메라 쪽이 잘려서 내부 단면이 정면으로
+                          (default ON)
+    --no-section-view-reverse-cut
+                          (per-part) cut 방향 원래대로 (멀리 있는 쪽이 잘림)
+    --section-view-sliding
+                          (per-part) 단면 슬라이딩 영상 생성 — 시뮬 진행 + cut plane이 part
+                          bbox 끝→끝 슬라이딩
+    --section-view-sliding-steps N
+                          (sliding) cut 위치 step 수 (default 20)
+    --section-view-sliding-near-to-far
+                          (sliding) bbox.max → bbox.min 방향 (카메라 가까운 쪽 → 먼 쪽,
+                          default)
+    --section-view-sliding-far-to-near
+                          (sliding) bbox.min → bbox.max 방향
+    --section-view-sliding-pad P
+                          (sliding) bbox 밖 padding 비율 (default 0.05)
+    --section-view-sliding-freeze-time
+                          (sliding) 시간 고정 모드 — 각 step의 peak_time frame만 사용해서
+                          plane만 슬라이딩하는 영상 생성
+    --section-view-sliding-peak-time T
+                          (sliding freeze_time) 고정할 시뮬 시간 (sec). -1 = auto (시뮬 끝
+                          95%)
+    --section-view-sliding-section-style
+                          (sliding) section 스타일 (drawcut + projectview) ON
+                          (default ON)
+    --no-section-view-sliding-section-style
+                          (sliding) section 스타일 OFF
+    --section-view-sliding-iso-style
+                          (sliding) iso 스타일 (clipplane + isometric) ON (default
+                          ON)
+    --no-section-view-sliding-iso-style
+                          (sliding) iso 스타일 OFF
+  ```
+
+  # MCP 로 부르는 법
+  - target 은 기존 결과(d3plot 이 있는 폴더 등)의 절대경로. 업로드하지 않고 그 자리에서 읽는다 — /data/single/<사용자>/ 아래만 된다(전각도·부분충격 잡의 결과 폴더가 거기 있다).
+  - options 의 키는 위 도움말의 --옵션 이름. 값이 객체면 YAML 파일로 만들어 넘긴다.
+  - --install-dir·--ua 와 설정의 lsprepost_path 처럼 실행 파일을 고르는 항목은 거절된다(보안).
+  - 후처리 SIF(/opt/apptainers/SmartTwinPostprocessor.sif) 안에서 돈다. 큰 캠페인은 slurm.mem·time 을 넉넉히.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- postprocess
+- kood3plot
+- report
+- d3plot
+- post
+- deep
+- report
+- koo
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 명령 확인
+  args:
+    dry_run: true
+    target: /data/single/USER/case/run1
+- title: 제출하고 15분까지 기다리기
+  args:
+    dry_run: false
+    target: /data/single/USER/case/run1
+    wait_sec: 900
+    slurm:
+      cpus_per_task: 8
+      mem: 32G

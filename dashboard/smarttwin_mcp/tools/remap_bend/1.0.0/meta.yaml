@@ -1,0 +1,89 @@
+name: remap_bend
+version: 1.0.0
+summary: KooRemapper bend — Apply bending deformation and optional prestress to a part.
+description: |
+  Apply bending deformation and optional prestress to a part.
+
+  The bend operation applies bending deformation and optional initial stress to part(s) using deflection functions (formula-based, single dat file, or dat file pair). Supports three deflection sources: formula expressions, single .dat grid, and paired dat files (top/bottom surfaces). Two modes: deform (node repositioning with backward prestress to maintain bent state after dynamic relaxation) and stress (forward-only prestress without node movement).
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | YAML 설정 객체. base_model, output, operations[] 배열 포함. 각 operation은 type:bend로 지정. |
+
+  # config 키 (YAML)
+  - `None` (integer): Part ID to deform. Optional — omitted (or 0) means all parts; positive integer = specific part ID. Mutually exclusive with target_pids array; if target_pids is non-empty, target_pid is ignored.
+  - `None` (array): List of part IDs to deform (e.g., [1, 2, 3]). When non-empty, overrides target_pid.
+  - `None` (enum): Bending plane in 3D mesh. xy = deform in Z (normal to XY plane); yz = deform in X (normal to YZ plane); zx = deform in Y (normal to ZX plane). Defines the in-plane axes (x1, x2) and normal-axis mapping for formula evaluation and curvature computation. Optional — defaults to 'xy'. 'xz' is NOT accepted; use 'zx'.
+  - `None` (enum): deform = move nodes via deflection field + backward prestress (shape locked after dynamic relaxation); stress = forward prestress only (no node movement; dynamic relaxation flattens structure which bends back). Optional — defaults to 'deform'.
+  - `None` (enum): Deflection input source. formula = mathematical expression w(x1, x2); dat = single gridded deflection file; dat_pair = two files (top surface, bottom surface; difference computes curvature).
+  - `None` (string): Mathematical expression for w(x1, x2) deflection field. Required when source=formula. Variables: x1, x2 (normalized in-plane coords, 0–1 within bbox), L1, L2 (in-plane bbox dimensions), pi. Functions: sin, cos, tan, sqrt, exp, log, abs, pow. Example: '1.0*sin(pi*x1/L1)*sin(pi*x2/L2)'.
+  - `None` (file): Path to deflection grid file (.dat). Required when source=dat. Format: whitespace-separated columns (x1 direction: min→max), rows from x2_max→min (top→bottom). Deflection values interpolated bilinearly to mesh nodes via bbox mapping.
+  - `None` (file): Path to top-surface deflection file (.dat). Required when source=dat_pair. Used with dat_bottom to compute curvature (midplane = average, curvature = difference field / thickness).
+  - `None` (file): Path to bottom-surface deflection file (.dat). Required when source=dat_pair. Used with dat_top to compute curvature. Both files must have identical grid dimensions.
+
+  # 주의
+  - Mutually exclusive source paths: set exactly ONE of (expression | dat_file | dat_pair). target_pid=0 means all parts in model; target_pid > 0 targets single part; target_pids=[] list targets multiple parts (overrides target_pid if non-empty). plane=xy maps x1→X, x2→Y, normal→Z; yz maps x1→Y, x2→Z, normal→X; zx maps x1→Z, x2→X, normal→Y. Formula variables x1, x2 are normalized [0,1] relative to bbox min; L1, L2 are bbox extents in those axes; pi=3.14159... Supported functions: sin, cos, tan, sqrt, exp, log, abs, pow(base,exp). mode=deform applies node displacement, then computes backward prestress (dynain_embed=true embeds *INITIAL_STRESS_SOLID in output .k). mode=stress computes forward prestress (initial curvature state); nodes stay unchanged; DR can then deform toward bent state. Material (E, nu) required for any stress output; must be specified at config root level. dat_file format: ASCII grid, rows from top→bottom, columns left→right, space/tab separated. dat_pair mode computes thickness-dependent curvature from top–bottom difference. If dynamic_relaxation=true and mode=deform, the deformation locks in place (backward prestress cancels). If mode=stress, DR flattens the shape (forward prestress unfolds it back to bent state). targetPid and targetPids are validated: either targetPid > 0 OR targetPid = 0 (all) OR non-empty targetPids array; cannot be -1 alone (reserved for internal use). All path parameters (dat_file, dat_top, dat_bottom) resolve relative to config directory unless absolute (/ or Windows drive letter)."
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행: KooRemapper bend formula_deform.yaml → formula_deform_output.k 생성. source=formula 모드에서는 expression 필수; source=dat 모드에서는 dat_file 필수; source=dat_pair 모드에서는 dat_top, dat_bottom 필수.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper bend` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- bend
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: block.k
+      output: formula_deform_output
+      material:
+        E: 210000
+        nu: 0.3
+      dynain_embed: true
+      operations:
+      - type: bend
+        target_pid: 1
+        plane: xy
+        mode: deform
+        source: formula
+        expression: 1.0 * sin(pi*x1/L1) * sin(pi*x2/L2)
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/block.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

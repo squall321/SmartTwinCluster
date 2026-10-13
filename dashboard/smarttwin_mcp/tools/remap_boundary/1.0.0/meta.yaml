@@ -1,0 +1,102 @@
+name: remap_boundary
+version: 1.0.0
+summary: KooRemapper boundary — Apply boundary conditions (SPC/rigid wall) from YAML config
+description: |
+  Apply boundary conditions (SPC/rigid wall) from YAML config
+
+  Apply boundary conditions (SPC node constraint cards) to LS-DYNA models from YAML configuration. Reads part ID, DOF constraint type, face selection mode (direction vector or predefined set), and generates *BOUNDARY_SPC_NODE or *SET_NODE/*BOUNDARY_SPC_SET keywords in the output .k file.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | YAML configuration object containing model path, output path (optional, defaults to model path), and boundaries array |
+
+  # config 키 (YAML)
+  - `None` (string): Input LS-DYNA .k model file path (absolute or relative to YAML config directory)
+  - `None` (string): Output .k file path; omitted .k extension auto-appended; defaults to model filename if not specified
+  - `None` (array): List of boundary condition specifications; each item is a BoundaryCase object
+  - `None` (integer|string): Part ID (integer) or part name (string) to apply boundary condition to
+  - `None` (enum): Degree-of-freedom (DOF) constraint preset: 'all'=all 6DOF fixed; 'xyz'=translate x,y,z fixed; 'x'/'y'/'z'=single translation; 'xy'/'xz'/'yz'=two translations; 'custom'=use dofx/dofy/dofz/dofrx/dofry/dofrz fields (0=free, 1=fixed)
+  - `None` (array): 3-component unit direction vector [dx, dy, dz] for face selection in direction mode; faces whose normal aligns within angle tolerance are selected; normalized internally
+  - `None` (enum): Node selection method: 'direction' = filter the part's exposed faces by a direction vector + angle tolerance; 'all' = take every exposed face of the part (a direction key given alongside select: all is IGNORED); 'set' = use a predefined set_id (set_id is then required). Any other value is rejected with rc=1: "boundary: boundaries[i]: unsupported select '<value>' (allowed: direction, all, set)". NOTE the asymmetry with rbe: boundary has no 'set'-less list — it accepts direction/all/set, while rbe accepts only direction/all.
+  - `None` (number): Angle tolerance in degrees for direction-based face filtering; faces whose normal deviates <=angle degrees from direction vector are included (only used if select='direction')
+  - `None` (integer): Pre-existing node SET ID; required if select='set', otherwise auto-generated; must be >0
+  - `None` (integer): X-translation DOF constraint: 0=free, 1=fixed (only used if dof='custom')
+  - `None` (integer): Y-translation DOF constraint: 0=free, 1=fixed (only used if dof='custom')
+  - `None` (integer): Z-translation DOF constraint: 0=free, 1=fixed (only used if dof='custom')
+  - `None` (integer): X-rotation DOF constraint: 0=free, 1=fixed (only used if dof='custom')
+  - `None` (integer): Y-rotation DOF constraint: 0=free, 1=fixed (only used if dof='custom')
+  - `None` (integer): Z-rotation DOF constraint: 0=free, 1=fixed (only used if dof='custom')
+
+  # 주의
+  - DOF presets: 'all' fixes all 6 degrees of freedom (3 translations + 3 rotations). 'xyz' fixes only translations (rotations free). Single letters (x/y/z) fix that axis translation only. 'rx'/'ry'/'rz' fix rotations. 'custom' requires explicit dofx/dofy/dofz/dofrx/dofry/dofrz values. Direction mode (select='direction') extracts surface faces from the part, filters them by face normal alignment within angle tolerance, collects unique nodes, auto-generates a *SET_NODE block. Set mode (select='set') requires a pre-existing *SET_NODE with set_id and applies SPC directly to that set. If output path omitted, uses model filename as output. Paths without directory separators are resolved relative to the YAML config directory. Supported DOF string values are case-insensitive. Individual DOF fields (dofx, etc.) are 0-based (0=free, 1=fixed), matching LS-DYNA SPC card format.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Example: KooRemapper boundary boundary_partial.yaml. Input and output paths are relative to the YAML file directory. Output field is optional and defaults to input filename if omitted.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper boundary` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- bc
+- boundary
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: mesh.k
+      output: mesh_bc.k
+      boundaries:
+      - part: 9
+        dof: z
+        direction:
+        - 0
+        - 0
+        - -1
+        select: direction
+        angle: 45
+      - part: 11
+        dof: xyz
+        direction:
+        - 0
+        - 0
+        - 1
+        select: direction
+        angle: 45
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/mesh.k
+    - /data/single/USER/case/mesh_bc.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

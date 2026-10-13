@@ -1,0 +1,266 @@
+name: remap_assemble
+version: 1.0.0
+summary: KooRemapper assemble — Assemble a full model with sequential part operations (replace, squeeze,
+  restack, bend, indent, offset, IGA, matswap, etc.)
+description: |
+  Assemble a full model with sequential part operations (replace, squeeze, restack, bend, indent, offset, IGA, matswap, etc.)
+
+  Comprehensive YAML configuration reference for the KooRemapper "assemble" operation, which combines sequential part modifications (replace, squeeze, restack, bend, indent, etc.) on a base FEA model. Supports material definition, dynamic relaxation, and accumulated prestress computation via dynain output.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | YAML configuration object with base_model, output, optional material section, and operations array. Each operation type (replace, squeeze, restack, bend, indent, formstrain, refine, elform, disconnect, iga, offset, warpage, matswap, etc.) has its own parameters. |
+
+  # config 키 (YAML)
+  - `None` (file): Path to input K-file (mesh). REQUIRED — the standalone `assemble` command needs base_model even when the first operation is 'generate'.
+  - `None` (string): Output file prefix (without extension). Generates output.k and optionally output.dynain. Path resolved relative to config directory.
+  - `None` (boolean): Enable Dynamic Relaxation *CONTROL_DYNAMIC_RELAXATION insertion. Read from global config.relax settings if present.
+  - `None` (boolean): If true, embed *INITIAL_STRESS_SOLID directly into output.k (no separate .dynain file). If false, generate separate output.dynain.
+  - `None` (number): Young's modulus (elastic modulus) in MPa. Used globally for operations that compute prestress (replace, squeeze, bend, indent, offset, wrap). Overrides per-part material in K-file.
+  - `None` (number): Poisson's ratio (dimensionless). Used with E for stress computation. Typical: 0.3 (steel), 0.33 (aluminum).
+  - `None` (array): List of sequential assembly operations, each with required 'type' key and type-specific parameters.
+  - `None` (enum): Operation type: defines which modification algorithm to apply and which sub-keys are recognized.
+  - `None` (integer): Target part ID (PID) for single-part operations (replace, squeeze, restack, bend, indent, refine, elform, disconnect, warpage, offset, matswap, matdb, wrap, split, fillet, cnrb2solid, hfdamp, battery, extract_surface). Mutually exclusive with target_pids.
+  - `None` (array): Array of target PIDs for operations supporting batch processing (formstrain, tet10/hex20/quad8/tria6, refine, elform, warpage, split, fillet). If both target_pid and target_pids present, target_pids takes precedence; operation loops per PID internally.
+  - `None` (integer): Source part ID for offset operation; the shell part to extrude into solid.
+  - `None` (string): Optional target part name pattern for IGA; overrides target_pid matching.
+  - `None` (file): (replace) Path to flat (undeformed) detail mesh K-file (HEX8 or mixed). Relative to config directory.
+  - `None` (file): (replace) Path to bent (deformed) reference shell K-file (QUAD4). Used to compute mapping and prestress via strain analysis.
+  - `None` (file): (replace) Path to bent (deformed) 3D HEX8 reference mesh. Auto-extracts top free faces to shell and maps detail flat. Alternative to shell_bent.
+  - `None` (boolean): (replace) If true, compute initial stress from difference between bent and flat meshes; output to dynain.
+  - `None` (boolean): (replace) Mirror input detail flat about X axis (pre-mapping). HEX8 connectivity swapped on odd-parity flips to preserve positive Jacobians.
+  - `None` (boolean): (replace) Mirror input detail flat about Y axis (pre-mapping).
+  - `None` (boolean): (replace) Mirror input detail flat about Z axis (pre-mapping).
+  - `None` (boolean): (replace) Mirror result about X axis (post-mapping). Applies after all deformation mapping.
+  - `None` (boolean): (replace) Mirror result about Y axis (post-mapping).
+  - `None` (boolean): (replace) Mirror result about Z axis (post-mapping).
+  - `None` (number): (squeeze) Engineering strain in X direction (scalar, unbounded). Negative = compression. Applied via node scaling about bbox center.
+  - `None` (number): (squeeze) Engineering strain in Y direction.
+  - `None` (number): (squeeze) Engineering strain in Z direction.
+  - `None` (string): (restack, formstrain) Primary extrusion/stacking axis. Defines which direction layers are built along. 'auto' = inferred from layer geometry.
+  - `None` (string): (restack, offset) Output element type: 'solid' (HEX8), 'tshell' or 'shell'. Both restack and offset reject anything else with rc=1 and write no output — 'hex' and the uppercase 'SOLID' included. The check is case-sensitive.
+  - `None` (number): (restack) Target element edge length (mm) for auto subdivisions along stacking direction. 0=off (use num_elements from layer).
+  - `None` (string): (restack) Interface mode: 'tied' (merged), 'czm' (cohesive zone with manual stiffness), 'czm_auto' (CZM with drop-height friction).
+  - `None` (number): (restack, warpage, offset layer) Cohesive zone normal stress at failure [MPa] (for layer interfaces).
+  - `None` (number): (restack, warpage, offset layer) CZM shear stress at failure [MPa].
+  - `None` (number): (restack, mode=czm_auto) Drop height [mm] used to compute friction velocity for VC damage initiation criterion.
+  - `None` (enum): (restack, merge) Policy for references that still point at what restack/merge emptied — the dead PID, the deleted elements, the deleted nodes. strict (default): the deck is still written, but if anything could not be migrated the run ends with rc=1. warn: the same report, rc=0 — the escape hatch for existing pipelines (못 옮기면 rc=1, warn 은 rc=0). Any other value is rejected with rc=1 and "invalid pid_refs '<value>' (must be one of strict, warn)", and no output is written. The full list is in the `$ KOOREMAPPER-PIDREF` block at the head of the output deck (right after *KEYWORD); findings graded `maybe` are reported but never raise rc. MCP/web jobs and the pyKooCAE chain judge success by exit code only, so rc=1 shows up as a failed job — read the deck-head block, not the config.
+  - `None` (int): (restack) First part ID to hand out to layers that do not set their own 'pid'. Omit (or 0) to keep the old behaviour (model max PID + 1). IDs already used by the model, and IDs pinned by layers[].pid, are skipped. Use it to keep restack layers out of a reserved ID band.
+  - `None` (array): (restack) List of layer definitions, each with thickness, optional num_elements, element_type, and material_card.
+  - `None` (number): (restack layer) Layer thickness in model units (mm).
+  - `None` (int): (restack) Part ID for this layer. Omit (or 0) to take the next free ID above the model's max PID, which is what earlier versions always did. Give it when the model reserves ID bands (e.g. a downstream tool that generates its own parts): a collision with an ID the model already uses, or with another layer in the same operation, exits 1 and writes nothing.
+  - `None` (integer): (restack layer) Number of elements through-thickness for this layer (subdivision count in direction axis). Alias: nz.
+  - `None` (string): (restack layer) Per-layer element type override: solid, tshell or shell; empty/omitted inherits the operation's element_type. Any other value ('hex', a typo, uppercase 'SOLID') is rejected with rc=1 — it is no longer silently treated as solid.
+  - `None` (string): (restack layer) Optional layer name/description. Alias: name.
+  - `None` (string): (restack layer) Multi-line LS-DYNA material card (e.g., *MAT_ELASTIC) for this layer. Supports YAML block scalar (|) or inline string.
+  - `None` (number): (restack layer) Layer-specific CZM normal stiffness. -1 = use parent restack setting.
+  - `None` (number): (restack layer) Layer-specific CZM shear stiffness. -1 = use parent restack setting.
+  - `None` (string): (bend, indent, warpage) 2D projection plane for deflection field. The third axis is the out-of-plane direction. 'xz' is NOT accepted — use 'zx'.
+  - `None` (string): (bend) 'deform' = move nodes + compute prestress; 'stress' = compute stress without moving nodes. (warpage) 'prestress' or 'deform'. 'stress_only' is NOT accepted.
+  - `None` (string): (bend) REQUIRED for bend: source of the deflection field — 'dat' (single grid file), 'dat_pair' (top/bottom grids) or 'formula' (expression). 'file' is NOT accepted.
+  - `None` (string): (bend source=formula) Mathematical formula for out-of-plane deflection z(x1,x2). Supports: sin, cos, exp, sqrt, pi, x1, x2, L1, L2, r, theta. E.g., '3.0*sin(pi*x1/L1)'.
+  - `None` (file): (bend source=dat, warpage) Path to .dat grid file defining deflection/warpage field (column format: x, y, z). Relative to config directory.
+  - `None` (file): (bend source=dat_pair) Path to top surface grid file.
+  - `None` (file): (bend source=dat_pair) Path to bottom surface grid file.
+  - `None` (string): (warpage) Which axis receives the deflection/warpage value from formula or dat_file. Supports signed direction for explicit control.
+  - `None` (number): (indent) REQUIRED for indent — must be non-zero. Maximum emboss/indent depth at profile center (mm, positive = into material, negative = emboss outward).
+  - `None` (number): (indent) REQUIRED for indent — must be > 0. Major radius (outer radius of indent profile area).
+  - `None` (number): (indent) REQUIRED for indent — must be > 0. Minor radius (inner radius or fillet radius of indent profile).
+  - `None` (number): (indent) Ratio controlling shape smoothness (0=sharp profile, 1=smooth parabolic).
+  - `None` (boolean): (indent) If true, compute initial stress from indent deformation.
+  - `None` (object): (indent) Shape definition for indent profile. Contains 'type' (polygon, spline) and shape-specific parameters.
+  - `None` (enum): (indent shape) Geometry type: 'polygon' (points list) or 'spline' (smooth interpolation).
+  - `None` (array): (indent shape=polygon) List of [x, y] vertex coordinates in plane coordinates. Closed path assumed.
+  - `None` (number): (formstrain, indent, offset) Shell thickness for 3D dihedral curvature -> strain conversion or reference. 0.0 = use no thickness correction / auto from *SECTION_SHELL.
+  - `None` (number): (formstrain) Minimum curvature threshold (1/mm) below which no strain is applied (smooths near-flat regions).
+  - `None` (integer): (tet10/hex20/quad8/tria6) ELFORM value (element formulation) for converted element type. See LS-DYNA manual for valid codes per element type.
+  - `None` (integer): (refine) Refinement ratio: 2 = bisect each edge (8x volume growth per HEX8); 3 = trisect edges (27x growth).
+  - `None` (string): (elform) ELFORM value as string (e.g., '2', '17') to assign to all target part elements.
+  - `None` (integer): (disconnect mode=czm) Part ID for newly created cohesive elements (auto-generated if omitted).
+  - `None` (number): (disconnect mode=mefem) EPPF (maximum effective plastic strain) value for interface element failure.
+  - `None` (array): (iga) List of target configurations for NURBS embedding, each with target_pid, element_size, bbox scaling, and NURBS parameters.
+  - `None` (integer): (iga target) Part ID to wrap with NURBS box. Omit for name-based matching.
+  - `None` (string): (iga target) Optional part name pattern (wildcard) for matching instead of target_pid.
+  - `None` (string): (iga target) Name pattern to exclude from matching.
+  - `None` (number): (iga target) Target NURBS box element edge length (mm). Auto-computed from mesh if omitted.
+  - `None` (number): (iga target) Per-axis NURBS element size in R direction. 0 = use elementSize.
+  - `None` (number): (iga target) Per-axis NURBS element size in S direction.
+  - `None` (number): (iga target) Per-axis NURBS element size in T direction.
+  - `None` (number): (iga target) Uniform scaling of NURBS bounding box size relative to part bbox. 0 = disabled, 1.5 = 50% margin each side.
+  - `None` (number): (iga target) Per-axis bbox scaling in R (u) direction (0 = use bbox_scale).
+  - `None` (number): (iga target) Per-axis bbox scaling in S (v) direction.
+  - `None` (number): (iga target) Per-axis bbox scaling in T (w) direction.
+  - `None` (number): (iga target) Fixed bbox expansion offset (mm). -1 = auto-compute from element_size per axis.
+  - `None` (integer): (iga target) NURBS integration rule in R direction. 0=reduced, 1=full. Legacy: ir also controls basis degree when used as 1-3.
+  - `None` (integer): (iga target) NURBS polynomial degree in R direction (typically 1-3).
+  - `None` (integer): (iga target) NURBS polynomial degree in S direction.
+  - `None` (integer): (iga target) NURBS polynomial degree in T direction.
+  - `None` (integer): (iga target) Number of integration points in R direction (LS-DYNA *SECTION_SOLID_IGA).
+  - `None` (integer): (iga target) Number of integration points in S direction.
+  - `None` (integer): (iga target) Number of integration points in T direction.
+  - `None` (integer): (iga target) LCP stabilization type (LS-DYNA *SECTION_SOLID_IGA STYP field).
+  - `None` (number): (iga target) LCP convergence tolerance.
+  - `None` (object): (warpage) Optional bounding box restriction for dat_file grid points. Contains x_min, x_max, y_min, y_max (z bounds optional).
+  - `None` (number): (warpage data_bbox) Minimum X coordinate for grid point filtering.
+  - `None` (number): (warpage data_bbox) Maximum X coordinate for grid point filtering.
+  - `None` (number): (warpage data_bbox) Minimum Y coordinate for grid point filtering.
+  - `None` (number): (warpage data_bbox) Maximum Y coordinate for grid point filtering.
+  - `None` (string): (warpage) Unit of dat_file deflection values. Used for conversion to model units.
+  - `None` (number): (warpage) Grid points with deflection >= mask_value are ignored.
+  - `None` (number): (warpage) Deflection magnitude below this threshold is treated as zero.
+  - `None` (number): (warpage) Scaling factor (0-1 or >1) applied to warpage grid deformation: 1.0 = full deformation, 0.5 = half.
+  - `None` (string): (warpage) Behavior for mesh nodes outside grid bounds: 'zero' = no deformation, 'clamp' = use boundary value, 'extrapolate' = linear extrapolation.
+  - `None` (boolean): (warpage) If true, use von Kármán (large-strain) kinematics; if false, use Kirchhoff (small-strain).
+  - `None` (boolean): (warpage) If true, write debug grid and interpolation files.
+  - `None` (string): (warpage) Directory/prefix for debug output files.
+  - `None` (string): (offset) Direction of surface extrusion: '+normal' = outward, '-normal' = inward, 'both' = both sides, ±x/±y/±z = fixed global axes.
+  - `None` (number): (offset) Total thickness of generated solid (sum of all layers); overridden if thickness_formula or material_cards with individual thicknesses present.
+  - `None` (string): (offset) Formula for per-element thickness as function of position (x, y, z, etc.), overriding uniform thickness.
+  - `None` (integer): (offset) Number of solid layers to generate (if no material_cards list).
+  - `None` (boolean): (offset) If true, use per-node surface normals; if false, use per-element average normals.
+  - `None` (string): (offset) Interface connection type between source and offset surfaces: tied (shared nodes), czm (cohesive zone elements), contact (duplicated nodes for user-defined *CONTACT), none (no interface treatment).
+  - `None` (integer): (offset mode=czm) Part ID for newly created cohesive elements (0 = auto-increment).
+  - `None` (integer): (offset mode=czm) Material ID for cohesive zone (0 = auto-increment).
+  - `None` (string): (offset) Optional cohesive zone material card for layer interfaces (*CONTACT_GUIDED_* or *MAT_* for CZM elements).
+  - `None` (string): (offset, restack layer) Single LS-DYNA material card (multi-line block) for all layers; ignored if material_cards list or czm_material_card present.
+  - `None` (array): (offset) List of material card blocks (one per layer), each overriding default material and layer thickness.
+  - `None` (string): (offset) Dual offset prestress mode. Empty string (default) = normal mode. 'dual_offset' = combined inner+outer offset for prestress.
+  - `None` (number): (offset prestress_mode=dual_offset) Compressed (deformed) offset value [mm, negative/inward].
+  - `None` (number): (offset prestress_mode=dual_offset) Relaxed (reference) offset value [mm, positive/outward].
+  - `None` (integer): (offset) Part ID for new solid part (0 = auto-increment from max PID).
+  - `None` (integer): (offset) Section ID for new solid part (0 = auto-increment).
+  - `None` (integer): (offset) Material ID for new solid part (0 = auto-increment).
+  - `None` (string): (offset) Description for *PART card of generated solid.
+  - `None` (file): (matswap) Path to K-file containing replacement material definitions and section cards (bundle). Relative to config directory.
+  - `None` (boolean): (matswap) If true, swap all materials; if false, swap only target_pid materials.
+  - `None` (file): (matdb) Path to material database JSON file (format: {materials: [{name, mat_type, ...props}], ...}). Relative to config directory.
+  - `None` (string): (matdb) LS-DYNA material type keyword (e.g., MAT_024, MAT_036) for database lookup filtering or global default.
+  - `None` (boolean): (matdb) Global thermal property flag override (true/false) from database.
+  - `None` (number): (matdb) Multiplier on baked alpha (velocity damping coefficient) from database.
+  - `None` (number): (matdb) Minimum alpha applied to all emitted damping cards.
+  - `None` (boolean): (matdb) If true, emit DAMPING_PART_MASS_SET for all unmatched parts in model.
+  - `None` (number): (matdb) Legacy alias: target frequency (Hz) for damping curve. Internally: scale = freq / 50.0.
+  - `None` (enum): (matdb) Damping preset baseline (case-insensitive). Accepted values: smartphone_drop, smartphone_drop_aggressive, quasi_static and 'off'. 'off' is NOT a preset — it is the idiom for 'leave the damping strength alone but strip the stale *DAMPING_PART_* cards'. Any other value (light, moderate, heavy, custom, a typo) is rejected with rc=1: "matdb: unsupported damping_preset '<value>' (allowed: smartphone_drop, smartphone_drop_aggressive, quasi_static, off)". Omitting the key is still allowed and behaves as before. The preset only changes the damping_alpha_scale / damping_alpha_floor / damping_apply_to_all_parts defaults; the damping cards of matched DB materials are inserted whether or not this key is present, so omitting it does NOT mean 'no damping changes'. Any non-empty value (including 'off') also strips pre-existing *DAMPING_PART_* cards before writing, so running twice without the key duplicates them.
+  - `None` (array): (matdb) List of material override rules, each with match pattern, part filter, and optional mat_type/thermal overrides.
+  - `None` (string): (matdb rule) Material name/tag substring to match ('*' = catch-all).
+  - `None` (string): (matdb rule) Part title wildcard pattern to filter by (*glob* supported). Empty = skip part filter.
+  - `None` (integer): (matdb rule) Direct material ID match (0 = use match string).
+  - `None` (string): (matdb rule) Override LS-DYNA material type for this rule (empty = use global).
+  - `None` (boolean): (matdb rule) Override thermal property for this rule (null = use global).
+  - `None` (array): (load) List of load case definitions, each with part/PID, load type, and optional time-value curve.
+  - `None` (integer): (load case) Part ID (0 = use part name substring match).
+  - `None` (enum): (load case) Load type: 'force' (total force spread over the projected area), 'pressure', 'normal_pressure' (no direction needed). Any other value falls back to the pressure path.
+  - `None` (number): (load case) Load magnitude: [N] for force/velocity/acceleration, [MPa] for pressure.
+  - `None` (array): (load case) Load direction vector [x, y, z] (if not specified, inferred from normal direction).
+  - `None` (enum): (load case) Selection method: 'direction' (face normal filter), 'set' (existing SET_SEGMENT), 'tied' (contact pair).
+  - `None` (number): (load case select=direction) Direction filter tolerance (degrees) for face normal alignment.
+  - `None` (integer): (load case select=set) Existing SET_SEGMENT ID.
+  - `None` (integer): (load case select=tied) CONTACT ID (0 = auto-search).
+  - `None` (array): (load case) List of [time, value] curve points; defines time-varying magnitude.
+  - `None` (array): (contact) List of contact surface pair definitions, each with slave/master surface and optional parameters.
+  - `None` (enum): (contact action) 'create' = add contact pair; 'detect' = auto-detect contact surfaces.
+  - `None` (enum): (contact action create) Contact type. assemble now shares the standalone command's short-name table (one table in the code, ct_getPreset), so both accept the same 11 aliases: auto/automatic -> AUTOMATIC_SURFACE_TO_SURFACE, tied -> TIED_SURFACE_TO_SURFACE, tied_thermal/thermal -> TIED_SURFACE_TO_SURFACE_THERMAL, tiebreak -> AUTOMATIC_SURFACE_TO_SURFACE_TIEBREAK, mortar -> AUTOMATIC_SURFACE_TO_SURFACE_MORTAR, tied_mortar -> TIED_SURFACE_TO_SURFACE_MORTAR, single -> AUTOMATIC_SINGLE_SURFACE, eroding -> ERODING_SURFACE_TO_SURFACE, forming -> FORMING_SURFACE_TO_SURFACE; omitted = AUTOMATIC_SURFACE_TO_SURFACE. Matching ignores case and maps '-' to '_'. Until this commit assemble lacked the tied_thermal / thermal / tiebreak aliases and wrote them literally as *CONTACT_TIED_THERMAL / *CONTACT_THERMAL / *CONTACT_TIEBREAK, which LS-DYNA rejects. Any other value is uppercased and written as-is (rc=0) with "[WARNING] [contact] create: type '<value>' is not a known contact keyword".
+  - `None` (integer): (contact action) Slave surface part ID.
+  - `None` (array): (contact action) Multiple slave surface part IDs. Both an inline list (`pids: [1, 2]`) and a block list (`pids:` then `- 1` / `- 2` on the following lines) are read and produce the same deck; the block form used to be ignored, leaving no *SET_PART behind.
+  - … 외 86개 (KooRemapper help assemble)
+
+  # 주의
+  - CRITICAL FEATURES & GOTCHAS:
+
+  1. **base_model required**: standalone `assemble` always needs base_model (even with a generate operation).
+
+  2. **Operation Sequencing**: Operations are applied sequentially to the same mesh in-place. Later ops modify results of earlier ones. This enables complex multi-step transformations but requires careful ordering.
+
+  3. **Prestress Accumulation**: All ops that compute stress (replace, squeeze, bend, indent, offset, wrap) accumulate results into a single *INITIAL_STRESS_SOLID block. Duplicate element IDs sum stresses (via std::map keying).
+
+  4. **Material Sourcing**: Global material (E, nu) overrides per-part materials in K-file. For prestress ops without global material, K-file *MAT_ELASTIC is required. For squeeze swelling mode, no material needed.
+
+  5. **Path Resolution**: File paths (base_model, detail_flat, bundle, database, dynain, dat_file, config, etc.) are resolved relative to the config file directory, not CWD — folder-prefixed relative paths such as '../data/box.k' included. `database` (matdb) has one extra step: when nothing sits at the resolved spot and the value is a bare filename with no '/' or '\', KooRemapper falls back to the bundled material DB location and logs '[matdb] WARNING: ... not found - using bundled ...'; a folder-prefixed relative path never falls back and fails with rc=1 '[ERROR] [matdb] ERROR: Cannot load database from: <config dir>/<value>'. Omitting `database` uses the bundled DB, and every load logs the file actually read ('[matdb] Loaded N materials from <path>'). The one remaining CWD-based exception is standalone `map` (bent/flat/output).
+
+  6. **Batch Operations**: Many ops support both target_pid (single) and target_pids (array/loop). Internally, if target_pids is set, the op is applied once per PID (avoiding duplicate application). For ops with neither (like generate), they act globally.
+
+  7. **Strain Modes (squeeze)**: Two mutually exclusive modes—(a) eps_x/y/z = node movement + dynain output, (b) swelling = thermal expansion cards, no node movement, no dynain for that part.
+
+  8. **IGA NURBS**: Targets matching via target_pid (numeric) OR target_name/exclude_name (name pattern). Element size auto-computed if omitted. bbox_scale_r/s/t override uniform bbox_scale per axis.
+
+  9. **Offset Material Cards**: Supports both single material_card (applies to all layers) AND per-layer material_cards array. If both present, material_cards takes precedence. czm_material_card is separate (cohesive interface layers).
+
+  10. **Contact/Boundary/RBE**: These are raw LS-DYNA keyword insertion ops. They parse slave/master part IDs and face selectors but do NOT auto-detect surfaces (unlike standalone contact command). Manual part ID config required.
+
+  11. **Control/Database**: These overwrite or create LS-DYNA control cards. Existing cards are modified in-place (field-by-field); missing cards are inserted before *END.
+
+  12. **Thermal Expansion (swelling)**: When squeeze uses swelling, parser inserts *MAT_ADD_THERMAL_EXPANSION (CTE=swelling value) and *INITIAL_TEMPERATURE_NODE (T=1.0) for all nodes in the part. No dynain output for swelling parts.
+
+  13. **Dynamic Relaxation**: If dynamic_relaxation: true, config.relax settings are read (defined globally, not per-op). Must be configured in global config section.
+
+  14. **Update Operation**: the key is `dynain` (not `dynain_file`). Its path is resolved the same way as base_model: anything that is not absolute (no leading '/' or '\', no 'X:' drive letter) is taken relative to the config YAML directory — a folder-prefixed relative path like 'd/coords.k' included. Useful for applying node coordinate updates from previous analysis results.
+
+  15. **Extract_surface**: Can be spelled 'extract_surface' or 'extract-surface' (parser accepts both, converts to underscore internally).
+
+  16. **ID Auto-Management**: New nodes/elements/parts/materials get unique IDs to avoid collisions with existing entities in base model. This is automatic; users rarely configure.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+  ELEMENT COUNT CHECK: restack prints a per-part element count table (input -> output) and, before writing, re-reads the output buffer to confirm the counts match what it intended — including parts it never touched, and the total. A mismatch exits 1 and writes nothing. This exists because a field deck once lost a whole part silently and 485 solver runs completed 'normally' on a model with the chip missing.
+
+
+  사례 메모: Real files from examples/assemble/: box.k (input), assemble_example.yaml (config). Output: assembled_box.k, optionally assembled_box.dynain if prestress is computed.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper assemble` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- assemble
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: box.k
+      output: assembled_box
+      dynamic_relaxation: false
+      dynain_embed: false
+      material:
+        E: 210000
+        nu: 0.3
+      operations:
+      - type: bend
+        target_pid: 1
+        plane: xy
+        source: formula
+        expression: 3.0 * sin(pi * x1 / L1)
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/box.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

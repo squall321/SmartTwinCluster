@@ -1,0 +1,74 @@
+name: remap_strain
+version: 1.0.0
+summary: KooRemapper strain — Calculate strain tensor between reference and deformed meshes
+description: |
+  Calculate strain tensor between reference and deformed meshes
+
+  Calculate strain tensor between reference (undeformed) and deformed mesh pairs, outputting 6-component strain data per element to CSV with statistics (von Mises, principal strains, volumetric). Supports engineering (infinitesimal), Green-Lagrange (finite deformation), and logarithmic (true) strain types.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `ref_mesh` | file | 예 | Reference (undeformed) mesh in k-file format |
+  | `def_mesh` | file | 예 | Deformed mesh in k-file format |
+  | `output` | output | 예 | Output CSV file containing strain data (node IDs, strain components, principal strains, von Mises strain) |
+  | `type` | enum |  | Strain type: engineering (infinitesimal), green (Green-Lagrange finite), or log (logarithmic/natural). Default: engineering |
+
+  # config 키 (YAML)
+  - `None` (file): Reference (baseline/undeformed) mesh in LS-DYNA k-file format (.k). Must have identical topology to deformed mesh.
+  - `None` (file): Deformed mesh in LS-DYNA k-file format (.k). Must have same node/element count and connectivity as reference; only node coordinates differ.
+  - `None` (file): Output CSV file path containing per-element strain components (Exx, Eyy, Ezz, Exy, Exz, Eyz), principal strains (E1, E2, E3), von Mises equivalent strain, and volumetric strain.
+  - `None` (enum): Strain calculation method: 'engineering' (infinitesimal/small deformation), 'green' (Green-Lagrange finite deformation material frame indifferent), or 'log' (logarithmic/natural true strain for large ductile deformations).
+
+  # 주의
+  - **Invocation**: Positional CLI with 3 required arguments + 1 optional flag. Syntax: `KooRemapper strain [--type TYPE] <ref_mesh.k> <def_mesh.k> <output.csv>`. **Topology requirement**: ref_mesh and def_mesh must have identical node IDs, element connectivity, and part structure; only nodal coordinates are allowed to differ. **Output CSV columns**: element_id, node_ids..., Exx, Eyy, Ezz, Exy, Exz, Eyz, E1, E2, E3, von_mises_eq, volumetric_strain. **Console statistics**: After calculation, reports max/avg von Mises strain, max/min volumetric strain, max/min principal strains. **No material input needed**: Unlike prestress, strain computation does not require Young's modulus or Poisson ratio—it is purely geometric deformation analysis. **Large deformation guidance**: 'engineering' is valid for ~<10% strain (small deformation assumption); 'green' or 'log' recommended for >10% strain. 'log' is frame-indifferent and symmetric in tension/compression for large ductile flows. **Practical use**: Typical inputs are bent_shell.k (reference) vs. measured warpage/formed shape (deformed), or pre-assembly geometry (reference) vs. post-assembly geometry (deformed with prestress/squeeze/bend applied).
+
+  사례 메모: Uses bent_shell.k as reference (undeformed) and formstrain_result.k as the deformed configuration. Computes engineering strain tensor at each node and writes statistics (max/average von Mises, volumetric, principal strains) to console and detailed results to CSV.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper strain` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- strain
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    ref_mesh: bent_shell.k
+    def_mesh: formstrain_result.k
+    output: strain_output.csv
+    type: engineering
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/bent_shell.k
+    - /data/single/USER/case/formstrain_result.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    ref_mesh: bent_shell.k
+    def_mesh: formstrain_result.k
+    output: strain_output.csv
+    type: engineering
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

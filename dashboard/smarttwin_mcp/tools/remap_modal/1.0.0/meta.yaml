@@ -1,0 +1,165 @@
+name: remap_modal
+version: 1.0.0
+summary: KooRemapper modal — Convert explicit LS-DYNA K-file for implicit modal (eigenvalue) analysis
+description: |
+  Convert explicit LS-DYNA K-file for implicit modal (eigenvalue) analysis
+
+  Convert explicit LS-DYNA K-file for implicit modal (eigenvalue) analysis. Removes explicit-only keywords (*CONTROL_DYNAMIC_RELAXATION, *CONTROL_BULK_VISCOSITY, *DATABASE_BINARY_D3DRLF), optionally removes damping ratio curves (SIDR=1), and inserts implicit eigenvalue control cards (*CONTROL_IMPLICIT_GENERAL, *CONTROL_IMPLICIT_EIGENVALUE, *CONTROL_IMPLICIT_SOLUTION, optionally *CONTROL_IMPLICIT_SOLVER). Supports multiple eigensolvers (Block Shift Lanczos, MCMS, LOBPCG, Fast Lanczos) and linear solvers (sparse direct or MUMPS parallel).
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Input explicit LS-DYNA K-file (*.k) |
+  | `output` | output | 예 | Output implicit modal K-file (*.k) |
+  | `nmode` | integer |  | Number of modes to extract (NEIG parameter) |
+  | `fmin` | number |  | Lower frequency bound (Hz). 0 = no lower limit, >0 sets LFLAG=1 |
+  | `fmax` | number |  | Upper frequency bound (Hz). 0 = no upper limit, >0 sets RFLAG=1 |
+  | `center` | number |  | Frequency shift center (Hz) for shifted eigenvalue problems |
+  | `eigmth` | integer |  | Eigensolver method: 2=Block Shift Lanczos (default), 101=MCMS (NVH/thousands of modes), 102=LOBPCG (large models), 103=Fast Lanczos (MPP parallel) |
+  | `solver` | integer |  | Linear solver: 7=sparse direct (default, small-medium models), 30=MUMPS parallel (large models) |
+  | `fix_shell_elform` | boolean |  | Auto-fix shell elements with ELFORM=16 to ELFORM=2; default warns instead |
+  | `keep_dr_curves` | boolean |  | Preserve *DEFINE_CURVE with SIDR=1 (dynamic relaxation curves); default removes them |
+  | `strip` | boolean |  | Strip-only mode: remove implicit eigenvalue keywords without inserting new ones (revert to explicit or other analysis type) |
+
+  # config 키 (YAML)
+  - `None` (file): Input explicit LS-DYNA K-file path. Can be relative (resolved from YAML directory) or absolute.
+  - `None` (file): Output implicit modal K-file path. Generated in YAML directory if relative, otherwise at specified absolute path.
+  - `None` (integer): Number of modes to extract (NEIG parameter in *CONTROL_IMPLICIT_EIGENVALUE). Typical range: 10-50 for structural, 100-500 for NVH.
+  - `None` (number): Lower frequency bound in Hz. 0.0 disables lower limit (LFLAG=0); >0 enables lower bound search (LFLAG=1).
+  - `None` (number): Upper frequency bound in Hz. 0.0 disables upper limit (RFLAG=0); >0 enables upper bound (RFLAG=1). Both fmin=0 and fmax=0 searches from -infinity with no upper bound.
+  - `None` (number): Frequency shift center in Hz for shifted eigenvalue problems (Lanczos shift). Typically 0.0; used when seeking modes around a specific frequency.
+  - `None` (enum): Eigensolver method: 2=Block Shift Lanczos (default, general structural), 101=MCMS (NVH/hundreds-thousands modes), 102=LOBPCG (large iterative models), 103=Fast Lanczos (MPP parallel).
+  - `None` (enum): Linear solver: 7=sparse direct (default, small-medium models), 30=MUMPS parallel (large/contact-heavy models). Solver=30 inserts *CONTROL_IMPLICIT_SOLVER card.
+  - `None` (boolean): Auto-fix shell elements with ELFORM=16 to ELFORM=2 (required for implicit). If false, warns instead of fixing.
+  - `None` (boolean): Preserve *DEFINE_CURVE with SIDR=1 (dynamic relaxation damping curves). Default (false) removes them; use true if needed for subsequent transient analysis.
+  - `None` (boolean): Strip-only mode: remove all implicit eigenvalue keywords (*CONTROL_IMPLICIT_GENERAL, *CONTROL_IMPLICIT_EIGENVALUE, *CONTROL_IMPLICIT_SOLUTION, *CONTROL_IMPLICIT_SOLVER) without inserting new ones. Useful to revert to explicit or change analysis type.
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "modal_minimal",
+    "summary": "Essential config: model, output, nmode (10), fmax (2000 Hz). Uses defaults: eigmth=2, solver=7."
+   },
+   {
+    "name": "modal_structural",
+    "summary": "Structural vibration (10-30 modes, 0-500 Hz range, eigmth=2 Lanczos, solver=7 sparse). Typical for modal response/harmonic input analysis."
+   },
+   {
+    "name": "modal_nvh",
+    "summary": "Noise-Vibration-Harshness (200 modes, up to 5000 Hz, eigmth=101 MCMS, solver=30 MUMPS). Fast extraction for hundreds-thousands of modes."
+   },
+   {
+    "name": "modal_full",
+    "summary": "All options explicit: nmode, fmin, fmax, center, eigmth, solver, fix_shell_elform, keep_dr_curves."
+   }
+  ]
+  ```
+
+  # 주의
+  -
+  1. **YAML parsing**: Keys are case-sensitive; comments (# ...) are stripped after value extraction. Paths are relative to YAML directory unless absolute.
+
+  2. **Always removed**: *CONTROL_DYNAMIC_RELAXATION, *CONTROL_BULK_VISCOSITY, *DATABASE_BINARY_D3DRLF (explicit-only).
+
+  3. **Conditionally removed**: *DEFINE_CURVE with SIDR=1 (unless keep_dr_curves=true); existing *CONTROL_IMPLICIT_* blocks are replaced with fresh ones.
+
+  4. **Always inserted**: *CONTROL_IMPLICIT_GENERAL (IMFLAG=1, IMFORM=2), *CONTROL_IMPLICIT_EIGENVALUE (NEIG=nmode, LFLAG=1 if fmin>0, RFLAG=1 if fmax>0, CENTER=center, EIGMTH=eigmth), *CONTROL_IMPLICIT_SOLUTION (NSOLVR=12).
+
+  5. **Conditionally inserted**: *CONTROL_IMPLICIT_SOLVER (only if solver=30, with LSOLVR=30 for MUMPS).
+
+  6. **Eigenmethod selection**:
+     - eigmth=2: Block Shift Lanczos, default for structural, small-medium models (<100k DOF).
+     - eigmth=101: MCMS, optimized for NVH when extracting 100s-1000s of modes.
+     - eigmth=102: LOBPCG, for very large iterative problems.
+     - eigmth=103: Fast Lanczos (MPP), parallel environment.
+
+  7. **Solver selection**:
+     - solver=7: sparse direct (K-matrix decomposition), good for <1M DOF, faster for modal.
+     - solver=30: MUMPS parallel direct, for >1M DOF or heavy contact/friction.
+
+  8. **Frequency bounding**:
+     - fmin>0 and fmax>0: bounded search in [fmin, fmax].
+     - fmin=0, fmax>0: search [0, fmax] (lower bound at zero freq for rigid-body modes).
+     - fmin>0, fmax=0: search [fmin, ∞].
+     - Both 0: search [-∞, ∞] (no bounds, all modes up to NEIG).
+
+  9. **Shell ELFORM=16**: LS-DYNA implicit requires ELFORM≤2 for shells. fix_shell_elform=true auto-converts; false warns and does not fix (user must manually correct or re-element).
+
+  10. **Output files**: modal.k (modified input), eigout (ASCII eigenvalue list), d3eigv (binary mode shapes). eigout/d3eigv are auto-generated by LS-DYNA; no DATABASE card needed.
+
+  11. **Strip mode**: When strip=true, removes all implicit eigenvalue keywords and exits. Ignores eigmth, solver, fmin, fmax, center, nmode. Useful as "undo" for analysis-type switching.
+
+  12. **Mutually exclusive with relax**: modal is for free eigenvalue analysis. Use relax for Dynamic Relaxation (which sets initial equilibrium). Can apply both sequentially: relax → modal (relax to equilibrium, then extract modes).
+
+  13. **Requires valid model**: Material definitions, elements (shells/solids), boundary conditions, and fixed/RBE constraints. Modal will fail if model is empty or missing essential cards.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Configuration in examples/modal/modal_full.yaml; input model file must be an explicit K-file with material, geometry, and boundary conditions. Output produces modal.k (implicit eigenvalue), eigout (ASCII freq list), and d3eigv (binary mode shapes for LS-PrePost visualization). YAML keys are relative to config directory.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper modal` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- modal
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: explicit.k
+    output: modal.k
+    nmode: 20
+    fmin: 0
+    fmax: 3000
+    center: 0
+    eigmth: 2
+    solver: 7
+    fix_shell_elform: false
+    keep_dr_curves: false
+    strip: false
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/explicit.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: explicit.k
+    output: modal.k
+    nmode: 20
+    fmin: 0
+    fmax: 3000
+    center: 0
+    eigmth: 2
+    solver: 7
+    fix_shell_elform: false
+    keep_dr_curves: false
+    strip: false
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

@@ -1,0 +1,146 @@
+name: remap_generate_var
+version: 1.0.0
+summary: KooRemapper generate-var — YAML 설정으로부터 평탄 또는 곡선 가변 밀도 메시 생성
+description: |
+  YAML 설정으로부터 평탄 또는 곡선 가변 밀도 메시 생성
+
+  Generate variable density mesh from YAML configuration. Supports flat meshing with 5-zone element distribution along I-axis, or curved meshing following Catmull-Rom/B-spline centerline. Automatic scaling to reference dimensions if provided.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | YAML 설정 파일 (type, reference, variable_density 또는 centerline_points 포함) |
+  | `output` | output | 예 | 출력 K-file 경로 |
+  | `ref` | file |  | 스케일링을 위한 참조 평탄 메시 파일 |
+  | `no_scale` | boolean |  | 참조에 대한 스케일링을 비활성화 (YAML 길이를 그대로 사용) |
+
+  # config 키 (YAML)
+  - `None` (enum): Mesh type. 'flat' = variable density rectangular mesh (5 zones along I); 'curved' = mesh following centerline interpolation. Both 'curved' and 'curve' are valid aliases.
+  - `None` (file): Path to reference flat K-mesh file. Used to auto-scale generated mesh dimensions (I, J, K) unless --no-scale flag is set
+  - `None` (number): Reference length in I direction (arc length for curved, width for flat). Used for scaling if no flat_mesh file provided
+  - `None` (number): Reference length in J direction (width/cross-section perpendicular to I). Used for scaling
+  - `None` (number): Reference length in K direction (thickness). Used for scaling
+  - `None` (integer): Number of elements in J direction (width). Applied uniformly; must be positive. For curved: elementsWidth; for flat: elementsJ
+  - `None` (integer): Number of elements in K direction (thickness). Applied uniformly; must be positive. For curved: elementsThickness; for flat: elementsK
+  - `None` (number): Physical length (before scaling) of Zone 1 (dense start region). Part of I-direction total. Ignored if type='curved'
+  - `None` (integer): Number of elements in Zone 1 (dense start). Sum with other zones gives total I elements. Ignored if type='curved'
+  - `None` (enum): Element growth progression in Zone 1. Linear = uniform spacing; Geometric = multiplicative progression; Exponential = exp() spacing. Ignored if type='curved'
+  - `None` (number): Physical length (before scaling) of Zone 2 (increasing density transition). Denser → sparser. Ignored if type='curved'
+  - `None` (integer): Number of elements in Zone 2 (increasing/dense-to-sparse transition). Ignored if type='curved'
+  - `None` (enum): Element growth progression in Zone 2. Ignored if type='curved'
+  - `None` (number): Physical length (before scaling) of Zone 3 (sparse middle region). Ignored if type='curved'
+  - `None` (integer): Number of elements in Zone 3 (sparse middle). Ignored if type='curved'
+  - `None` (enum): Element growth progression in Zone 3. Ignored if type='curved'
+  - `None` (number): Physical length (before scaling) of Zone 4 (decreasing/sparse-to-dense transition). Ignored if type='curved'
+  - `None` (integer): Number of elements in Zone 4 (decreasing/sparse-to-dense transition). Ignored if type='curved'
+  - `None` (enum): Element growth progression in Zone 4. Ignored if type='curved'
+  - `None` (number): Physical length (before scaling) of Zone 5 (dense end region). Ignored if type='curved'
+  - `None` (integer): Number of elements in Zone 5 (dense end). Ignored if type='curved'
+  - `None` (enum): Element growth progression in Zone 5. Ignored if type='curved'
+  - `None` (array): List of [x, y] coordinate pairs defining the centerline curve. YAML list format: '- [x1, y1]' on separate lines. Minimum 2 points required for curved type. Ignored if type='flat'
+  - `None` (enum): Curve interpolation method for centerline. 'linear' = straight segments; 'catmull_rom' = passes through all points, smooth (default); 'bspline' and 'b-spline' = smooth but may not pass through all points. Used only if type='curved'
+  - `None` (number): Cross-section width (J direction, perpendicular to curve plane). Default 1.0 if not specified. Ignored if type='flat' or if reference mesh or dimensions provided. Used only if type='curved'
+  - `None` (number): Cross-section thickness (K direction, in curve plane, normal to tangent). Default 1.0 if not specified. Ignored if type='flat' or if reference mesh or dimensions provided. Used only if type='curved'
+  - `None` (integer): Number of elements along the curve (I direction). Used only if type='curved'; must be positive
+  - `None` (boolean): If true, center the generated mesh at origin (0,0,0) by subtracting bounding box center. Applies to both flat and curved types
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "flat_dense_both_ends",
+    "summary": "5-zone flat mesh: dense start → sparse middle → dense end. Ideal for boundary-dominant physics (beam, shell edge effects)"
+   },
+   {
+    "name": "flat_dense_single_zone",
+    "summary": "Simplified flat: Zone 1 only (uniform density), Zones 2-5 empty. Fastest generation; use for uniform refinement"
+   },
+   {
+    "name": "curved_catmull_rom",
+    "summary": "Curved mesh with Catmull-Rom interpolation. Smooth curve passing through all centerline points; best for smooth paths"
+   },
+   {
+    "name": "curved_linear",
+    "summary": "Curved mesh with linear interpolation. Straight segments between centerline points; accurate for piecewise-linear paths"
+   }
+  ]
+  ```
+
+  # 주의
+  - FLAT TYPE BEHAVIOR: The 5 zones (zone1_dense_start, zone2_increasing, zone3_sparse, zone4_decreasing, zone5_dense_end) partition the I direction. Total I length = sum of zone lengths (before scaling). Total I elements = sum of zone num_elements. If reference mesh or dimensions provided, all zone lengths are scaled proportionally to match reference I dimension, unless --no-scale flag suppresses scaling. J and K elements are always uniform. CURVED TYPE BEHAVIOR: Requires centerline_points with minimum 2 points. Interpolation creates smooth curve through (or near) points depending on interpolation type. If reference mesh provided, arc length and cross-section (width, thickness) are auto-scaled to reference I, J, K dimensions; otherwise uses cross_section.width/thickness directly (defaults 1.0 each if omitted). elements_along_curve, elements_j (alias for width), elements_k (alias for thickness) control element counts. GROWTH_TYPE: Linear = uniform element spacing within zone; Geometric = element size varies multiplicatively; Exponential = exponential progression. Used for transition zones (2, 4) to smoothly vary element density. SCALING: Command-line --ref option overrides config's reference.flat_mesh. If both --ref and reference in YAML present, --ref takes precedence. --no-scale disables all scaling; zone lengths used as absolute dimensions. COMMON GOTCHAS: (1) Centerline_points must be YAML list format (each point on separate line with '- [x, y]'); inline [x,y] on one line not parsed. (2) Cross_section (width, thickness) ignored if reference mesh/dimensions provided. (3) Growth_type applies only to zones; sparse/dense zone distinction is determined by num_elements relative to neighbors, not by growth_type. (4) All numeric values (length, num_elements, width, thickness) must be positive. Zero or negative values cause validation failure. (5) If type not specified, defaults to 'flat'. Curved requires explicit type: curved in YAML.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 가변밀도 flat 메쉬(5존: 양끝 조밀, 중앙 성김). --no-scale로 reference 불필요.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper generate-var` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- core
+- generate
+- var
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      type: flat
+      reference:
+        dimensions:
+          length_i: 140.0
+          length_j: 70.0
+          length_k: 1.0
+      elements_j: 20
+      elements_k: 4
+      variable_density:
+        zone1_dense_start:
+          length: 20.0
+          num_elements: 40
+        zone2_increasing:
+          length: 30.0
+          num_elements: 20
+          growth_type: linear
+        zone3_sparse:
+          length: 40.0
+          num_elements: 20
+        zone4_decreasing:
+          length: 30.0
+          num_elements: 20
+          growth_type: linear
+        zone5_dense_end:
+          length: 20.0
+          num_elements: 40
+    output: var_mesh.k
+    dry_run: true
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    output: var_mesh.k
+    dry_run: false
+    wait_sec: 300

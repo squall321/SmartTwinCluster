@@ -886,6 +886,37 @@ code execution as the service account. The builders already strip; a tool that m
 must call `strip_locked_overrides` and return the dropped list (`locked_overrides_dropped`) so
 nothing is discarded silently.
 
+### 9.6 `stmc_exec.py` — backend calls, caller identity, `smarttwin-tool` jobs
+
+Stdlib-only, stateless. The module docstring is the authoritative API list; summary:
+
+```python
+class StmcError(Exception)            # user-facing error; every fail-closed path raises it
+backend_request(method, path, *, json_body=None, query=None, timeout=60) -> (status, data)
+backend_multipart(path, fields, files, *, timeout=600) -> (status, data)
+caller_identity(timeout=15) -> {"username", "role", "permissions", "groups", "raw"}   # GET /api/me
+user_area(username) -> "/data/single/<username>"
+input_roots(username) -> list[str]   # STMC_INPUT_ROOTS, {user} placeholder; default
+                                     # /data/single/{user}:/shared/uploads/users/{user}:/data/scenario
+check_under(path, roots, *, kind="any"|"file"|"dir"|"parent") -> realpath
+Bundle(roots)                        # files + generated texts uploaded as inputs.tgz into the job's work/
+submit_tool_job(*, tool, family, binary, argv, bundle, cwd="work", existing_dir=None,
+                slurm=None, job_name=None, dry_run=False, wait_sec=0, identity=None) -> dict
+read_result(result_dir) / wait_result(result_dir, wait_sec)
+```
+
+- Everything that calls the backend fails closed: no `STMC_CLUSTER_URL` or no PAT → `StmcError`.
+- `submit_tool_job` fills per-family Slurm defaults and clamps them to the largest node of the
+  target (or default `*`) partition from `sinfo` — the response lists any clamping in `slurm_notes`.
+- Placeholders `@@WORK@@` (job work folder) and `@@RESULT@@` (job result folder) are substituted by
+  the template dispatcher, not here.
+
+### 9.7 `kooremapper_core/` — vendored KooRemapper op catalog
+
+Byte-identical copy of `KooRemapper/platform/core/kooremapper_core` (see its `VENDORED.md`).
+Exception to §9.5 rule 2: needs PyYAML + jsonschema (present in the service venv); used only by
+local-transport `remap_*` tools. Never edit it here — re-copy and regenerate.
+
 ### 9.5 Rules for adding a new helper to `_shared/`
 
 1. **Use threshold = 2.** Don't add to `_shared/` for a single tool; just inline.
@@ -3572,3 +3603,38 @@ LLM can cross-reference to `audit_trail`.
 | Use `audit_anomaly` `severity: critical`               | Reserved/unused. The 3-tier set above is the closed vocabulary.  |
 | Default `audit_summary` `since` to "all time"          | Audit DB grows unbounded. 7-day default keeps responses bounded. |
 | Sort `audit_trail` newest-first                        | It's a timeline — oldest-first reads like a story.               |
+
+
+## 30. Generated SmartTwin tools (`kmm_*`, `kam_*`, `remap_*`, `post_*`)
+
+These ~110 tools cover every SmartTwinPreprocessor / SmartTwinPostprocessor capability. They are
+**generated** — never edit them by hand.
+
+| Family | Source of truth | Tool name |
+|---|---|---|
+| KooMeshModifier modes | pyKooCAE `occProject/Generators/KooCLIHelp/kmm_catalog.py` | `kmm_<mode>` (+ `kmm_chain`) |
+| KooAutomatedModeller modes | pyKooCAE `occProject/Generators/KooCLIHelp/kam_catalog.py` | `kam_<mode>` |
+| KooRemapper ops | `_shared/kooremapper_core/catalog_data.json` | `remap_<op>` |
+| Postprocessor executables | `$STMC_POST_BIN/<tool> --help` + `POST_TOOLS` in the generator | `post_<tool>` |
+
+Regenerate after any catalog change:
+
+```bash
+PYKOOCAE_ROOT=<pyKooCAE> STMC_POST_BIN=/data/SmartTwinPostprocessor/bin \
+  venv/bin/python tools/_gen/generate_smarttwin_tools.py
+venv/bin/smarttwin-mcp lint tools/ && pytest tests/test_smarttwin_coverage.py
+```
+
+- Output: `tools/<name>/1.0.0/` + `latest`, `_shared/stmc_specs.json` (per-tool fixed facts + capability
+  index), `docs/smarttwin_coverage/COVERAGE.md`. Only directories whose meta has the `generated` tag are
+  overwritten.
+- **Versioning exception:** generated tools are regenerated in place at `1.0.0`. They wrap the deployed
+  binaries, so behaviour follows the binary anyway; git history of the generated files is the change log.
+- Execution: every call is one Slurm job via the backend template `smarttwin-tool` (whitelisted binary,
+  argv array, no shell). `dry_run=true` renders inputs without a PAT. Results: `tool_result`.
+- Security rules enforced in both `stmc_tools.py` and the template dispatcher: paths only under the
+  caller's areas; no `..`; uploaded files lose exec bits; options that select an executable
+  (`--install-dir`, `--ua`, `lsprepost_path`/`install_dir`/`ua_path` keys) are refused.
+- `tests/test_smarttwin_coverage.py` fails when a catalog mode/op has no tool (coverage parity), when
+  the vendored core drifts from its source, or when any tool's own dry-run example fails to render.
+

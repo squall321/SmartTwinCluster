@@ -1,0 +1,143 @@
+name: remap_merge
+version: 1.0.0
+summary: KooRemapper merge — Merge multiple stacked solid layers into homogenized layer with Voigt/Reuss/VRH
+  averaging.
+description: |
+  Merge multiple stacked solid layers into homogenized layer with Voigt/Reuss/VRH averaging.
+
+  Merges stacked solid elements (HEX8) from multiple parts along a specified direction (X/Y/Z) into homogenized layers. Detects vertical columns via face connectivity, computes volume-weighted average material properties (E, nu, rho, CTE) using Voigt/Reuss/VRH rule-of-mixtures, and outputs new K-file with merged HEX8 elements and homogenized MAT_ELASTIC cards.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 병합 설정 객체 (models[], output, id_offset_increment 등) |
+
+  # config 키 (YAML)
+  - `None` (string): Input K-file path containing stacked solid elements. Alias: 'input' also supported.
+  - `None` (string): Output K-file path. Auto-generated if omitted (inserts '_merged' before extension).
+  - `None` (enum): Stacking axis for column detection (case-insensitive). Default: z. Elements stacked along this axis are grouped into vertical columns.
+  - `None` (enum): Material averaging rule (case-insensitive). voigt: E_avg = sum(vf*E) (upper bound); reuss: E_avg = 1/sum(vf/E) (lower bound); vrh: average of voigt and reuss (Voigt-Reuss-Hill midpoint).
+  - `None` (enum): Policy for references that still point at what restack/merge emptied — the dead PID, the deleted elements, the deleted nodes. strict (default): the deck is still written, but if anything could not be migrated the run ends with rc=1. warn: the same report, rc=0 — the escape hatch for existing pipelines (못 옮기면 rc=1, warn 은 rc=0). Any other value is rejected with rc=1 and "invalid pid_refs '<value>' (must be one of strict, warn)", and no output is written. The full list is in the `$ KOOREMAPPER-PIDREF` block at the head of the output deck (right after *KEYWORD); findings graded `maybe` are reported but never raise rc. MCP/web jobs and the pyKooCAE chain judge success by exit code only, so rc=1 shows up as a failed job — read the deck-head block, not the config.
+  - `None` (array): List of merge group definitions. Each group merges specified parts into one homogenized layer.
+  - `None` (array): Array of part IDs (integers) to merge. Format: [1,2,3] inline or list of dash-prefixed values on indented lines.
+  - `None` (string): Human-readable name for merged group. Used in output material/part names.
+  - `None` (integer): Number of output layers per column. If layers=L and column has C elements, subdivides each column into L equal-height merged elements. Clamped to column size (layers > actual column height → use column height).
+
+  # 주의
+  - **Key Parsing Details from Source:**
+  - Top-level keys: 'model' (alias 'input'), 'output', 'direction', 'method', 'merge' (lines 236–254).
+  - direction: case-insensitive; 'X'→0, 'Y'→1, 'Z'→2 (line 241–244).
+  - method: case-insensitive; 'VOIGT'→0, 'REUSS'→1, default→2 (vrh) (line 246–249).
+  - merge[].pids: supports inline array format [1,2,3] OR newline-delimited list with dashes on indented lines (lines 178–190, 206–218).
+  - merge[].layers: parsed as int, minimum 1 (line 194, 222; also line 908).
+  - Path resolution: relative paths are resolved w.r.t. YAML directory (line 262–268).
+
+  **Material Homogenization:**
+  - Supports MAT_ELASTIC, MAT_024 (piecewise-linear), MAT_076 (viscoelastic Prony series), MAT_RIGID, and MAT_ADD_THERMAL_EXPANSION (CTE).
+  - For VE076, fully-relaxed moduli computed from Prony series: G∞ = sum(Gi where betai==0); E∞ = 9KG∞/(3K+G∞); nu∞ = (3K−2G∞)/(2(3K+G∞)) (lines 329–346).
+  - Volume fractions computed per group: vf[mid] = count[mid] / total_elements_in_group (line 881).
+  - Voigt: E = sum(vf*E); Reuss: E = 1/sum(vf/E); VRH: E = 0.5*(E_voigt + E_reuss); all methods share nu_voigt and mixed rho/cte (lines 767–778).
+
+  **Column Detection:**
+  - Detects vertical columns via HEX8 face connectivity (shared faces indicate stacking).
+  - Each column = sorted list of element IDs from bottom→top along direction axis (line 654–729).
+  - Output: one merged HEX8 per column per layer (or subdivided if layers>1).
+
+  **Output Generation:**
+  - Removes original merged elements; keeps orphan nodes if no longer referenced (lines 1014–1053).
+  - For each group: writes new *MAT_ELASTIC_TITLE card with homogenized E, nu, rho, MID (lines 1065–1072).
+  - Writes *MAT_ADD_THERMAL_EXPANSION_TITLE if CTE present (lines 1075–1085).
+  - Writes *SECTION_SOLID and *PART for each group (lines 1087–1098).
+  - Writes *ELEMENT_SOLID block with new merged HEX8s (lines 1101–1114).
+  - Preserves all original K-file content except removed elements and orphan nodes.
+
+  **Common Pitfalls:**
+  1. pids: must be existing part IDs in model (no validation error if nonexistent—silently skipped, line 847–849).
+  2. direction: must match column stacking orientation; wrong direction → 0 columns detected → no output (line 856–862).
+  3. layers: if >column size, clamped to column size without warning (line 916).
+  4. output path: relative paths resolved from YAML directory, not CWD.
+  5. VE076 fully-relaxed assumption: ignores time-dependent behavior; only uses G∞.
+  6. CTE: only output if merge group elements have *MAT_ADD_THERMAL_EXPANSION entry in input (line 900–901).
+
+  **참조 이전 — merge 는 합친 파트를 비운다 (`pid_refs`, 2026-09-18 실행 확인):**
+  - merge 는 합친 파트들의 요소를 지우고 새 PID 하나를 만든다. 원 `*PART` 카드는 요소 0 개로 남아, 그것을 가리키던
+    카드가 아무 일도 하지 않는 채 덱에 남는다. 도구가 세 축 — 죽은 PID / 지워진 요소(EID) / 지워진 노드(NODE) — 을
+    훑어 옮길 수 있는 것은 옮기고 나머지는 보고한다.
+  - **merge 는 새 PID 가 하나뿐이라 스칼라 PID 칸도 옮긴다** — `*DAMPING_PART_MASS`/`_STIFFNESS`,
+    `*DATABASE_HISTORY_PART`, `*MAT_ADD_THERMAL_EXPANSION`, `*PART_MOVE`, `*BOUNDARY_PRESCRIBED_MOTION_RIGID`,
+    `*DEFORMABLE_TO_RIGID`, `*INITIAL_VELOCITY_GENERATION` 의 PID 칸. 층이 여럿인 `restack` 은
+    같은 칸들을 `manual`(직접 고치세요) 로 남긴다 — 두 op 의 차이다.
+    `*ELEMENT_MASS`(`_PART` 포함)는 예외로, merge 도 옮기지 않고 `manual` 로 남긴다(집중질량은 직접 배분해야 한다).
+  - 체적 의미의 `*SET_PART_*` 는 합친 PID 로 바뀐다. 두 칸이 모두 이번 merge 로 사라지는
+    `*CONSTRAINED_RIGID_BODIES` 는 바꾸면 자기 자신을 가리키게 되므로 옮기지 않고 보고만 한다.
+  - `*INCLUDE` 가 있는 덱은 그 세트의 소비자를 다 볼 수 없어 세트를 펴지 않고 보고만 한다.
+  - 가리키던 자리를 하나라도 찾으면 산출 덱 머리(`*KEYWORD` 바로 뒤)에 `$ KOOREMAPPER-PIDREF` 블록이 들어간다
+    (찾은 것이 없으면 블록도 없다). 등급은 `moved` / `left` / `manual` / `unknown` / `maybe`(rc 에 넣지 않는다).
+    블록의 줄 번호는 **입력 덱 기준**이다.
+  - **rc 정책:** `maybe` 를 뺀 못 옮긴 자리가 남으면 **덱은 쓰고 rc=1** 로 끝낸다(기본 `pid_refs: strict`).
+    `pid_refs: warn` 은 같은 보고를 하고 rc=0. MCP·웹에서 돌리면 rc=1 은 job `failed` 로 보인다 —
+    플랫폼 워커가 `exit_code == 0` 만 `succeeded` 로 치고(`worker/runner_loop.py`), pyKooCAE 의
+    `Runner/KooRemapperStep.py` 는 `returncode != 0` 에 `RuntimeError` 를 던진다. 설정 오류가 아니라
+    '옮기지 못한 참조가 있다' 는 뜻이니 **산출 덱 머리의 `$ KOOREMAPPER-PIDREF` 블록을 먼저 읽어라**.
+
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 3층 스택을 VRH 평균으로 1개 균질화 레이어로 병합
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper merge` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- merge
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: three_layer.k
+      output: merged_output.k
+      direction: z
+      method: vrh
+      merge:
+      - pids:
+        - 1
+        - 2
+        - 3
+        name: Homogenized_Stack
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/three_layer.k
+    - /data/single/USER/case/merged_output.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

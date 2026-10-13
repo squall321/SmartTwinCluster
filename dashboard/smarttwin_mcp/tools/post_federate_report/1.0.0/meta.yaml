@@ -1,0 +1,70 @@
+name: post_federate_report
+version: 1.0.0
+summary: 여러 리비전 sidecar(impact/sphere)를 하나의 비교 리포트로 연합
+description: |
+  여러 리비전 sidecar(impact/sphere)를 하나의 비교 리포트로 연합
+
+  # 명령 도움말 (koo_federate_report --help)
+  ```text
+  usage: python -m koo_federate_report [-h] --config CONFIG [--output OUTPUT]
+                                       [--json JSON_PATH]
+                                       [--metric {g,s,e,d,s1,s3,e1,e3,evm}]
+                                       [--quiet]
+
+  N개 리비전 sidecar(impact/sphere)를 하나의 비교 보고서로 연합
+
+  options:
+    -h, --help            show this help message and exit
+    --config CONFIG       federate.yaml 경로
+    --output OUTPUT       출력 HTML 경로 (YAML 의 output 을 덮어씀)
+    --json JSON_PATH      비교 payload JSON 덤프 경로
+    --metric {g,s,e,d,s1,s3,e1,e3,evm}
+                          비교 주 지표 (g=peak acc, s=stress, e=strain, d=disp). 기본 g
+    --quiet               콘솔 요약 생략
+  ```
+
+  # MCP 로 부르는 법
+  - target 은 기존 결과(d3plot 이 있는 폴더 등)의 절대경로. 업로드하지 않고 그 자리에서 읽는다 — /data/single/<사용자>/ 아래만 된다(전각도·부분충격 잡의 결과 폴더가 거기 있다).
+  - options 의 키는 위 도움말의 --옵션 이름. 값이 객체면 YAML 파일로 만들어 넘긴다.
+  - --install-dir·--ua 와 설정의 lsprepost_path 처럼 실행 파일을 고르는 항목은 거절된다(보안).
+  - 후처리 SIF(/opt/apptainers/SmartTwinPostprocessor.sif) 안에서 돈다. 큰 캠페인은 slurm.mem·time 을 넉넉히.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- postprocess
+- kood3plot
+- report
+- d3plot
+- post
+- federate
+- report
+- koo
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 명령 확인
+  args:
+    dry_run: true
+    config: &id001
+      revisions:
+      - name: rev1
+        sidecar: /data/single/USER/case/rev1/impact_payload.json
+- title: 제출하고 15분까지 기다리기
+  args:
+    dry_run: false
+    config: *id001
+    wait_sec: 900
+    slurm:
+      cpus_per_task: 8
+      mem: 32G

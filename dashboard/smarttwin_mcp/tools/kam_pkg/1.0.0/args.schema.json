@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kam_pkg args",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [],
+  "properties": {
+    "input_path": {
+      "type": "string",
+      "pattern": "^/.+",
+      "description": "이미 있는 입력 파일 절대경로(이걸 주면 그대로 올린다)."
+    },
+    "extra_inputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/.+"
+      },
+      "maxItems": 64,
+      "description": "옵션이 가리키는 보조 파일의 절대경로. 잡 work/ 폴더로 같이 올라가므로 옵션 값에는 파일 이름만 쓰면 된다. 허용 범위: /data/single/<사용자>/, /shared/uploads/users/<사용자>/, /data/scenario/."
+    },
+    "input_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "입력 파일 본문(`키,값` 줄·*블록). 끝에 *End 가 없으면 붙인다. 참조 파일(재료·ODB 등)은 절대경로로 쓰면 같이 올라가고 이름으로 바뀐다."
+    },
+    "slurm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "잡 자원(선택). 생략하면 도구 종류별 기본(전처리 2 CPU·8G, 후처리 4 CPU·16G, 24시간)을 클러스터에서 가장 큰 노드에 맞춰 줄여 쓴다.",
+      "properties": {
+        "cpus_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "CPU 수"
+        },
+        "mem": {
+          "type": "string",
+          "pattern": "^[0-9]{1,6}[MG]$",
+          "description": "메모리 (예: 32G)"
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$",
+          "description": "시간 상한 HH:MM:SS"
+        },
+        "partition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "파티션 이름 (생략 = 클러스터 기본)"
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "true 면 제출하지 않고 생성될 입력 파일·명령만 돌려준다(PAT 없이도 된다). 먼저 이걸로 확인할 것."
+    },
+    "wait_sec": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1800,
+      "default": 0,
+      "description": "제출 후 이 시간(초) 안에 끝나면 결과(rc·로그 꼬리·작은 산출물)를 함께 돌려준다. 0 = job_id 만."
+    },
+    "job_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,48}$",
+      "description": "잡 이름(결과 폴더 이름이 된다). 생략하면 stmc_<도구이름>."
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "input_text"
+      ]
+    },
+    {
+      "required": [
+        "input_path"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+name: kam_pba
+version: 1.0.0
+summary: KooAutomatedModeller PBA — ODB++ 압축파일(.zip/.tgz)에서 PCB + 부품 실장 보드(PBA) 전체 형상 생성
+description: |
+  ODB++ 압축파일(.zip/.tgz)에서 PCB + 부품 실장 보드(PBA) 전체 형상 생성
+
+  # 언제 쓰나
+  - ODB++ 로 받은 보드 전체를 STEP 으로 만들 때
+  - 부품별 패키지 정의(.txt)를 뽑아 PKG 모드로 개별 모델링할 때 (ExportPackage)
+
+  # 입력 파일 문법 (KooAutomatedModeller --help PBA)
+  ```text
+  *ODB
+  키,값 ...
+  *End
+  ```
+
+  # 키
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `ODBFile` | 파일 | - | ODB++ 압축 파일 |
+  | `ZLocation` | 실수 | - | 보드 기준 z |
+  | `Thickness` | 실수... | - | 층별 두께 (m, ×1000) |
+  | `ThicknessSolderPaste / ThicknessSolderMask` | 실수 | - | 솔더 페이스트·마스크 두께 (m, ×1000) |
+  | `MinimumSize` | 실수 | - | 이보다 작은 형상 무시 (m, ×1000) |
+  | `BoundaryBox` | xmin,ymin,xmax,ymax | 없음 | 이 영역만 상세 모델링 (m, ×1000) |
+  | `DetailPAD` | 이름\|ALL | - | 상세 PAD |
+  | `ExportPackage` | True\|False[,폴더] | False, PackageExported | 부품별 패키지 .txt 내보내기 |
+  | `SkipLayer` | 층 이름 | - | 건너뛸 층 (여러 줄) |
+  | `PKG` | 부품명,패키지명 | - | 사용자 패키지 매핑 |
+  | `UndefinedUnitAmps` | 실수 | 25.4 | 단위 미정 값 배율 |
+
+  # 사례 — 보드 일부 영역 상세 + 패키지 내보내기
+  ```text
+  *ODB
+  ODBFile,P3_EUR_REV03.zip
+  ZLocation,0.0000
+  Thickness,2.5e-5,3.1e-5,1.5e-5,3.1e-5,1.5e-5
+  ThicknessSolderPaste,1.5e-5
+  ThicknessSolderMask,1.5e-5
+  MinimumSize,0.005
+  BoundaryBox,0.025,0.005,0.03,0.01
+  DetailPAD,ALL
+  ExportPackage,True,PackageExported
+  *End
+  ```
+  - 실행: KooAutomatedModeller PBA pba.txt → pba_total.step, PackageExported/*.txt
+
+  # 주의
+  - ThicknessSolderPaste 는 Thickness 보다 먼저 판정되므로 줄 순서는 상관없다.
+  - 길이 값은 m 단위로 넣고 내부에서 mm 로 바꾼다.
+
+  # 명령 형식
+      KooAutomatedModeller <모드> <입력파일> [작업폴더|None] [표시 True|False]
+
+        <모드>        PKG | CAPACITOR (=CAP) | PCB | ArrayPCB | PBA | AIRMESH   — 대소문자 구분 (pkg 는 안 됨)
+        <입력파일>    작업폴더 기준 상대경로
+        [작업폴더]    주면 그 폴더로 이동한 뒤 실행. None 이면 현재 폴더
+        [표시]        GUI 표시 여부. 서버에서는 항상 headless 라 무시해도 된다
+
+      공통 규칙
+        - 입력 파일은 `키,값` 줄 형식 (AIRMESH 만 JSON). `#` 로 시작하는 줄은 주석.
+        - 블록 헤더는 `*` 로 시작 (*Layer, *Capacitor, *PCB, *ODB ...). 키 이름은 대소문자 구분·접두 일치.
+        - 파일 끝에 *End 를 둘 것 — PCB/ArrayPCB 파서는 *End 가 없으면 EOF 에서 멈추지 않는다.
+        - 모르는 모드 이름·입력 파일 없음·라이선스 게이트·최상위 키워드 오류·Evolver 실패는 종료 코드 1. *Layer 안의 모르는 키는 조용히 무시되므로 로그의 Complete/FAILED 와 산출물도 확인할 것 (AIRMESH 는 항상 0, report.json 의 status 로 판단).
+        - 실행 시 등록 IP·사용 기한(2027-12-31)을 확인한다. `Access denied` 면 그 머신에서는 실행되지 않는다 (종료 코드 1). 계산 노드 대역 192.168.122.x 는 허용.
+
+  # 산출물
+        PKG       메시 키워드가 없으면 <입력>.step, 첫 *Layer 에 MeshGenerationType 이 있으면 <입력>.k (LS-DYNA)
+        CAPACITOR STEP + (MeshSize 계열 키가 있으면) LS-DYNA 메시
+        PCB/ArrayPCB  PCB 형상 STEP
+        PBA       <입력>_total.step (+ ExportPackage,True 면 패키지별 .txt/STEP 폴더)
+        AIRMESH   <prefix>_air.stl / _cavity.stl / _outer_box.stl / _air.msh / _report.json (prefix 기본 = JSON 파일명)
+
+  # MCP 로 부르는 법
+  - input_text(입력 본문) 또는 input_path 를 준다. `KooAutomatedModeller PBA pba_input.txt <work> False` 로 실행된다.
+  - 성공 여부는 종료 코드와 로그의 Complete/FAILED, 산출물로 확인한다(AIRMESH 는 report.json 의 status).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooautomatedmodeller
+- kam
+- preprocess
+- geometry
+- step
+- pba
+- odb
+- ecad
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 입력 확인
+  args:
+    input_text: |
+      *ODB
+      ODBFile,P3_EUR_REV03.zip
+      ZLocation,0.0000
+      Thickness,2.5e-5,3.1e-5,1.5e-5,3.1e-5,1.5e-5
+      ThicknessSolderPaste,1.5e-5
+      ThicknessSolderMask,1.5e-5
+      MinimumSize,0.005
+      BoundaryBox,0.025,0.005,0.03,0.01
+      DetailPAD,ALL
+      ExportPackage,True,PackageExported
+      *End
+    dry_run: true
+- title: 제출하고 10분까지 기다리기
+  args:
+    input_text: |
+      *ODB
+      ODBFile,P3_EUR_REV03.zip
+      ZLocation,0.0000
+      Thickness,2.5e-5,3.1e-5,1.5e-5,3.1e-5,1.5e-5
+      ThicknessSolderPaste,1.5e-5
+      ThicknessSolderMask,1.5e-5
+      MinimumSize,0.005
+      BoundaryBox,0.025,0.005,0.03,0.01
+      DetailPAD,ALL
+      ExportPackage,True,PackageExported
+      *End
+    dry_run: false
+    wait_sec: 600

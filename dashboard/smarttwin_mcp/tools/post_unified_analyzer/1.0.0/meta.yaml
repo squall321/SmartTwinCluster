@@ -1,0 +1,118 @@
+name: post_unified_analyzer
+version: 1.0.0
+summary: d3plot 분석 엔진 — YAML 작업(응력·변형률·운동·표면·핫스팟·렌더) 단일/재귀 실행
+description: |
+  d3plot 분석 엔진 — YAML 작업(응력·변형률·운동·표면·핫스팟·렌더) 단일/재귀 실행
+
+  # 명령 도움말 (unified_analyzer --help)
+  ```text
+  =============================================================
+  KooD3plot Unified Analyzer (v2.0)
+  =============================================================
+
+  Usage:
+    /data/SmartTwinPostprocessor/bin/unified_analyzer --config <yaml_file> [options]
+    /data/SmartTwinPostprocessor/bin/unified_analyzer --recursive <dir> --config <yaml_file> [options]
+    /data/SmartTwinPostprocessor/bin/unified_analyzer --generate-config
+
+  Options:
+    --config <file>     Load configuration from YAML file
+    --recursive <dir>   Scan directory recursively for d3plot files
+    --output <dir>      Output directory for recursive mode (default: ./analysis_results)
+    --skip-existing     Skip runs whose result folder carries a completion
+                        marker matching this analyzer, this config and this
+                        d3plot (see Recursive Analysis Mode below)
+    --threads N         Set number of OpenMP threads (0=auto)
+    --analysis-only     Run only analysis jobs (skip rendering)
+    --render-only       Run only render jobs (skip analysis)
+    --generate-config   Print example YAML configuration
+    --capabilities      Print supported features as JSON (no input needed)
+    --help              Show this help message
+
+  Single Analysis Mode:
+    Uses d3plot path from YAML config file.
+
+  Recursive Analysis Mode:
+    Scans specified directory for all d3plot files in subdirectories.
+    Applies same analysis config to each d3plot.
+    Creates result folders mirroring source directory structure.
+    Use --skip-existing for incremental analysis. A run is skipped only when
+    its result folder holds .analysis_info with completed: yes AND the same
+    analyzer build, the same config file contents and the same d3plot
+    modification time. Anything else is re-analyzed and the reason is
+    printed on that run's line. Results from older builds carry no marker,
+    so they are re-analyzed once.
+
+  Exit codes:
+    0  all runs succeeded
+    1  at least one run failed (or a fatal error)
+    2  recursive mode only: all runs succeeded but the scan was incomplete
+       (unreadable subtrees) — results on disk are valid
+
+  Features:
+    - Job-based analysis configuration
+    - Von Mises stress, effective plastic strain
+    - Motion analysis (displacement, velocity, acceleration)
+    - Surface stress and strain analysis
+    - Section view rendering (with LSPrePost)
+    - CSV and JSON output
+    - Recursive batch processing
+
+  Examples:
+    # Single analysis
+    /data/SmartTwinPostprocessor/bin/unified_analyzer --config my_analysis.yaml
+
+    # Recursive analysis of all simulations
+    /data/SmartTwinPostprocessor/bin/unified_analyzer --recursive /data/simulations --config common.yaml
+
+    # Incremental analysis (skip already done)
+    /data/SmartTwinPostprocessor/bin/unified_analyzer --recursive /data/simulations --config common.yaml --skip-existing
+
+    # Custom output directory
+    /data/SmartTwinPostprocessor/bin/unified_analyzer --recursive /data/sims --config common.yaml --output /results
+  ```
+
+  # MCP 로 부르는 법
+  - target 은 기존 결과(d3plot 이 있는 폴더 등)의 절대경로. 업로드하지 않고 그 자리에서 읽는다 — /data/single/<사용자>/ 아래만 된다(전각도·부분충격 잡의 결과 폴더가 거기 있다).
+  - options 의 키는 위 도움말의 --옵션 이름. 값이 객체면 YAML 파일로 만들어 넘긴다.
+  - --install-dir·--ua 와 설정의 lsprepost_path 처럼 실행 파일을 고르는 항목은 거절된다(보안).
+  - 후처리 SIF(/opt/apptainers/SmartTwinPostprocessor.sif) 안에서 돈다. 큰 캠페인은 slurm.mem·time 을 넉넉히.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- postprocess
+- kood3plot
+- report
+- d3plot
+- post
+- unified
+- analyzer
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 명령 확인
+  args:
+    dry_run: true
+    target: /data/single/USER/case/run1
+    config: &id001
+      d3plot: /data/single/USER/case/run1/d3plot
+- title: 제출하고 15분까지 기다리기
+  args:
+    dry_run: false
+    target: /data/single/USER/case/run1
+    config: *id001
+    wait_sec: 900
+    slurm:
+      cpus_per_task: 8
+      mem: 32G

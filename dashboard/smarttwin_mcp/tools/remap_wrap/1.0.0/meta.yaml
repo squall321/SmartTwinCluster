@@ -1,0 +1,119 @@
+name: remap_wrap
+version: 1.0.0
+summary: KooRemapper wrap — Apply winding tension prestress (hoop + radial stress) for cylindrical parts
+description: |
+  Apply winding tension prestress (hoop + radial stress) for cylindrical parts
+
+  Apply winding tension prestress to cylindrical parts in cylindrical coordinates. Calculates hoop tension (tangential stress) and radial compression based on layer geometry and wrapping tension. Generates *INITIAL_STRESS_SOLID in separate .dynain file. Used for modeling wire/fiber winding prestress or compression in stacked cylindrical structures.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 전체 YAML 설정 객체 |
+
+  # config 키 (YAML)
+  - `None` (string): Path to base LS-DYNA model file (.k format). Alias: base_model
+  - `None` (string): Output prefix; generates {output}.k and {output}.dynain
+  - `None` (integer|array): Part ID(s) to wrap. Single integer or [pid1, pid2, ...] list ordered inner→outer by radius. All PIDs must exist in model. Parser auto-detects scalar vs array at parse time
+  - `None` (enum): Winding axis (cylindrical coordinate z-axis direction): x | y | z. Defines the axial direction perpendicular to hoop stress plane
+  - `None` (number): Wrapping tension per unit radial thickness [N/mm]. Hoop stress σ_θθ = tension / t_elem where t_elem is element radial span. Must be non-zero
+  - `None` (array): Cylindrical axis center [c1, c2] in the plane perpendicular to winding axis. Format: [x_center, y_center] if axis=z, [y_center, z_center] if axis=x, [x_center, z_center] if axis=y. If omitted, computed as average of all node coordinates in perpendicular plane. Setting this key automatically sets autoCenter=false
+  - `None` (number): Young's modulus [MPa]. Parsed at top level (not nested under material:). Used for stress → strain conversion in *INITIAL_STRESS_SOLID. If omitted, stress is prescribed without strain
+  - `None` (number): Poisson's ratio (dimensionless). Parsed at top level (not nested under material:). Required if E is set. Must satisfy 0 < nu < 0.5
+
+  # 주의
+  - CRITICAL PARSER QUIRKS:
+  1. E and nu MUST be specified at YAML top level (not nested under material:). The parser parses material: section separately and does NOT read E/nu from inside material:.
+  2. target_pid accepts both scalar (target_pid: 1) and bracket list (target_pid: [1,2]) syntax. Parser auto-detects format.
+  3. center coordinate order: [axis1_coord, axis2_coord] in the plane perpendicular to winding_axis. For axis=z (default), center=[x,y]. For axis=x, center=[y,z]. For axis=y, center=[x,z].
+  4. tension must be non-zero (validation error if tension == 0.0).
+  5. targetPids must be non-empty (validation error if empty).
+  6. Layer ordering (inner→outer by radius) is NOT enforced but a WARNING is emitted if radii are out of order.
+
+  PHYSICS MODEL:
+  - Hoop stress (tangential): σ_θθ = tension / t_elem (uniform within element radial span)
+  - Radial compression (layer k): σ_rr = -tension / R * (N - k) / N where N = number of layers, R = layer average radius, k = layer index (0=innermost)
+  - Axial stress: σ_zz = 0 (free)
+  - Global coordinate transformation: cylindrical (r,θ,z) → Cartesian (x,y,z) via atan2(perpendicular_coords) for θ, then rotate stress tensor
+
+  MUTUALLY EXCLUSIVE / CONSTRAINTS:
+  - center (explicit) vs. autoCenter=true (implicit): if center is set in YAML, autoCenter forced to false; if center omitted, autoCenter=true
+  - axis choice determines which perpendicular axes used for cylindrical coordinates
+
+  OUTPUT:
+  - {output}.k: model with *INITIAL_STRESS_SOLID keyword block (one stress tensor per element)
+  - {output}.dynain: LS-DYNA dynain file with *INITIAL_STRESS_SOLID card that can be embedded via *INCLUDE or *INITIAL_STRESS_SOLID_ID
+  - Info message: "[wrap] N layers, tension=X N/mm, axis=Y, center=(A,B), M elements"
+
+  ASSEMBLY MODE (operations[].type: wrap):
+  - Same YAML keys as standalone, parsed in AssemblyConfigReader.cpp lines 1224–1253
+  - Can mix with other operations (replace, bend, etc.)
+  - Material E/nu inherited from top-level material: block if not explicitly set per-operation
+
+  STANDALONE MODE (KooRemapper wrap config.yaml):
+  - E/nu parsed at top-level YAML (see AssemblyConfigReader / StandaloneYamlBase)
+  - Material E/nu required if *INITIAL_STRESS_SOLID includes strain (otherwise stress-only)
+
+  RELAX / EQUILIBRATION:
+  - Output stress is UNbalanced (not in equilibrium). Use 'relax' command (dynamic relaxation) or set dynamicRelaxation: true in assemble config to equilibrate before main FEA
+  - relax command (standalone): KooRemapper relax config.yaml with level (1–5), mode (explicit/implicit), endtime, drterm parameters
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Example: wrap_test.yaml in examples/wrap/. Produces cylinder_wrapped.k and cylinder_wrapped.dynain with hoop + radial prestress. Use with 'relax' command for dynamic relaxation before main analysis.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper wrap` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- wrap
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: cylinder_2layer.k
+      output: cylinder_wrapped
+      target_pid:
+      - 1
+      - 2
+      axis: z
+      tension: 100
+      center: null
+      E: 210000
+      nu: 0.3
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/cylinder_2layer.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

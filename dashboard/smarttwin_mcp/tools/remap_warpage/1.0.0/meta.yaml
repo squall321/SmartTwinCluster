@@ -1,0 +1,130 @@
+name: remap_warpage
+version: 1.0.0
+summary: KooRemapper warpage — 측정된 변형 데이터를 셸 또는 솔리드 부품에 적용합니다
+description: |
+  측정된 변형 데이터를 셸 또는 솔리드 부품에 적용합니다
+
+  Applies out-of-plane warpage deformation to mesh nodes based on measured 2D grid data (DAT/CSV). Supports two modes: prestress (generates initial stress via curvature analysis) and deform (direct node displacement). Bilinear interpolation maps the 2D measurement grid (minimum 3×3) to 3D mesh nodes across any orientation plane.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 전체 YAML 설정 객체. base_model, output, operations 포함 |
+
+  # config 키 (YAML)
+  - `None` (integer): Part ID to apply warpage to (> 0). Must exist in base_model.
+  - `None` (file): Path to measurement data file (tab/space-delimited grid, minimum 3×3 grid required). Relative paths are resolved from config directory.
+  - `None` (enum): Measurement grid plane: xy (deflect in z), yz (deflect in x), zx (deflect in y). Defines which 2D axes carry the measurement data.
+  - `None` (enum): Direction of out-of-plane deflection. Sign determines direction. If unsigned (z/x/y), sign defaults to positive. Must be perpendicular to plane.
+  - `None` (enum): Unit of measurement data values. Applied as scale factor to raw grid values before interpolation.
+  - `None` (number): Invalid/masked data marker in grid. Masked cells are interpolated using Laplacian smoothing (up to 50% of grid may be masked). Error if >50% masked or isolated masked regions remain after interpolation.
+  - `None` (number): Minimum magnitude threshold; values below this are zeroed. Applied after mask interpolation to filter numerical noise.
+  - `None` (number): Scaling multiplier for deflection magnitude (must be > 0). Values > 10.0 trigger warning. Internally: deflection = interpolated_value * unit_scale * morph_factor.
+  - `None` (enum): prestress: computes initial stress via finite-difference curvature (κxx, κyy, κxy) using von Kármán or Kirchhoff theory. Requires material (E, nu). deform: applies direct node displacement (no stress, no material required).
+  - `None` (boolean): In prestress mode: true = von Kármán large-deformation theory (includes (∂w/∂x)² terms), false = Kirchhoff small-strain (linear). No effect in deform mode.
+  - `None` (enum): Behavior for nodes outside measurement data_bbox: zero = no deformation, clamp = clamp (u,v) to [0,1] and interpolate, extrapolate = extrapolate grid using edge values.
+  - `None` (number): Minimum X coordinate of measurement region (optional). If omitted, auto-set to part bbox min. Nested under data_bbox key.
+  - `None` (number): Maximum X coordinate of measurement region (optional). If omitted, auto-set to part bbox max. Must be > x_min if specified.
+  - `None` (number): Minimum Y coordinate of measurement region (optional). If omitted, auto-set to part bbox min.
+  - `None` (number): Maximum Y coordinate of measurement region (optional). If omitted, auto-set to part bbox max. Must be > y_min if specified.
+  - `None` (boolean): Enable debug output (curvature grids, interpolation maps, etc. written to debug_prefix directory).
+  - `None` (string): Directory prefix for debug output files (only used if debug: true).
+
+  # 주의
+  - CRITICAL GOTCHAS:
+
+  1. **data_bbox vs part bbox**: If data_bbox is omitted, the operation auto-maps part geometry 1:1 to grid coordinates. This is correct only if part bbox dimensions align with grid extent. If data was measured in a different coordinate system, explicitly set data_bbox to avoid 1:1 assumption errors.
+
+  2. **Mask interpolation**: Values exactly equal to mask_value (within 1e-6) are flagged as invalid. Isolated masked regions that cannot be interpolated from neighbors will fail the load. >50% masking triggers a warning.
+
+  3. **Deflection axis sign**: Use explicit ±z/±x/±y. Unsigned z/x/y default to positive direction. The deflection is applied in physical coordinates AFTER the grid interpolation, so sign is part-global, not grid-local.
+
+  4. **Unit conversion chain**: dat_file values [um/mm/m] → unit_scale multiplier → * morph_factor → deflection applied to node position. For example, if dat_file contains 0.5 and unit=um, morph_factor=2.0, the node moves 0.5 * 1e-3 * 2.0 = 0.001 mm.
+
+  5. **Plane-axis coupling**: Plane (xy/yz/zx) defines which 2D axes of the grid map to mesh coordinates. Deflection must be perpendicular to the plane. E.g., plane=xy + deflection_axis=z is valid; plane=xy + deflection_axis=x is invalid (would deflect in-plane).
+
+  6. **Prestress mode requires material**: E > 0 and 0 < nu < 0.5 must be set at operation or assembly level. Curvatures are computed via finite differences; finite_strain=true adds nonlinear (∂w/∂x)² strain terms.
+
+  7. **Finite strain theory**: Only affects prestress mode. Von Kármán (true) captures membrane coupling for large deflections. Kirchhoff (false) is linear; appropriate for small deflections (w << thickness).
+
+  8. **Grid minimum size**: Minimum 3×3 grid required; maximum 1000×1000. File must be rectangular (all rows same column count).
+
+  9. **Bilinear interpolation assumes monotonic axis ordering** in the grid file. The grid is indexed as data[row][col] = data[i][j]; row indices map to v-axis, columns to u-axis in the normalized [0,1]×[0,1] space.
+
+  10. **Added elements**: Warpage collects both base mesh and addedElements_ nodes (from prior operations like replace/restack) belonging to target_pid.
+
+  MUTUALLY EXCLUSIVE / INCOMPATIBLE OPTIONS:
+  - Cannot use both data_bbox and auto-map (only one is active per operation).
+  - mode=deform ignores material (E, nu); mode=prestress requires them.
+  - finite_strain only applies to prestress mode.
+
+  WORKFLOW NOTES:
+  - Warpage is typically applied AFTER replace/restack operations in the operations list so it can access the assembled geometry.
+  - For shell elements, thickness is auto-detected from *SECTION_SHELL or explicitly provided in debug output.
+  - Curvature calculation uses centered finite differences; edges use one-sided differences.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: wave_flat.k, warpage_3x3.dat)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper warpage` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- warpage
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: wave_flat.k
+      output: wave_warped
+      operations:
+      - type: warpage
+        target_pid: 1
+        dat_file: warpage_3x3.dat
+        plane: xy
+        deflection_axis: z
+        unit: um
+        mask_value: 9999
+        noise_threshold: 1.0e-10
+        outside_behavior: zero
+        morph_factor: 1
+        mode: prestress
+        finite_strain: true
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/wave_flat.k
+    - /data/single/USER/case/warpage_3x3.dat
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

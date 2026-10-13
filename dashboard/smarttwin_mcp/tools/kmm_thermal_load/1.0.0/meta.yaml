@@ -1,0 +1,165 @@
+name: kmm_thermal_load
+version: 1.0.0
+summary: KooMeshModifier THERMAL_LOAD — 열 하중 — 균일 온도 변화 열응력 또는 IC 발열(ICPower) 2-pass
+description: |
+  열 하중 — 균일 온도 변화 열응력 또는 IC 발열(ICPower) 2-pass
+
+  # 언제 쓰나
+  - 챔버 온도 변화(25→85 ℃ 등)로 열팽창 응력을 볼 때 (UniformChamber)
+  - IC 발열로 온도장을 푼 뒤 그 온도로 구조 해석할 때 (ICPower, Phase thermal → structural)
+
+  # 옵션 블록 문법 (KooMeshModifier --help THERMAL_LOAD)
+  ```text
+  **ThermalLoad,<ID>
+  ThermalType,UniformChamber|ICPower
+  Key,Value
+  PartCTE / Materials / HeatSources / TempCurve 하위 블록 (End<이름> 으로 닫음)
+  **EndThermalLoad
+  ```
+
+  # 키
+  | 키 | 형식 | 기본 | 설명 |
+  |---|---|---|---|
+  | `ThermalType` | UniformChamber\|ICPower | UniformChamber | 열 하중 종류 |
+  | `BaseTempC / TargetTempC` | 실수 | 25 / 85 | 시작·목표 온도 ℃ |
+  | `RampTimeS` | 실수 | 1e-3 | 온도 상승 시간 s |
+  | `DT` | 실수 | 1e-6 | d3plot 출력 간격 |
+  | `DTMIN` | 실수 | 없음 | CONTROL_TERMINATION DTMIN |
+  | `DefaultCTE` | 실수 | 1.7e-5 | PartCTE 에 없는 파트의 열팽창계수 |
+  | `PartCTE … EndPartCTE` | PID, CTE 줄들 | {} | 파트별 열팽창계수 |
+  | `TempCurve … EndTempCurve` | 시간,값 줄들 | [] | 온도 곡선 직접 지정. 값의 뜻은 TempCurveMode 가 정한다 |
+  | `TempCurveMode` | factor \| absolute | factor | factor=0~1 배율(T=Base+ΔT·f) / absolute=℃ 절대온도 |
+  | `TFinal` | 실수 | RampTimeS | ENDTIM. 유지(dwell) 구간을 두려면 RampTimeS 보다 크게 |
+  | `Phase` | thermal\|structural | thermal | ICPower: pass1 열해석 / pass2 구조 |
+  | `AnalysisType` | transient\|steady | transient | ICPower 열해석 종류 |
+  | `UnitSystem` | SI 등 | SI | ICPower 단위계 |
+  | `InitialTemperatureC` | 실수 | 25 | ICPower 초기 온도 |
+  | `TimestepIts / TimestepTmax / TimestepDtemp` | 실수 | - | *CONTROL_THERMAL_TIMESTEP |
+  | `Materials … EndMaterials` | PID, rho, hc, tc[, cte] | {} | ICPower 파트별 열물성 — 전 파트 필요 |
+  | `HeatSources … EndHeatSources` | PID, 발열W, 부피mm3 | [] | ICPower 발열원 |
+
+  # 사례 — 25→85 ℃ 균일 챔버, 파트별 CTE
+  ```text
+  *Inputfile
+  model.k
+  *RunDirectoryMode,True,out
+  *Mode
+  THERMAL_LOAD,1
+  **ThermalLoad,1
+  ThermalType,UniformChamber
+  BaseTempC,25
+  TargetTempC,85
+  RampTimeS,0.001
+  DT,1e-06
+  DefaultCTE,1.7e-05
+  PartCTE
+  1,2.3e-05
+  2,1.7e-05
+  EndPartCTE
+  **EndThermalLoad
+  *End
+  ```
+  - 결과: out/Run_<시각>_<해시>/ThermalSet.k (+ ThermalSet.json). 열해석은 배정밀 LS-DYNA 가 필요하다.
+
+  # 사례 — IC 발열 pass1 (열해석)
+  ```text
+  *Inputfile
+  model.k
+  *Mode
+  THERMAL_LOAD,1
+  **ThermalLoad,1
+  ThermalType,ICPower
+  Phase,thermal
+  AnalysisType,transient
+  UnitSystem,SI
+  InitialTemperatureC,25
+  TimestepIts,0.01
+  Materials
+  1,7.85e-09,4.6e+08,50
+  2,2.33e-09,7.0e+08,150
+  EndMaterials
+  HeatSources
+  2,1.5,8.0
+  EndHeatSources
+  **EndThermalLoad
+  *End
+  ```
+  - pass2 는 같은 블록에 Phase,structural 로 다시 실행 (KooChainRun THERM 모드가 자동으로 두 번 부른다).
+
+  # 주의
+  - 이 모드 블록은 빈 줄·`$` 줄을 건너뛴다.
+  - ICPower 는 전 파트 열물성(rho/hc/tc)이 없으면 열해석이 실패한다.
+
+  관련 모드: VIBRATION_LOAD
+
+  # MCP 로 부르는 법
+  - model_path 를 주면 옵션 파일 `*Inputfile` / `*Mode THERMAL_LOAD,1` / `**ThermalLoad,1` … `**EndThermalLoad` 을 만들어 준다.
+  - options 의 `키: 값` 과 lines 의 원문 줄이 블록 안에 들어간다(options 먼저).
+  - 키는 부분 문자열로 찾는 모드가 많고 모르는 키는 조용히 무시된다 — 위 표의 키 이름을 그대로 쓸 것.
+  - 단위는 모델 .k 를 따른다(KooMeshModifier 는 변환하지 않는다).
+  - 여러 모드를 한 번에: `kmm_chain`.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  # 옵션 파일 형식 (요약)
+      KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.
+
+        *Inputfile                         다음 줄에 모델 파일명 (옵션 파일 폴더 기준 상대경로)
+        model.k
+        *RunDirectoryMode,True,Data/Results[,Data/Metadata]   (선택) 결과를 Run_<시각>_<해시>/ 폴더에
+        *Info,<모델이름>,<단계>                (선택) 메타데이터
+        *Description,<설명>                   (선택)
+        *Creator,<이름>,<메일>,<그룹>,<팀>      (선택)
+        *PreserveIncludes                    (선택) 다음 줄들 = 원문 그대로 둘 *INCLUDE 파일 패턴
+        *Mode                                실행할 모드 목록, 한 줄에 하나 `모드이름,모드ID`
+        DROP_ATTITUDE,1
+        **DropAttitude,1                     모드별 옵션 블록 — 헤더 뒤 숫자가 *Mode 의 모드ID 와 짝
+        Key,Value
+        **EndDropAttitude                    `**End` 로 시작하는 줄이면 블록 종료 (**End 만 써도 됨)
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- koomeshmodifier
+- kmm
+- preprocess
+- lsdyna
+- thermal
+- load
+- cte
+- icpower
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 옵션 파일 확인
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: true
+    lines: &id001
+    - ThermalType,UniformChamber
+    - BaseTempC,25
+    - TargetTempC,85
+    - RampTimeS,0.001
+    - DT,1e-06
+    - DefaultCTE,1.7e-05
+    - PartCTE
+    - 1,2.3e-05
+    - 2,1.7e-05
+    - EndPartCTE
+- title: 제출하고 5분까지 기다리기
+  args:
+    model_path: /data/single/USER/case/model.k
+    dry_run: false
+    lines: *id001
+    wait_sec: 300
+    slurm:
+      cpus_per_task: 4
+      mem: 16G

@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "post_impact_report args",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [],
+  "properties": {
+    "options": {
+      "type": "object",
+      "properties": {
+        "from_json": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--from-json JSON_FILE — impact_payload.json sidecar 에서 HTML 재렌더 (loader/analyzer 생략, ~2s). schema_version 불일치 시 에러. (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "output": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--output OUTPUT — Output HTML file (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "json": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--json JSON — Also save report JSON to this path (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "html",
+                "json",
+                "terminal"
+              ],
+              "description": "--format {html,json,terminal} [{html,json,terminal} ...] — Output formats (default: html terminal)"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "html",
+                  "json",
+                  "terminal"
+                ],
+                "description": "--format {html,json,terminal} [{html,json,terminal} ...] — Output formats (default: html terminal)"
+              }
+            }
+          ],
+          "description": "--format {html,json,terminal} [{html,json,terminal} ...] — Output formats (default: html terminal)"
+        },
+        "threshold_critical": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--threshold-critical THRESHOLD_CRITICAL — Critical threshold for the primary metric. Units match the dataset (no implicit default). (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "threshold_warning": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--threshold-warning THRESHOLD_WARNING — Warning threshold for the primary metric (units match the dataset). (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "yield_stress": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--yield-stress YIELD_STRESS — Global yield-stress override (units match peak_stress). When omitted, per-part yield comes from the *MAT_ card via the loader. (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "faces": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--faces FACES — Comma-separated face subset (e.g. F1,F2,F5). Default: all discovered. (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "units": {
+          "type": "string",
+          "enum": [
+            "SI",
+            "ton-mm-s",
+            "ton-mm-ms",
+            "g-mm-ms"
+          ],
+          "description": "--units {SI,ton-mm-s,ton-mm-ms,g-mm-ms} — Override solver unit system. When omitted the loader auto-detects from density + impactor radius. Use this when auto-detection picks the wrong system (e.g. SI- style density in a ton-mm-s deck)."
+        },
+        "parallel_runs": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--parallel-runs N — Concurrent DOE run workers (process pool). 0 = auto: SLURM_CPUS_PER_TASK (or CPU count) // threads-per-run. Was hardcoded to 4 before — unreachable from chainrun. (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "threads_per_run": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--threads-per-run N — unified_analyzer threads per DOE worker (default 2). (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "single_file": {
+          "type": "boolean",
+          "description": "--single-file — HTML 출력 모드를 inline 단일 파일로 강제 (tier 자동 결정 무시)."
+        },
+        "chunked": {
+          "type": "boolean",
+          "description": "--chunked — HTML 출력 모드를 chunked(report_data/ 청크)로 강제."
+        },
+        "g_limit": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--g-limit G — 설계 가속도 한계 [G]. 제공 시 CRITICAL 판정이 자기분포 P95 대신 이 절대값 기준이 됨 (NO DESIGN LIMITS 배지 해제). (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "stress_limit": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--stress-limit MPa — 설계 응력 한계 (stress 단위, 보통 MPa). 제공 시 s1 KPI/s9 테이블에 한계 초과가 표시됨. (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "no_cache": {
+          "type": "boolean",
+          "description": "--no-cache — per-run 증분 캐시(.impact_cache) 읽기/쓰기 모두 끔."
+        },
+        "refresh_cache": {
+          "type": "boolean",
+          "description": "--refresh-cache — 캐시를 무시하고 전량 재계산 후 캐시 재작성."
+        }
+      },
+      "additionalProperties": false,
+      "description": "명령줄 옵션. 키는 --옵션 이름(밑줄·하이픈 모두 됨), 켜는 옵션은 true. --install-dir·--ua 처럼 실행 파일 위치를 바꾸는 옵션은 받지 않는다."
+    },
+    "argv_extra": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "description": "그대로 덧붙일 인자(드물게). 같은 금지 규칙과 경로 검사를 받는다."
+    },
+    "in_place": {
+      "type": "boolean",
+      "default": true,
+      "description": "true 면 target 폴더(파일이면 그 폴더)에서 실행해 산출물이 결과 옆에 생긴다. false 면 잡 결과 폴더 work/ 에서 실행."
+    },
+    "target": {
+      "type": "string",
+      "pattern": "^/.+",
+      "description": "분석할 폴더 절대경로 — /data/single/<사용자>/ 아래만 (--test-dir 로 넘어간다)"
+    },
+    "slurm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "잡 자원(선택). 생략하면 도구 종류별 기본(전처리 2 CPU·8G, 후처리 4 CPU·16G, 24시간)을 클러스터에서 가장 큰 노드에 맞춰 줄여 쓴다.",
+      "properties": {
+        "cpus_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "CPU 수"
+        },
+        "mem": {
+          "type": "string",
+          "pattern": "^[0-9]{1,6}[MG]$",
+          "description": "메모리 (예: 32G)"
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$",
+          "description": "시간 상한 HH:MM:SS"
+        },
+        "partition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "파티션 이름 (생략 = 클러스터 기본)"
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "true 면 제출하지 않고 생성될 입력 파일·명령만 돌려준다(PAT 없이도 된다). 먼저 이걸로 확인할 것."
+    },
+    "wait_sec": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1800,
+      "default": 0,
+      "description": "제출 후 이 시간(초) 안에 끝나면 결과(rc·로그 꼬리·작은 산출물)를 함께 돌려준다. 0 = job_id 만."
+    },
+    "job_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,48}$",
+      "description": "잡 이름(결과 폴더 이름이 된다). 생략하면 stmc_<도구이름>."
+    }
+  }
+}

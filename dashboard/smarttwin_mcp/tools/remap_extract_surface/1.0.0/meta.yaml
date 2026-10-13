@@ -1,0 +1,98 @@
+name: remap_extract_surface
+version: 1.0.0
+summary: KooRemapper extract-surface — Extract free surface faces from solid HEX8/TET4 mesh as ELEMENT_SHELL
+  (QUAD4)
+description: |
+  Extract free surface faces from solid HEX8/TET4 mesh as ELEMENT_SHELL (QUAD4)
+
+  Extracts the free (outer) surface of a solid HEX8 mesh as shell QUAD4 elements. **Tetrahedra are not supported correctly**: the face table is hex-shaped, so one TET4 yields 5 faces instead of 4 — a bogus quad through all four vertices, two faces collapsed to lines, and only 2 of the 4 real triangles (measured 2026-10-05). For looking at a tet mesh's free surface use `surfview`, which keys the face table on element type and returns 4/4. A free face is one shared by exactly one element (interior faces shared by 2+ elements are dropped). Supports directional filtering (top/bottom/all) using Z-centroid heuristics and optional mid-surface mode that pairs top/bottom nodes by XY proximity to create a single averaged shell layer.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `solid_file` | file | 예 | Input solid mesh file (HEX8/TET4 elements, LS-DYNA K-file) |
+  | `output_shell` | output | 예 | Output shell mesh file (ELEMENT_SHELL QUAD4, LS-DYNA K-file) |
+  | `pid` | integer |  | Filter extraction by part ID (0 = all parts) |
+  | `face` | enum |  | Extract top, bottom, or all free faces (uses Z-centroid heuristic; ignored with --mid-surface) |
+  | `output_pid` | integer |  | Part ID for emitted shell elements |
+  | `mid_surface` | boolean |  | Enable mid-surface mode: pair top/bottom nodes by XY proximity, create averaged shell layer (requires both top and bottom faces) |
+
+  # config 키 (YAML)
+  - `None` (enum): Operation type identifier (YAML assemble mode only; CLI mode does not require this)
+  - `None` (integer): Filter extraction by part ID from source solid mesh (0 = all parts, >0 = specific PID). Used in assemble YAML mode only; in CLI mode use --pid flag.
+  - `None` (enum): Directional filter for free faces: 'top' (Z-centroid of face > element centroid), 'bottom' (Z-centroid < element centroid), 'all' (all free faces including degenerate Z=0 cases). Ignored when mid_surface=true.
+  - `None` (integer): Part ID for emitted shell elements (0 in assemble mode = auto-increment ++maxPartId_; >0 = explicit value). CLI default is 1.
+  - `None` (boolean): Enable mid-surface mode: pair top/bottom nodes by XY proximity using 2D spatial hash, create averaged mid-node positions (average of top/bottom XYZ), emit single shell layer with new node IDs. Requires both top and bottom free face sets non-empty; fails with error otherwise. Ignores 'face' parameter when true. New node IDs start at max(input_node_id) + 1.
+
+  # 주의
+  -
+  **Free face detection**: A face is considered free if it belongs to exactly 1 element. Interior faces (shared by 2+ elements) are discarded. Face winding order is preserved from the first element containing that face (used for later orientation).
+
+  **Top/bottom discrimination**: Uses unweighted centroid Z of face versus parent element centroid Z. If dz = face_z - elem_z: dz > 0 → top; dz < 0 → bottom; dz ≈ 0 (degenerate, face exactly on element plane) → neither top nor bottom, only included in 'all' mode.
+
+  **Mid-surface mode algorithm**: (1) Collect all unique node IDs on top and bottom free face sets. (2) Build 2D spatial hash from bottom-side nodes with cell size = bbox_diagonal / sqrt(node_count) (0.5–1.5× typical element size). (3) For each top node, find closest bottom node in 3×3 hash window (XY distance only). If no match found, node is skipped with warning. (4) Create mid-node at average of matched top/bottom pair coordinates (XYZ all three dimensions averaged). (5) Remap top face winding to mid node IDs. If a top node has no match, entire face is skipped.
+
+  **Degenerate triangles (TRIA3)**: Written as degenerate QUAD4 with N4=N3 per LS-DYNA convention (4th node = 3rd node). Input TET4 meshes with TRIA3 boundary faces are auto-detected via isTriangle(n[3]==n[2] || n[3]==0 || n[3]==n[0]) logic.
+
+  **Mutually exclusive options**: None. However, 'face' parameter is logically ignored when mid_surface=true (mid-surface mode uses top+bottom regardless).
+
+  **Common gotchas**:
+  - mid_surface requires BOTH top and bottom face sets present; if either is empty, command fails with error "requires both top and bottom free faces (found top=N, bottom=M)".
+  - Top/bottom detection is Z-only, ignoring X/Y symmetry; if mesh spans multiple Z-levels with layered structure not aligned to Z, discrimination may fail.
+  - Spatial hash cell size in mid-surface mode is adaptive; with very coarse or very dense meshes, pairing may fail or pair distant nodes. No user control over cell size.
+  - Output K-file contains ONLY *NODE and *ELEMENT_SHELL blocks; input solid HEX8/TET4 elements and interior nodes are NOT preserved (external post-processing required if retention needed).
+  - Node IDs in output are those used by emitted shells only; unused nodes from input are dropped.
+  - If all top/bottom nodes match, output node count = original node count (mid_surface creates new IDs but reuses spatial locations). If partial match, output node count < 2× input top/bottom nodes.
+
+
+  사례 메모: Extracts all free surfaces from solid mesh and emits as PID 1 shell elements. For mid-surface mode on a layered part, add --mid-surface flag to pair top/bottom faces.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper extract-surface` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- extract
+- surface
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    solid_file: bolt_simple_solid.k
+    output_shell: bolt_surface.k
+    pid: 0
+    face: all
+    output_pid: 1
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/bolt_simple_solid.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    solid_file: bolt_simple_solid.k
+    output_shell: bolt_surface.k
+    pid: 0
+    face: all
+    output_pid: 1
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

@@ -1,0 +1,111 @@
+name: remap_indent
+version: 1.0.0
+summary: KooRemapper indent — Apply indentation or embossing deformation and compute prestress with polygon
+  or spline punch shapes.
+description: |
+  Apply indentation or embossing deformation and compute prestress with polygon or spline punch shapes.
+
+  Apply indentation or embossing deformation and compute optional prestress with polygon or spline punch shapes. Depth > 0 for indentation (inward deformation), depth < 0 for embossing (outward deformation). Supports both solid and shell elements with optional bending stress calculation output to *INITIAL_STRESS_SOLID (LS-DYNA).
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | Complete YAML configuration object containing base_model, output, optional material/dynain settings, and operations array with indent specifications |
+
+  # config 키 (YAML)
+  - `None` (enum): Operation type identifier, must be 'indent'
+  - `None` (integer): Part ID (PID) of the solid or shell part to apply indentation to
+  - `None` (enum): Plane containing the punch shape (indentation plane). Defines which two axes the shape coordinates are in. xy: inAxis1=X, inAxis2=Y, normal=Z; yz: inAxis1=Y, inAxis2=Z, normal=X; zx: inAxis1=Z, inAxis2=X, normal=Y
+  - `None` (string): Direction perpendicular to plane (normal direction) along which indentation/embossing occurs. First character is sign (+ or -), rest is axis name. Sign controls direction: + = outward/emboss, - = inward/indent
+  - `None` (number): Indentation depth in mm. Positive = indent inward (deformation toward the punch); negative = emboss outward (reverse deformation). Magnitude represents the maximum displacement at the center of the shape
+  - `None` (number): Fillet radius on punch side (inner radius) in mm. Controls quarter-arc curvature at the bottom/center of the indent
+  - `None` (number): Fillet radius on die side (outer radius) in mm. Controls quarter-arc transition from indentation back to original surface
+  - `None` (number): Flat-bottom ratio [0.0-1.0]. Controls the ratio of flat bottom to fillet in through-thickness direction. 0.0 = full quarter-arc fillet; 1.0 = fully flat. Applies to bottom profile depth interpolation
+  - `None` (boolean): Enable bending prestress calculation. If true, computes bending stress from curvature and outputs *INITIAL_STRESS_SOLID. Requires material E and nu at top-level config
+  - `None` (number): Explicit shell element thickness in mm. Required for stress=true with shell elements. If 0 or omitted, auto-extracts from *SECTION_SHELL in K-file
+  - `None` (object): Shape definition object containing type and points array
+  - `None` (enum): Shape type: 'polygon' for closed polygon (linear edges between consecutive points), 'spline' for smooth B-spline interpolation through points
+  - `None` (array): Array of [x, y] coordinate pairs in the indentation plane. For polygon: minimum 3 vertices forming closed boundary. For spline: points are smoothly interpolated through. Coordinates are in plane coordinates (e.g., [x,y] if plane=xy)
+  - `None` (number): Young's modulus in MPa. Required at top-level config when stress=true. If not provided and stress=true, attempts auto-extraction from *MAT in K-file
+  - `None` (number): Poisson's ratio (0 < nu < 0.5). Required at top-level config when stress=true. Used for bending stress calculation from curvature
+  - `None` (boolean): Embed *INITIAL_STRESS_SOLID inline in the output .k file instead of writing to separate .dynain file. Only used when stress=true
+  - `None` (boolean): Insert *CONTROL_DYNAMIC_RELAXATION keyword into output for LS-DYNA dynamic relaxation solve. Used to relax prestress from flat→indented shape
+
+  # 주의
+  - Coordinate system: shape points are 2D coordinates in the indentation plane. For plane='xy', use [x,y]. For plane='yz', use [y,z]. For plane='zx', use [z,x]. Direction must be perpendicular to plane (e.g., plane='xy' with direction='+z' or '-z'). Profile uses quarter-arc fillets with curvatures computed from r1, r2, depth. Stress calculation applies BEFORE node deformation (like bend); strain capping uses strainLimit/(thickness/2) upper bound for curvature at singularities. For shells with stress=true, shell_thickness must be explicitly provided in YAML or present as *SECTION_SHELL in K-file; if neither exists, operation fails. Part thickness computed as difference between max and min node positions along normal axis. Warning if k = |depth|/(r1+r2) > 1.0 (steep fillet). Mutually exclusive: cannot use both explicit shell_thickness override and auto-extraction from *SECTION_SHELL (priority: explicit first, then *SECTION_SHELL).
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: block.k, shell_plate.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper indent` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- indent
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      base_model: block.k
+      output: indent_result
+      material:
+        E: 210000
+        nu: 0.3
+      operations:
+      - type: indent
+        target_pid: 1
+        plane: xy
+        direction: -z
+        depth: 0.5
+        r1: 0.5
+        r2: 1
+        bottom_ratio: 0
+        stress: true
+        shape:
+          type: polygon
+          points:
+          - - 3
+            - 3
+          - - 7
+            - 3
+          - - 7
+            - 7
+          - - 3
+            - 7
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/block.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

@@ -1,0 +1,86 @@
+name: remap_prestress
+version: 1.0.0
+summary: KooRemapper prestress — 변형 메시로부터 초기응력(초기변형률) 계산 및 dynain 출력.
+description: |
+  변형 메시로부터 초기응력(초기변형률) 계산 및 dynain 출력.
+
+  Calculate prestress (initial stress/strain) from reference and deformed mesh configurations. Computes strain tensor between two K-files with identical topology, optionally calculates stress using Hooke's law from material properties, and outputs *INITIAL_STRESS_SOLID cards in dynain format for LS-DYNA.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `ref_mesh` | file | 예 | Reference (undeformed) mesh in K-file format |
+  | `def_mesh` | file | 예 | Deformed mesh in K-file format (must have same topology as ref_mesh) |
+  | `output` | output | 예 | Output file path (dynain format or CSV prefix, no extension needed) |
+  | `E` | number |  | Young's modulus override (Pa/MPa). Overrides K-file materials when specified. |
+  | `nu` | number |  | Poisson's ratio override. Overrides K-file materials when specified. |
+  | `strain` | enum |  | Strain type: engineering (small), green (large/Green-Lagrange) or log (logarithmic/true strain). Note: 'log' is accepted only by the 'strain' command (StrainCalculator). The prestress path computes Green-Lagrange for anything but 'engineering', so prestress rejects 'log' with rc=1. |
+  | `csv` | boolean |  | Also output strain/stress data as CSV file |
+
+  # config 키 (YAML)
+  - `None` (file): Reference (undeformed) mesh in K-file format. Must contain *PART and *MAT_ELASTIC cards for stress calculation; topology must match def_mesh exactly (same node IDs, element connectivity).
+  - `None` (file): Deformed mesh in K-file format. Current/loaded configuration with same topology as ref_mesh. Displacement is computed as (def_mesh_coords - ref_mesh_coords); strain and stress follow from deformation gradient.
+  - `None` (file): Output file path (no extension required). Generates <output>.dynain (or .k if embedded) for *INITIAL_STRESS_SOLID cards; also creates <output>.k with deformed mesh + *INCLUDE directive. If --csv is used, also writes <output>.csv.
+  - `None` (number): Young's modulus override (same units as K-file, typically MPa or Pa depending on unit system). When specified, completely overrides all *MAT_ELASTIC cards from ref_mesh. Applied globally to all elements.
+  - `None` (number): Poisson's ratio override (unitless, typically 0.0–0.5). When specified together with E, completely overrides all *MAT_ELASTIC cards. Applied globally to all elements.
+  - `None` (enum): Strain type for computation. 'engineering' = symmetric small-strain tensor ε_ij = 0.5(∂u_i/∂x_j + ∂u_j/∂x_i); 'green' = Green-Lagrange large-deformation E_ij = 0.5(∂u_i/∂X_j + ∂u_j/∂X_i + (∂u_k/∂X_i)(∂u_k/∂X_j)) Note: 'log' is accepted only by the 'strain' command (StrainCalculator). The prestress path computes Green-Lagrange for anything but 'engineering', so prestress rejects 'log' with rc=1.
+  - `None` (boolean): Output CSV file with per-element strain/stress data. When set, writes <output>.csv in addition to dynain. If no material is available (no K-file materials and no --E/--nu), CSV is always written regardless of this flag.
+
+  # 주의
+  - Material priority: command-line --E/--nu (highest) completely override K-file materials; if neither provided, reads *PART→*MAT_ELASTIC mappings from ref_mesh. If no material found, stress output is zero but strain is always computed. Both meshes must have identical topology (node IDs, element IDs, connectivity); if one mesh is the result of mapping (e.g., KooRemapper map output), verify node/element IDs match ref_mesh. Output always includes a .k file (deformed mesh with *INCLUDE directive) plus .dynain; remove the extension from 'output' argument—the tool auto-appends .dynain and .k. Flip correction: if meshes have odd-parity mirror flips (e.g., HEX8 node order swapped), apply the same flip to ref_mesh before passing to prestress to ensure consistent strain computation (reflection-invariant E' = R E R^T). Green-Lagrange strain is for large deformations (bending, forming); engineering strain for small deformations.
+
+  사례 메모: Computes initial stress from deformed configuration. ref_mesh is reference state (undeformed); def_mesh is current deformed state. Both must have identical element topology and node count. Material properties (*MAT_ELASTIC) are read from ref_mesh unless overridden with --E/--nu.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper prestress` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- prestress
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    ref_mesh: arc30_flat.k
+    def_mesh: arc30_mapped.k
+    output: arc30_test_prestress.dynain
+    E: 210000
+    nu: 0.3
+    strain: engineering
+    csv: false
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/arc30_flat.k
+    - /data/single/USER/case/arc30_mapped.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    ref_mesh: arc30_flat.k
+    def_mesh: arc30_mapped.k
+    output: arc30_test_prestress.dynain
+    E: 210000
+    nu: 0.3
+    strain: engineering
+    csv: false
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

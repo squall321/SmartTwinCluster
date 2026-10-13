@@ -1,0 +1,66 @@
+name: remap_unfold
+version: 1.0.0
+summary: KooRemapper unfold — Generate a flat unfolded mesh from a bent structured HEX8 mesh by computing
+  arc-length along the centerline.
+description: |
+  Generate a flat unfolded mesh from a bent structured HEX8 mesh by computing arc-length along the centerline.
+
+  Generate a flat (unfolded) mesh from a bent structured HEX8 mesh by computing arc-length along the centerline. The algorithm automatically detects structured grid dimensions (I, J, K), computes arc-length along the arc axis, and preserves cross-section sizes in the perpendicular directions. The output maintains identical topology to the input but with coordinates adjusted to a flat configuration suitable for reference geometry in mapping operations.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `bent_mesh` | file | 예 | The bent structured mesh (LS-DYNA .k file with HEX8 elements) |
+  | `output_flat` | output | 예 | Output file path for the flat (unfolded) mesh |
+
+  # config 키 (YAML)
+  - `None` (file): Input bent structured mesh in LS-DYNA .k format. Must be a regular HEX8-element structured mesh (3D grid with identical topology in I, J, K directions). The mesh does not require uniform edge lengths but must have analyzable centerline geometry.
+  - `None` (file): Output path for the generated flat (unfolded) mesh in LS-DYNA .k format. The mesh will have the same node and element count as input, with identical topology but coordinates transformed to flat configuration (arc-length along I, cross-section preserved in J-K plane).
+
+  # 주의
+  - CRITICAL CONSTRAINTS: (1) Input must be a STRUCTURED HEX8 mesh (not unstructured). The operation auto-detects grid dimensions and fails if connectivity is not regular. (2) No optional flags or YAML configuration — unfold is purely positional CLI. Takes exactly 2 arguments. (3) Output topology identical to input — same element connectivity, same part IDs and materials preserved. (4) Axis permutation automatic: the operation identifies the arc axis (longest cumulative edge length), width axis (J), and thickness axis (K). For closed-loop bent meshes, the operation auto-detects and shifts the apex (lowest-curvature point) to the middle of the unfold for symmetric output. (5) Designed as reference generator for the 'map' command — use output with: KooRemapper map bent_mesh.k detailed_flat.k output_bent.k (6) Console output reports grid size (I×J×K) and flat extents (length-I in arc units, length-J, length-K in original units). (7) Validation runs automatically: validates HEX8 structure; reports errors if mesh is non-structured or malformed.
+
+  사례 메모: Reads a bent HEX8-element mesh (arc30_bent.k with 3x21x20 grid) and generates a flat reference mesh with arc-length unwrapped along X, output topology identical to input
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper unfold` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- core
+- unfold
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    bent_mesh: arc30_bent.k
+    output_flat: arc30_unfolded.k
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/arc30_bent.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    bent_mesh: arc30_bent.k
+    output_flat: arc30_unfolded.k
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

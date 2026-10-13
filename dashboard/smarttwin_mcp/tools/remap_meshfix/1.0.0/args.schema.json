@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "remap_meshfix args",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model",
+    "output",
+    "pid"
+  ],
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "Input LS-DYNA .k file containing the TET4 part to remesh",
+      "x-kind": "session_file"
+    },
+    "output": {
+      "type": "string",
+      "description": "Output LS-DYNA .k file with remeshed part (other parts preserved)"
+    },
+    "pid": {
+      "type": "integer",
+      "description": "Part ID of the TET4 element part to remesh"
+    },
+    "lc_target": {
+      "type": "number",
+      "description": "Target average element size for remesh",
+      "default": 1.0
+    },
+    "lc_min": {
+      "type": "number",
+      "description": "Minimum element size (-1 = auto from edge_min*0.8 or min_dt-based)",
+      "default": -1.0
+    },
+    "lc_max": {
+      "type": "number",
+      "description": "Maximum element size (-1 = lc_target * 2)",
+      "default": -1.0
+    },
+    "min_dt": {
+      "type": "number",
+      "description": "LS-DYNA explicit time step lower bound (for auto lc_min calculation)",
+      "default": -1.0
+    },
+    "density": {
+      "type": "number",
+      "description": "Material density (t/mm³, used with min_dt)",
+      "default": -1.0
+    },
+    "E": {
+      "type": "number",
+      "description": "Young's modulus (MPa, used with min_dt)",
+      "default": -1.0
+    },
+    "nu": {
+      "type": "number",
+      "description": "Poisson's ratio (used with min_dt)",
+      "default": -1.0
+    },
+    "min_layers_thin": {
+      "type": "integer",
+      "description": "Minimum element layers through thin dimension for thin-solid handling",
+      "default": 2
+    },
+    "adaptive": {
+      "type": "boolean",
+      "description": "Enable MathEval distance-field size adaptation around bbox corners",
+      "default": true
+    },
+    "decay_factor": {
+      "type": "number",
+      "description": "Corner refinement decay distance = lc_min * decay_factor",
+      "default": 8.0
+    },
+    "boundary_nodes": {
+      "type": "string",
+      "description": "Boundary node handling: free (new IDs) | fixed (match original) | snap (merge to neighbors)",
+      "enum": [
+        "free",
+        "fixed",
+        "snap"
+      ],
+      "default": "free"
+    },
+    "snap_tolerance": {
+      "type": "number",
+      "description": "Search radius for snap mode boundary node merging",
+      "default": 0.001
+    },
+    "algorithm": {
+      "type": "string",
+      "description": "Gmsh 3D mesh algorithm (hxt=parallel hybrid, frontal3d=advancing front, del3d=Delaunay)",
+      "enum": [
+        "hxt",
+        "frontal3d",
+        "del3d"
+      ],
+      "default": "hxt"
+    },
+    "optimize_netgen": {
+      "type": "boolean",
+      "description": "Enable Gmsh built-in Netgen optimization after Mesh 3",
+      "default": true
+    },
+    "optimize_passes": {
+      "type": "integer",
+      "description": "Number of additional OptimizeMesh Netgen passes after Mesh 3 (skipped for thin geometry)",
+      "default": 3
+    },
+    "quality_check": {
+      "type": "boolean",
+      "description": "Report scaled-Jacobian quality statistics after remesh",
+      "default": true
+    },
+    "warn_min_jac": {
+      "type": "number",
+      "description": "Warn if elements have scaled Jacobian below this threshold",
+      "default": 0.15
+    },
+    "refine_surface": {
+      "type": "integer",
+      "description": "STL surface refinement levels (-1=auto, 0=off, 1-3=conforming feature-edge bisection)",
+      "default": -1
+    },
+    "smooth_surface": {
+      "type": "integer",
+      "description": "Laplacian smoothing steps on STL feature-edge vertices (0=off)",
+      "default": 0
+    },
+    "polish": {
+      "type": "boolean",
+      "description": "Enable local bad-element patch re-meshing (experimental)",
+      "default": false
+    },
+    "polish_jac": {
+      "type": "number",
+      "description": "Polish target: re-mesh patches with scaled Jacobian below this",
+      "default": 0.1
+    },
+    "polish_max_iter": {
+      "type": "integer",
+      "description": "Maximum iterations for patch polishing",
+      "default": 2
+    },
+    "extra_inputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/.+"
+      },
+      "maxItems": 64,
+      "description": "옵션이 가리키는 보조 파일의 절대경로. 잡 work/ 폴더로 같이 올라가므로 옵션 값에는 파일 이름만 쓰면 된다. 허용 범위: /data/single/<사용자>/, /shared/uploads/users/<사용자>/, /data/scenario/."
+    },
+    "slurm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "잡 자원(선택). 생략하면 도구 종류별 기본(전처리 2 CPU·8G, 후처리 4 CPU·16G, 24시간)을 클러스터에서 가장 큰 노드에 맞춰 줄여 쓴다.",
+      "properties": {
+        "cpus_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "CPU 수"
+        },
+        "mem": {
+          "type": "string",
+          "pattern": "^[0-9]{1,6}[MG]$",
+          "description": "메모리 (예: 32G)"
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$",
+          "description": "시간 상한 HH:MM:SS"
+        },
+        "partition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "파티션 이름 (생략 = 클러스터 기본)"
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "true 면 제출하지 않고 생성될 입력 파일·명령만 돌려준다(PAT 없이도 된다). 먼저 이걸로 확인할 것."
+    },
+    "wait_sec": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1800,
+      "default": 0,
+      "description": "제출 후 이 시간(초) 안에 끝나면 결과(rc·로그 꼬리·작은 산출물)를 함께 돌려준다. 0 = job_id 만."
+    },
+    "job_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,48}$",
+      "description": "잡 이름(결과 폴더 이름이 된다). 생략하면 stmc_<도구이름>."
+    }
+  }
+}

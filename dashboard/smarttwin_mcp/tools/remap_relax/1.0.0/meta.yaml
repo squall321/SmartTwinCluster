@@ -1,0 +1,143 @@
+name: remap_relax
+version: 1.0.0
+summary: KooRemapper relax — Set up Dynamic Relaxation for initial stress equilibrium with 5-level preset
+  system
+description: |
+  Set up Dynamic Relaxation for initial stress equilibrium with 5-level preset system
+
+  Configures Dynamic Relaxation (DR) in LS-DYNA models to achieve initial stress equilibrium. Supports 5-level preset system (fast to max-conservative) and explicit/implicit modes; inserts *CONTROL_DYNAMIC_RELAXATION and optionally *DATABASE_BINARY_D3DRLF keywords.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Input LS-DYNA .k file to apply Dynamic Relaxation |
+  | `output` | output | 예 | Output .k file with DR keywords inserted |
+  | `level` | integer |  | DR convergence level: 1(빠름/fast)~5(최대/max conservative) |
+  | `mode` | enum |  | DR mode: explicit(IDRFLG=1) or implicit(IDRFLG=5) |
+  | `drterm` | number |  | DR termination time in seconds (0=convergence only) |
+  | `endtime` | number |  | Post-DR analysis endtime (optional, for continuing transient) |
+  | `nrcyck` | integer |  | Convergence check interval (overrides level preset) |
+  | `drtol` | number |  | Convergence tolerance (overrides level preset) |
+  | `drfctr` | number |  | Velocity damping factor 0~1 (overrides level preset) |
+  | `tssfdr` | number |  | DR timestep scale factor (overrides level preset) |
+  | `irelal` | integer |  | Auto control: 0=off, 1=Papadrakakis (overrides level preset) |
+  | `edttl` | number |  | Auto control convergence tolerance (overrides level preset) |
+  | `d3drlf` | boolean |  | Enable *DATABASE_BINARY_D3DRLF output for DR database |
+  | `fix_shell_elform` | boolean |  | Fix shell element formulation issues if present |
+  | `strip` | boolean |  | Strip mode: true removes all DR keywords without insertion |
+
+  # config 키 (YAML)
+  - `None` (file): Input LS-DYNA .k file to apply Dynamic Relaxation
+  - `None` (file): Output .k file path with DR keywords inserted
+  - `None` (integer): DR convergence level preset: 1=fast (loose), 2=standard (default), 3=stable, 4=conservative (tight), 5=max (strictest). Controls NRCYCK, DRTOL, DRFCTR, TSSFDR, IRELAL, EDTTL via preset table
+  - `None` (enum): DR solver mode: explicit (IDRFLG=1, velocity damping) or implicit (IDRFLG=5, implicit solver). Implicit adds *CONTROL_IMPLICIT_GENERAL and *CONTROL_IMPLICIT_SOLUTION keywords
+  - `None` (number): DR termination time in seconds; >0 limits DR phase duration, 0 runs to convergence only. Sets DRTERM field in *CONTROL_DYNAMIC_RELAXATION
+  - `None` (number): Post-DR analysis endtime (optional); if specified and >0, modifies *CONTROL_TERMINATION to continue transient analysis after DR phase
+  - `None` (number): Convergence check interval (cycles); overrides level preset NRCYCK value if >0
+  - `None` (number): Convergence tolerance (dimensionless); overrides level preset DRTOL value if >0. Tighter value = stricter convergence
+  - `None` (number): Velocity damping factor (0.0 to 1.0); overrides level preset DRFCTR. Higher = more damping, 1.0 = full damping, if >0
+  - `None` (number): DR timestep scale factor (0.0 to 1.0); overrides level preset TSSFDR. Controls *CONTROL_DYNAMIC_RELAXATION TSSFDR field, if >0
+  - `None` (integer): Auto-control flag: 0=off, 1=Papadrakakis method. Overrides level preset IRELAL if >=0
+  - `None` (number): Auto-control convergence tolerance; overrides level preset EDTTL if >0. Applies when IRELAL=1
+  - `None` (boolean): Enable *DATABASE_BINARY_D3DRLF output for DR phase database dumps. Accepts 'true'/'yes'/'1' (on) or 'false'/'no'/'0' (off)
+  - `None` (boolean): Check and fix shell element formulation issues if present. Accepts 'true'/'yes'/'1' (enable) or 'false'/'no'/'0' (disable)
+  - `None` (boolean): Strip mode: removes all DR keywords (*CONTROL_DYNAMIC_RELAXATION, *DATABASE_BINARY_D3DRLF) from model without insertion. Ignores level/mode/drterm. Accepts 'true'/'yes'/'1' (enable) or 'false'/'no'/'0' (disable)
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "Level 1 (fast)",
+    "summary": "NRCYCK=500, DRTOL=0.010, DRFCTR=0.990, TSSFDR=0.95, IRELAL=0, EDTTL=0.04. Fastest convergence, loose tolerance—suitable for quick equilibration"
+   },
+   {
+    "name": "Level 2 (standard)",
+    "summary": "NRCYCK=250, DRTOL=0.001, DRFCTR=0.995, TSSFDR=0.90, IRELAL=0, EDTTL=0.04. Default preset; balanced speed and accuracy"
+   },
+   {
+    "name": "Level 3 (stable)",
+    "summary": "NRCYCK=100, DRTOL=0.001, DRFCTR=0.998, TSSFDR=0.80, IRELAL=0, EDTTL=0.04. More stable, moderate convergence time"
+   },
+   {
+    "name": "Level 4 (conservative)",
+    "summary": "NRCYCK=50, DRTOL=1e-4, DRFCTR=0.999, TSSFDR=0.67, IRELAL=1 (auto-control on), EDTTL=0.01. Tight tolerance, longer runtime—recommended for sensitive models"
+   },
+   {
+    "name": "Level 5 (max)",
+    "summary": "NRCYCK=25, DRTOL=1e-5, DRFCTR=0.999, TSSFDR=0.50, IRELAL=1 (auto-control on), EDTTL=0.001. Strictest convergence—slowest but most robust equilibration"
+   }
+  ]
+  ```
+
+  # 주의
+  -
+  - **Level presets**: Lines 27-33 in relax.cpp define preset table (NRCYCK, DRTOL, DRFCTR, TSSFDR, IRELAL, EDTTL). Override thresholds: nrcyck/drtol/drfctr/tssfdr/edttl>0, irelal>=0.
+  - **Strip mode exclusivity**: When strip=true, level/mode/drterm/endtime/nrcyck/drtol/drfctr/tssfdr/irelal/edttl are ignored; only removes keywords. Model and output paths still required.
+  - **Implicit mode behavior**: mode=implicit automatically sets IDRFLG=5, inserts *CONTROL_IMPLICIT_GENERAL and *CONTROL_IMPLICIT_SOLUTION. Removes conflicting *CONTROL_IMPLICIT_* cards from input.
+  - **Endtime logic**: endtime only applied if >0; modifies *CONTROL_TERMINATION to allow post-DR transient analysis.
+  - **Path resolution**: Relative paths in the YAML — with or without a folder part — are resolved relative to the YAML file directory; absolute paths are used as-is.
+  - **D3DRLF output**: d3drlf=true (default) adds *DATABASE_BINARY_D3DRLF with dt=1.0e-3, lcid=0.
+  - **SIDR curves**: DEFINE_CURVE entries with SIDR=1 preserved; used by DR integrator.
+  - **Boolean parsing**: Accepts 'true'/'yes'/'1' as true, 'false'/'no'/'0' as false (case-sensitive); empty/missing defaults per field.
+  - **Validation**: level must be 1-5 (unless strip=true); mode must be 'explicit' or 'implicit' (unless strip=true).
+  - **Output**: Inserts DR cards before *END keyword; existing DR/IMPLICIT cards removed first to avoid duplication.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: cylinder_wrapped.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper relax` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- relax
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: cylinder_wrapped.k
+    output: cylinder_relaxed.k
+    level: 2
+    mode: explicit
+    drterm: 100
+    endtime: 1
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/cylinder_wrapped.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: cylinder_wrapped.k
+    output: cylinder_relaxed.k
+    level: 2
+    mode: explicit
+    drterm: 100
+    endtime: 1
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

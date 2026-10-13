@@ -1,0 +1,105 @@
+name: post_impact_report
+version: 1.0.0
+summary: 부분충격(DWI) 다면 DOE 리포트 — 면별 위치 격자 위험도 (또는 --from-json 재생성)
+description: |
+  부분충격(DWI) 다면 DOE 리포트 — 면별 위치 격자 위험도 (또는 --from-json 재생성)
+
+  # 명령 도움말 (koo_impact_report --help)
+  ```text
+  usage: koo_impact_report [-h] (--test-dir TEST_DIR | --from-json JSON_FILE)
+                           [--output OUTPUT] [--json JSON]
+                           [--format {html,json,terminal} [{html,json,terminal} ...]]
+                           [--threshold-critical THRESHOLD_CRITICAL]
+                           [--threshold-warning THRESHOLD_WARNING]
+                           [--yield-stress YIELD_STRESS] [--faces FACES]
+                           [--units {SI,ton-mm-s,ton-mm-ms,g-mm-ms}]
+                           [--parallel-runs N] [--threads-per-run N]
+                           [--single-file] [--chunked] [--g-limit G]
+                           [--stress-limit MPa] [--no-cache] [--refresh-cache]
+
+  Multi-face partial-impact (DWI) DOE analysis report generator
+
+  options:
+    -h, --help            show this help message and exit
+    --test-dir TEST_DIR   Path to test directory (scenario.json +
+                          F*/Run_*/analysis_result.json layout)
+    --from-json JSON_FILE
+                          impact_payload.json sidecar 에서 HTML 재렌더
+                          (loader/analyzer 생략, ~2s). schema_version 불일치 시 에러.
+    --output, -o OUTPUT   Output HTML file
+    --json JSON           Also save report JSON to this path
+    --format {html,json,terminal} [{html,json,terminal} ...]
+                          Output formats (default: html terminal)
+    --threshold-critical THRESHOLD_CRITICAL
+                          Critical threshold for the primary metric. Units match
+                          the dataset (no implicit default).
+    --threshold-warning THRESHOLD_WARNING
+                          Warning threshold for the primary metric (units match
+                          the dataset).
+    --yield-stress YIELD_STRESS
+                          Global yield-stress override (units match
+                          peak_stress). When omitted, per-part yield comes from
+                          the *MAT_ card via the loader.
+    --faces FACES         Comma-separated face subset (e.g. F1,F2,F5). Default:
+                          all discovered.
+    --units {SI,ton-mm-s,ton-mm-ms,g-mm-ms}
+                          Override solver unit system. When omitted the loader
+                          auto-detects from density + impactor radius. Use this
+                          when auto-detection picks the wrong system (e.g. SI-
+                          style density in a ton-mm-s deck).
+    --parallel-runs N     Concurrent DOE run workers (process pool). 0 = auto:
+                          SLURM_CPUS_PER_TASK (or CPU count) // threads-per-run.
+                          Was hardcoded to 4 before — unreachable from chainrun.
+    --threads-per-run N   unified_analyzer threads per DOE worker (default 2).
+    --single-file         HTML 출력 모드를 inline 단일 파일로 강제 (tier 자동 결정 무시).
+    --chunked             HTML 출력 모드를 chunked(report_data/ 청크)로 강제.
+    --g-limit G           설계 가속도 한계 [G]. 제공 시 CRITICAL 판정이 자기분포 P95 대신 이 절대값 기준이
+                          됨 (NO DESIGN LIMITS 배지 해제).
+    --stress-limit MPa    설계 응력 한계 (stress 단위, 보통 MPa). 제공 시 s1 KPI/s9 테이블에 한계
+                          초과가 표시됨.
+    --no-cache            per-run 증분 캐시(.impact_cache) 읽기/쓰기 모두 끔.
+    --refresh-cache       캐시를 무시하고 전량 재계산 후 캐시 재작성.
+  ```
+
+  # MCP 로 부르는 법
+  - target 은 기존 결과(d3plot 이 있는 폴더 등)의 절대경로. 업로드하지 않고 그 자리에서 읽는다 — /data/single/<사용자>/ 아래만 된다(전각도·부분충격 잡의 결과 폴더가 거기 있다).
+  - options 의 키는 위 도움말의 --옵션 이름. 값이 객체면 YAML 파일로 만들어 넘긴다.
+  - --install-dir·--ua 와 설정의 lsprepost_path 처럼 실행 파일을 고르는 항목은 거절된다(보안).
+  - 후처리 SIF(/opt/apptainers/SmartTwinPostprocessor.sif) 안에서 돈다. 큰 캠페인은 slurm.mem·time 을 넉넉히.
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- postprocess
+- kood3plot
+- report
+- d3plot
+- post
+- impact
+- report
+- koo
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 명령 확인
+  args:
+    dry_run: true
+    target: /data/single/USER/case/run1
+- title: 제출하고 15분까지 기다리기
+  args:
+    dry_run: false
+    target: /data/single/USER/case/run1
+    wait_sec: 900
+    slurm:
+      cpus_per_task: 8
+      mem: 32G

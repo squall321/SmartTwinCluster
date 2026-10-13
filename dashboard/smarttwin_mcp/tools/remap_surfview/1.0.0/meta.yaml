@@ -1,0 +1,71 @@
+name: remap_surfview
+version: 1.0.0
+summary: KooRemapper surfview — 자유면만 뽑아 직교투영·깊이정렬로 그린다 (전체 와이어프레임은 검은 덩어리가 된다).
+description: |
+  자유면만 뽑아 직교투영·깊이정렬로 그린다 (전체 와이어프레임은 검은 덩어리가 된다).
+
+  Extract the mesh's free faces and draw them orthographically with depth sorting into <output>_surface.svg. Only free faces are drawn because on a real stack they are a small minority: measured on a 286k-element battery deck, 57,098 of 855,575 faces are free (6.7%), so the rest is buried and costs time without showing anything. Faces are determined per element type — the shared hex-shaped face table presents two collapsed faces of a TET4 as real ones and its fourth face as a non-planar quad through all four vertices, which is why a tet's surface comes out wrong that way (a single TET4 yields 5 faces, 3 of them bogus). Quad faces are split into two triangles, which is also what makes the free-face set complete for tets. Shading is flat, from the absolute angle between the face normal and the view direction — the sign is deliberately not used because a flipped element would then shade backwards, and the count of back-facing triangles is reported instead. The view is isotropic: a 3D shape stretched anisotropically is simply the wrong shape, so a thin stack looks thin here and `section` is the op for layer thickness.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Deck to draw (k-file); a deck holding only *INCLUDE cards is refused rather than drawn empty |
+  | `output` | string | 예 | Output prefix — writes <output>_surface.svg |
+  | `azimuth` | number |  | View azimuth in degrees |
+  | `elevation` | number |  | View elevation in degrees |
+  | `wire` | boolean |  | true draws edges only instead of shaded faces. The op reports ink_ratio (drawn line length in px divided by canvas pixels) and warns past 1.0, where extra lines add nothing: measured 1.94 on the free faces of a 286k-element deck and 5.49 on all of its edges |
+  | `width` | integer |  | SVG width in px (>= 430) |
+  | `height` | integer |  | SVG height in px (>= 240) |
+  | `max_parts` | integer |  | Legend entries before the rest are counted as omitted |
+
+  # 주의
+  - Triangles are never silently dropped — a shaded view with triangles removed has holes and is a lie — so the op reports the SVG size instead and warns past 5 MB, which is where MCP's download_result refuses to carry it through a conversation (measured 12.2 MB on a 286k-element deck; use save_result_to_path or narrow the view). Depth sorting is by triangle centroid, so triangles that pass through each other can be ordered wrongly; the figure says so. Part titles go through the same escaping as `section`, including the non-UTF-8 case that would otherwise make the whole SVG unparseable. Second-order solid parts are refused: ELFORM 16/17 (10-node tets) and 25-28 put mid-side nodes into the corner slots the reader keeps, so the figure is silently wrong — measured, the same geometry converted by this tool's own `convert type: tet10` yields a section of total area 0.19 against the linear original's 0.665, and both report 2 polygons, so a reader cannot tell. In the standard layout (an `eid pid` card followed by all ten node fields on one line) the element count survives and only the geometry is wrong; a deck that splits the node fields 8+2 across two lines also loses elements, because the second line is read as the next element's first card (measured: two TET10 read as one). ELFORM 23 (20-node hex) keeps its corners in the first eight slots and is drawn: measured, its section is identical to the linear original's (120 polygons, total area 4.712178200).
+
+  사례 메모: Draws the free faces of the bundled 3-layer stack; the footer carries the free-face share, the back-facing count and ink_ratio
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper surfview` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- inspect
+- surfview
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: flat_stack.k
+    output: flat_stack
+    azimuth: 35
+    elevation: 25
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/flat_stack.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: flat_stack.k
+    output: flat_stack
+    azimuth: 35
+    elevation: 25
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

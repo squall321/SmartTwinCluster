@@ -1,0 +1,82 @@
+name: remap_hfdamp
+version: 1.0.0
+summary: KooRemapper hfdamp — LS-DYNA *DAMPING_FREQUENCY_RANGE_DEFORM 키워드 삽입으로 고주파 노이즈 감쇠
+description: |
+  LS-DYNA *DAMPING_FREQUENCY_RANGE_DEFORM 키워드 삽입으로 고주파 노이즈 감쇠
+
+  Insert LS-DYNA *DAMPING_FREQUENCY_RANGE_DEFORM keyword to suppress high-frequency (spurious) oscillations caused by small elements. Automatically computes target frequency band based on element timestep estimates and applies specified damping ratio over that band.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | 전체 YAML 설정 객체 |
+
+  # config 키 (YAML)
+  - `None` (string): Input K-file path (absolute or relative to YAML directory)
+  - `None` (string): Output K-file path where *DAMPING_FREQUENCY_RANGE_DEFORM will be inserted (absolute or relative to YAML directory)
+  - `None` (number): Target timestep threshold (model time units). Frequencies corresponding to elements with dt ≤ dt_target are damped. FLOW = 1 / (2 × dt_target). Must be > 0. Typical range: 1e-8 to 1e-6 seconds (depends on unit system and mesh size).
+  - `None` (number): Fraction of critical damping applied over [FLOW, FHIGH] frequency band. Valid range: 0 < cdamp ≤ 1. Typical: 0.99 (near-critical, strong suppression), 0.5 (moderate), 0.1 (mild). Dynamic stiffness increases by ~CDAMP% for DEFORM option.
+  - `None` (number): Frequency band width multiplier: FHIGH = FLOW × fhigh_ratio. Must be >= 2.0. Recommended range 10-300. Low ratio (10): narrow band, minimal stiffness change. High ratio (100-300): wide band, more thorough suppression but greater dynamic stiffness alteration.
+  - `None` (enum): Application mode. 'global': apply PSID=0 (all parts). 'selective': parse K-file to compute element dt for each part, identify parts where min(dt_element) ≤ dt_target, create *SET_PART_LIST, apply damping only to those parts. Selective requires material data (E, PR, RHO) in K-file for each part.
+  - `None` (number): Timestep safety factor for element dt estimation (selective mode only). Used as: dt_element = tssfac × L_char / c_wave, where L_char is characteristic length (min edge for hex, sqrt(area) for quad) and c_wave is P-wave speed. Should match *CONTROL_TIMESTEP TSSFAC in the model.
+
+  # 주의
+  - VALIDATION CONSTRAINTS (from parser): dt_target must be > 0 (required, checked at runtime); cdamp must be in (0, 1] (inclusive upper bound); fhigh_ratio must be >= 2.0. SELECTIVE MODE REQUIREMENTS: K-file must contain material definitions (MAT_ELASTIC or other MAT_* with E, PR, RHO on card 1) mapped to each part via *PART sections. If selective mode is enabled but no parts qualify (min dt > dt_target), the operation falls back to global mode and prints a warning. FREQUENCY CALCULATIONS: FLOW = 1 / (2 × dt_target); FHIGH = FLOW × fhigh_ratio. These are computed by the parser and inserted into the generated *DAMPING_FREQUENCY_RANGE_DEFORM keyword. OUTPUT STRUCTURE (global mode): inserts *DAMPING_FREQUENCY_RANGE_DEFORM card before *END. (selective mode with qualifying parts): inserts *SET_PART_LIST_TITLE, title line, SID line, part ID list (8 per line, 10-char fields), then *DAMPING_FREQUENCY_RANGE_DEFORM with PSID pointing to the new set. PHYSICS: DEFORM option damps element stresses/forces, NOT rigid-body motion. Best for nonlinear explicit dynamics. Damping effectiveness is concentrated in [FLOW, FHIGH]; minimal effect outside this band. RELATIVE PATH RESOLUTION: paths in YAML are resolved relative to the YAML file's directory (configDir).
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: Global 모드: 모든 파트에 CDAMP=0.99 댐핑 적용. FLOW ≈ 1.67MHz, FHIGH ≈ 167MHz 대역 댐핑
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper hfdamp` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- bc
+- hfdamp
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: box.k
+      output: box_hfdamp.k
+      dt_target: 3.0e-07
+      cdamp: 0.99
+      fhigh_ratio: 100
+      mode: global
+      tssfac: 0.9
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/box.k
+    - /data/single/USER/case/box_hfdamp.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

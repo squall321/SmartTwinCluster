@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "remap_cclip args",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model",
+    "output",
+    "clips"
+  ],
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "Input LS-DYNA K-file containing the hex box part(s) standing in for C-clips",
+      "x-kind": "session_file"
+    },
+    "output": {
+      "type": "string",
+      "description": "Output basename (without .k). Writes <output>.k (pressed clip, original PID kept), <output>_cclip_report.json; include mode adds <output>.dynain; deck mode adds <output>_cclip_deck_<pid>.k per clip free_output adds <output>_free.k (un-pressed as-designed model)."
+    },
+    "clips": {
+      "type": "array",
+      "description": "Per-clip target rules, processed in order: [{pid: N} | {match_part: \"CCLIP_*\"}] with optional per-clip overrides (free_height | overtravel, width, thickness, profile{flat_bottom,flat_top,radius,tip_rise}, n_arc, n_flat, n_width, elform, match_mass, axis, material, calibration)"
+    },
+    "calibration": {
+      "type": "object",
+      "description": "F-δ calibration: {point: {deflection, force}} for a single operating point, or {curve: [[deflection, force], ...], operating_deflection: d}. Optional at top level — every clip must end up with a calibration, so give it here OR per clip in clips[]. Optional sub-keys: tolerance (default 0.05), calibrate (thickness|modulus), t_min, t_max"
+    },
+    "material": {
+      "type": "object",
+      "description": "Clip material {E, nu, rho, sigy} [MPa, -, t/mm3, MPa]. Default: inherit from the box part's K-file material, else BeCu (E=131000, nu=0.3, rho=8.36e-9, sigy=900)"
+    },
+    "mode": {
+      "type": "string",
+      "description": "analytic (default): closed-form pressed state + *INITIAL_STRESS_SHELL, no solver needed. deck: additionally emit an LS-DYNA compression deck per clip for solver-based preloading",
+      "enum": [
+        "analytic",
+        "deck"
+      ],
+      "default": "analytic"
+    },
+    "attach": {
+      "type": "string",
+      "description": "Clip foot attachment: none (leave to contact/user) or cnrb (*CONSTRAINED_NODAL_RIGID_BODY spanning foot nodes + board nodes within attach_tol)",
+      "enum": [
+        "none",
+        "cnrb"
+      ],
+      "default": "none"
+    },
+    "stress_output": {
+      "type": "string",
+      "description": "embed (default): *INITIAL_STRESS_SHELL written before *END in <output>.k. include: separate <output>.dynain + *INCLUDE",
+      "enum": [
+        "embed",
+        "include"
+      ],
+      "default": "embed"
+    },
+    "element": {
+      "type": "string",
+      "description": "Clip element type. shell (default): thin QUAD4 strip, exact through-thickness bending prestress (best for thin spring contacts). solid: HEX8 layers through thickness (n_thick, default 2) — matches an all-solid assembly, no shell contact-thickness offset; for thin clips the shell idealization is more efficient.",
+      "enum": [
+        "shell",
+        "solid"
+      ],
+      "default": "shell"
+    },
+    "axis": {
+      "type": "string",
+      "description": "Compression axis and press-from side. auto = shortest bbox edge, pressed from the + side. Signed forms set the side the mating part presses from (foot on the opposite face): e.g. -z = pressed from below, foot on the top face.",
+      "enum": [
+        "auto",
+        "x",
+        "y",
+        "z",
+        "+x",
+        "-x",
+        "+y",
+        "-y",
+        "+z",
+        "-z"
+      ],
+      "default": "auto"
+    },
+    "open": {
+      "type": "string",
+      "description": "C opening/bulge direction along the length axis (+ default). '-' mirrors the profile — use it to match the real clip orientation (wipe direction, keep-out).",
+      "enum": [
+        "+",
+        "-"
+      ],
+      "default": "+"
+    },
+    "attach_tol": {
+      "type": "number",
+      "description": "Board-node capture distance [mm] for attach=cnrb",
+      "default": 0.1
+    },
+    "free_output": {
+      "type": "boolean",
+      "description": "Also emit the un-pressed (as-designed) model <output>_free.k — same clip geometry at free height, no initial stress. analytic mode only (deck mode's main output is already the free state).",
+      "default": false
+    },
+    "report": {
+      "type": "boolean",
+      "description": "Write <output>_cclip_report.json (target vs achieved stiffness, calibrated thickness, working force, sig_max/sigy, mass, orphan nodes)",
+      "default": true
+    },
+    "extra_inputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/.+"
+      },
+      "maxItems": 64,
+      "description": "옵션이 가리키는 보조 파일의 절대경로. 잡 work/ 폴더로 같이 올라가므로 옵션 값에는 파일 이름만 쓰면 된다. 허용 범위: /data/single/<사용자>/, /shared/uploads/users/<사용자>/, /data/scenario/."
+    },
+    "slurm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "잡 자원(선택). 생략하면 도구 종류별 기본(전처리 2 CPU·8G, 후처리 4 CPU·16G, 24시간)을 클러스터에서 가장 큰 노드에 맞춰 줄여 쓴다.",
+      "properties": {
+        "cpus_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "CPU 수"
+        },
+        "mem": {
+          "type": "string",
+          "pattern": "^[0-9]{1,6}[MG]$",
+          "description": "메모리 (예: 32G)"
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]$",
+          "description": "시간 상한 HH:MM:SS"
+        },
+        "partition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "description": "파티션 이름 (생략 = 클러스터 기본)"
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "true 면 제출하지 않고 생성될 입력 파일·명령만 돌려준다(PAT 없이도 된다). 먼저 이걸로 확인할 것."
+    },
+    "wait_sec": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1800,
+      "default": 0,
+      "description": "제출 후 이 시간(초) 안에 끝나면 결과(rc·로그 꼬리·작은 산출물)를 함께 돌려준다. 0 = job_id 만."
+    },
+    "job_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,48}$",
+      "description": "잡 이름(결과 폴더 이름이 된다). 생략하면 stmc_<도구이름>."
+    }
+  }
+}

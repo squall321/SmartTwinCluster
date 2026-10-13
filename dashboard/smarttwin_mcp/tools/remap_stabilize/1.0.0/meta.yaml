@@ -1,0 +1,194 @@
+name: remap_stabilize
+version: 1.0.0
+summary: KooRemapper stabilize — LS-DYNA explicit solver 안정화 제어 (12단계 누적 시스템)
+description: |
+  LS-DYNA explicit solver 안정화 제어 (12단계 누적 시스템)
+
+  LS-DYNA explicit solver stabilization through 12-level cumulative system. Each level is a preset that applies all lower levels' settings plus new ones. Levels target divergence/hourglass/contact chattering/timestep issues. Manual mode (level: 0 or omitted) allows arbitrary option combinations. Level 11+ erosion (ERODE) requires interactive confirmation unless confirm_erosion: true.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | 입력 LS-DYNA .k 모델 파일 경로 |
+  | `output` | output | 예 | 출력 안정화된 .k 파일 경로 |
+  | `stabilize` | enum |  | 안정화 모드 (생략하면 'explicit'. 현재 'explicit'만 지원) |
+  | `level` | integer |  | 안정화 레벨 프리셋 (1-12, 각 레벨은 하위 모든 조치 포함). 0 또는 생략 시 수동 모드 |
+  | `confirm_erosion` | boolean |  | true 설정 시 Lv11+ ERODE 옵션 적용 시 interactive 확인 생략 |
+  | `tssfac` | number |  | *CONTROL_TIMESTEP TSSFAC (Courant 안전계수; 0.50-0.90) |
+  | `erode` | integer |  | *CONTROL_TIMESTEP ERODE (요소 침식: 0=비활성, 1=솔리드, 10=쉘, 11=솔리드+쉘, 111=전체) |
+  | `ihq` | integer |  | *CONTROL_HOURGLASS IHQ (모래시계 제어: 1=표준, 4=강화, 6=최적) |
+  | `qh` | number |  | *CONTROL_HOURGLASS QH (모래시계 강성; 0.05-1.0) |
+  | `osu` | integer |  | *CONTROL_ACCURACY OSU (정확도 옵션) |
+  | `inn` | integer |  | *CONTROL_ACCURACY INN (내부 노드 정렬) |
+  | `esort_solid` | integer |  | *CONTROL_SOLID ESORT (솔리드 요소 정렬) |
+  | `esort_shell` | integer |  | *CONTROL_SHELL ESORT (쉘 요소 정렬) |
+  | `bwc` | integer |  | *CONTROL_SHELL BWC (쉘 두께 변경 제어) |
+  | `miter` | integer |  | *CONTROL_SHELL MITER (수정 반복) |
+  | `irnxx` | integer |  | *CONTROL_SHELL IRNXX (쉘 회전 처리: -1 또는 -2) |
+  | `wrpang` | number |  | *CONTROL_SHELL WRPANG (래핑 각도 제한; 도 단위) |
+  | `orien` | integer |  | *CONTROL_CONTACT ORIEN (카드 1: 세그먼트 법선 재정렬) |
+  | `shlthk` | integer |  | *CONTROL_CONTACT SHLTHK (카드 1: 쉘 두께 포함) |
+  | `islchk` | integer |  | *CONTROL_CONTACT ISLCHK (카드 1: 고립 쉘 검사) |
+  | `enmass` | integer |  | *CONTROL_CONTACT ENMASS (카드 1: 침식 노드 접촉 유지) |
+  | `xpene` | number |  | *CONTROL_CONTACT XPENE (카드 2: 최대 침투 배수) |
+  | `nsbcs` | integer |  | *CONTROL_CONTACT NSBCS (카드 2: 버킷 검색 빈도) |
+  | `soft` | integer |  | Per-contact SOFT (카드 A: 0=표준, 1=소프트, 2=핀볼) |
+  | `sbopt` | integer |  | Per-contact SBOPT (카드 A: 세그먼트 기반 옵션) |
+  | `depth` | integer |  | Per-contact DEPTH (카드 A: 접촉 검색 깊이) |
+  | `maxpar` | number |  | Per-contact MAXPAR (카드 A: 최대 병렬도) |
+  | `ignore` | integer |  | Per-contact IGNORE (카드 C: 접촉 무시 플래그) |
+  | `bulk_q1` | number |  | *CONTROL_BULK_VISCOSITY Q1 (선형 벌크 점성도) |
+  | `bulk_q2` | number |  | *CONTROL_BULK_VISCOSITY Q2 (2차 벌크 점성도) |
+  | `hgen` | integer |  | *CONTROL_ENERGY HGEN (모래시계 에너지 출력) |
+  | `rwen` | integer |  | *CONTROL_ENERGY RWEN (강성 작동 에너지 출력) |
+  | `slnten` | integer |  | *CONTROL_ENERGY SLNTEN (슬라이드라인 에너지 출력) |
+  | `rylen` | integer |  | *CONTROL_ENERGY RYLEN (회전/일탈 에너지 출력) |
+
+  # config 키 (YAML)
+  - `None` (file): Input LS-DYNA .k model file path (absolute or relative to YAML dir)
+  - `None` (file): Output stabilized .k file path
+  - `None` (enum): Stabilization mode. Optional — defaults to 'explicit' (the only supported mode).
+  - `None` (integer): Preset level 0-12. 0 (default)=manual mode (use only explicitly set options); 1-12=cumulative presets (each level activates additional stabilization rules)
+  - `None` (boolean): true: skip interactive y/N prompt when erode is set; false (default): show prompt asking user to confirm element deletion
+  - `None` (number): *CONTROL_TIMESTEP TSSFAC — Courant safety factor (0.50–0.90). Lower = safer but slower. Ignored if negative. Lv3=0.80, Lv7=0.67, Lv10=clamped to ≤0.60, Lv11=clamped to ≤0.55, Lv12=clamped to ≤0.50
+  - `None` (integer): *CONTROL_TIMESTEP ERODE — element deletion flag (multi-digit: solid/shell/beam). 0=off; 1=solid only; 10=shell only; 11=solid+shell; 111=all+beams. Negative/omitted=not set. WARNING: Deletes elements → mass non-conservation. If set, triggers interactive prompt unless confirm_erosion: true. Lv11+ defaults to 11 if not set
+  - `None` (integer): *CONTROL_HOURGLASS IHQ — hourglass control type. 1=standard viscous (default); 2=Flanagan-Belytschko; 3=FB+volume; 4=FB stiffness (Lv4, quasi-static); 5=FB stiffness (rubber/foam); 6=Belytschko-Bindeman (Lv9, max accuracy, high cost). Lv9 forces ihq=6
+  - `None` (number): *CONTROL_HOURGLASS QH — hourglass coefficient. For IHQ 1–5: 0.05–0.15 range. For IHQ 6: up to 1.0 stable. Lv4=0.10, Lv9=1.0
+  - `None` (integer): *CONTROL_ACCURACY OSU — objective stress update. 0=off (default, Hughes-Winget); 1=on (2nd-order Jaumann, prevents spurious stress from rigid rotation). Lv2+ defaults to 1 if not set
+  - `None` (integer): *CONTROL_ACCURACY INN — invariant node numbering. 1=off; 2=shells only; 4=solids+shells (standard, Lv2+). Lv2+ defaults to 4 if not set
+  - `None` (integer): *CONTROL_SOLID ESORT — auto-convert degenerate tet/penta to better formulations. 0=off (default); 1=on (Lv2+). Lv2+ defaults to 1 if not set
+  - `None` (integer): *CONTROL_SHELL ESORT — auto-convert degenerate quads (shared two nodes) to tria. 0=off (default); 1=on (Lv2+). Lv2+ defaults to 1 if not set
+  - `None` (integer): *CONTROL_SHELL BWC — Belytschko-Tsay warping stiffness. 2=off (default, ignore warping); 1=on (adds warping stiffness, suppresses local instability in twisted shells). Lv5+ defaults to 1 if not set, Lv8+ forces bwc=2
+  - `None` (integer): *CONTROL_SHELL MITER — shell plasticity iteration algorithm. 1=3-secant (default, fast); 2=full iterative (accurate, standard for large-strain plasticity, Lv5+); 3=radial return (fastest, least accurate). Lv5+ defaults to 2 if not set
+  - `None` (integer): *CONTROL_SHELL IRNXX — nodal fiber vector update. -1=recalc each cycle (default, fast but misaligned under large rotation); -2=incremental (maintains consistency under large deformation/rotation, Lv5+). Omit for default (-1)
+  - `None` (number): *CONTROL_SHELL WRPANG — shell warping warning angle (degrees). Default 20. Lower values issue stricter warnings for problematic shells. Lv5+ defaults to 10, Lv5 keeps 20 if not set
+  - `None` (integer): *CONTROL_CONTACT Card 1, ORIEN — auto-reorient segment normals. 1=part-input method only (default); 2=include manually defined segments too (Lv6+, more robust). Lv6+ defaults to 2 if not set
+  - `None` (integer): *CONTROL_CONTACT Card 1, SHLTHK — include shell thickness in contact offset. 0=off (default, neutral-plane contact); 1=on, rigid excluded (Lv6); 2=on, rigid included (Lv8+). Lv6+ defaults to 1, Lv8+ forces shlthk=2
+  - `None` (integer): *CONTROL_CONTACT Card 1, ISLCHK — initial penetration check (diagnostic, d3hsp report). 1=off (default); 2=check all, report details (recommended for model debug). Lv6+ defaults to 2 if not set
+  - `None` (integer): *CONTROL_CONTACT Card 1, ENMASS — treat eroded element nodes in contact. 0=remove from contact (default); 1=keep solid-eroded nodes (Lv8); 2=keep solid+shell-eroded (Lv11+). Required with ERODE. Lv8+ defaults to 1, Lv11+ forces enmass=2
+  - `None` (number): *CONTROL_CONTACT Card 2, XPENE — max penetration multiple. Default 4.0. Nodes penetrating > segment_thickness × xpene excluded from contact. Lv6 sets 2.0 if not set. Too low removes valid contact nodes
+  - `None` (integer): *CONTROL_CONTACT Card 2, NSBCS — bucket search frequency (cycles). Lower = more frequent/accurate but higher cost. Lv8 sets 5, Lv10 caps to ≤2, Lv11+ caps to ≤1 (every cycle for erosion)
+  - `None` (integer): Per-contact SOFT (Card A) — penalty formula. 0=standard bulk-modulus (default, homogeneous materials); 1=soft constraint, mass-based (Lv6, dissimilar stiffness); 2=pinball segment-based (Lv8+, most robust for large-deformation/sliding/foam/rubber). Lv6+ defaults to 1, Lv8+ forces soft=2
+  - `None` (integer): Per-contact SBOPT (Card A) — segment-based search. 0=normal direction only (default); 2=add twisted-segment normal correction (Lv6); 3=edge-to-edge + twist correction (Lv8+). Lv6+ defaults to 2, Lv8+ forces sbopt=3
+  - `None` (integer): Per-contact DEPTH (Card A) — contact search depth (element layers). Default 2. Higher detects contact through thicker parts. Lv6 sets 3, Lv8+ sets 5. Cost increases with depth
+  - `None` (number): Per-contact MAXPAR (Card A) — penetration multiple for pinball (SOFT=2). Default 1.025. Nodes penetrating > segment_size × maxpar excluded. Large deformation → 1.15–1.25 needed (Lv8+ defaults to 1.15)
+  - `None` (integer): Per-contact IGNORE (Card C) — treat initial penetration. 0=off, issue repulsive force (default, risk divergence); 1=offset-based (standard for assemblies/press-fits, Lv8+); 2=geometry reinit (most extreme). Lv8+ defaults to 1 if not set
+  - `None` (number): *CONTROL_BULK_VISCOSITY Q1 — 2nd-order bulk viscosity (pressure spike suppression, Gibbs phenomenon). Default 1.5. Impact/blast = 2.0 (Lv12 forces). Rubber/quasi-static keep 1.5 to prevent artificial damping. Lv7+ defaults to 1.5, Lv12 forces 2.0
+  - `None` (number): *CONTROL_BULK_VISCOSITY Q2 — 1st-order bulk viscosity (linear damping in expansion). Default 0.06. Impact/blast = 0.10 (Lv12 forces). Lv7+ defaults to 0.06, Lv12 forces 0.10
+  - `None` (integer): *CONTROL_ENERGY HGEN — hourglass energy output (diagnostic, not stability). 0=off (default); 2=on (adds glstat hourglass_energy; if >10% of total → upgrade IHQ). Lv1+ defaults to 2 if not set
+  - `None` (integer): *CONTROL_ENERGY RWEN — riblet energy output (diagnostic). 0=off (default); 2=on. Lv1+ defaults to 2 if not set
+  - `None` (integer): *CONTROL_ENERGY SLNTEN — sliding interface energy output (diagnostic). 0=off (default); 2=on. Excessive contact energy → review contact setup. Lv1+ defaults to 2 if not set
+  - `None` (integer): *CONTROL_ENERGY RYLEN — Rayleigh damping energy output (diagnostic). 0=off (default); 2=on. Lv1+ defaults to 2 if not set
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "Level 1",
+    "summary": "Energy tracking enabled: HGEN=2, RWEN=2, SLNTEN=2, RYLEN=2 (diagnostic only, no stability effect)"
+   },
+   {
+    "name": "Level 2",
+    "summary": "Accuracy boost: OSU=1, INN=4, ESORT_SOLID=1, ESORT_SHELL=1 (element normalization, degenerate conversion)"
+   },
+   {
+    "name": "Level 3",
+    "summary": "Timestep 1st pass: TSSFAC=0.80 (from default 0.90)"
+   },
+   {
+    "name": "Level 4",
+    "summary": "Hourglass control: IHQ=4 (stiffness-based, quasi-static), QH=0.10"
+   },
+   {
+    "name": "Level 5",
+    "summary": "Shell stabilization (auto-detect *ELEMENT_SHELL): BWC=1, MITER=2, IRNXX=-2, WRPANG=20.0; Bulk viscosity forced: BULKQ1=1.5, BULKQ2=0.06"
+   },
+   {
+    "name": "Level 6",
+    "summary": "Contact stage 1 (penalty tuning): ORIEN=2, SHLTHK=1, XPENE=2.0, ISLCHK=2, SOFT=1, SBOPT=2, DEPTH=3 (per-contact applied to all *CONTACT_*)"
+   },
+   {
+    "name": "Level 7",
+    "summary": "Timestep 2nd pass: TSSFAC=0.67 (if > 0.67, clamped); Bulk viscosity overridden: BULKQ1=1.5, BULKQ2=0.06"
+   },
+   {
+    "name": "Level 8",
+    "summary": "Contact stage 2 (advanced): SHLTHK=2, SOFT=2 (pinball), SBOPT=3, DEPTH=5, IGNORE=1, MAXPAR=1.15, ENMASS=1, NSBCS=5"
+   },
+   {
+    "name": "Level 9",
+    "summary": "Max hourglass accuracy: IHQ=6 (Belytschko-Bindemann), QH=1.0"
+   },
+   {
+    "name": "Level 10",
+    "summary": "Timestep 3rd pass: TSSFAC=0.60 (if > 0.60, clamped); NSBCS=2"
+   },
+   {
+    "name": "Level 11",
+    "summary": "Erosion activation (requires confirm_erosion or interactive y/N): ERODE=11 (solid+shell), ENMASS=2, NSBCS=1 (every cycle); TSSFAC clamped to 0.55 (if > 0.55); Shell control WRAP fixed at 10 if unfixed (Lv8+)"
+   },
+   {
+    "name": "Level 12",
+    "summary": "Maximum conservative: TSSFAC=0.50 (absolute max stability), BULKQ1=2.0, BULKQ2=0.10 (blast-tuned), all contact/shell/timestep/hourglass settings at max conservatism"
+   }
+  ]
+  ```
+
+  # 주의
+  - CRITICAL GOTCHAS: (1) Shell-specific options (WRPANG, ESORT_SHELL, BWC, MITER, IRNXX) are auto-skipped if no *ELEMENT_SHELL in model—no error, just logged skip. (2) Level ordering is cumulative+hierarchical: if level: 6 is set, levels 1–6 all apply; later explicit option assignments override level defaults. (3) ERODE (Lv11+): Prompts interactively for y/N confirmation unless confirm_erosion: true (STDIN read, blocking). Once eroded elements deleted, mass/volume is NOT conserved—use for unstable/inversion-prone elements only. (4) IRNXX defaults to INT_MIN (unset); valid values are -1 or -2 only—no other integer accepted. (5) *CONTROL_CONTACT requires 2 cards for Card 2 fields (NSBCS, XPENE); if Card 2 missing, auto-inserted. (6) Per-contact options (SOFT, SBOPT, DEPTH, MAXPAR, IGNORE) applied to ALL *CONTACT_* in model via card injection; no per-contact granularity. (7) BULK_VISCOSITY is force-overridden starting Lv7 (overwrites if exists); not additive. (8) Shell thickness in contact (SHLTHK=1 vs =2) affects rigid body handling: SHLTHK=2 includes rigids, SHLTHK=1 excludes. (9) Contact SOFT=2 (pinball) requires MAXPAR tuning for large deformation—default 1.025 too strict → use 1.15+ for assembly/interference models. (10) Multiple mutually-exclusive IRNXX values: -1 (recalc) vs -2 (incremental)—choose based on rotation magnitude, not both. (11) IHQ=6 cost is 3–5× higher than IHQ=4; reserve for critical high-accuracy runs. (12) Lv8 contact: IGNORE=1 is quasi-standard for assemblies/press-fits to suppress divergence from initial penetration—omit only if initial geometry is exact. (13) Shell MITER: values 1/2/3 are ordinal; 2 is explicit plasticity standard (Lv5+). (14) No CLI flags—YAML-only invocation. (15) Catalog is complete and accurate (34 params, all present).
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: base_model.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper stabilize` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- stabilize
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: base_model.k
+    output: base_model_stabilized.k
+    stabilize: explicit
+    level: 1
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/base_model.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: base_model.k
+    output: base_model_stabilized.k
+    stabilize: explicit
+    level: 1
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

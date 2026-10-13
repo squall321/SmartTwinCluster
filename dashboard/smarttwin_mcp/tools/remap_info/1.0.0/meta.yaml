@@ -1,0 +1,62 @@
+name: remap_info
+version: 1.0.0
+summary: KooRemapper info — Display comprehensive mesh information including node/element counts, bounding
+  box, validation, and element quality metrics.
+description: |
+  Display comprehensive mesh information including node/element counts, bounding box, validation, and element quality metrics.
+
+  Display comprehensive mesh information from a LS-DYNA K-file, including node/element counts, bounding box dimensions, mesh validation results, and element quality metrics (Jacobian analysis). Output is displayed on console only; no output file is generated.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `mesh_file` | file | 예 | Input mesh file (K-file format) |
+
+  # config 키 (YAML)
+  - `None` (file): Input LS-DYNA K-file (mesh format). Parser reads node/element/part definitions, material cards (for per-part lookup if needed), and section definitions.
+
+  # 주의
+  - The 'info' operation is a positional-argument-only command with no YAML configuration, no CLI flags, and no optional parameters. It performs read-only analysis on the mesh file. Output includes: (1) mesh name, node/element/part counts, (2) bounding box (min/max coordinates) and size (X/Y/Z extents), (3) mesh validation status with error/warning messages, (4) element quality metrics (min/max Jacobian, count of negative-Jacobian elements). No dynain output or modified mesh file is produced. The operation always succeeds if the K-file can be parsed; missing material definitions do not cause failure but may omit part-level analysis details. Perfect for pre-flight mesh integrity checks before proceeding with mapping or assembly operations.
+
+  사례 메모: Reads arc30_bent.k and prints node/element counts, bounding box, validation status, and Jacobian quality metrics
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper info` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- core
+- info
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    mesh_file: arc30_bent.k
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/arc30_bent.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    mesh_file: arc30_bent.k
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

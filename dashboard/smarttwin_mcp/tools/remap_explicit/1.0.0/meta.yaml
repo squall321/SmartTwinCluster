@@ -1,0 +1,91 @@
+name: remap_explicit
+version: 1.0.0
+summary: KooRemapper explicit — LS-DYNA K-file에서 implicit/DR/modal 키워드를 제거하여 순수 explicit 형태로 변환
+description: |
+  LS-DYNA K-file에서 implicit/DR/modal 키워드를 제거하여 순수 explicit 형태로 변환
+
+  LS-DYNA K-file에서 implicit, dynamic relaxation(DR), modal 관련 키워드를 모두 제거하여 순수 explicit 형태로 복원합니다. CONTROL_IMPLICIT_*, CONTROL_DYNAMIC_RELAXATION, DATABASE_BINARY_D3DRLF 카드와 선택적으로 SIDR=1 곡선이 제거됩니다.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | 변환할 입력 K-file (implicit/DR/modal 키워드 포함) |
+  | `output` | output | 예 | 변환된 K-file의 출력 경로 |
+  | `keep_dr_curves` | boolean |  | true인 경우 SIDR=1 DEFINE_CURVE 유지; false(기본값)인 경우 제거 |
+
+  # config 키 (YAML)
+  - `None` (file): 변환할 입력 K-file 경로 (implicit/DR/modal 키워드 포함 모델)
+  - `None` (file): 변환된 K-file의 출력 경로
+  - `None` (boolean): SIDR=1 DEFINE_CURVE 유지 여부. false(기본): SIDR=1 곡선 제거; true: SIDR=1 곡선은 유지하고 DR 제어 카드만 제거
+
+  # 주의
+  -
+  제거되는 키워드 (keep_dr_curves 설정 무관):
+    - *CONTROL_DYNAMIC_RELAXATION (relax 명령어 소속)
+    - *DATABASE_BINARY_D3DRLF (relax 명령어 소속)
+    - *CONTROL_IMPLICIT_GENERAL, *CONTROL_IMPLICIT_DYNAMICS, *CONTROL_IMPLICIT_SOLUTION (implicit 명령어 소속)
+    - *CONTROL_IMPLICIT_AUTO, *CONTROL_IMPLICIT_STABILIZATION, *CONTROL_IMPLICIT_SOLVER (implicit 명령어 소속)
+    - *CONTROL_IMPLICIT_BUCKLE, *CONTROL_IMPLICIT_FORMING, *CONTROL_IMPLICIT_ROTATIONAL_DYNAMICS, *CONTROL_IMPLICIT_EIGENVALUE (modal 명령어 소속)
+
+  keep_dr_curves=false (기본값) 시 추가 제거:
+    - *DEFINE_CURVE 카드 중 SIDR=1 옵션을 가진 것들 (수량 로깅됨)
+
+  경로 처리: YAML 파일이 있는 디렉토리를 기준으로 상대 경로를 해석함 (절대 경로도 지원).
+
+  상호 배타적 옵션: 없음. keep_dr_curves는 독립적.
+
+  주의 사항: 입력 K-file이 이미 순수 explicit인 경우에도 정상 작동하며, 제거 대상 키워드가 없으면 해당 키워드 로그가 표시되지 않음.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: 실행 검증된 예제 (입력: base_model.k)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper explicit` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- analysis
+- explicit
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: base_model.k
+    output: explicit_model.k
+    keep_dr_curves: false
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/base_model.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: base_model.k
+    output: explicit_model.k
+    keep_dr_curves: false
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

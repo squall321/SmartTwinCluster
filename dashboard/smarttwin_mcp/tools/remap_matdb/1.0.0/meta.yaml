@@ -1,0 +1,124 @@
+name: remap_matdb
+version: 1.0.0
+summary: KooRemapper matdb — Replace *MAT cards from a JSON material database with structural and thermal
+  card support.
+description: |
+  Replace *MAT cards from a JSON material database with structural and thermal card support.
+
+  Replaces LS-DYNA *MAT card definitions in a model from a JSON material database (material_db.json). Supports material matching by MID (Material ID), by name/tag substring, or by part title pattern; can insert thermal cards and apply damping configuration via presets or explicit parameters.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | Input LS-DYNA K-file containing parts and material definitions |
+  | `output` | output | 예 | Output K-file name (without .k extension; auto-appended) |
+  | `database` | file |  | JSON material database file. Optional — if omitted, the bundled 525-material library next to the binary is used automatically (no upload needed). |
+  | `mat_type` | string |  | Global default structural material card type (e.g., MAT_ELASTIC, MAT_024, MAT_181) |
+  | `thermal` | boolean |  | Insert thermal cards (*MAT_THERMAL_ISOTROPIC + *MAT_ADD_THERMAL_EXPANSION) globally |
+  | `damping_alpha_scale` | number |  | Damping scaling factor for alpha calculation |
+  | `damping_alpha_floor` | number |  | Minimum damping alpha value threshold |
+  | `damping_apply_to_all_parts` | boolean |  | Apply damping configuration to all parts (true/false) |
+  | `damping_target_freq_hz` | number |  | Target frequency in Hz for damping calculation (legacy alias: damping_freq_hz; frequency-based scale conversion via scale = freq / 50.0) |
+  | `damping_preset` | string |  | Named damping preset. Only smartphone_drop, smartphone_drop_aggressive, quasi_static and 'off' are accepted (case-insensitive); anything else is rejected with rc=1. 'off' is the strip-only idiom, not a preset. Omit the key to keep the previous behaviour. |
+  | `materials` | array |  | Array of per-material match rules with optional mat_type/thermal overrides |
+
+  # config 키 (YAML)
+  - `None` (file): Input LS-DYNA K-file containing *PART and *MAT blocks
+  - `None` (string): Output K-file basename (without .k extension; auto-appended). Relative path resolved vs config YAML directory.
+  - `None` (file): JSON material database file. OPTIONAL — omit it to use the bundled 525-material library: the binary looks for materials/material_db.json in the working directory, then <exe>/materials/ and <exe>/../materials/ (SIF: /opt/kooremapper/materials/material_db.json). A relative path with no / or \ is resolved vs the config YAML directory.
+  - `None` (string): Global default structural material card type (e.g. MAT_ELASTIC, MAT_024, MAT_RIGID). Applied to all matched materials unless overridden by per-material rule.
+  - `None` (boolean): Insert thermal cards (*MAT_THERMAL_ISOTROPIC + *MAT_ADD_THERMAL_EXPANSION) for matched materials unless overridden by per-material rule.
+  - `None` (string): Damping preset baseline (case-insensitive). Accepted values: smartphone_drop, smartphone_drop_aggressive, quasi_static and 'off'. 'off' is NOT a preset — it is the idiom for 'leave the damping strength alone but strip the stale *DAMPING_PART_* cards'. Any other value (light, moderate, heavy, custom, a typo) is rejected with rc=1: "matdb: unsupported damping_preset '<value>' (allowed: smartphone_drop, smartphone_drop_aggressive, quasi_static, off)". Omitting the key is still allowed and behaves as before. The preset only changes the damping_alpha_scale / damping_alpha_floor / damping_apply_to_all_parts defaults; the damping cards of matched DB materials are inserted whether or not this key is present, so omitting it does NOT mean 'no damping changes'. Any non-empty value (including 'off') also strips pre-existing *DAMPING_PART_* cards before writing, so running twice without the key duplicates them.
+  - `None` (number): Multiplier on baked-in damping alpha from database. final_alpha = max(damping_alpha_floor, baked_alpha * damping_alpha_scale). Overrides preset when set to non-1.0.
+  - `None` (number): Minimum damping alpha applied to all emitted *DAMPING_PART_MASS_SET cards. Overrides preset when set to non-0.0.
+  - `None` (boolean): If true, emit default *DAMPING_PART_MASS_SET for every *PART whose material was NOT found in database. Overrides preset when true.
+  - `None` (number): Legacy alias for damping_alpha_scale, expressed as characteristic frequency in Hz. Internally converted via scale = freq / 50.0. Only used if > 0; overrides preset and damping_alpha_scale.
+  - `None` (number): Alternate key name for damping_target_freq_hz (parser accepts both). Use damping_target_freq_hz for new configs.
+  - `None` (array): List of per-material match rules, each with optional mat_type/thermal overrides. Rules processed in order; first match wins.
+  - `None` (string): Substring pattern to match against database material name/tag (case-insensitive). Use '*' for catch-all. Ignored if mid is set.
+  - `None` (string): Glob pattern (*-style wildcard) to match against *PART title. When matched, assigns a fresh MID from database material specified by match/mid.
+  - `None` (integer): Direct Material ID (MID) from database to apply to matching parts. Takes precedence over match field.
+  - `None` (string): Structural card type override for this rule (e.g. MAT_ELASTIC, MAT_024, MAT_RIGID). If empty, uses global mat_type.
+  - `None` (boolean): Thermal card insertion override for this rule (true/false). If not set (null), uses global thermal flag.
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "smartphone_drop",
+    "summary": "damping_alpha_scale=15, damping_alpha_floor=150, damping_apply_to_all_parts=true. Suitable for device drop impact with post-impact ringing decay ~5–10 ms."
+   },
+   {
+    "name": "smartphone_drop_aggressive",
+    "summary": "damping_alpha_scale=20, damping_alpha_floor=300, damping_apply_to_all_parts=true. Higher damping for more aggressive shock suppression."
+   },
+   {
+    "name": "quasi_static",
+    "summary": "damping_alpha_scale=5, damping_alpha_floor=50, damping_apply_to_all_parts=false. Minimal damping suitable for quasi-static or stress-only analyses."
+   },
+   {
+    "name": "off",
+    "summary": "No damping rescaling applied; uses defaults (alpha_scale=1.0, alpha_floor=0.0, apply_all=false)."
+   }
+  ]
+  ```
+
+  # 주의
+  - MATCHING PRIORITY: (1) materials[] rules processed in order; (2) within each rule, mid > match field; (3) '*' in match field is catch-all for any unmatched material; (4) match_part rules always assign fresh MID from database material. MATERIAL ID ASSIGNMENT: Matched materials are assigned new MIDs by the matdb op; existing part MIDs in the model are replaced. DAMPING: Alpha (damping coefficient) is baked in the database at ~50 Hz reference. Presets or explicit damping_* fields rescale via final_alpha = max(damping_alpha_floor, baked_alpha * damping_alpha_scale). damping_target_freq_hz is legacy (converted to scale internally); prefer damping_alpha_scale. Explicit fields OVERRIDE preset baselines when set. DATABASE PATH: any relative value (with or without a folder part) is resolved vs the YAML config directory; see the `database` bullet under YAML INPUT below for the bundled-DB fallback. MAT TYPE SUPPORT: Database ships variants per material; common types include MAT_ELASTIC, MAT_024 (PIECEWISE_LINEAR_PLASTICITY), MAT_RIGID, MAT_PIECEWISE_LINEAR_PLASTICITY. THERMAL EXPANSION: thermal: true inserts *MAT_THERMAL_ISOTROPIC and *MAT_ADD_THERMAL_EXPANSION pairs with auto-linked TMID.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+  - `database` follows the same rule, with one extra fallback step. It is resolved against the YAML folder whether or not it has a folder part. If nothing sits there AND the value is a bare filename (no '/' or '\'), the same filename is looked up in the bundled DB locations (working dir `materials/`, then `<exe>/materials/`, then `<exe>/../materials/`) and the fallback is logged as `[matdb] WARNING: '<yaml dir>/<name>' not found - using bundled '<path>'`. A folder-prefixed relative path NEVER falls back: it fails with rc=1 `[ERROR] [matdb] ERROR: Cannot load database from: <yaml dir>/<value>`. An absolute path is used as-is with no fallback. Omitting the key uses the bundled DB. Every load logs the file actually read: `[matdb] Loaded N materials from <path>`. NOTE: the binary's own `help matdb` note still says a folder-prefixed value is CWD-relative; that help string is stale at this commit.
+
+  사례 메모: Replaces all materials in the model with database definitions using global MAT_ELASTIC type and thermal card insertion enabled. database is omitted, so the bundled 525-material library is used automatically (no upload). Materials matched by existing MID or title substring.
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper matdb` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- material
+- matdb
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: test_matdb_model.k
+    output: test_matdb_result.k
+    mat_type: MAT_ELASTIC
+    thermal: true
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/test_matdb_model.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: test_matdb_model.k
+    output: test_matdb_result.k
+    mat_type: MAT_ELASTIC
+    thermal: true
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

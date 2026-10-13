@@ -1,0 +1,68 @@
+name: remap_stackwrap
+version: 1.0.0
+summary: KooRemapper stackwrap — 적층을 EI 중립축 기준으로 옮겨 기준 셸에 감기 (shellmap 의 z=0 전제를 맞춘다).
+description: |
+  적층을 EI 중립축 기준으로 옮겨 기준 셸에 감기 (shellmap 의 z=0 전제를 맞춘다).
+
+  Wrap a layered flat stack onto a bent QUAD4 reference shell about the stack's EI-weighted neutral axis. `shellmap` treats axis=0 of the flat deck as the neutral plane and uses that coordinate as the normal offset; when the stack's neutral axis is elsewhere, every layer is offset by that much. This op measures the neutral axis (same computation as `neutralaxis`), translates the stack so the neutral plane sits at axis=0, and then maps it through `shellmap`'s own path — there is no second mapping implementation. It writes <output>_neutral.k (the translated stack that was fed to the mapper, kept so you can see what was mapped) and <output>.k (the wrapped stack). Parts whose thickness or Young's modulus cannot be read are reported and excluded from the neutral axis; if none is usable the op exits non-zero instead of wrapping about an arbitrary plane. Sign convention: a refshell built with the (a,d,c,b) winding has its normal on the concave side, so positive z in the flat deck ends up toward the centre of curvature (radius = R - z).
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `bent_shell` | file | 예 | Bent QUAD4 reference shell (k-file), e.g. from `refshell` |
+  | `flat_stack` | file | 예 | Flat layered stack deck (k-file) to wrap |
+  | `output` | string | 예 | Output prefix — writes <output>.k and <output>_neutral.k |
+  | `thickness` | number |  | Shell thickness passed to the mapper; 0 lets it auto-detect from the stack's z-range |
+  | `axis` | enum |  | Stacking direction used to measure the neutral axis |
+  | `shift` | boolean |  | false wraps without translating — for comparing against the unaligned result; the op says so |
+
+  # 주의
+  - The translation goes through the shared ModelAssembler node-rewrite path, so the deck's own field widths and newlines are preserved and only the coordinates change. The mapping is `runShellMapping` — the same code `shellmap` runs — so a fix on one side applies to both. `neutralaxis` on the same stack reports the number this op aligns to.
+
+  사례 메모: Wraps the asymmetric 3-layer stack (EI neutral axis 0.350465, geometric mid-plane 0.3) onto a R=3 90-degree reference shell
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper stackwrap` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- stackwrap
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    bent_shell: ref_shell.k
+    flat_stack: flat_stack.k
+    output: wrapped
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/ref_shell.k
+    - /data/single/USER/case/flat_stack.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    bent_shell: ref_shell.k
+    flat_stack: flat_stack.k
+    output: wrapped
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

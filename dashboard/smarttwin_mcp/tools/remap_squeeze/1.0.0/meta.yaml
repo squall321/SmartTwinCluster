@@ -1,0 +1,132 @@
+name: remap_squeeze
+version: 1.0.0
+summary: KooRemapper squeeze — Compress parts with strain conditions and generate initial stress/strain
+  for interference fit modeling
+description: |
+  Compress parts with strain conditions and generate initial stress/strain for interference fit modeling
+
+  간섭 끼워맞춤(interference fit) 시뮬레이션을 위해 지정된 파트를 변형률(eps_x/y/z) 또는 등방 팽창(swelling)으로 압축하고, 그에 대응하는 초기 응력 또는 변형률을 dynain 파일로 생성하는 연산입니다. 응력 모드(재료 필수), 변형률 모드(재료 불필요), 열팽창 모드(swelling)를 지원합니다.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `mesh` | file | 예 | Input mesh K-file with multiple parts |
+  | `config` | config | 예 | YAML config specifying per-part strain conditions (eps_x/y/z, swelling, material, relax) |
+  | `output` | output | 예 | Output prefix (generates .k and .dynain files; a trailing .k is ignored) |
+
+  # config 키 (YAML)
+  - `None` (array): 각 파트별 변형률/팽창 설정 리스트. 최소 1개 이상의 파트 필요
+  - `None` (integer): 대상 파트 ID (메시에 반드시 존재해야 함). 1 이상의 양수
+  - `None` (number): x방향 변형률 (음수=압축, 양수=팽창). 단위 없음 (비율). 예: -0.02 = 2% 압축
+  - `None` (number): y방향 변형률 (음수=압축, 양수=팽창). 단위 없음 (비율)
+  - `None` (number): z방향 변형률 (음수=압축, 양수=팽창). 단위 없음 (비율)
+  - `None` (number): 등방 팽창률 (열팽창 모드). 예: 0.03 = 3% 등방 팽창. K-파일의 *MAT_* 카드 필수. eps_x/y/z와 동시 사용 불가
+  - `None` (object): 전역 재료 속성 (K-파일에 *MAT 카드 없을 때만 필요). eps 모드(응력 계산)에만 사용
+  - `None` (number): Young's modulus (영률), 단위: 보통 MPa. 반드시 0보다 커야 함
+  - `None` (number): Poisson's ratio (푸아송 비), 범위: 0 < nu < 0.5 (압축성 재료). 예: 0.3
+  - `None` (boolean): true = *INITIAL_STRAIN_SOLID 출력 모드 (재료 불필요, eps만 사용). false = *INITIAL_STRESS_SOLID (기본, 응력 계산)
+  - `None` (object): Dynamic Relaxation 설정. 이 섹션이 있으면 자동으로 enabled=true. DR 키워드를 출력 K-파일에 자동 삽입
+  - `None` (boolean): DR 기능 활성화 여부. relax 섹션 존재 시 자동으로 true
+  - `None` (integer): DR 수렴 수준 (1~5): 1=fast(NRCYCK=500,DRTOL=0.010), 2=standard(250,0.001), 3=stable(100,0.001), 4=conservative(50,0.0001), 5=max(25,0.00001)
+  - `None` (enum): DR 방식: explicit (IDRFLG=1) 또는 implicit (IDRFLG=5) 수렴
+  - `None` (number): DR 종료 시간. 단위: 시뮬레이션 시간. 0 = 수렴할 때까지 무한 DR
+  - `None` (number): *CONTROL_TERMINATION endtim 값. -1.0 = 카드 삽입 안 함. 0 이상 = 해석 종료 시간
+  - `None` (boolean): *DATABASE_BINARY_D3DRLF 카드 삽입 여부. DR 결과를 d3drlf 바이너리로 출력
+  - `None` (number): 사이클당 리사이클 횟수 (NRCYCK). -1.0 또는 0 이하 = level 프리셋 사용. 직접 지정하면 프리셋 오버라이드. 프리셋: lv1=500, lv2=250, lv3=100, lv4=50, lv5=25
+  - `None` (number): DR 수렴 허용도 (DRTOL). -1.0 또는 0 이하 = level 프리셋 사용. 작을수록 정밀함. 프리셋: lv1=0.010, lv2=0.001, lv3=0.001, lv4=0.0001, lv5=0.00001
+  - `None` (number): 시간 증분 감소율 (DRFCTR). -1.0 또는 0 이하 = level 프리셋 사용. 범위: 0~1. 프리셋: lv1=0.990, lv2=0.995, lv3=0.998, lv4=0.999, lv5=0.999
+  - `None` (number): 시간 스케일 팩터 (TSSFDR). -1.0 또는 0 이하 = level 프리셋 사용. 프리셋: lv1=0.95, lv2=0.90, lv3=0.80, lv4=0.67, lv5=0.50
+  - `None` (integer): 관성 이완 옵션 (IRELAL). -1 = level 프리셋 사용. 값: 0 또는 1. 프리셋: lv1~3=0, lv4~5=1
+  - `None` (number): 에너지 감소 종료 기준 (EDTTL). -1.0 또는 0 이하 = level 프리셋 사용. 프리셋: lv1=0.04, lv2=0.04, lv3=0.04, lv4=0.01, lv5=0.001
+
+  # 프리셋
+  ```json
+  [
+   {
+    "name": "relax.level=1 (fast)",
+    "summary": "NRCYCK=500, DRTOL=0.010, DRFCTR=0.990, TSSFDR=0.95, IRELAL=0, EDTTL=0.04 — 빠른 수렴, 낮은 정밀도"
+   },
+   {
+    "name": "relax.level=2 (standard)",
+    "summary": "NRCYCK=250, DRTOL=0.001, DRFCTR=0.995, TSSFDR=0.90, IRELAL=0, EDTTL=0.04 — 균형잡힌 설정 (기본값)"
+   },
+   {
+    "name": "relax.level=3 (stable)",
+    "summary": "NRCYCK=100, DRTOL=0.001, DRFCTR=0.998, TSSFDR=0.80, IRELAL=0, EDTTL=0.04 — 안정적, 중간 정밀도"
+   },
+   {
+    "name": "relax.level=4 (conservative)",
+    "summary": "NRCYCK=50, DRTOL=0.0001, DRFCTR=0.999, TSSFDR=0.67, IRELAL=1, EDTTL=0.01 — 높은 정밀도, 느림"
+   },
+   {
+    "name": "relax.level=5 (max)",
+    "summary": "NRCYCK=25, DRTOL=0.00001, DRFCTR=0.999, TSSFDR=0.50, IRELAL=1, EDTTL=0.001 — 최고 정밀도, 매우 느림"
+   }
+  ]
+  ```
+
+  # 주의
+  - **핵심 제약사항:** (1) swelling과 eps_x/y/z는 동일 파트에서 동시 사용 불가. (2) eps 모드(응력 계산)는 재료 필수: YAML material 또는 K-파일 *MAT_ELASTIC. (3) swelling 모드는 K-파일 *MAT_* 카드 필수 (MID를 *PART에서 자동 읽음). (4) strain_mode=true일 때 응력 계산 안 함 (재료 불필요). **동작 모드:** 응력 모드(기본): eps_x/y/z로 노드 변형, Hooke의 법칙으로 응력 계산 → *INITIAL_STRESS_SOLID 생성. 변형률 모드(strain_mode=true): eps_x/y/z로 노드 변형, 역방향 변형률만 기록 → *INITIAL_STRAIN_SOLID 생성 (재료 무관). 열팽창 모드(swelling): 노드 이동 없음, 대신 *MAT_ADD_THERMAL_EXPANSION + *INITIAL_TEMPERATURE_NODE 삽입, LS-DYNA가 런타임에 열변형 적용. **재료 우선순위:** YAML material 섹션 > K-파일 *MAT_ELASTIC. **출력 파일:** <prefix>.k = 압축 메시 + 열팽창 카드 + DR 카드. <prefix>.dynain = *INITIAL_STRESS_SOLID (eps 파트만, swelling 파트 제외). **공식:** 바운딩박스 중심 c에 대해 x' = c + (1+eps_i) * (x - c). 응력 σxx = -(λ+2μ)eps_x - λ(eps_y+eps_z) (라메 상수 기반).
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+  - `squeeze <mesh> <config> <prefix>` has its own config reader, but it now strips a leading BOM and applies the tab check just like every other op (verified 2026-09-18: a BOM'd squeeze config writes <prefix>.k and <prefix>.dynain with rc=0). NOTE: the binary's own `help squeeze` note still calls this op a BOM exception; that help string is stale at this commit, the behavior above is what actually runs.
+
+  사례 메모: 간섭끼움 압축: pid1 x/y 1% 압축 후 역인장 prestress 생성
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper squeeze` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- deform
+- squeeze
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    mesh: model.k
+    config: &id001
+      parts:
+      - pid: 1
+        eps_x: -0.01
+        eps_y: -0.01
+        eps_z: 0.0
+      material:
+        E: 210000.0
+        nu: 0.3
+    output: output_s1
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/model.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    mesh: model.k
+    config: *id001
+    output: output_s1
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300

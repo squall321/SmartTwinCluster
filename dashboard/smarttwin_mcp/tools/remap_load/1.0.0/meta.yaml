@@ -1,0 +1,130 @@
+name: remap_load
+version: 1.0.0
+summary: KooRemapper load — YAML으로 부하(압력/힘)를 부분에 적용하고 *LOAD_*, *DEFINE_CURVE, *SET_* 키워드 삽입
+description: |
+  YAML으로 부하(압력/힘)를 부분에 적용하고 *LOAD_*, *DEFINE_CURVE, *SET_* 키워드 삽입
+
+  Apply time-history loads (pressure/force/normal_pressure) to LS-DYNA model surfaces, with support for direction filtering, contact-interface targeting, set-based selection, and time-dependent load curves (DEFINE_CURVE). Generates *LOAD_* keywords and creates *SET_SEGMENT, *DEFINE_CURVE, *CONTACT entries as needed.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `config` | config | 예 | YAML 설정 객체; model, output, loads 필수 |
+
+  # config 키 (YAML)
+  - `None` (string): Path to base LS-DYNA .k file; relative paths resolved from YAML directory
+  - `None` (string): Output file prefix (write to PREFIX.k); .k suffix auto-stripped if provided
+  - `None` (array): Array of load cases; each item defines one load application
+  - `None` (string|integer): Part selector: integer PID (e.g. 10) or part name substring (e.g. 'LAYER_2'); if specified as string and non-numeric, matches against *PART title; unspecified defaults to PID=0
+  - `None` (enum): Load type: pressure (MPa, distributed over surface), force (N, total nodal force), normal_pressure (MPa, face-normal direction only)
+  - `None` (number): Load magnitude; units: N for force mode, MPa for pressure/normal_pressure modes
+  - `None` (array): Load direction vector [x, y, z]; used only when select=direction; vector is normalized internally; example: [0, 0, 1] for +z
+  - `None` (enum): Surface selection mode: direction (filter by angle to direction vector + angle threshold), set (use existing SET_SEGMENT ID), tied (auto-find tied CONTACT interface for this part)
+  - `None` (number): Direction filter tolerance in degrees; only used when select=direction; surface normal must be within ±angle degrees of load direction to be included
+  - `None` (integer): Existing SET_SEGMENT ID to apply load; only used when select=set (0 means not set)
+  - `None` (integer): Specific CONTACT ID for tied interface; only used when select=tied (0 means auto-search for tied contact involving this part)
+  - `None` (array): Time-history curve points [[t1, v1], [t2, v2], ...]; generates *DEFINE_CURVE with LC_ID auto-assigned; if empty or omitted, load is constant (no curve)
+  - `None` (array): Single curve point [time, value]; time in ms, value is normalized scale (0.0–1.0 typical, can exceed for overshoot)
+
+  # 주의
+  -
+  PARSER CONSTRAINTS:
+  - 'model' and 'output' are required top-level keys, else error.
+  - 'loads' list cannot be empty, else error.
+  - All loads[] keys are optional; missing keys use defaults from LoadCase struct.
+  - direction vector is parsed as [x, y, z] comma-separated inside bracket notation; e.g. direction: [0, 0, 1].
+  - curve points are parsed as [time, value] within bracket notation; e.g. curve: - [0.0, 0.0].
+  - part field accepts both numeric (PID) and string (part name substring) parsing.
+  - set_id and contact_id are direct integer fields; 0 means not used.
+  - angle is only semantically valid for select=direction; ignored otherwise but still parsed.
+  - curve is optional; when present, each point is a [time, value] pair; when absent, load is steady.
+
+  SELECTION MODES:
+  - select: direction (default): Filters surfaces by normal angle to direction vector. Requires direction[] and angle. If no surfaces match, warning but does not error.
+  - select: set: Uses an existing *SET_SEGMENT ID. Must specify set_id > 0. Requires that the SET exists in model; parser does not validate.
+  - select: tied: Auto-searches for a tied contact involving the specified part. Can override with contact_id > 0 for explicit contact ID. If no tied contact found, warning.
+
+  LOAD MODES:
+  - pressure: Pressure [MPa] distributed over surface area. Creates *LOAD_SEGMENT_SET or *LOAD_SEGMENT_CONTACT.
+  - force: Total force [N] distributed as nodal loads. Creates *LOAD_NODE_SET.
+  - normal_pressure: Pressure [MPa] applied along surface normal (ignores direction vector). Creates *LOAD_SEGMENT variant with normal flag.
+
+  GOTCHAS:
+  1. direction vector is only used when select=direction. With select=set or select=tied, direction is ignored.
+  2. angle only applies to select=direction mode. With other modes, angle is parsed but has no effect.
+  3. curve generation creates *DEFINE_CURVE with auto-assigned LC_ID; curve reference appears in *LOAD_* keyword as SF field.
+  4. If no surfaces match selection criteria, the command logs warning but does NOT fail—resulting .k may have no load applied to intended target.
+  5. set_id requires that the SET_SEGMENT exists in the base model; no validation is performed.
+  6. contact_id (select=tied mode) if 0, tool searches for *CONTACT with TIED type involving this part; if found, uses that; if not found, warning.
+  7. part can be either PID (integer match) or partName (substring match); parser tries integer parse first, falls back to string match.
+  8. Normal_pressure mode ignores direction vector and uses face normal only; angle tolerance still applies to normal selection.
+
+  YAML INPUT — COMMON RULES:
+  ---
+  - A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.
+  - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
+  - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
+  - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  사례 메모: tied contact 인터페이스에 z+ 방향 압력 1.0 MPa 적용; 시간 곡선으로 0~10ms에 선형 로드
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper load` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- bc
+- load
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    config: &id001
+      model: mesh.k
+      output: mesh_loaded.k
+      loads:
+      - part: 10
+        mode: pressure
+        value: 1
+        direction:
+        - 0
+        - 0
+        - 1
+        select: tied
+        angle: 45
+        curve:
+        - - 0
+          - 0
+        - - 0.001
+          - 1
+        - - 0.01
+          - 1
+    dry_run: true
+    extra_inputs: &id002
+    - /data/single/USER/case/mesh.k
+    - /data/single/USER/case/mesh_loaded.k
+- title: 제출하고 5분까지 기다리기
+  args:
+    config: *id001
+    dry_run: false
+    extra_inputs: *id002
+    wait_sec: 300
