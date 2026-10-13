@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 
@@ -85,6 +86,57 @@ def _base_simulation_params(
     }
 
 
+# extra_scenario_overrides 로 못 바꾸는 최상위 키 — 구 mcp_slurm 의 _LOCKED_SCENARIO_KEYS 와 같은 집합.
+# environment 는 자식 잡이 실행하는 solver_command·koomeshmodifier_path·lsdyna_path·apptainer_sif 를
+# 담고 있어 덮어쓰기를 허용하면 컴퓨트 노드에서 임의 명령이 실행된다(RCE). mode·model_file·
+# output_dir·project_name 은 디스패치·경로를 정하는 키라 사용자 입력이 끼면 안 된다.
+LOCKED_SCENARIO_KEYS = frozenset({"environment", "mode", "model_file", "output_dir", "project_name"})
+
+# environment 안에서 덮어써도 되는 키 — 시간 상한(초, 1~30일 정수)만. KooChainRun 이 environment 에서 읽는다.
+SAFE_ENVIRONMENT_KEYS = frozenset({"timeout_per_step_seconds", "timeout_koomeshmodifier_seconds",
+                                   "timeout_dynain_seconds"})
+
+# 후처리 SIF(postprocess.sif_path)도 apptainer exec 로 실행되는 이미지라 같은 종류의 위험이다.
+# 관리자가 배포하는 계산노드 로컬 이미지(/opt/apptainers/*.sif)만 허용한다.
+_ALLOWED_SIF_RE = re.compile(r"^/opt/apptainers/[A-Za-z0-9._-]+\.sif$")
+
+
+def is_allowed_sif(path: str | None) -> bool:
+    return bool(path) and bool(_ALLOWED_SIF_RE.fullmatch(str(path))) and ".." not in str(path)
+
+
+def strip_locked_overrides(overrides: dict | None, dropped: list | None = None) -> dict | None:
+    """잠금 키를 걷어 낸 사본을 돌려준다. 걷어 낸 키 이름은 `dropped` 에 덧붙인다(조용히 버리지 않기).
+
+    environment 는 SAFE_ENVIRONMENT_KEYS(시간 상한 정수)만 남기고 나머지 키를 'environment.<키>' 로 기록한다.
+
+    postprocess.sif_path 가 허용 범위(/opt/apptainers/*.sif) 밖이면 그것도 걷어 내고
+    'postprocess.sif_path' 로 기록한다.
+    """
+    if not overrides:
+        return overrides
+    out = {k: v for k, v in overrides.items() if k not in LOCKED_SCENARIO_KEYS}
+    notes = [k for k in overrides if k in LOCKED_SCENARIO_KEYS and k != "environment"]
+    env = overrides.get("environment")
+    if isinstance(env, dict):
+        # 시간 상한 3종은 실행에 관여하지 않는 정수라 통과시킨다(발산 시나리오의 실제 안전망).
+        safe = {k: v for k, v in env.items() if k in SAFE_ENVIRONMENT_KEYS and type(v) is int
+                and 1 <= v <= 30 * 86400}
+        if safe:
+            out["environment"] = safe
+        notes += [f"environment.{k}" for k in env if k not in safe]
+    elif "environment" in overrides:
+        notes.append("environment")
+    if dropped is not None:
+        dropped.extend(sorted(notes))
+    pp = out.get("postprocess")
+    if isinstance(pp, dict) and "sif_path" in pp and not is_allowed_sif(pp.get("sif_path")):
+        out["postprocess"] = {k: v for k, v in pp.items() if k != "sif_path"}
+        if dropped is not None:
+            dropped.append("postprocess.sif_path")
+    return out
+
+
 def deep_merge(base: dict, overrides: dict | None) -> dict:
     """Recursively merge `overrides` into `base`. Lists in overrides REPLACE base lists.
 
@@ -115,6 +167,7 @@ def build_single_angle_scenario(
     time_limit: str = "01:00:00",
     drop_surface_type: str = "Plane",
     extra_overrides: dict | None = None,
+    locked_dropped: list | None = None,
 ) -> dict:
     """1방향 지정각도 낙하 시나리오.
 
@@ -152,7 +205,7 @@ def build_single_angle_scenario(
             }
         ],
     }
-    return deep_merge(scenario, extra_overrides)
+    return deep_merge(scenario, strip_locked_overrides(extra_overrides, locked_dropped))
 
 
 def build_fullangle_scenario(
@@ -174,6 +227,7 @@ def build_fullangle_scenario(
     yield_stress_mpa: float = 350,
     sif_path_postprocessor: str | None = None,
     extra_overrides: dict | None = None,
+    locked_dropped: list | None = None,
 ) -> dict:
     """Fibonacci 전각도 낙하 + 자동 후처리.
 
@@ -220,10 +274,13 @@ def build_fullangle_scenario(
         if auto_deep_mode == "separate_job":
             pp["auto_deep_mode"] = "separate_job"
         if sif_path_postprocessor:
+            if not is_allowed_sif(sif_path_postprocessor):
+                raise ValueError(
+                    f"sif_path_postprocessor 는 /opt/apptainers/*.sif 만 허용된다: {sif_path_postprocessor}")
             pp["sif_path"] = sif_path_postprocessor
         scenario["postprocess"] = pp
 
-    return deep_merge(scenario, extra_overrides)
+    return deep_merge(scenario, strip_locked_overrides(extra_overrides, locked_dropped))
 
 
 def write_scenario(scenario: dict, path: str) -> None:

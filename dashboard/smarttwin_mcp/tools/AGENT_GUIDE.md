@@ -833,7 +833,8 @@ def build_single_angle_scenario(
     memory: str = "2G",
     time_limit: str = "01:00:00",
     drop_surface_type: str = "Plane",
-    extra_overrides: dict | None = None,   # Tier 2 — deep-merged on top
+    extra_overrides: dict | None = None,   # Tier 2 — deep-merged on top (locked keys stripped first)
+    locked_dropped: list | None = None,    # out-param: names of stripped keys, for the tool response
 ) -> dict: ...
 
 def build_fullangle_scenario(
@@ -853,8 +854,9 @@ def build_fullangle_scenario(
     auto_sphere: bool = True,
     auto_deep_mode: str = "inline",        # "inline" | "separate_job"
     yield_stress_mpa: float = 350,
-    sif_path_postprocessor: str | None = None,
+    sif_path_postprocessor: str | None = None,   # must match /opt/apptainers/*.sif (ValueError otherwise)
     extra_overrides: dict | None = None,
+    locked_dropped: list | None = None,
 ) -> dict: ...
 
 def deep_merge(base: dict, overrides: dict | None) -> dict:
@@ -864,7 +866,25 @@ def deep_merge(base: dict, overrides: dict | None) -> dict:
 
 def write_scenario(scenario: dict, path: str) -> None:
     """json.dump with indent=2. Makes parent dirs."""
+
+LOCKED_SCENARIO_KEYS = {"environment", "mode", "model_file", "output_dir", "project_name"}
+SAFE_ENVIRONMENT_KEYS = {"timeout_per_step_seconds", "timeout_koomeshmodifier_seconds",
+                         "timeout_dynain_seconds"}
+
+def strip_locked_overrides(overrides: dict | None, dropped: list | None = None) -> dict | None:
+    """Copy of `overrides` without locked keys. `environment` keeps only SAFE_ENVIRONMENT_KEYS
+    (int seconds, 1..30 days). A postprocess.sif_path outside /opt/apptainers/*.sif is removed.
+    Every removed key is appended to `dropped` as 'key' or 'environment.<key>'."""
+
+def is_allowed_sif(path: str | None) -> bool:   # /opt/apptainers/<name>.sif only
 ```
+
+**Never deep-merge user input into a scenario without `strip_locked_overrides`.**
+`environment` holds `solver_command`, `koomeshmodifier_path`, `lsdyna_path`, `apptainer_sif` —
+the commands a child job executes on a compute node. Letting a caller override them is remote
+code execution as the service account. The builders already strip; a tool that merges by itself
+must call `strip_locked_overrides` and return the dropped list (`locked_overrides_dropped`) so
+nothing is discarded silently.
 
 ### 9.5 Rules for adding a new helper to `_shared/`
 
