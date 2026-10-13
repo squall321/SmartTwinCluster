@@ -131,3 +131,47 @@ def test_strip_helper_does_not_mutate_input():
     dropped = []
     out = sb.strip_locked_overrides(ov, dropped)
     assert "environment" in ov and "environment" not in out and dropped == ["environment.a"]
+
+
+# ── 문자열 안전 토큰 (KooChainRun 이 따옴표 없이 셸·#SBATCH 에 넣는 값) ───────────────────────
+
+@pytest.mark.parametrize("ov,dropped_path", [
+    ({"postprocess": {"section_view_axes": ["x; touch /tmp/p"]}}, "postprocess.section_view_axes"),
+    ({"postprocess": {"deep_memory": "8G\nid"}}, "postprocess.deep_memory"),
+    ({"postprocess": {"sphere_partition": "normal $(id)"}}, "postprocess.sphere_partition"),
+    ({"postprocess": {"deep_extra_args": "--parts 1 --install-dir /x"}}, "postprocess.deep_extra_args"),
+    ({"postprocess": {"deep_extra_args": ["--ua=/bin/sh"]}}, "postprocess.deep_extra_args"),
+    ({"scenarios": [{"scenario_name": "a b"}]}, "scenarios[0].scenario_name"),
+    ({"simulation_params": {"bad key;": 1}}, "simulation_params.bad key;"),
+])
+def test_unsafe_strings_are_dropped_and_reported(ov, dropped_path):
+    dropped = []
+    out = sb.strip_locked_overrides(ov, dropped)
+    assert dropped_path in dropped, dropped
+    assert "touch" not in json.dumps(out) and "$(" not in json.dumps(out) and "install-dir" not in json.dumps(out)
+
+
+def test_safe_values_survive_sanitization():
+    ov = {"postprocess": {"section_view_axes": ["x", "y", "z"], "deep_memory": "32G", "auto_deep": True,
+                          "deep_extra_args": "--parts 100 200 --hotspot-clusters", "yield_stress_mpa": 250},
+          "scenarios": [{"scenario_name": "낙하_Fib26", "tolerance": {"doe_type": "lhs", "doe_count": 10}}],
+          "simulation_params": {"drop_surface": {"type": "PlanewithRoughness", "roughness_mode": "Random"}}}
+    dropped = []
+    out = sb.strip_locked_overrides(ov, dropped)
+    assert dropped == []
+    assert out["postprocess"]["deep_extra_args"] == ["--parts", "100", "200", "--hotspot-clusters"]
+    assert out["scenarios"][0]["scenario_name"] == "낙하_Fib26"
+    assert out["postprocess"]["section_view_axes"] == ["x", "y", "z"]
+
+
+def test_list_with_one_bad_string_is_dropped_whole():
+    dropped = []
+    out = sb.strip_locked_overrides({"postprocess": {"section_view_fields": ["von_mises", "eps|id"]}}, dropped)
+    assert "section_view_fields" not in out.get("postprocess", {})
+    assert dropped == ["postprocess.section_view_fields"]
+
+
+@pytest.mark.parametrize("bad", ["1.2.3.4; id", "localhost", "10.0.0.1 --env X=1"])
+def test_mode_environment_rejects_non_ipv4(bad):
+    with pytest.raises(ValueError):
+        sb.mode_environment("drop_weight_impact", bad)

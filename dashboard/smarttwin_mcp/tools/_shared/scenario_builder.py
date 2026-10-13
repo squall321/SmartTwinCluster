@@ -101,6 +101,66 @@ SAFE_ENVIRONMENT_KEYS = frozenset({"timeout_per_step_seconds", "timeout_koomeshm
 _ALLOWED_SIF_RE = re.compile(r"^/opt/apptainers/[A-Za-z0-9._-]+\.sif$")
 
 
+# 시나리오 값은 KooChainRun 이 셸 스크립트·#SBATCH 줄에 따옴표 없이 넣는 곳이 있다(예: section_view_axes 를
+# 공백으로 이어 deep_report.sh 에, deep_memory 를 #SBATCH --mem= 에). 그래서 사용자가 준 문자열은 전부
+# 공백·줄바꿈·셸 메타문자 없는 토큰이어야 한다. *_extra_args 는 생성기가 shlex 로 감싸므로 공백을 허용하되
+# 줄바꿈과 실행 파일 위치를 바꾸는 옵션은 막는다.
+_SAFE_STR = re.compile(r"^[\w.,:*?/@+%=-]{0,256}$")
+_SAFE_KEY = re.compile(r"^[\w.-]{1,64}$")
+_FORBIDDEN_TOOL_FLAGS = ("--install-dir", "--ua")
+_DROP = object()
+
+
+def _safe_extra_args(v):
+    import shlex
+    try:
+        toks = shlex.split(v) if isinstance(v, str) else v
+    except ValueError:
+        return _DROP
+    if not isinstance(toks, list) or not all(isinstance(t, (str, int, float)) and not isinstance(t, bool) for t in toks):
+        return _DROP
+    toks = [str(t) for t in toks]
+    if any("\n" in t or "\r" in t or t.split("=", 1)[0] in _FORBIDDEN_TOOL_FLAGS for t in toks):
+        return _DROP
+    return toks
+
+
+def sanitize_strings(obj, dropped: list | None, path: str = ""):
+    """사용자 덮어쓰기 안 문자열을 안전 토큰으로 제한한다. 안 맞는 값은 빼고 경로를 `dropped` 에 적는다.
+    문자열 원소가 하나라도 안 맞는 목록은 통째로 뺀다(일부만 빼면 뜻이 조용히 바뀐다)."""
+    def note(p):
+        if dropped is not None:
+            dropped.append(p)
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else str(k)
+            if not isinstance(k, str) or not _SAFE_KEY.fullmatch(k):
+                note(p)
+                continue
+            sv = _safe_extra_args(v) if k.endswith("_extra_args") else sanitize_strings(v, dropped, p)
+            if sv is _DROP:
+                if k.endswith("_extra_args"):
+                    note(p)
+                continue
+            out[k] = sv
+        return out
+    if isinstance(obj, list):
+        items = [sanitize_strings(v, dropped, f"{path}[{i}]") for i, v in enumerate(obj)]
+        if any(x is _DROP for x in items):
+            if dropped is not None:
+                dropped[:] = [d for d in dropped if not d.startswith(path + "[")]
+            note(path)
+            return _DROP
+        return items
+    if isinstance(obj, str):
+        if _SAFE_STR.fullmatch(obj):
+            return obj
+        note(path)
+        return _DROP
+    return obj
+
+
 def is_allowed_sif(path: str | None) -> bool:
     return bool(path) and bool(_ALLOWED_SIF_RE.fullmatch(str(path))) and ".." not in str(path)
 
@@ -127,13 +187,16 @@ def strip_locked_overrides(overrides: dict | None, dropped: list | None = None) 
         notes += [f"environment.{k}" for k in env if k not in safe]
     elif "environment" in overrides:
         notes.append("environment")
-    if dropped is not None:
-        dropped.extend(sorted(notes))
     pp = out.get("postprocess")
     if isinstance(pp, dict) and "sif_path" in pp and not is_allowed_sif(pp.get("sif_path")):
         out["postprocess"] = {k: v for k, v in pp.items() if k != "sif_path"}
-        if dropped is not None:
-            dropped.append("postprocess.sif_path")
+        notes.append("postprocess.sif_path")
+    env_safe = out.pop("environment", None)
+    out = sanitize_strings(out, notes)
+    if env_safe is not None:
+        out["environment"] = env_safe
+    if dropped is not None:
+        dropped.extend(sorted(notes))
     return out
 
 
@@ -293,3 +356,74 @@ if __name__ == "__main__":
     # CLI for testing
     print("scenario_builder.py — import as module")
     sys.exit(0)
+
+
+# ── 범용 시나리오(scenario_* 도구) — environment 는 항상 서버가 만든다 ─────────────────────────
+
+LSDYNA_SIFS = {
+    "single": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_s.sif",
+    "double": "/opt/apptainers/LSDynaBasic_aocc420_ompi4.0.5_mpp_d.sif",   # THERM ICPower 는 배정밀 필수
+}
+WORKFLOW_MODES = ("part_validation", "drop_weight_impact")
+
+
+def mode_environment(workflow: str | None, lstc_ip: str, *, ncpu: int = 2, memory: str = "4G",
+                     time_limit: str = "12:00:00", precision: str = "single",
+                     partition: str | None = None) -> dict:
+    """모드별 검증된 environment. 사용자 입력은 숫자·고정 목록 선택만 들어온다(경로·명령은 여기서 고정)."""
+    # lstc_ip 는 DWI 명령 문자열에 그대로 들어가므로 IPv4 가 아니면 거절한다.
+    if not re.fullmatch(r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}", str(lstc_ip)):
+        raise ValueError(f"lstc_license_ip 는 IPv4 여야 한다: {lstc_ip!r}")
+    if not re.fullmatch(r"[0-9]+[GM]", str(memory)) or not re.fullmatch(r"[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]", str(time_limit)):
+        raise ValueError("memory(예: 4G)·time_limit(HH:MM:SS) 형식이 아니다")
+    if partition is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", str(partition)):
+        raise ValueError(f"partition 이름 형식이 아니다: {partition!r}")
+    ncpu = int(ncpu)
+    sif = LSDYNA_SIFS[precision]
+    if workflow == "drop_weight_impact":
+        # smarttwin-partial-impact 템플릿 기본 블록과 같은 명령 문자열(DWI 워크플로우가 그대로 실행한다)
+        env = {
+            "koomeshmodifier_path": ("apptainer exec --bind /data:/data /data/apptainers/SmartTwinPreprocessor.sif "
+                                     "/opt/SmartTwinPreprocessor/bin/KooMeshModifier"),
+            "sif_path": "",
+            "solver_command": (f"apptainer exec --bind /data:/data --env LSTC_FILE=/opt/ls-dyna_license/LSTC_FILE "
+                               f"--env LSTC_LICENSE_SERVER={lstc_ip} --env FI_PROVIDER=tcp --env I_MPI_FABRICS=ofi "
+                               f"--env LD_LIBRARY_PATH=/opt/openmpi/lib /data/apptainers/{sif.rsplit('/', 1)[1]} "
+                               f"/opt/openmpi/bin/mpirun -np {int(ncpu)} /opt/ls-dyna/lsdyna"),
+            **{k: v for k, v in _base_environment(lstc_ip, ncpu, memory, time_limit).items()
+               if k not in ("koomeshmodifier_path",)},
+        }
+        env["lsdyna_apptainer_sif"] = sif
+    elif workflow == "part_validation":
+        env = {"koomeshmodifier_path": "/data/SmartTwinPreprocessor/bin/KooMeshModifier", "sif_path": sif,
+               "solver_command": "ls-dyna", "ncpu": int(ncpu), "memory": memory}
+    else:
+        env = _base_environment(lstc_ip, ncpu, memory, time_limit)
+        env["lsdyna_apptainer_sif"] = sif
+        if precision == "double" and memory.endswith(("G", "g")):
+            env["lsdyna_memory"] = f"{int(memory.rstrip('Gg')) * 1000}m"   # 배정밀은 32비트 상한이 없다
+    if partition:
+        env["partition"] = partition
+    return env
+
+
+def build_mode_scenario(skeleton: dict, overrides: dict | None, *, workflow: str | None,
+                        environment: dict, model_name: str, locked_dropped: list | None = None) -> dict:
+    """카탈로그 사례(skeleton) 위에 사용자 덮어쓰기(잠금 키 제외)를 얹고, environment·경로 키는 서버 값으로 고정."""
+    import copy
+    sc = copy.deepcopy(skeleton)
+    sc.pop("environment", None)
+    sc = deep_merge(sc, strip_locked_overrides(overrides, locked_dropped))
+    sc["environment"] = {**environment, **(sc.get("environment") or {})}   # 남은 것은 시간 상한뿐
+    sc["project_name"] = "stmc_scenario"   # 템플릿이 잡 이름으로 바꾼다
+    if workflow:
+        sc["mode"] = workflow
+        sc["model_file"] = model_name
+        sc["output_dir"] = "output"
+        sc.pop("base_dir", None)
+    else:
+        sc.pop("mode", None)
+        sc["base_dir"] = "%RESULT_DIR%"
+        for s in sc.get("scenarios") or []:
+            s["template"] = model_name
+    return sc
