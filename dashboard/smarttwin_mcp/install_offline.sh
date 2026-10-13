@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # smarttwin_mcp 오프라인 설치 — 인터넷 없는 운영서(icn401)에서 MCP 서버 의존성을 repo 동봉
-#   wheel 로 설치(offline_packages 패턴, --no-index).
+#   wheel 로 설치(offline_packages 패턴, --no-index). dashboard/mcp_slurm/install_offline.sh 를 본뜸.
 #
 # 사용:
 #   ./install_offline.sh                          # venv 만 구축(오프라인, 현재 계정)
@@ -55,7 +55,7 @@ done
 PY_MM="$("$PYBIN" -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 echo "[smarttwin_mcp] 파이썬: $PYBIN ($PY_MM)"
 
-# 2) wheel 디렉토리 (컨벤션: python_wheels/smarttwin_mcp/python<ver>).
+# 2) wheel 디렉토리 (mcp_slurm 컨벤션: python_wheels/smarttwin_mcp/python<ver>).
 CANDIDATES=(
     "$REPO_ROOT/offline_packages_2404/python_wheels/smarttwin_mcp/python${PY_MM}"
     "$REPO_ROOT/offline_packages/python_wheels/smarttwin_mcp/python${PY_MM}"
@@ -111,4 +111,4 @@ systemctl is-active --quiet smarttwin-mcp \
     && echo "[smarttwin_mcp] ✓ 서비스 active — $UNIT" \
     || { echo "[smarttwin_mcp] ✗ 서비스 기동 실패 (journalctl -u smarttwin-mcp -n 20)"; exit 1; }
 echo ""
-echo "nginx /mcp 라우팅은 cluster/config/nginx_web_production.conf(:5013) 참고."
+echo "nginx /mcp 컷오버는 cluster/config/nginx_web_production.conf(:5013) 참고 — 폴백 mcp-slurm(:5012) 유지."

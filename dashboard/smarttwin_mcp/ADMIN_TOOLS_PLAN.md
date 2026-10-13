@@ -3,14 +3,13 @@
 
 ## 배경
 
-구 MCP 서버 `dashboard/mcp_slurm/`(:5012)은 커밋 6f1f8698에서 제거됐다. 19개 도구 중 아래 11개는
-smarttwin_mcp에 대응 도구가 없어서 지금은 MCP로 쓸 수 없다. 원본 구현은 git 이력에 남아 있다.
+nginx `/mcp`와 클라이언트는 smarttwin_mcp(:5013)만 쓴다. 구 MCP 서버 `dashboard/mcp_slurm/`(:5012)은
+운영에서 stcx 요청(2026-10-14)에 따라 폴백으로 유지되지만(dev 서비스는 내림) 라우팅되지 않는다. 그래서
+mcp_slurm 19개 도구 중 smarttwin_mcp에 대응 도구가 없는 아래 11개는 지금 MCP로 쓸 수 없다.
+원본 구현은 `dashboard/mcp_slurm/server.py`에 그대로 있다.
 
-```
-git show 6f1f8698^:dashboard/mcp_slurm/server.py
-```
-
-목표는 이 11개 기능을 smarttwin_mcp 카탈로그 도구로 다시 제공하는 것이다. 단, 구 구현을 그대로
+목표는 이 11개 기능을 smarttwin_mcp 카탈로그 도구로 다시 제공하는 것이다. 이관이 끝나야 mcp_slurm 은퇴를
+다시 검토할 수 있다. 단, 구 구현을 그대로
 옮기지 않고 이관 과정에서 발견된 인증·권한·입력검증 구멍을 함께 막는다.
 
 비범위.
@@ -139,7 +138,7 @@ git show 6f1f8698^:dashboard/mcp_slurm/server.py
 
 이관 전 조사(2026-10-13)에서 확인한 사실. 결정이 내려지면 아래에 이어 적는다.
 
-- 구 구현 위치(6f1f8698^ 기준 `dashboard/mcp_slurm/server.py`). 읽기 도구 L220-430, 쓰기 도구 L558-666, 공용 헬퍼 L93-213.
+- 구 구현 위치 `dashboard/mcp_slurm/server.py`. 읽기 도구 L220-430, 쓰기 도구 L558-666, 공용 헬퍼 L93-213.
   CLI 래퍼는 `dashboard/backend_5010/slurm_commands.py`(절대경로 `SLURM_BIN_DIR`, argv 리스트, 셸 미사용, 10초 타임아웃).
 - 구 읽기 도구는 대부분 인자 없이 무플래그 CLI(squeue, sinfo, sacct, sdiag, sshare, sprio) 출력을 상한 없이 반환했다.
   인증은 `/api/me` 2xx 여부만 봤고 역할은 보지 않았다.
