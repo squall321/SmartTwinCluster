@@ -70,8 +70,8 @@ mcp-slurm(:5012) 이 제거돼 nginx 를 5012 로 되돌리는 롤백은 불가.
 코드 단위로 되돌려야 하면 git 이력의 이전 커밋으로 checkout 후 재기동.
 
 ## mcp-slurm 제거 시 미이관 도구 (2026-10-13)
-mcp_slurm 19툴 중 smarttwin_mcp 에 대응 도구가 없는 것 — 필요 시 git 이력의
-`dashboard/mcp_slurm/server.py` 를 참고해 카탈로그 도구로 이관.
+mcp_slurm 19툴 중 smarttwin_mcp 에 대응 도구가 없는 것 — 이관 계획은 `../ADMIN_TOOLS_PLAN.md`,
+원본은 git 이력의 `dashboard/mcp_slurm/server.py`.
 노드 drain/resume(slurm_node_set_state), 잡 hold/release/requeue(slurm_job_control, cancel 만 이관),
 fairshare, job priority, reservation, QOS, sacct 회계, sdiag, sstat, 전체 사용자 잡·노드 목록.
 
