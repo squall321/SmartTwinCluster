@@ -11,7 +11,7 @@
 Description=SmartTwin MCP Server (HTTP/streamable, :5013) — (C) hybrid, backend_5010 경유 쓰기
 After=network.target
 # backend_5010 인증/변경계 REST 에 의존 — 같이 떠 있어야 함(있다면).
-Wants=dashboard-backend.service
+Wants=dashboard_backend.service
 
 [Service]
 Type=simple
