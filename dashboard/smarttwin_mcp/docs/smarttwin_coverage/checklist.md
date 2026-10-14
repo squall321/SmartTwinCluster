@@ -38,11 +38,11 @@
 - [x] 커버리지 시험 · pytest 전체(285) · lint
 - [x] 실잡 e2e 8종(backend 경유, 잡 1171~1178)
 - [x] 시나리오 e2e(잡 1182 → 자식 1183·1184) — LS-DYNA 직전까지 완주, dev 라이선스 만료로 LS-DYNA 거절
-- [ ] kmm_chain e2e 재실행 + MAT 카드 의미 검사(KMM 7711e10 빌드 후)
+- [x] kmm_chain e2e 재실행 + MAT 카드 의미 검사 — 잡 1196(node001, SIF v113) 통과, 판정은 옛 불량 산출물(1174)에서 실패 확인 — 7c6b93e4
 - [ ] nginx `/smarttwin-api/`(정본+라이브) + 443 경유 확인 — b5·사용자 확인 후(터널 경유는 nginx 없이 된다)
 - [x] KMM·KooChainRun 빌드(glibc 2.35, 산출물로 ETOR 재질 확인·회귀 e2e 7종) → SIF v113 → tar·Drive·메일 → 헤드·node001·node002(sha 동일)
-- [ ] 커밋·푸시(KooSlurm · pyKooCAE) · 메모리
-- [ ] 임시 PAT(id 17) 삭제
+- [x] 커밋·푸시 — pyKooCAE 7a135d9..04760dc, KooSlurm c58cf408..7c6b93e4(사용자 승인) · 메모리
+- [x] 임시 PAT(id 17) 삭제 — dev 는 SSO 꺼짐이라 API 로는 소유자(koopark) 토큰이 안 보여 backend mcp_token.delete_token 으로
 
 ## 6. 개통 전 접근 통제 (사용자 결정 2026-10-14 — 허용 루트·job_* 소유권·옛 버전 위임)
 - [x] fullangle·single drop 1.1.2 — work_dir 은 호출자 영역 + STMC_WORK_ROOTS, model_file_path 는 입력 루트, 심볼릭 링크 거절
