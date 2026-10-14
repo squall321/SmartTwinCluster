@@ -58,3 +58,23 @@
   하나라도 밖이면 전체를 거절한다. Slurm 잡 ID 는 이 클러스터에서 재사용된 적이 있다(3월의 1188~1190) —
   registry 의 job_id 조회는 최신 행이 이긴다.
 - **harvest 출력 경로는 고정**(캠페인 폴더 risk_<kind>.json). 임의 경로를 받으면 캠페인 파일을 덮어쓸 수 있다.
+
+## 2026-10-14 개통 전 접근 통제
+- **발견**: 손작성 낙하 도구(fullangle·single)가 work_dir·model_file·model_file_path 를 검사 없이 서비스 계정
+  권한으로 썼고, job_* 는 registry_id 만 맞으면 누구의 잡이든 다뤘다. 옛 버전 일부는 version 을 고정하면
+  backend 권한·감사를 건너뛰고 서비스 계정으로 sbatch/scancel 을 직접 불렀다. HWAX 가 접근을 좁히지 않기로 해서
+  개통 전에 막아야 했다.
+- **결정(사용자)**: ① 허용 루트로 묶기 — work_dir 은 /data/single/<호출자> + STMC_WORK_ROOTS({user} 치환),
+  운영은 drop-in 으로 DynaForge 루트를 준다. ② job_* 소유권을 이번에. ③ 옛 버전은 최신으로 위임.
+- **admin 예외 없음**: dev 는 SSO 꺼짐이라 모든 웹 사용자가 admin 으로 보인다. 규칙을 "잡 폴더가 호출자 영역 안"
+  하나로 둔다(남의 잡 지원은 대시보드·셸로).
+- **소유권 검사는 공용 함수에.** 모든 버전의 job_* 가 resolve_job 을 지나므로 한 곳만 고치면 핀 우회가 없다.
+  낙하 도구는 경로 처리가 버전별 스크립트에 있어서 옛 버전을 고정 버전(1.1.2) 실행으로 바꿨다(최신 심링크가
+  아니라 고정 — 뒤에 스키마가 바뀌어도 옛 인자로 깨지지 않게).
+- **업로드 init 의 job_id** 를 주면 /shared/uploads/jobs/<id>/ 에 저장돼 사용자 영역이 아니다 — 입력 루트에
+  넣지 않고 회신에 "job_id 없이"로 안내했다(넣으면 사용자 간 경계가 없어진다).
+- dev 업로드도 운영 1-3 과 같은 이유로 실패한다(/shared → /mnt/gluster root 755, uploads 없음). 바꾸지 않았다.
+- KooRemapper 원본 catalog_data.json 이 앞서 나가 벤더링 시험이 깨졌다 — 바뀐 것은 외부 op stcx_fullangle_drop
+  뿐(도구 대상 아님)이라 재벤더링만 했다(206f9489). KooRemapper 리포 최신 커밋이 "stcx→SmartTwinMCP 설계"
+  문서다 — 다른 세션이 같은 주제를 보고 있으니 그쪽 설계와 회신 내용이 어긋나지 않는지 사용자 확인 필요.
+

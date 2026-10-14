@@ -31,8 +31,8 @@
 - [x] dev 서비스 재기동 후 실PAT 확인(검색·기능표·tool_result·reprioritize 계획·harvest, PAT 없음 401)
 
 ## 4. 정본 갱신(pyKooCAE)
-- [ ] cli_help_kcr.py 에 10월 기능 반영 + test_cli_help
-- [ ] 생성기 재실행 → scenario_* 문서 갱신
+- [x] cli_help_kcr.py 에 10월 기능 반영 + test_cli_help — pyKooCAE 04760dc(D2R 사례 DROP#3 검증)
+- [x] 생성기 재실행 → scenario_* 문서 갱신 — e1484248
 
 ## 5. 시험·배포
 - [x] 커버리지 시험 · pytest 전체(285) · lint
@@ -40,6 +40,14 @@
 - [x] 시나리오 e2e(잡 1182 → 자식 1183·1184) — LS-DYNA 직전까지 완주, dev 라이선스 만료로 LS-DYNA 거절
 - [ ] kmm_chain e2e 재실행 + MAT 카드 의미 검사(KMM 7711e10 빌드 후)
 - [ ] nginx `/smarttwin-api/`(정본+라이브) + 443 경유 확인 — b5·사용자 확인 후(터널 경유는 nginx 없이 된다)
-- [ ] KMM·KooChainRun 빌드 → SIF v113 → tar·메일 → node001·node002
+- [x] KMM·KooChainRun 빌드(glibc 2.35, 산출물로 ETOR 재질 확인·회귀 e2e 7종) → SIF v113 → tar·Drive·메일 → 헤드·node001·node002(sha 동일)
 - [ ] 커밋·푸시(KooSlurm · pyKooCAE) · 메모리
 - [ ] 임시 PAT(id 17) 삭제
+
+## 6. 개통 전 접근 통제 (사용자 결정 2026-10-14 — 허용 루트·job_* 소유권·옛 버전 위임)
+- [x] fullangle·single drop 1.1.2 — work_dir 은 호출자 영역 + STMC_WORK_ROOTS, model_file_path 는 입력 루트, 심볼릭 링크 거절
+- [x] job_helpers.resolve_job 소유권(PAT 호출자) — job_* 11종·get_job_details, my_jobs·batch_cancel 도
+- [x] 옛 버전 위임 10종(스키마 동일 확인, deprecated 표시)
+- [x] 시험 test_owner_gates 37 + 전체 322 · lint 0 error · dev 재기동 후 실PAT 확인 — 5aa61b67
+- [x] stcx 회신 문서 deploy/STCX_DYNAFORGE_REPLY.md (§2·§3 반영 내역, §1 차이, lstc_license_ip 답)
+- [ ] 운영 유닛 drop-in STMC_WORK_ROOTS — 운영 측(회신에 명시)
