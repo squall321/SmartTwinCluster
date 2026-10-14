@@ -903,9 +903,20 @@ Bundle(roots)                        # files + generated texts uploaded as input
 submit_tool_job(*, tool, family, binary, argv, bundle, cwd="work", existing_dir=None,
                 slurm=None, job_name=None, dry_run=False, wait_sec=0, identity=None) -> dict
 read_result(result_dir) / wait_result(result_dir, wait_sec)
+submit_scenario_job(*, tool, scenario, model_bundle, model_name, aux_bundle, workflow,
+                    job_name=None, dry_run=False, identity=None, driver_mem=None) -> dict
+                                     # one KooChainRun campaign = one smarttwin-scenario driver job
+                                     # (drop_weight_impact → smarttwin-partial-impact)
+find_owned_job(args, username) -> (job_dir, registry_row | None)
+                                     # registry_id | job_id | work_dir → dir under the caller's area
+campaign_dir(job_dir, row=None) -> test_dir          # folder holding runner_config.json
+campaign_queue(test_dir) -> ({job_id: {state, reason, command}}, [foreign job ids])
 ```
 
 - Everything that calls the backend fails closed: no `STMC_CLUSTER_URL` or no PAT → `StmcError`.
+- Before any `scontrol` on a campaign, filter with `campaign_queue`: `jobs.json` lives in the user's
+  folder and can be edited, so a queued job counts as the campaign's only when its batch script
+  (`squeue %o`) is inside the campaign folder. Refuse the whole call if any job is foreign.
 - `submit_tool_job` fills per-family Slurm defaults and clamps them to the largest node of the
   target (or default `*`) partition from `sinfo` — the response lists any clamping in `slurm_notes`.
 - Placeholders `@@WORK@@` (job work folder) and `@@RESULT@@` (job result folder) are substituted by
@@ -3605,9 +3616,9 @@ LLM can cross-reference to `audit_trail`.
 | Sort `audit_trail` newest-first                        | It's a timeline — oldest-first reads like a story.               |
 
 
-## 30. Generated SmartTwin tools (`kmm_*`, `kam_*`, `remap_*`, `post_*`)
+## 30. Generated SmartTwin tools (`kmm_*`, `kam_*`, `remap_*`, `post_*`, `scenario_*`)
 
-These ~110 tools cover every SmartTwinPreprocessor / SmartTwinPostprocessor capability. They are
+These ~120 tools cover every SmartTwinPreprocessor / SmartTwinPostprocessor capability. They are
 **generated** — never edit them by hand.
 
 | Family | Source of truth | Tool name |
@@ -3616,6 +3627,13 @@ These ~110 tools cover every SmartTwinPreprocessor / SmartTwinPostprocessor capa
 | KooAutomatedModeller modes | pyKooCAE `occProject/Generators/KooCLIHelp/kam_catalog.py` | `kam_<mode>` |
 | KooRemapper ops | `_shared/kooremapper_core/catalog_data.json` | `remap_<op>` |
 | Postprocessor executables | `$STMC_POST_BIN/<tool> --help` + `POST_TOOLS` in the generator | `post_<tool>` |
+| KooChainRun scenario modes/workflows | pyKooCAE `Runner/cli_help_kcr.py` (first example = default scenario) | `scenario_<mode>` (+ `scenario_submit`) |
+
+Hand-written companions (not generated, listed in the capability index): `tool_result` (results of
+any generated tool job), `smarttwin_capabilities` (the index itself), and one tool per KooChainRun
+command — `job_status`/`job_collect`/`job_postprocess`/`job_diagnose`/`job_rerun`/`job_stop`/
+`job_reprioritize`/`job_harvest`. The generator maps commands to tools in `KCR_COMMAND_TOOLS` and
+stops when `cli_help_kcr` gains a command without a tool (`run` is internal and excluded).
 
 Regenerate after any catalog change:
 
@@ -3632,6 +3650,14 @@ venv/bin/smarttwin-mcp lint tools/ && pytest tests/test_smarttwin_coverage.py
   binaries, so behaviour follows the binary anyway; git history of the generated files is the change log.
 - Execution: every call is one Slurm job via the backend template `smarttwin-tool` (whitelisted binary,
   argv array, no shell). `dry_run=true` renders inputs without a PAT. Results: `tool_result`.
+- `scenario_*` submit one driver job via `smarttwin-scenario` (prepare → submit → wait → collect →
+  postprocess). The server builds `environment`; callers tune it only through `ncpu`, `memory`,
+  `time_limit`, `solver_precision`, `partition`, `lstc_license_ip` (or server env
+  `STMC_LSTC_LICENSE_IP`). The template re-validates the uploaded scenario.json, so a direct backend
+  submit cannot smuggle commands either.
+- `job_reprioritize`: plan by default; `apply` is admin-only (`scontrol top` reorders the shared
+  account's queue, and held far jobs never run until released — the driver would never finish), so
+  it ships with `release_held`.
 - Security rules enforced in both `stmc_tools.py` and the template dispatcher: paths only under the
   caller's areas; no `..`; uploaded files lose exec bits; options that select an executable
   (`--install-dir`, `--ua`, `lsprepost_path`/`install_dir`/`ua_path` keys) are refused.

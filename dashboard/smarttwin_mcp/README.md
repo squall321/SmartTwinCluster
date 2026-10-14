@@ -19,7 +19,8 @@ SmartTwinMCP/
     catalog.py         # disk scanner + version resolver
     spec.py            # pydantic models for meta.yaml
     runner.py          # local / ssh / http transports
-    search.py          # lexical search over name/summary/tags
+    search.py          # lexical search over name/summary/tags (Korean substrings too)
+    rest.py            # /api/v1 REST routes + OpenAPI, sharing the meta-tool functions
   tools/
     <tool_name>/
       <version>/                # e.g. 1.0.0
@@ -42,6 +43,40 @@ SmartTwinMCP/
 
 Tools whose `meta.yaml` has `expose: direct` are **also** registered as their own MCP tool.
 This gives "favorite" tools first-class visibility while everything else stays catalog-only.
+
+Every SmartTwinPreprocessor / SmartTwinPostprocessor capability is a catalog tool (generated from
+the products' own help catalogs — see `docs/smarttwin_coverage/COVERAGE.md`). Start with
+`smarttwin_capabilities`; results of `kmm_*`/`kam_*`/`remap_*`/`post_*` jobs come back through
+`tool_result`, KooChainRun campaigns through `job_status`/`job_collect`.
+
+## REST API (same catalog, same execution path)
+
+The same server also answers plain HTTP under `/api/v1` (`src/smarttwin_mcp/rest.py`). Each route
+calls the function behind the matching meta-tool, so MCP and REST cannot drift apart.
+
+| Method + path (direct, `127.0.0.1:5013`) | Same as | Auth |
+|---|---|---|
+| `GET /api/v1/health` | — | none |
+| `GET /api/v1/openapi.json` | — OpenAPI 3.1 built from the catalog, one `run_<tool>` per tool | none |
+| `GET /api/v1/tools?q=&limit=` | `catalog_search` | PAT |
+| `GET /api/v1/tools/{name}` | `catalog_describe` | PAT |
+| `GET /api/v1/tools/{name}/versions` | `catalog_versions` | PAT |
+| `POST /api/v1/tools/{name}/run` — body `{"args": {...}, "version": "1.0.0"?}` | `catalog_run` | PAT |
+| `POST /api/v1/reload` | `catalog_reload` | PAT |
+
+- Auth is the dashboard PAT (`Authorization: Bearer kst_…`), checked against backend `/api/me`
+  (successes cached 60 s). The header reaches the tool exactly like the MCP passthrough, so the
+  backend applies the caller's permissions and audit.
+- Status codes: 200 executed (the body's `ok` says whether the tool succeeded) · 400 bad arguments ·
+  401 missing/invalid PAT · 404 unknown tool · 503 backend unreachable.
+- Behind nginx the prefix is `/smarttwin-api/` → `127.0.0.1:5013/api/`. A tunnel to
+  `127.0.0.1:5013` needs no nginx change.
+
+```bash
+curl -s -H "Authorization: Bearer $PAT" -H 'Content-Type: application/json' \
+  -d '{"args": {"family": "SmartTwinPostprocessor"}}' \
+  http://127.0.0.1:5013/api/v1/tools/smarttwin_capabilities/run
+```
 
 ## Versioning
 
