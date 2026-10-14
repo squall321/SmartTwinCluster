@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -24,8 +23,14 @@ import scenario_builder as sb  # noqa: E402
 EVIL_ENV = {"environment": {"solver_command": "touch /tmp/x", "koomeshmodifier_path": "/tmp/evil"}}
 
 
+@pytest.fixture(autouse=True)
+def _caller(registry, tmp_path, monkeypatch):
+    """1.1.2 부터 낙하 도구는 PAT 호출자와 작업 폴더 허용 루트를 본다 — 가짜 backend(conftest) + tmp_path 를 루트로."""
+    monkeypatch.setenv("STMC_WORK_ROOTS", str(tmp_path))
+    monkeypatch.setenv("STMC_CLUSTER_TOKEN", "kst_user")
+
+
 def _run(tool, version, work_dir, overrides, **extra):
-    os.environ.pop("STMC_CLUSTER_URL", None)  # dry_run 이라 backend 없이도 scenario.json 은 써진다
     (work_dir / "MinimumModel.k").write_text("*KEYWORD\n*END\n")
     cat = load_catalog(TOOLS_ROOT)
     entry = cat.resolve(f"{tool}@{version}")
@@ -115,7 +120,6 @@ def test_postprocess_sif_override_inside_apptainers_is_kept(tmp_path):
 @pytest.mark.parametrize("bad", ["/data/single/u/evil.sif", "/opt/apptainers/../../tmp/x.sif",
                                  "/opt/apptainers/sub/x.sif"])
 def test_sif_path_argument_must_be_under_opt_apptainers(tmp_path, bad):
-    os.environ.pop("STMC_CLUSTER_URL", None)
     (tmp_path / "MinimumModel.k").write_text("*KEYWORD\n*END\n")
     cat = load_catalog(TOOLS_ROOT)
     entry = cat.resolve("fullangle_drop_simulation")

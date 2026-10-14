@@ -10,6 +10,7 @@ import json, os, sys, datetime, glob
 sys.path.insert(0, os.environ["SHARED_DIR"])
 import registry
 import audit
+import job_helpers
 
 
 def fail(reason):
@@ -44,15 +45,7 @@ def disk_state(job: dict) -> dict:
 def main():
     args = json.loads(os.environ["STMC_ARGS_JSON"])
 
-    job = None
-    if "registry_id" in args:
-        job = registry.get_by_id(int(args["registry_id"]))
-    elif "work_dir" in args:
-        rows = registry.list_recent(limit=1)  # we'll filter manually
-        wd = args["work_dir"].rstrip("/")
-        rows = [r for r in registry.list_recent(limit=500) if r.get("work_dir", "").rstrip("/") == wd]
-        if rows:
-            job = rows[0]
+    job = job_helpers.resolve_job(args)  # PAT 호출자의 잡만(아니면 fail)
 
     if not job:
         fail("Job not found in registry. Try list_recent_jobs to see what's available.")

@@ -2,10 +2,11 @@ name: my_jobs
 version: 1.0.0
 summary: List jobs owned by the calling OS user (mode -own multi-tenant query).
 description: |
-  mode: own — returns ONLY rows where `user == $USER` (the calling OS user's
-  identity, taken from `$USER` / `$LOGNAME` in the script environment, NEVER
-  from a JSON arg). This is the §18 reference implementation of multi-tenant
-  isolation against the shared `/data/SmartTwinMCP/jobs.db` registry.
+  mode: own — returns ONLY the caller's rows: the caller is the web user behind the
+  request PAT (backend `/api/me`, NEVER a JSON arg), and a row is theirs when its job
+  folder is under `/data/single/<user>/` (the registry `user` column is the MCP service
+  account, so it cannot tell web users apart). This is the §18 reference implementation
+  of multi-tenant isolation against the shared `/data/SmartTwinMCP/jobs.db` registry.
 
   Each returned row carries the `user` field so the LLM can confirm ownership
   at a glance (§18.5). The tool does NOT accept any `user` / `owner` /

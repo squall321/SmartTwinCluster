@@ -762,9 +762,18 @@ Used by every `job_*` follow-up tool (`job_status`, `job_stop`, `job_rerun`,
 KOOCHAINRUN = "/data/SmartTwinPreprocessor/bin/KooChainRun"
 
 def resolve_job(args: dict) -> dict | None:
-    """Look up a job by `registry_id` (preferred) or `work_dir` (fallback).
-    Returns the registry row dict, or None if not found.
+    """Look up a job by `registry_id` (preferred) or `work_dir` (fallback) — the CALLER's jobs only.
+    Checks the caller first (PAT → backend /api/me; no/invalid PAT → fail()), then fail()s when the
+    row's work_dir is outside /data/single/<caller>. Returns the row, or None if not found.
+    Every version of every job_* tool goes through here, so pinning an old version cannot skip it.
     YOUR tool's args.schema.json should accept BOTH keys (oneOf required)."""
+
+def caller_name() -> str:
+    """Web user behind the request PAT (backend /api/me). fail()s when missing/invalid."""
+
+def is_owner(row: dict, user: str) -> bool:
+    """True when the row's work_dir is under /data/single/<user>. The registry `user` column is the
+    MCP service account and cannot tell web users apart — never use it for ownership."""
 
 def fail(reason: str, **extra) -> NoReturn:
     """Print {"ok": false, "reason": ..., **extra} to stdout and exit(1).
@@ -898,7 +907,12 @@ caller_identity(timeout=15) -> {"username", "role", "permissions", "groups", "ra
 user_area(username) -> "/data/single/<username>"
 input_roots(username) -> list[str]   # STMC_INPUT_ROOTS, {user} placeholder; default
                                      # /data/single/{user}:/shared/uploads/users/{user}:/data/scenario
-check_under(path, roots, *, kind="any"|"file"|"dir"|"parent") -> realpath
+check_under(path, roots, *, kind="any"|"file"|"dir"|"parent"|"new") -> realpath   # "new": no existence check
+work_roots(username) -> list[str]   # where tools may create work folders: caller area + STMC_WORK_ROOTS
+                                     # (colon-separated, {user} placeholder; prod sets the DynaForge root)
+prepare_model_workdir(work_dir, model_file, model_file_path, username) -> (work_dir, model, scenario.json)
+                                     # drop tools: work_dir in work_roots, model_file_path in input_roots,
+                                     # model_file a bare name, symlinked model/scenario.json refused
 Bundle(roots)                        # files + generated texts uploaded as inputs.tgz into the job's work/
 submit_tool_job(*, tool, family, binary, argv, bundle, cwd="work", existing_dir=None,
                 slurm=None, job_name=None, dry_run=False, wait_sec=0, identity=None) -> dict
@@ -1787,21 +1801,22 @@ Downstream tools will use it to `ack_inbound_webhook`.
 ## 18. Multi-tenant isolation
 
 The job registry has a `user` column (`registry.record_submission` auto-fills it
-with `$USER`/`$LOGNAME`). Most existing query tools ignore it. **Any new query,
-status, or mutation tool that the LLM might dispatch on a shared host MUST honor
-the calling user's identity** — otherwise user A's prompt can read or cancel
+with `$USER`/`$LOGNAME`). Over HTTP every request runs as the MCP **service account**, so
+that column (and `$USER`) is the same for everyone and cannot isolate web users.
+**Any query, status, or mutation tool that the LLM might dispatch on a shared host MUST honor
+the calling web user's identity** — otherwise user A's prompt can read or cancel
 user B's jobs.
 
 ### 18.1 The contract
 
-Caller's identity is **always** `$USER` in the script's process environment.
-Do not accept `user` as a JSON arg — that would let the LLM impersonate. Do not
-read `$LOGNAME` as a fallback unless `$USER` is unset (very rare).
+Caller's identity is the web user behind the request PAT — `job_helpers.caller_name()`
+(backend `/api/me`, fail-closed). Do not accept `user` as a JSON arg — that would let the LLM
+impersonate. A job belongs to the caller when its folder is under `/data/single/<caller>/`
+(`job_helpers.is_owner(row, caller)`); `resolve_job()` already enforces this.
 
 ```python
-caller = os.environ.get("USER") or os.environ.get("LOGNAME")
-if not caller:
-    job_helpers.fail("cannot determine caller identity (USER/LOGNAME unset)")
+caller = job_helpers.caller_name()          # fail()s without a valid PAT
+job = job_helpers.resolve_job(args)         # fail()s on someone else's job
 ```
 
 ### 18.2 Three isolation modes — pick one in `meta.yaml.description`
@@ -1813,14 +1828,14 @@ catalog audits can grep for it without reading prose:
 ```yaml
 tags: [job, query, mode-own]     # one of: mode-own, mode-own-shared, mode-read-all
 description: |
-  **Isolation mode: own.** Only returns rows where `user == $USER`.
+  **Isolation mode: own.** Only returns the caller's rows (job folder under /data/single/<caller>/).
   (rest of description...)
 ```
 
 The `mode-*` tag is the machine-checkable signal. The description sentence
 is what the LLM reads.
 
-- **`mode: own`** — operate only on rows where `user == caller`. **Default for
+- **`mode: own`** — operate only on the caller's rows (`job_helpers.is_owner`). **Default for
   any tool that mutates** (`job_stop`, `job_rerun`, `ack_inbound_webhook`).
   Reject foreign rows with a hard `fail()` that says so explicitly.
 - **`mode: own+shared`** — operate on rows where `user == caller` OR
@@ -1835,23 +1850,17 @@ is what the LLM reads.
 ### 18.3 Filter pattern (`mode: own`)
 
 ```python
-rows = registry.list_recent(limit=args.get("limit", 50), user=caller)
-# registry.list_recent's `user` filter is already there — use it, don't fetch
-# all rows and post-filter in Python.
+rows = [r for r in registry.list_recent(limit=5000, status=status)
+        if job_helpers.is_owner(r, caller)][:limit]
+# Ownership is the job folder, not a column — read wide, then keep the caller's rows.
 ```
 
-For a single-row lookup, check ownership after resolve:
+For a single-row lookup `resolve_job()` is enough — it refuses foreign rows itself:
 
 ```python
 job = job_helpers.resolve_job(args)
 if not job:
     job_helpers.fail("job not found", lookup=args)
-if job.get("user") != caller and mode != "read-all":
-    job_helpers.fail(
-        "permission denied: job belongs to another user",
-        job_owner=job.get("user"),
-        caller=caller,
-    )
 ```
 
 ### 18.4 Args convention

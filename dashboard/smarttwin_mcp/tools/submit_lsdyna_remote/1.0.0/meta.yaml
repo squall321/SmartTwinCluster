@@ -83,3 +83,6 @@ examples:
       time_limit: "24:00:00"
       dry_run: false
     note: dry_run=false actually submits to Slurm on the remote head. Confirm with user.
+deprecated: true
+deprecation_note: |
+  보안 수정(2026-10-14) — 이 버전은 1.1.0 버전을 그대로 실행한다(인자 동일). 1.1.0 이상을 쓸 것.

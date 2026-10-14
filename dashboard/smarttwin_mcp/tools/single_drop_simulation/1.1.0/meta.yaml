@@ -80,3 +80,6 @@ examples:
       simulation_time_s: 0.001
       drop_height_mm: 2000
       dry_run: false
+deprecated: true
+deprecation_note: |
+  보안 수정(2026-10-14) — 이 버전은 1.1.2 버전을 그대로 실행한다(인자 동일). 1.1.2 이상을 쓸 것.

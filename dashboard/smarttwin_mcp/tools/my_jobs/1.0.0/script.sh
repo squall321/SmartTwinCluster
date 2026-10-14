@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# my_jobs — §18 mode: own reference. Lists jobs where user == $USER.
+# my_jobs — §18 mode: own. 호출자(PAT → /api/me)의 잡(잡 폴더가 /data/single/<사용자> 안)만 나열한다.
 set -euo pipefail
 export SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
 
@@ -8,6 +8,7 @@ import json, os, sys
 
 sys.path.insert(0, os.environ["SHARED_DIR"])
 import registry
+import job_helpers
 
 
 def fail(reason, **extra):
@@ -16,10 +17,9 @@ def fail(reason, **extra):
 
 
 def main():
-    # §18.1: caller identity comes from the environment, never from args.
-    caller = os.environ.get("USER") or os.environ.get("LOGNAME")
-    if not caller:
-        fail("cannot determine caller identity (USER/LOGNAME unset)")
+    # §18.1: caller identity never comes from args. HTTP 서비스에서 $USER 는 서비스 계정이라
+    # 웹 사용자는 PAT(/api/me)로 확인하고, 소유는 잡 폴더로 판단한다(registry user 열은 서비스 계정).
+    caller = job_helpers.caller_name()
 
     args = json.loads(os.environ["STMC_ARGS_JSON"])
 
@@ -30,14 +30,9 @@ def main():
     if since is not None:
         since = int(since)
 
-    # §18.3: filter in SQL via list_recent's `user` param, not in Python.
-    rows = registry.list_recent(
-        limit=limit,
-        status=status,
-        tool=tool_name,
-        since=since,
-        user=caller,
-    )
+    # 소유 판단이 잡 폴더 기준이라 SQL 로 못 거른다 — 넓게 읽고 호출자 잡만 남긴다.
+    rows = [r for r in registry.list_recent(limit=5000, status=status, tool=tool_name, since=since)
+            if job_helpers.is_owner(r, caller)][:limit]
 
     # §18.5: every row must carry `user` so the LLM can confirm ownership.
     # registry.list_recent already returns the column, but defend against

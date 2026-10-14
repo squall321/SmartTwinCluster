@@ -23,7 +23,11 @@
       "/data/single/{user}:/shared/uploads/users/{user}:/data/scenario".
   check_under(path, roots, *, kind="any") -> str
       realpath 가 roots 안이고 kind 에 맞으면 realpath, 아니면 StmcError.
-      kind: "file"·"dir"·"any"(있어야 함) | "parent"(만들 파일 — 상위 폴더만 있으면 됨)
+      kind: "file"·"dir"·"any"(있어야 함) | "parent"(만들 파일 — 상위 폴더만 있으면 됨) | "new"(존재 검사 없음)
+  work_roots(username) -> list[str]
+      작업 폴더를 만들어도 되는 루트 — 호출자 영역 + STMC_WORK_ROOTS(콜론 구분, {user} 치환).
+  prepare_model_workdir(work_dir, model_file, model_file_path, username) -> (작업 폴더, 모델, scenario.json)
+      낙하 도구의 작업 폴더·모델 준비(경로 허용 루트, model_file 은 이름만, 심볼릭 링크 거절).
 
   Bundle(roots)                         업로드할 입력 묶음(roots=None 이면 파일시스템을 보지 않는 미리보기)
       .add_file(path) -> 묶음 안 이름     (이름 충돌·허용 범위 밖이면 StmcError)
@@ -58,6 +62,7 @@ import io
 import json
 import os
 import re
+import shutil
 import tarfile
 import tempfile
 import time
@@ -170,6 +175,34 @@ def user_area(username: str) -> str:
 def input_roots(username: str) -> list[str]:
     spec = os.environ.get("STMC_INPUT_ROOTS", DEFAULT_INPUT_ROOTS)
     return [r.replace("{user}", username) for r in spec.split(":") if r.strip()]
+
+
+def work_roots(username: str) -> list[str]:
+    """작업 폴더(쓰기)를 만들어도 되는 루트 — 호출자 영역 + STMC_WORK_ROOTS(콜론 구분, {user} 치환)."""
+    extra = os.environ.get("STMC_WORK_ROOTS", "")
+    return [user_area(username)] + [r.replace("{user}", username) for r in extra.split(":") if r.strip()]
+
+
+def prepare_model_workdir(work_dir: str, model_file: str, model_file_path: str | None,
+                          username: str) -> tuple[str, str, str]:
+    """낙하 도구(fullangle·single)의 작업 폴더와 모델을 준비한다 → (작업 폴더, 모델 경로, scenario.json 경로).
+
+    작업 폴더는 work_roots 안, 모델 원본(model_file_path)은 input_roots 안, model_file 은 파일 이름만.
+    작업 폴더에 모델이 이미 있으면 그대로 쓴다(예전 동작). 모델·scenario.json 자리가 심볼릭 링크면 거절한다 —
+    링크를 따라 허용 범위 밖을 읽거나 쓰지 않게."""
+    if not isinstance(model_file, str) or not _NAME_RE.fullmatch(model_file):
+        raise StmcError(f"model_file 은 파일 이름만 쓸 수 있다(영문·숫자·._-): {model_file!r}")
+    wd = check_under(work_dir, work_roots(username), kind="new")
+    os.makedirs(wd, exist_ok=True)
+    target, scenario_path = os.path.join(wd, model_file), os.path.join(wd, "scenario.json")
+    for p in (target, scenario_path):
+        if os.path.islink(p):
+            raise StmcError(f"작업 폴더 안의 심볼릭 링크는 쓰지 않는다: {p}")
+    if not os.path.isfile(target):
+        if not model_file_path:
+            raise StmcError(f"모델이 없다: {target} — 업로드한 파일 경로를 model_file_path 로 줄 것")
+        shutil.copyfile(check_under(model_file_path, input_roots(username), kind="file"), target)
+    return wd, target, scenario_path
 
 
 def _inside(path: str, roots: list[str]) -> bool:

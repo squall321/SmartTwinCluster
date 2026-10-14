@@ -147,8 +147,31 @@ def backend_rerun(work_dir: str, timeout: int = 320) -> dict:
             "response": data}
 
 
+def caller_name() -> str:
+    """PAT(STMC_CLUSTER_TOKEN) → backend /api/me 의 웹 사용자 이름. 없거나 무효면 fail(fail-closed)."""
+    from stmc_exec import StmcError, caller_identity
+    try:
+        return caller_identity()["username"]
+    except StmcError as e:
+        fail(str(e))
+
+
+def is_owner(row: dict, user: str) -> bool:
+    """registry 행의 잡 폴더(work_dir)가 user 의 영역(/data/single/<user>) 안인가.
+    registry 의 user 열은 MCP 서비스 계정이라 소유 판단에 쓸 수 없다."""
+    from stmc_exec import StmcError, check_under, user_area
+    try:
+        check_under(row.get("work_dir") or "", [user_area(user)], kind="new")
+        return True
+    except StmcError:
+        return False
+
+
 def resolve_job(args: dict) -> dict | None:
-    """Look up job by registry_id or work_dir.
+    """Look up job by registry_id or work_dir — 호출자(PAT) 의 잡만.
+
+    먼저 호출자를 확인하고(PAT 없음·무효면 fail), 찾은 행이 호출자 영역 밖이면 fail 한다.
+    모든 버전의 job_* 도구가 이 함수를 지나므로 버전을 고정해 불러도 우회되지 않는다.
 
     Returns the registry row dict on success, or None if not found.
 
@@ -157,15 +180,18 @@ def resolve_job(args: dict) -> dict | None:
     that care about ambiguity should query `registry.list_recent` directly
     and decide policy.
     """
+    user = caller_name()
+    row = None
     if "registry_id" in args:
-        return registry.get_by_id(int(args["registry_id"]))
-    if "work_dir" in args:
+        row = registry.get_by_id(int(args["registry_id"]))
+    elif "work_dir" in args:
         wd = args["work_dir"].rstrip("/")
         rows = [r for r in registry.list_recent(limit=500)
                 if r.get("work_dir", "").rstrip("/") == wd]
-        if rows:
-            return rows[0]
-    return None
+        row = rows[0] if rows else None
+    if row is not None and not is_owner(row, user):
+        fail(f"registry_id {row.get('id')} 는 호출자({user})의 잡이 아니다 — 내 잡만 다룰 수 있다")
+    return row
 
 
 def fail(reason: str, **extra):

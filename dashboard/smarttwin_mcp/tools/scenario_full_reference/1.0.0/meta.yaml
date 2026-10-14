@@ -41,3 +41,6 @@ examples:
     args: {section: postprocess}
   - title: submit CLI 옵션 (auto-tune override 시 사용)
     args: {section: submit_cli}
+deprecated: true
+deprecation_note: |
+  보안 수정(2026-10-14) — 이 버전은 1.0.1 버전을 그대로 실행한다(인자 동일). 1.0.1 이상을 쓸 것.

@@ -33,9 +33,8 @@ def _backend_cancel(base, token, jid):
 def main():
     args = json.loads(os.environ["STMC_ARGS_JSON"])
 
-    caller = os.environ.get("USER") or os.environ.get("LOGNAME")
-    if not caller:
-        job_helpers.fail("cannot determine caller identity (USER/LOGNAME unset)")
+    # 호출자 = PAT 의 웹 사용자. registry 의 user 열은 MCP 서비스 계정이라 소유 판단에 쓰지 않는다.
+    caller = job_helpers.caller_name()
 
     dry_run = bool(args.get("dry_run", True))
 
@@ -51,25 +50,22 @@ def main():
             if row is None:
                 missing.append(rid)
                 continue
-            if row.get("user") != caller:
+            if not job_helpers.is_owner(row, caller):
                 skipped_not_owner += 1
                 continue
             candidates.append(row)
     else:
         # filter path. Use SQL filters from registry.list_recent where possible.
-        skipped_not_owner = 0  # SQL filter already excludes other users
+        skipped_not_owner = 0  # 아래에서 호출자 잡만 남긴다
         missing = []
         submitted_before = args.get("submitted_before")
-        # If submitted_before is set, we post-filter — fetch a wider pool so we
-        # can still detect "> MAX_BATCH" matches accurately.
-        fetch_limit = (MAX_BATCH * 5 + 1) if submitted_before is not None else (MAX_BATCH + 1)
-        candidates = registry.list_recent(
-            limit=fetch_limit,
-            user=caller,
+        # 소유 판단이 잡 폴더 기준이라 SQL 로 못 거른다 — 넓게 읽고 걸러서 "> MAX_BATCH" 판정은 그대로 한다.
+        candidates = [r for r in registry.list_recent(
+            limit=5000,
             status=args.get("status"),
             tool=args.get("tool_name"),
             project_like=args.get("project_like"),
-        )
+        ) if job_helpers.is_owner(r, caller)]
         if submitted_before is not None:
             candidates = [c for c in candidates if (c.get("submitted_at") or 0) < int(submitted_before)]
 
@@ -148,7 +144,7 @@ def main():
     # with rc=0 from scancel). dry_run is a preview and writes no audit row.
     if not dry_run and out["cancelled"]:
         cancelled_ids = [e["registry_id"] for e in out["cancelled"]]
-        actor = caller  # already $USER (job_helpers.fail above ensures it's set)
+        actor = caller  # PAT 의 웹 사용자
         audit.record_event(
             actor=actor,
             tool="batch_cancel_jobs@1.1.0",

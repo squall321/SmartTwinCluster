@@ -13,3 +13,6 @@ examples:
     args: {registry_id: 42}
   - title: work_dir fallback (registry_id 모를 때)
     args: {work_dir: /data/koopark/fullangle_test}
+deprecated: true
+deprecation_note: |
+  보안 수정(2026-10-14) — 이 버전은 1.1.0 버전을 그대로 실행한다(인자 동일). 1.1.0 이상을 쓸 것.
