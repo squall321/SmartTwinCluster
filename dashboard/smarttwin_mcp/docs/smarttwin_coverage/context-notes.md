@@ -78,3 +78,15 @@
   뿐(도구 대상 아님)이라 재벤더링만 했다(206f9489). KooRemapper 리포 최신 커밋이 "stcx→SmartTwinMCP 설계"
   문서다 — 다른 세션이 같은 주제를 보고 있으니 그쪽 설계와 회신 내용이 어긋나지 않는지 사용자 확인 필요.
 
+
+## 2026-10-14 DynaForge 연동 — 요청서와 §4 수정
+- DynaForge 는 이 서버의 KooRemapper 리포다(사용자 확인). 그쪽에 요청서를 썼다
+  `KooRemapper: docs/requests/smarttwinmcp-contract-request-2026-10-14.md`(그 리포는 다른 세션이 작업 중이라 커밋은 그쪽에).
+  핵심 충돌 — DynaForge 는 업로드 init 에 job_id 를 실어 /shared/uploads/jobs/<id>/ 에 저장하는데 1.1.2 는 그 경로를
+  model_file_path 로 받지 않는다. jobs/<id> 는 올린 사람과 묶이지 않아 허용하면 남의 덱을 가져갈 수 있다 → 파일 이름에
+  잡 id 를 넣으라고 요청했다.
+- §4(b1274d04): 응답 work_dir 은 스테이징, registry 는 결과 폴더라 DynaForge 복구 조회가 늘 실패했다. 고치면서
+  registry 경로의 이름 정규화 불일치(backend 는 두 번 정규화)와 runner_config_path 오기(<결과>/output/… → 실제는 최상위)도
+  찾았다. backend 응답에 결과 폴더가 없어서 backend 규칙을 그대로 따라 계산한다(backend_result_dir) — 규칙이 바뀌면
+  시험이 backend 소스의 정규식 문자열 대조로 잡는다. dev registry 의 옛 행(16~18)은 runner_config_path 가 틀린 채로 둔다.
+- 1.1.2 는 운영 미배포라 같은 버전에서 고쳤다(옛 버전 위임 스텁이 1.1.2 를 가리키므로 버전을 올리면 스텁도 바꿔야 한다).
