@@ -78,16 +78,17 @@ sudo -u koopark head -c 20 <그 file_path>       # MCP 서비스 계정(koopark)
 
 ```bash
 sudo mkdir -p /etc/systemd/system/smarttwin-mcp.service.d
-printf '[Service]\nEnvironment="STMC_WORK_ROOTS=/data/koopark/dynaforge/{user}"\n' \
+printf '[Service]\nEnvironment="STMC_WORK_ROOTS=/data/koopark/dynaforge"\n' \
   | sudo tee /etc/systemd/system/smarttwin-mcp.service.d/dynaforge.conf
 sudo systemctl daemon-reload && sudo systemctl restart smarttwin-mcp
 ```
 
-`{user}` 는 서버가 호출자(PAT 의 웹 사용자)로 바꿉니다. 그래서 DynaForge 의 `work_dir` 은
-**`/data/koopark/dynaforge/<사용자>/<잡 id>`** 가 됩니다(작업 루트 1-5 의 아래). 기존 규칙
-`/data/koopark/dynaforge/<잡 id>` 를 그대로 쓰려면 `{user}` 없이 `/data/koopark/dynaforge` 로 주면 되지만,
-그 경우 같은 루트 안에서는 사용자끼리 폴더가 갈리지 않습니다. env 를 넣지 않으면 `work_dir` 은
-`/data/single/<사용자>/…` 아래만 받습니다.
+이러면 DynaForge 의 기존 규칙 `work_dir=/data/koopark/dynaforge/<잡 id>` 가 그대로 통합니다(작업 루트 1-5).
+DynaForge 는 게이트웨이 PAT 하나로 들어오므로 사용자별 하위 폴더는 두지 않았습니다. 여러 신원이 이 루트를
+나눠 쓰게 되면 `/data/koopark/dynaforge/{user}` 처럼 `{user}` 를 넣으면 서버가 호출자 이름으로 바꿉니다.
+env 를 넣지 않으면 `work_dir` 은 `/data/single/<사용자>/…` 아래만 받습니다.
+DynaForge 쪽 변경(업로드 `job_id` 제거 등)은 DynaForge 리포에 따로 요청했습니다
+(`KooRemapper: docs/requests/smarttwinmcp-contract-request-2026-10-14.md`).
 
 ### 1-6. 확인 — 추가 두 줄
 
@@ -101,7 +102,7 @@ systemctl show smarttwin-mcp -p Environment | tr ' ' '\n' | grep STMC_WORK_ROOTS
 ```bash
 curl -s -X POST http://127.0.0.1:5013/api/v1/tools/fullangle_drop_simulation/run \
   -H "Authorization: Bearer $PAT" -H 'Content-Type: application/json' \
-  -d '{"args":{"work_dir":"/data/koopark/dynaforge/<사용자>/smoke","model_file_path":"<1-3 의 file_path>",
+  -d '{"args":{"work_dir":"/data/koopark/dynaforge/smoke","model_file_path":"<1-3 의 file_path>",
                "lstc_license_ip":"<§4 의 IP>","num_angles":4,"dry_run":true}}'
 # → result.ok=true, result.scenario_path=…/smoke/scenario.json
 ```
