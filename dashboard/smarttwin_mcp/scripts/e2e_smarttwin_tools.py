@@ -33,6 +33,35 @@ def _out(res, suffix):
     return any(o["path"].endswith(suffix) for o in res.get("outputs") or [])
 
 
+def _mats_of(res, suffix):
+    """산출 덱의 (파트→MID, MID→*MAT 키워드). rc·파일 존재만으로는 재질 소실을 못 잡는다(2026-10-13 KMM 결함)."""
+    path = next((o["path"] for o in res.get("outputs") or [] if o["path"].endswith(suffix)), None)
+    if not path:
+        return {}, {}
+    t = Path(path).read_text(errors="replace").splitlines()
+    parts, mats = {}, {}
+    for i, line in enumerate(t):
+        key = line.strip().upper()
+        if key.startswith("*MAT"):
+            j = i + 1 + (1 if key.endswith("_TITLE") else 0)
+            while j < len(t) and t[j].startswith("$"):
+                j += 1
+            mats[int(t[j][:10])] = key
+        elif key == "*PART":
+            j = i + 2
+            while j < len(t) and t[j].startswith("$"):
+                j += 1
+            parts[int(t[j][:10])] = int(t[j][20:30])
+    return parts, mats
+
+
+def _etor_except_ok(res, suffix):
+    """*PIDExcept,2 — 파트 2 는 원래 재질, 파트 1 은 강체, 참조 누락 0."""
+    parts, mats = _mats_of(res, suffix)
+    return (bool(parts) and set(parts.values()) <= set(mats)
+            and "VISCOELASTIC" in mats.get(parts.get(2), "") and "RIGID" in mats.get(parts.get(1), ""))
+
+
 CASES = {
     "remap_info": ({"mesh_file": f"{E}/model.k", "wait_sec": 300},
                    lambda r: r.get("rc") == 0 and _has(r, "Nodes:")),
@@ -43,7 +72,7 @@ CASES = {
     "kmm_chain": ({"model_path": f"{E}/model.k", "wait_sec": 900,
                    "modes": [{"mode": "ELASTIC_TO_RIGID", "lines": ["*PIDExcept,2"]},
                              {"mode": "TRANSFORM", "options": {"Translation": [0, 0, 5]}}]},
-                  lambda r: r.get("rc") == 0 and _out(r, "_etor_trans.k")),
+                  lambda r: r.get("rc") == 0 and _etor_except_ok(r, "_etor_trans.k")),
     "kam_pkg": ({"input_text": "*Translation,0.0,0.0,0.0\n*Rotation,0\n*Mirror,False\n*IsTop,True\n"
                                "*Layer,Substrate\nLocation,0,0,0\nLength,10.0,8.0\nThickness,0.3\n"
                                "*Layer,Die\nLocation,0,0\nLength,6.0,5.0\nThickness,0.2\n*End",
