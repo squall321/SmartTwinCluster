@@ -162,3 +162,52 @@ def test_old_versions_delegate_to_the_fixed_version(tool, olds, new):
         assert os.access(d / "script.sh", os.X_OK)
         assert json.loads((d / "args.schema.json").read_text())["properties"] == new_schema, (tool, old)
         assert "deprecated: true" in (d / "meta.yaml").read_text(), (tool, old)
+
+
+# ── 제출 응답·registry 경로 — DynaForge 요청서 §4 ─────────────────────────────────────
+
+def _job_helpers():
+    import importlib
+    import sys
+    sys.path.insert(0, str(TOOLS / "_shared"))
+    try:
+        return importlib.import_module("job_helpers")
+    finally:
+        sys.path.remove(str(TOOLS / "_shared"))
+
+
+def test_backend_result_dir_follows_the_backend_rules():
+    jh = _job_helpers()
+    assert jh.backend_result_dir("u", "Fullangle_Fib4", 7) == "/data/single/u/Fullangle_Fib4_7"
+    # 1차 [^\w.-]→_ 는 한글을 남기고, 2차 [^A-Za-z0-9._-]→_ 가 한글을 지운다
+    assert jh.backend_result_dir("u", "낙하 시험/1", 7) == "/data/single/u/______1_7"
+    assert jh.backend_result_dir("bad user", "x", 1) == "/data/single/anonymous/x_1"
+    src = Path(__file__).resolve().parents[2] / "backend_5010" / "job_submit_api.py"
+    if src.is_file():  # 운영 머신에 backend 사본이 없으면 규칙 비교만 건너뛴다
+        text = src.read_text(encoding="utf-8")
+        assert r"re.sub(r'[^\w.\-]', '_', str(job_name_raw))[:64]" in text
+        assert r"re.sub(r'[^A-Za-z0-9._-]', '_', str(job_name))[:64]" in text
+
+
+@pytest.mark.parametrize("tool", ["fullangle_drop_simulation", "single_drop_simulation"])
+def test_submit_reports_the_real_result_dir_and_finds_by_staging_dir(registry, area, upload, run_as, tool):
+    from conftest import FAKE_SLURM_JOB_ID
+    mine, _ = area
+    staging = mine / "stage1"
+    args = {**_drop_args(staging, upload[0]), "dry_run": False, "project_name": "Drop Test 1"}
+    if tool == "single_drop_simulation":
+        args.pop("num_angles")
+    out = run_as(tool, args)
+    result_dir = f"/data/single/{USER}/Drop_Test_1_{FAKE_SLURM_JOB_ID}"
+    assert out["ok"] is True and out["result_dir"] == result_dir, out
+    assert out["work_dir"] == str(staging) and out["output_dir"] == result_dir + "/output", out
+    if tool == "fullangle_drop_simulation":
+        assert out["sphere_report_path"] == result_dir + "/output/sphere_report.html", out
+    row = registry.get_by_id(out["registry_id"])
+    assert row["work_dir"] == result_dir and row["runner_config_path"] == result_dir + "/runner_config.json", row
+    assert row["extra"]["staging_dir"] == str(staging), row
+    # DynaForge 복구 경로 — 스테이징 폴더로 찾는다(예전엔 늘 Job not found)
+    st = run_as("job_status", {"work_dir": str(staging)})
+    assert st["ok"] is True and st["job_id"] == out["registry_id"], st
+    st = run_as("job_status", {"work_dir": str(staging)}, token="kst_other")
+    assert st["ok"] is False and "잡이 아니다" in st["reason"], st

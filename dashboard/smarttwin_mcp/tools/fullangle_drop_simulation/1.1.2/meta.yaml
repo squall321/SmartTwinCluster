@@ -6,6 +6,8 @@ description: |
   STMC_WORK_ROOTS 아래, model_file_path 는 업로드·사용자 영역(STMC_INPUT_ROOTS, 기본
   /data/single/<사용자>:/shared/uploads/users/<사용자>:/data/scenario) 안, model_file 은 파일 이름만.
   작업 폴더의 모델·scenario.json 자리가 심볼릭 링크면 거절. 인자는 1.1.1 과 같다.
+  응답에 result_dir(실제 결과 폴더 = registry work_dir)을 더했고 output_dir·sphere_report_path 는 그 아래다
+  (예전엔 결과가 없는 스테이징 폴더를 가리켰다). work_dir 은 준 값(스테이징) 그대로이며 job_status(work_dir=…) 로도 찾는다.
   v1.1.1: extra_scenario_overrides 의 잠금 키(environment·mode·model_file·output_dir·project_name)와
   /opt/apptainers/*.sif 밖의 postprocess.sif_path 를 걷어 내고 응답의 locked_overrides_dropped 에 적는다
   (environment 덮어쓰기 = 컴퓨트 노드 임의 명령 실행). 나머지 동작·인자는 1.1.0 과 같다.
@@ -44,8 +46,9 @@ description: |
     "ok": true,
     "registry_id": 42,
     "tool": "fullangle_drop_simulation",
-    "work_dir": "...",
-    "output_dir": ".../output",
+    "work_dir": "...",                       # 준 스테이징 폴더
+    "result_dir": "/data/single/<사용자>/<project_name>_<slurm id>",
+    "output_dir": "<result_dir>/output",
     "slurm_job_ids": ["100","101",...],     # N개
     "sphere_job_id": "262",                  # 후처리 dependent job
     "num_angles": 162,

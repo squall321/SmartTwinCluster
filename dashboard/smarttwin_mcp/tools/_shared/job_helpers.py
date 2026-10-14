@@ -17,9 +17,20 @@ import registry
 KOOCHAINRUN = "/data/SmartTwinPreprocessor/bin/KooChainRun"
 
 
+def backend_result_dir(user: str, job_name: str, job_id) -> str:
+    r"""backend 의 RESULT_DIR 과 같은 규칙으로 결과 폴더를 계산한다(backend 응답에는 이 경로가 없다).
+    job_submit_api.py — job_name 은 [^\w.-]→_ 로 64자(:1115), RESULT_DIR 은 다시 [^A-Za-z0-9._-]→_ (:1269),
+    사용자 이름은 _sanitize_web_user(:657). 어긋나면 registry 가 없는 폴더를 가리킨다."""
+    import re
+    name = re.sub(r"[^\w.\-]", "_", str(job_name))[:64] or "job"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)[:64]
+    ok_user = bool(re.fullmatch(r"[A-Za-z0-9._-]{1,32}", user or "")) and not str(user).startswith(".")
+    return f"/data/single/{user if ok_user else 'anonymous'}/{safe}_{job_id}"
+
+
 def backend_submit(template_id, files, tool_name, project_name,
                    job_name=None, slurm_overrides=None, image=None,
-                   num_angles=None, dry_run=False):
+                   num_angles=None, dry_run=False, staging_dir=None):
     """(C) 하이브리드: 입력은 로컬에서 준비하고, 최종 제출은 backend_5010 /api/jobs/submit 로.
 
     요청 PAT(STMC_CLUSTER_TOKEN, 프레임워크가 주입)로 권한/감사를 지나고, backend 드라이버가
@@ -99,15 +110,17 @@ def backend_submit(template_id, files, tool_name, project_name,
         mreq = urllib.request.Request(base + "/api/me", headers={"Authorization": f"Bearer {token}"})
         with urllib.request.urlopen(mreq, timeout=15) as mr:
             user = json.loads(mr.read().decode("utf-8", "replace")).get("username") or "unknown"
-        name = job_name or project_name
-        wd = f"/data/single/{user}/{name}_{job_id}"
+        wd = backend_result_dir(user, job_name or project_name, job_id)
+        # 템플릿은 RESULT_DIR 에서 `prepare -o runner_config.json` 을 돈다 — runner_config 는 결과 폴더 최상위다.
+        # 스테이징 폴더(도구가 scenario.json·모델을 준비한 곳)도 적어 두면 work_dir 로 다시 찾을 수 있다.
         reg_id = registry.record_submission(
             tool_name=tool_name, work_dir=wd, output_dir=wd + "/output",
-            project_name=project_name, runner_config_path=wd + "/output/runner_config.json",
-            slurm_job_ids=[str(job_id)], num_angles=num_angles)
+            project_name=project_name, runner_config_path=wd + "/runner_config.json",
+            slurm_job_ids=[str(job_id)], num_angles=num_angles,
+            extra={"staging_dir": staging_dir.rstrip("/")} if staging_dir else None)
     except Exception:  # noqa: BLE001
-        pass
-    return {"ok": True, "http": code, "job_id": job_id, "registry_id": reg_id, "response": data}
+        wd = None
+    return {"ok": True, "http": code, "job_id": job_id, "registry_id": reg_id, "result_dir": wd, "response": data}
 
 
 def backend_rerun(work_dir: str, timeout: int = 320) -> dict:
@@ -185,9 +198,11 @@ def resolve_job(args: dict) -> dict | None:
     if "registry_id" in args:
         row = registry.get_by_id(int(args["registry_id"]))
     elif "work_dir" in args:
+        # 결과 폴더(registry work_dir) 또는 제출 때 준 스테이징 폴더(extra.staging_dir) 어느 쪽으로도 찾는다.
         wd = args["work_dir"].rstrip("/")
         rows = [r for r in registry.list_recent(limit=500)
-                if r.get("work_dir", "").rstrip("/") == wd]
+                if (r.get("work_dir") or "").rstrip("/") == wd
+                or (r.get("extra") if isinstance(r.get("extra"), dict) else {}).get("staging_dir") == wd]
         row = rows[0] if rows else None
     if row is not None and not is_owner(row, user):
         fail(f"registry_id {row.get('id')} 는 호출자({user})의 잡이 아니다 — 내 잡만 다룰 수 있다")

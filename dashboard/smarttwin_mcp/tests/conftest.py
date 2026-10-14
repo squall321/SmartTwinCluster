@@ -23,6 +23,7 @@ from smarttwin_mcp.runner import run as _run_tool
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
 SHARED = TOOLS / "_shared"
 USER, OTHER = "stmcpytest", "stmcother"
+FAKE_SLURM_JOB_ID = 4242  # 가짜 backend 가 /api/jobs/submit 에 돌려주는 잡 번호
 TOKENS = {"Bearer kst_user": {"username": USER, "role": "user"},
           "Bearer kst_admin": {"username": USER, "role": "admin"},
           "Bearer kst_other": {"username": OTHER, "role": "user"}}
@@ -48,6 +49,8 @@ class _FakeBackend(BaseHTTPRequestHandler):
             return self._send(401, {"detail": "invalid token"})
         if self.path == "/api/jobs/preview":
             return self._send(200, {"script": "#!/bin/bash\n#SBATCH --job-name=stmc_preview\n"})
+        if self.path == "/api/jobs/submit":
+            return self._send(201, {"success": True, "job_id": FAKE_SLURM_JOB_ID})
         self._send(404, {"detail": "not in fake backend"})
 
     def log_message(self, *a):

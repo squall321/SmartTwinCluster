@@ -64,14 +64,14 @@ def main():
     )
     scenario_path = os.path.join(work_dir, "scenario.json")
     write_scenario(scenario, scenario_path)
-    output_dir = os.path.join(work_dir, "output")
 
     # (C): 제출은 backend 경유(권한/감사). 드라이버가 병렬도 auto-tune.
     res = job_helpers.backend_submit(
         template_id="smarttwin-fullangle-drop",
         files={"model_k": model_target, "scenario_json": scenario_path},
         tool_name="single_drop_simulation",
-        project_name=project_name, job_name=project_name, num_angles=1, dry_run=dry_run)
+        project_name=project_name, job_name=project_name, num_angles=1, dry_run=dry_run,
+        staging_dir=work_dir)
 
     locked_note = ("보안상 덮어쓸 수 없는 키라 무시했다(서버 고정값 사용): " + ", ".join(locked_dropped)) if locked_dropped else None
     if dry_run:
@@ -87,6 +87,8 @@ def main():
              **{k: res[k] for k in ("http", "response") if k in res})
 
     reg_id, job_id = res.get("registry_id"), res["job_id"]
+    result_dir = res.get("result_dir")
+    output_dir = os.path.join(result_dir, "output") if result_dir else None
 
     actor = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
     audit.record_event(
@@ -105,7 +107,8 @@ def main():
         "tool": "single_drop_simulation",
         "project_name": project_name,
         "angle": {"roll": roll, "pitch": pitch, "yaw": yaw},
-        "work_dir": work_dir,
+        "work_dir": work_dir,                 # 준비한 스테이징 폴더(인자 그대로) — job_status(work_dir=…) 로도 찾는다
+        "result_dir": result_dir,             # 실제 결과 폴더(backend RESULT_DIR) — registry 의 work_dir
         "output_dir": output_dir,
         "scenario_path": scenario_path,
         "submitted_via": "backend_5010 (권한/감사) + 드라이버 클러스터 auto-tune",
