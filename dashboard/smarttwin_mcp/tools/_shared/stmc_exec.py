@@ -26,8 +26,9 @@
       kind: "file"·"dir"·"any"(있어야 함) | "parent"(만들 파일 — 상위 폴더만 있으면 됨) | "new"(존재 검사 없음)
   work_roots(username) -> list[str]
       작업 폴더를 만들어도 되는 루트 — 호출자 영역 + STMC_WORK_ROOTS(콜론 구분, {user} 치환).
-  prepare_model_workdir(work_dir, model_file, model_file_path, username) -> (작업 폴더, 모델, scenario.json)
+  prepare_model_workdir(work_dir, model_file, model_file_path, username) -> (작업 폴더, 모델, scenario.json, 출처)
       낙하 도구의 작업 폴더·모델 준비(경로 허용 루트, model_file 은 이름만, 심볼릭 링크 거절).
+      출처 = "existing"(작업 폴더에 있던 모델을 그대로 씀) | "copied"(model_file_path 에서 복사).
 
   Bundle(roots)                         업로드할 입력 묶음(roots=None 이면 파일시스템을 보지 않는 미리보기)
       .add_file(path) -> 묶음 안 이름     (이름 충돌·허용 범위 밖이면 StmcError)
@@ -184,8 +185,9 @@ def work_roots(username: str) -> list[str]:
 
 
 def prepare_model_workdir(work_dir: str, model_file: str, model_file_path: str | None,
-                          username: str) -> tuple[str, str, str]:
-    """낙하 도구(fullangle·single)의 작업 폴더와 모델을 준비한다 → (작업 폴더, 모델 경로, scenario.json 경로).
+                          username: str) -> tuple[str, str, str, str]:
+    """낙하 도구(fullangle·single)의 작업 폴더와 모델을 준비한다
+    → (작업 폴더, 모델 경로, scenario.json 경로, 출처 "existing"|"copied").
 
     작업 폴더는 work_roots 안, 모델 원본(model_file_path)은 input_roots 안, model_file 은 파일 이름만.
     작업 폴더에 모델이 이미 있으면 그대로 쓴다(예전 동작). 모델·scenario.json 자리가 심볼릭 링크면 거절한다 —
@@ -198,11 +200,13 @@ def prepare_model_workdir(work_dir: str, model_file: str, model_file_path: str |
     for p in (target, scenario_path):
         if os.path.islink(p):
             raise StmcError(f"작업 폴더 안의 심볼릭 링크는 쓰지 않는다: {p}")
+    source = "existing"
     if not os.path.isfile(target):
         if not model_file_path:
             raise StmcError(f"모델이 없다: {target} — 업로드한 파일 경로를 model_file_path 로 줄 것")
         shutil.copyfile(check_under(model_file_path, input_roots(username), kind="file"), target)
-    return wd, target, scenario_path
+        source = "copied"
+    return wd, target, scenario_path, source
 
 
 def _inside(path: str, roots: list[str]) -> bool:

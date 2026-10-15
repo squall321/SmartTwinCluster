@@ -17,6 +17,9 @@ def main():
            "work_dir": job["work_dir"], "output_dir": job["output_dir"]}
 
     slurm_ids = job.get("slurm_job_ids") or []
+    # 종료 판정용 — squeue 결과가 비어도(끝났거나 조회 실패) 어떤 잡을 물었는지 남긴다.
+    out["slurm_job_ids"] = [str(i) for i in slurm_ids]
+    out["sphere_job_id"] = job.get("sphere_job_id")
     if job.get("sphere_job_id"):
         slurm_ids = list(slurm_ids) + [job["sphere_job_id"]]
     out["squeue"] = slurm_queue_for(slurm_ids) if slurm_ids else {}

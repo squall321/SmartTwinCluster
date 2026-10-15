@@ -4,6 +4,8 @@ summary: 잡 진행 상태 확인 (squeue + KooChainRun status).
 description: |
   레지스트리에서 잡 찾아서 squeue + KooChainRun status 결과 통합 반환.
   Slurm job별 state(PENDING/RUNNING/COMPLETED/FAILED), output_dir 디스크 진행도 포함.
+  응답 slurm_job_ids·sphere_job_id — 이 잡의 Slurm 번호(squeue 가 비어도 무엇을 물었는지 알 수 있다).
+  호출자(PAT)의 잡만 — 잡 폴더가 /data/single/<사용자>/ 안이어야 한다.
 
   # 인자: registry_id 또는 work_dir
   단순 .k 잡(submit_lsdyna_job)도 squeue 부분은 동작 (KooChainRun status는 skip).

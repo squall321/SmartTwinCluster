@@ -910,7 +910,8 @@ input_roots(username) -> list[str]   # STMC_INPUT_ROOTS, {user} placeholder; def
 check_under(path, roots, *, kind="any"|"file"|"dir"|"parent"|"new") -> realpath   # "new": no existence check
 work_roots(username) -> list[str]   # where tools may create work folders: caller area + STMC_WORK_ROOTS
                                      # (colon-separated, {user} placeholder; prod sets the DynaForge root)
-prepare_model_workdir(work_dir, model_file, model_file_path, username) -> (work_dir, model, scenario.json)
+prepare_model_workdir(work_dir, model_file, model_file_path, username) -> (work_dir, model, scenario.json, source)
+                                     # source: "existing" (model already in work_dir, path not read) | "copied"
                                      # drop tools: work_dir in work_roots, model_file_path in input_roots,
                                      # model_file a bare name, symlinked model/scenario.json refused
 Bundle(roots)                        # files + generated texts uploaded as inputs.tgz into the job's work/

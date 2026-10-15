@@ -46,7 +46,7 @@ def main():
 
     # 경로는 호출자 영역(+STMC_WORK_ROOTS)·업로드 영역 안만 — 서비스 계정 권한으로 아무 데나 쓰지 않게.
     try:
-        work_dir, model_target, _ = prepare_model_workdir(
+        work_dir, model_target, _, model_source = prepare_model_workdir(
             work_dir, model_file, model_file_path, job_helpers.caller_name())
     except StmcError as e:
         fail(str(e))
@@ -86,6 +86,7 @@ def main():
     locked_note = ("보안상 덮어쓸 수 없는 키라 무시했다(서버 고정값 사용): " + ", ".join(locked_dropped)) if locked_dropped else None
     if dry_run:
         print(json.dumps({"ok": res.get("ok"), "dry_run": True, "scenario_path": scenario_path,
+                          "model_source": model_source,
                           "locked_overrides_dropped": locked_dropped, "locked_note": locked_note,
                           "sbatch_preview": res.get("sbatch_preview"),
                           "note": "제출은 backend 경유(권한/감사) + 드라이버가 sinfo 로 병렬도 auto-tune"},
@@ -119,6 +120,7 @@ def main():
         "num_angles": num_angles,
         "work_dir": work_dir,                 # 준비한 스테이징 폴더(인자 그대로) — job_status(work_dir=…) 로도 찾는다
         "result_dir": result_dir,             # 실제 결과 폴더(backend RESULT_DIR) — registry 의 work_dir
+        "model_source": model_source,         # existing = 작업 폴더에 있던 모델을 그대로 씀(model_file_path 안 읽음)
         "output_dir": output_dir,
         "scenario_path": scenario_path,
         "submitted_via": "backend_5010 (권한/감사) + 드라이버 클러스터 auto-tune",

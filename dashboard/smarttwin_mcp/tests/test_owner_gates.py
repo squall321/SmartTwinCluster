@@ -54,6 +54,7 @@ def test_job_status_and_details_work_for_the_owner(registry, area, run_as):
     rid = _row(registry, mine / "camp_910002", job_id="910002")
     out = run_as("job_status", {"registry_id": rid})
     assert out["ok"] is True and out["work_dir"] == str(mine / "camp_910002"), out
+    assert out["slurm_job_ids"] == ["910002"] and "sphere_job_id" in out, out  # ★C
     out = run_as("get_job_details", {"registry_id": rid})
     assert out["ok"] is True and out["job"]["id"] == rid, out
     out = run_as("job_status", {"work_dir": str(mine / "camp_910002")})
@@ -104,6 +105,9 @@ def test_drop_tools_build_inside_the_callers_area(registry, area, upload, run_as
     out = run_as(tool, args)
     assert out["ok"] is True and out["scenario_path"] == str(mine / "wd" / "scenario.json"), out
     assert (mine / "wd" / "MinimumModel.k").read_text() == MODEL
+    assert out["model_source"] == "copied", out
+    again = run_as(tool, args)  # ★B — 작업 폴더에 모델이 있으면 그것을 쓰고 그렇다고 말한다
+    assert again["ok"] is True and again["model_source"] == "existing", again
 
 
 @pytest.mark.parametrize("tool", ["fullangle_drop_simulation", "single_drop_simulation"])
