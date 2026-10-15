@@ -51,3 +51,9 @@
 - [x] 시험 test_owner_gates 37 + 전체 322 · lint 0 error · dev 재기동 후 실PAT 확인 — 5aa61b67
 - [x] stcx 회신 문서 deploy/STCX_DYNAFORGE_REPLY.md (§2·§3 반영 내역, §1 차이, lstc_license_ip 답)
 - [ ] 운영 유닛 drop-in STMC_WORK_ROOTS — 운영 측(회신에 명시)
+
+## 7. DynaForge 후속 (2026-10-15)
+- [x] §5 ★B·★C 반영(bffd4e50) · list_recent_jobs 범위(80d8b3d6) · DynaForge 반영 확인(b0f7906)
+- [x] 계약 고정 — job_status work_dir = registry 결과 폴더(DynaForge 복구가 result_dir 로 씀) 시험
+- [ ] 운영 SmartTwinMCP 에 bffd4e50 이상이 반영되면 kooremapper-fd 에 알림 — get_job_details 병행 호출을 뗄지 결정용
+

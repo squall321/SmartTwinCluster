@@ -230,5 +230,8 @@ def test_submit_reports_the_real_result_dir_and_finds_by_staging_dir(registry, a
     # DynaForge 복구 경로 — 스테이징 폴더로 찾는다(예전엔 늘 Job not found)
     st = run_as("job_status", {"work_dir": str(staging)})
     assert st["ok"] is True and st["job_id"] == out["registry_id"], st
+    # 계약 — job_status 의 work_dir 은 registry 결과 폴더다. DynaForge 는 응답이 끊긴 복구 때 이 칸을
+    # result_dir 로 쓴다(KooRemapper runner_loop.py result_dir_of). 바꾸면 DynaForge 에 먼저 알릴 것.
+    assert st["work_dir"] == result_dir, st
     st = run_as("job_status", {"work_dir": str(staging)}, token="kst_other")
     assert st["ok"] is False and "잡이 아니다" in st["reason"], st
