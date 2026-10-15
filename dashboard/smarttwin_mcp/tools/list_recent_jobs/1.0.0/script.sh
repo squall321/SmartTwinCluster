@@ -9,6 +9,8 @@ import json, os, sys, time, datetime
 
 sys.path.insert(0, os.environ["SHARED_DIR"])
 import registry
+import job_helpers
+from stmc_exec import StmcError, caller_identity
 
 
 def main():
@@ -25,12 +27,19 @@ def main():
     if hrs is not None:
         since = int(time.time() - float(hrs) * 3600)
 
-    user = os.environ.get("USER") if only_mine else None
-
+    # 호출자 = PAT 의 웹 사용자. 전체 목록은 admin 이 only_mine=false 로 물을 때만(HWAX 가 plat:smarttwin 전원에게 연다).
+    # registry 의 user 열은 서비스 계정이라 소유는 잡 폴더로 본다(job_helpers.is_owner).
+    try:
+        ident = caller_identity()
+    except StmcError as e:
+        job_helpers.fail(str(e))
+    see_all = (not only_mine) and ident["role"] == "admin"
     rows = registry.list_recent(
-        limit=limit, status=status, tool=tool,
-        since=since, project_like=project_like, user=user,
+        limit=5000 if not see_all else limit, status=status, tool=tool,
+        since=since, project_like=project_like,
     )
+    if not see_all:
+        rows = [r for r in rows if job_helpers.is_owner(r, ident["username"])][:limit]
 
     # Add human-readable timestamps
     for r in rows:
@@ -49,6 +58,9 @@ def main():
             "since_hours_ago": hrs, "project_like": project_like,
             "only_mine": only_mine,
         },
+        "caller": ident["username"],
+        "scope": "all" if see_all else "mine",
+        "note": None if see_all or only_mine else "전체 목록은 admin 만 볼 수 있다 — 내 잡만 돌려준다",
         "jobs": rows,
     }, ensure_ascii=False, default=str))
 

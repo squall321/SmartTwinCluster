@@ -70,6 +70,23 @@ def test_my_jobs_lists_only_the_callers_jobs(registry, area, run_as):
     assert [j["id"] for j in out["jobs"]] == [own], out
 
 
+def test_list_recent_jobs_is_own_unless_admin_asks_for_all(registry, area, run_as):
+    mine, theirs = area
+    own = _row(registry, mine / "a_910007", job_id="910007")
+    other = _row(registry, theirs / "b_910008", job_id="910008")
+    ids = lambda out: {j["id"] for j in out["jobs"]}  # noqa: E731
+    out = run_as("list_recent_jobs", {})
+    assert out["ok"] is True and out["scope"] == "mine" and ids(out) == {own}, out
+    out = run_as("list_recent_jobs", {"only_mine": False})               # 일반 사용자는 전체를 못 본다
+    assert ids(out) == {own} and out["note"], out
+    out = run_as("list_recent_jobs", {"only_mine": False}, token="kst_admin")
+    assert out["scope"] == "all" and {own, other} <= ids(out), out
+    out = run_as("list_recent_jobs", {}, token="kst_admin")              # admin 도 기본은 내 잡
+    assert out["scope"] == "mine" and ids(out) == {own}, out
+    out = run_as("list_recent_jobs", {}, token=None)
+    assert out["ok"] is False and "PAT" in out["reason"], out
+
+
 def test_batch_cancel_skips_other_users_jobs(registry, area, run_as):
     mine, theirs = area
     own = _row(registry, mine / "a_910005", job_id="910005")

@@ -27,7 +27,7 @@
     "only_mine": {
       "type": "boolean",
       "default": true,
-      "description": "If true, restrict to jobs submitted by current $USER."
+      "description": "true(기본)면 내 잡만(잡 폴더가 /data/single/<나>/ 안). false 는 admin 만 전체를 본다 — 다른 역할은 내 잡만 돌려준다."
     }
   }
 }
