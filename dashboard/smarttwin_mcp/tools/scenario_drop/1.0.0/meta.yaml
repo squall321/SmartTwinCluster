@@ -39,6 +39,8 @@ description: |
   | `simulation_params.dynamic_relaxation` | bool \| 객체 | false | 누적 스텝 사이 DR (nrcyck, drtol, drfctr, drterm) |
   | `simulation_params.dtmin` | 실수 | 1e-10 (DR 이면 0.01) | CONTROL_TERMINATION DTMIN |
   | `simulation_params.non_reflecting_boundary / include_wall_in_general` | bool | false | 바닥판 옵션 |
+  | `postprocess.hotspot_clusters (+ hotspot_top_percent·hotspot_distance_factor·hotspot_min_elements·hotspot_max_clusters·hotspot_criterion)` | bool / 수 / 문자 | false | DOE 마다 deep report 에 핫스팟 군집. 기준 von_mises \| max_principal \| min_principal (--help postprocess_json) |
+  | `postprocess.hotspot_part` | 정수 · 목록 · "12,15" | 전 파트 | 전각도 리포트의 핫스팟 군집을 이 파트로만 |
 
   # 사례 — 피보나치 26 자세 1.5 m 1회 낙하
   ```json
