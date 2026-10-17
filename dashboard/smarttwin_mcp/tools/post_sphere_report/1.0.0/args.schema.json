@@ -83,6 +83,14 @@
           ],
           "description": "--ts-points TS_POINTS — Time series points per chart (0=auto) (객체를 주면 YAML 파일로 만들어 넘긴다)"
         },
+        "viewer": {
+          "type": "string",
+          "enum": [
+            "canvas",
+            "plotly"
+          ],
+          "description": "--viewer {canvas,plotly} — 핫스팟 3D 뷰어 (기본 canvas = 외부 스크립트 0). plotly 는 호버·범례·축을 주지만 리포트가 1.6MB 커진다. 둘 다 번들이라 네트워크가 없어도 동작한다."
+        },
         "hotspot_part": {
           "type": [
             "array",

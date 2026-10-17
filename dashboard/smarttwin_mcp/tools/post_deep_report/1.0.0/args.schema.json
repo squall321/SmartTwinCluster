@@ -280,7 +280,16 @@
             "integer",
             "object"
           ],
-          "description": "--hotspot-criterion C[,C] — 군집 선별 기준량. von_mises | max_principal | min_principal, 쉼표로 여러 개 (default von_mises). 여러 개면 파트x기준 항목이 각각 나온다. min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다 (객체를 주면 YAML 파일로 만들어 넘긴다)"
+          "description": "--hotspot-criterion C[,C] — 군집 선별 기준량, 쉼표로 여러 개 (default von_mises). von_mises | max_principal | min_principal | max_shear | x_tension | y_tension | z_tension. 별칭: vm, sigma1/s1/p1, sigma3/s3/p3, tau_max/tresca, sigma_xx/sxx (y·z 도 같은 꼴). 여러 개면 파트x기준 항목이 각각 나온다. min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다. max_shear = (σ1−σ3)/2. x/y/z_tension = 전역 좌표 수직응력 σxx/σyy/σzz 의 최댓값. 허용 목록은 실행할 unified_analyzer --capabilities 를 따른다 (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "hotspot_time_aggregate": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--hotspot-time-aggregate A — 덩어리 평균의 시간 집계. elemmax_then_mean | mean_then_timemax | both (default elemmax_then_mean). elemmax_then_mean = 요소별 시간 극값의 공간 평균(stress_mean, 서로 다른 시각의 피크를 합쳐 과대평가 쪽). mean_then_timemax·both = 같은 시각 덩어리 평균의 시간 극값을 군집마다 mean_timemax·mean_timemax_time 으로 더 낸다(둘의 출력은 같다). 상태를 한 번 더 훑으므로 그만큼 느려진다 (객체를 주면 YAML 파일로 만들어 넘긴다)"
         },
         "section_view_iso_clip": {
           "type": "boolean",
