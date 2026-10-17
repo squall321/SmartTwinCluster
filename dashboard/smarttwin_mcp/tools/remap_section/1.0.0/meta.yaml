@@ -9,8 +9,8 @@ description: |
   # 인자
   | 이름 | 형식 | 필수 | 설명 |
   |---|---|---|---|
-  | `model` | file | 예 | Deck to cut (k-file). Must contain the geometry — a master deck that only holds *INCLUDE cards is refused, with the include list, rather than producing an empty figure |
-  | `output` | string | 예 | Output prefix — writes <output>_section.json — writes <output>_section.json and <output>_section.svg |
+  | `model` | file | 예 | Deck to cut (k-file). A master deck is read with its whole *INCLUDE closure, so the included files must sit where the deck points (on the platform: uploaded to the same session). If no elements are found even then, it is refused rather than producing an empty figure, and the console says which includes could not be read, with the include list |
+  | `output` | string | 예 | Output prefix — writes <output>_section.json and <output>_section.svg |
   | `axis` | enum |  | Cut-plane normal. 'auto' excludes axes whose section collapses to a line, then takes the axis meeting the most parts, breaking ties on the section's bounding-box area. Perpendicular-to-the-stack is NOT the rule: on a measured 61-part battery stack z meets 2 parts while x and y meet 59, and on a wrapped deck it is the other way round |
   | `at` | number |  | Plane position along the axis; omitted means the bounding-box centre. A plane landing exactly on a node layer — the layer boundary you most want to look at — is detected and nudged by epsilon, and both facts are reported |
   | `max_parts` | integer |  | Legend entries in the SVG before the rest are counted as omitted. The manifest and the polygons are never capped — every part the plane cut is emitted. |

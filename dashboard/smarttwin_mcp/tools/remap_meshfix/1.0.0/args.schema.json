@@ -84,8 +84,13 @@
     },
     "snap_tolerance": {
       "type": "number",
-      "description": "Search radius for snap mode boundary node merging",
+      "description": "Search radius for snap mode boundary node merging Also the tolerance for re-binding: a card pointing at a node the remesh removes is rewritten to the part's new node within this distance of the old one.",
       "default": 0.001
+    },
+    "preview": {
+      "type": "boolean",
+      "description": "Do not run gmsh: list the cards (sets, SPC, loads, history, CNRB PNODE …) that point at nodes the remesh would remove, classified as surface (rewritten if gmsh puts a node at the same place; kept as is with boundary_nodes: fixed when matched) or blocking (interior node, inside an *INCLUDE, free-format line). Exit code 1 when any card would block. Writes no deck.",
+      "default": false
     },
     "algorithm": {
       "type": "string",

@@ -262,6 +262,10 @@
    "family": "remap",
    "op": "boundary"
   },
+  "remap_cad_solid_merge_to_deck": {
+   "family": "remap",
+   "op": "cad_solid_merge_to_deck"
+  },
   "remap_cclip": {
    "family": "remap",
    "op": "cclip"
@@ -329,6 +333,10 @@
   "remap_hfdamp": {
    "family": "remap",
    "op": "hfdamp"
+  },
+  "remap_id_floor": {
+   "family": "remap",
+   "op": "id_floor"
   },
   "remap_iga": {
    "family": "remap",
@@ -401,6 +409,10 @@
   "remap_rbe": {
    "family": "remap",
    "op": "rbe"
+  },
+  "remap_rebind_entities_after_remesh": {
+   "family": "remap",
+   "op": "rebind_entities_after_remesh"
   },
   "remap_refine": {
    "family": "remap",
@@ -1396,6 +1408,13 @@
   },
   {
    "family": "KooRemapper",
+   "category": "mesh",
+   "capability": "cad_solid_merge_to_deck",
+   "tool": "remap_cad_solid_merge_to_deck",
+   "summary": "Insert a StepForge part fragment (.k + map JSON) into an existing deck: check it against the boundary contract, keep its numbers when they lie above the deck's IDs (otherwise move them above) and re-verify each part's coord_sha."
+  },
+  {
+   "family": "KooRemapper",
    "category": "deform",
    "capability": "cclip",
    "tool": "remap_cclip",
@@ -1512,6 +1531,13 @@
    "capability": "hfdamp",
    "tool": "remap_hfdamp",
    "summary": "LS-DYNA *DAMPING_FREQUENCY_RANGE_DEFORM 키워드 삽입으로 고주파 노이즈 감쇠"
+  },
+  {
+   "family": "KooRemapper",
+   "category": "mesh",
+   "capability": "id_floor",
+   "tool": "remap_id_floor",
+   "summary": "Issue the start numbers for a StepForge part fragment (the deck's maxima plus one, include closure counted) and optionally check a fragment map's ranges against them."
   },
   {
    "family": "KooRemapper",
@@ -1638,6 +1664,13 @@
    "capability": "rbe",
    "tool": "remap_rbe",
    "summary": "RBE2/RBE3 rigid body element constraints from YAML config"
+  },
+  {
+   "family": "KooRemapper",
+   "category": "mesh",
+   "capability": "rebind_entities_after_remesh",
+   "tool": "remap_rebind_entities_after_remesh",
+   "summary": "Re-bind the node, part and element IDs in blocks added on top of a deck (sets, SPC, loads, history, contacts, CNRB …) to a re-meshed deck: nodes by part title and exact coordinates, parts by title, elements by part title and node coordinates."
   },
   {
    "family": "KooRemapper",

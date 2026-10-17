@@ -5,7 +5,7 @@ summary: KooRemapper info — Display comprehensive mesh information including n
 description: |
   Display comprehensive mesh information including node/element counts, bounding box, validation, and element quality metrics.
 
-  Display comprehensive mesh information from a LS-DYNA K-file, including node/element counts, bounding box dimensions, mesh validation results, and element quality metrics (Jacobian analysis). Output is displayed on console only; no output file is generated.
+  Display comprehensive mesh information from a LS-DYNA K-file, including node/element counts, bounding box dimensions, mesh validation results, and element quality metrics (Jacobian analysis). Output is displayed on console only; no output file is generated. The mesh is read with its whole *INCLUDE closure, so a master deck shows the real model; includes that cannot be read are named. It also checks reference integrity — sets, parts, sections, materials and nodes that cards point at but nothing defines. For second-order solids (ELFORM 16, 17, 25–28) it warns that only the first eight node fields are read: the orphan count is an upper bound and their Jacobian is skipped.
 
   # 인자
   | 이름 | 형식 | 필수 | 설명 |
@@ -16,7 +16,7 @@ description: |
   - `None` (file): Input LS-DYNA K-file (mesh format). Parser reads node/element/part definitions, material cards (for per-part lookup if needed), and section definitions.
 
   # 주의
-  - The 'info' operation is a positional-argument-only command with no YAML configuration, no CLI flags, and no optional parameters. It performs read-only analysis on the mesh file. Output includes: (1) mesh name, node/element/part counts, (2) bounding box (min/max coordinates) and size (X/Y/Z extents), (3) mesh validation status with error/warning messages, (4) element quality metrics (min/max Jacobian, count of negative-Jacobian elements). No dynain output or modified mesh file is produced. The operation always succeeds if the K-file can be parsed; missing material definitions do not cause failure but may omit part-level analysis details. Perfect for pre-flight mesh integrity checks before proceeding with mapping or assembly operations.
+  - The 'info' operation is a positional-argument-only command with no YAML configuration; on the platform it takes only the mesh file. (The CLI also has --strict, which turns certain undefined references into exit code 1; the platform records the same findings at upload as ref_dangling and attaches them to jobs as warnings.) It performs read-only analysis on the mesh file. Output includes: (1) mesh name, node/element/part counts, (2) bounding box (min/max coordinates) and size (X/Y/Z extents), (3) mesh validation status with error/warning messages, (4) element quality metrics (min/max Jacobian, count of negative-Jacobian elements). No dynain output or modified mesh file is produced. The operation always succeeds if the K-file can be parsed; missing material definitions do not cause failure but may omit part-level analysis details. Perfect for pre-flight mesh integrity checks before proceeding with mapping or assembly operations.
 
   사례 메모: Reads arc30_bent.k and prints node/element counts, bounding box, validation status, and Jacobian quality metrics
 

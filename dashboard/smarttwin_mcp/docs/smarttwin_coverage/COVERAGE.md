@@ -1,7 +1,7 @@
 <!-- 생성됨: tools/_gen/generate_smarttwin_tools.py — SmartTwin 기능 ↔ MCP/REST 도구 대응표 -->
 # SmartTwin 기능 커버리지
 
-정본 pyKooCAE `493a86d` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 기능 128개 → 도구 126개.
+정본 pyKooCAE `493a86d` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 기능 131개 → 도구 129개.
 
 | 제품 | 분류 | 기능 | MCP 도구 (REST: POST /smarttwin-api/v1/tools/<도구>/run) | 요약 |
 |---|---|---|---|---|
@@ -50,6 +50,7 @@
 | KooRemapper | analysis | battery | `remap_battery` | Generate LS-DYNA battery cell model (stacked/wound, Phase 1+2, swelling support) |
 | KooRemapper | deform | bend | `remap_bend` | Apply bending deformation and optional prestress to a part. |
 | KooRemapper | bc | boundary | `remap_boundary` | Apply boundary conditions (SPC/rigid wall) from YAML config |
+| KooRemapper | mesh | cad_solid_merge_to_deck | `remap_cad_solid_merge_to_deck` | Insert a StepForge part fragment (.k + map JSON) into an existing deck: check it |
 | KooRemapper | deform | cclip | `remap_cclip` | Replace hex box parts with F-δ calibrated C-clip shell strips (smartphone spring |
 | KooRemapper | mesh | cleanup-nodes | `remap_cleanup_nodes` | Report (default) or delete nodes that nothing in the deck references, reading ea |
 | KooRemapper | mesh | cnrb2solid | `remap_cnrb2solid` | CNRB 강체 볼트를 O-grid HEX8 원형 솔리드 메시로 변환 |
@@ -67,6 +68,7 @@
 | KooRemapper | core | generate | `remap_generate` | Generate example test meshes (curved/bent types or box solids) with customizable |
 | KooRemapper | core | generate-var | `remap_generate_var` | YAML 설정으로부터 평탄 또는 곡선 가변 밀도 메시 생성 |
 | KooRemapper | bc | hfdamp | `remap_hfdamp` | LS-DYNA *DAMPING_FREQUENCY_RANGE_DEFORM 키워드 삽입으로 고주파 노이즈 감쇠 |
+| KooRemapper | mesh | id_floor | `remap_id_floor` | Issue the start numbers for a StepForge part fragment (the deck's maxima plus on |
 | KooRemapper | mesh | iga | `remap_iga` | Embed FE parts in IGA (Isogeometric Analysis) NURBS trivariate box |
 | KooRemapper | analysis | implicit | `remap_implicit` | LS-DYNA explicit K-file을 implicit 솔버 세팅으로 변환하며, 명시적 전용 카드 제거 및 CONTROL_IMPLICIT_ |
 | KooRemapper | deform | indent | `remap_indent` | Apply indentation or embossing deformation and compute prestress with polygon or |
@@ -85,6 +87,7 @@
 | KooRemapper | analysis | optimize | `remap_optimize` | Apply material-specific global card optimization for rubber/foam analysis in LS- |
 | KooRemapper | deform | prestress | `remap_prestress` | 변형 메시로부터 초기응력(초기변형률) 계산 및 dynain 출력. |
 | KooRemapper | bc | rbe | `remap_rbe` | RBE2/RBE3 rigid body element constraints from YAML config |
+| KooRemapper | mesh | rebind_entities_after_remesh | `remap_rebind_entities_after_remesh` | Re-bind the node, part and element IDs in blocks added on top of a deck (sets, S |
 | KooRemapper | mesh | refine | `remap_refine` | Mesh refinement by subdivision (1:2 or 1:3 split) |
 | KooRemapper | mesh | refshell | `remap_refshell` | 2D 곡선을 폭 방향으로 쓸어 QUAD4 기준 셸 덱 생성 (shellmap 의 기준면). |
 | KooRemapper | analysis | relax | `remap_relax` | Set up Dynamic Relaxation for initial stress equilibrium with 5-level preset sys |

@@ -1,0 +1,75 @@
+name: remap_cad_solid_merge_to_deck
+version: 1.0.0
+summary: 'KooRemapper cad_solid_merge_to_deck — Insert a StepForge part fragment (.k + map JSON) into
+  an existing deck: check it against the boundary contract, keep its numbers when they lie'
+description: |
+  Insert a StepForge part fragment (.k + map JSON) into an existing deck: check it against the boundary contract, keep its numbers when they lie above the deck's IDs (otherwise move them above) and re-verify each part's coord_sha.
+
+  The boundary agreement with StepForge splits the work: StepForge writes a part fragment, and inserting it into an existing deck is ours because it changes that deck's bytes. The fragment map is read exactly as the contract defines it — unit, frame, ranges (node, elem, pid, sid; each [lo, hi] or null) and parts (path, name, pid, node_start, node_count, elem_start, elem_count, coord_sha) — and any unknown or missing field is refused. Before anything is written the fragment is checked against its map: every ID lies in its range and each range is the actual minimum and maximum, the part sets match, and for every part the element count and range, the nodes its elements use and the coord_sha (the same function StepForge uses: each node as three %16.9e values, rows sorted, SHA-256, first 16 hex characters) agree. Any disagreement refuses the insert. A fragment whose ranges already lie above the deck's maxima (counting the whole *INCLUDE closure) is inserted without renumbering, so the map's numbers are the deck's numbers — that is what happens when it was requested with the start numbers id_floor issues; a range reaching down to or below the maxima is moved just above them, which is the transitional path for fragments written from 1; PID, SECID and MID share one shift so the fragment's convention that the three are equal still holds in the deck. Coordinates are kept byte for byte and only the ID fields are rewritten, at the deck's field width (8, or 10 for i10 decks); long-format decks are refused. The block to be inserted is re-read and its coord_sha measured again before it is placed before *END. The unit must equal deck_unit (default mm-t-s) and the frame must be world — nothing is converted. Fragments holding keywords outside the contract (*SET_*, *MAT_ADD_*, *MAT_THERMAL_*, …) or a non-null ranges.sid are refused. StepForge placeholder materials (RO = E = 1.0) are inserted as they are and reported per MID.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `model` | file | 예 | The existing deck the fragment goes into. Its *INCLUDE closure is read so the new IDs stay clear of IDs defined in included files. |
+  | `output` | output | 예 | Output deck. <output>_fragment_map.json is written beside it: the same map with the deck numbers the fragment received. |
+  | `fragment` | file | 예 | StepForge fragment .k (export_part_fragment). |
+  | `fragment_map` | file | 예 | StepForge fragment map JSON. Unknown or missing fields are refused. |
+  | `deck_unit` | string |  | Unit system of the target deck. The fragment's unit must be the same; nothing is converted. |
+
+  # 주의
+  - Relative paths resolve against the YAML file's directory. Unknown YAML keys are refused (a typo such as deck_units would otherwise insert in the default unit). The insert is refused with exit code 1 and no output when the map or the fragment breaks the contract; the console lists every disagreement. After writing, the deck is read back and the element count of every part, including the inserted ones, is compared with the expected count.
+
+  사례 메모: 실행 검증된 예제 (조각·대응표는 StepForge export_part_fragment 의 실물 산출 — 파트 4 · 시작 번호 500001/600001/900)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper cad_solid_merge_to_deck` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- cad
+- solid
+- merge
+- to
+- deck
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    model: deck.k
+    output: merged.k
+    fragment: stepforge_fragment.k
+    fragment_map: stepforge_fragment.json
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/deck.k
+    - /data/single/USER/case/stepforge_fragment.k
+    - /data/single/USER/case/stepforge_fragment.json
+- title: 제출하고 5분까지 기다리기
+  args:
+    model: deck.k
+    output: merged.k
+    fragment: stepforge_fragment.k
+    fragment_map: stepforge_fragment.json
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

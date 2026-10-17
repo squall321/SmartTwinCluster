@@ -1475,7 +1475,7 @@
           "role": "yaml_field",
           "yaml_path": "output",
           "required": true,
-          "description": "Output prefix — writes <output>.k and <output>_neutral.k"
+          "description": "Output prefix — writes <output>.k and <output>_neutral.k (a trailing .k is dropped first, so output: x.k writes x.k)"
         },
         {
           "name": "thickness",
@@ -1554,7 +1554,7 @@
           "role": "yaml_field",
           "yaml_path": "output",
           "required": true,
-          "description": "Output prefix — writes <output>.k"
+          "description": "Output prefix — writes <output>.k (a trailing .k is dropped first, so output: x.k writes x.k)"
         }
       ],
       "example": {
@@ -1572,7 +1572,7 @@
       "name": "info",
       "category": "core",
       "summary": "Display comprehensive mesh information including node/element counts, bounding box, validation, and element quality metrics.",
-      "description": "Display comprehensive mesh information from a LS-DYNA K-file, including node/element counts, bounding box dimensions, mesh validation results, and element quality metrics (Jacobian analysis). Output is displayed on console only; no output file is generated.",
+      "description": "Display comprehensive mesh information from a LS-DYNA K-file, including node/element counts, bounding box dimensions, mesh validation results, and element quality metrics (Jacobian analysis). Output is displayed on console only; no output file is generated. The mesh is read with its whole *INCLUDE closure, so a master deck shows the real model; includes that cannot be read are named. It also checks reference integrity — sets, parts, sections, materials and nodes that cards point at but nothing defines. For second-order solids (ELFORM 16, 17, 25–28) it warns that only the first eight node fields are read: the orphan count is an upper bound and their Jacobian is skipped.",
       "invocation": "positional",
       "config_style": null,
       "takes_kfile": true,
@@ -1595,7 +1595,7 @@
         "note": "Reads arc30_bent.k and prints node/element counts, bounding box, validation status, and Jacobian quality metrics"
       },
       "example_folder": "examples/arc30",
-      "notes": "The 'info' operation is a positional-argument-only command with no YAML configuration, no CLI flags, and no optional parameters. It performs read-only analysis on the mesh file. Output includes: (1) mesh name, node/element/part counts, (2) bounding box (min/max coordinates) and size (X/Y/Z extents), (3) mesh validation status with error/warning messages, (4) element quality metrics (min/max Jacobian, count of negative-Jacobian elements). No dynain output or modified mesh file is produced. The operation always succeeds if the K-file can be parsed; missing material definitions do not cause failure but may omit part-level analysis details. Perfect for pre-flight mesh integrity checks before proceeding with mapping or assembly operations.",
+      "notes": "The 'info' operation is a positional-argument-only command with no YAML configuration; on the platform it takes only the mesh file. (The CLI also has --strict, which turns certain undefined references into exit code 1; the platform records the same findings at upload as ref_dangling and attaches them to jobs as warnings.) It performs read-only analysis on the mesh file. Output includes: (1) mesh name, node/element/part counts, (2) bounding box (min/max coordinates) and size (X/Y/Z extents), (3) mesh validation status with error/warning messages, (4) element quality metrics (min/max Jacobian, count of negative-Jacobian elements). No dynain output or modified mesh file is produced. The operation always succeeds if the K-file can be parsed; missing material definitions do not cause failure but may omit part-level analysis details. Perfect for pre-flight mesh integrity checks before proceeding with mapping or assembly operations.",
       "keys": [
         {
           "path": "mesh_file",
@@ -2809,7 +2809,7 @@
         "note": "실행 검증된 예제 (입력: arc30_flat.k)"
       },
       "example_folder": "examples/offset",
-      "notes": "CRITICAL CONSTRAINTS AND GOTCHAS:\\n\\n(1) REQUIRED PARAMETERS:\\n    - source_pid, offset_direction, thickness (unless thickness_formula), num_layers, connection_mode are mandatory\\n    - Missing any triggers validation error\\n\\n(2) CONNECTION MODES:\\n    - tied: shares nodes at interface (lowest cost, zero gap)\\n    - czm: inserts cohesive elements with czm_material_card (requires *MAT_COHESIVE_*)\\n    - contact: duplicates nodes, user must add *CONTACT_* afterward\\n    - connection_mode=\\\"czm\\\" REQUIRES czm_material_card; without it, validation fails\\n\\n(3) ELEMENT TYPES AND RESTRICTIONS:\\n    - solid (HEX8): all features supported (tied/czm/contact, multi-layer, normal offset)\\n    - tshell (TSHELL): tied/contact only, NO czm mode\\n    - shell (QUAD4): tied/contact only, NO czm mode\\n    - When element_type is tshell/shell, shell_thickness MUST be set or defaults to thickness\\n\\n(4) OFFSET DIRECTION:\\n    - +normal/-normal: auto-detects surface normal per element (best for curved surfaces; use with use_local_normals=true for better quality)\\n    - ±x/±y/±z: fixed global direction (simpler, faster)\\n    - v1.1.0+: -normal direction fixed (prior versions had negative Jacobian bugs)\\n\\n(5) THICKNESS & LAYERS:\\n    - thickness: uniform per-layer thickness; with num_layers=3, creates 3 layers each of (thickness/3)\\n    - thickness_formula: if set, overrides thickness; supports x,y,z variables (e.g., \\\"1.0 + 0.01*x\\\")\\n    - num_layers must be ≥ 1\\n    - Multi-layer with different materials: use material_cards[] (array), one entry per layer\\n\\n(6) MATERIAL CARD MAGIC:\\n    - Use @MID@ placeholder in material_card; auto-replaced with assigned material ID\\n    - Use @CZM_MID@ placeholder in czm_material_card; auto-replaced with CZM material ID\\n    - If new_mid=0, MID auto-increments; if new_mid > 0, uses that ID\\n    - Multi-layer material_cards[] must have length == num_layers\\n    - material_card and material_cards[] are mutually exclusive\\n\\n(7) REGION FILTERS:\\n    - bbox_xmin/max, bbox_ymin/max, bbox_zmin/max: bounding box filter (all 6 values optional)\\n    - node_id_min/max: only offset nodes in this range (0 = disabled)\\n    - element_id_min/max: only offset elements in this range (0 = disabled)\\n    - Multiple filters can be combined (logical AND)\\n    - Filters apply to SOURCE elements; offset surfaces inherit the subset\\n\\n(8) QUALITY WARNINGS:\\n    - Aspect Ratio > 10: warning; > 20: error\\n    - Jacobian < 0.1: warning; < 1e-10: error (negative = degenerate)\\n    - Warping > 30°: warning; > 45°: error\\n    - -normal offset on highly concave surfaces may cause self-intersection → check warnings\\n\\n(9) PHASE/VERSION FEATURES:\\n    - use_local_normals, shell_offset, shell_thickness: Phase 2+\\n    - region filters (bbox_*, node_id_*, element_id_*): Phase 3+\\n    - thickness_formula: Phase 4+\\n    - prestress_mode=\\\"dual_offset\\\": Phase 3+ (advanced)\\n    - material_cards[]: Phase 3+\\n\\n(10) SOURCE ELEMENT SUPPORT:\\n    - Solid source elements: HEX8, TET4 (TET4 output quality degrades; HEX8 recommended)\\n    - Shell source elements: QUAD4, TRIA3 (auto-detected and handled)\\n    - Cannot use shell elements generated by prior offset in same operations[] list (PID tracking limitation)\\n\\n(11) YAML STRUCTURE:\\n    - operations[] array; each offset entry is one offset operation\\n    - Can chain multiple offset operations (e.g., offset PID 1 → PID 10, then offset PID 10 → PID 11)\\n    - Base model, output, and operations are at root level\\n\\n(12) @MID@ SUBSTITUTION:\\n    - material_card: \\\"*MAT_ELASTIC ... @MID@ ... \\\" → auto-replaces @MID@ with new_mid (or auto ID)\\n    - Each occurrence of @MID@ replaced; OK to have multiple @MID@ in same card\\n    - If material_card is empty/missing, no material written (user adds manually or via matswap)\\n\\n(13) COMMON MISTAKES:\\n    - Forgetting material_card when connection_mode=czm (validation will fail)\\n    - Using connection_mode=czm with element_type=tshell/shell (not supported)\\n    - Setting thickness_formula but leaving variables undefined in coord system\\n    - Not setting shell_thickness for tshell/shell element types\\n    - Mixing material_card and material_cards[] (use one, not both)\\n    - Trying to offset shell elements created by prior offset in same operations[] call\"\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.",
+      "notes": "CRITICAL CONSTRAINTS AND GOTCHAS:\\n\\n(1) REQUIRED PARAMETERS:\\n    - source_pid, offset_direction, thickness (unless thickness_formula), num_layers, connection_mode are mandatory\\n    - Missing any triggers validation error\\n\\n(2) CONNECTION MODES:\\n    - tied: shares nodes at interface (lowest cost, zero gap)\\n    - czm: inserts cohesive elements with czm_material_card (requires *MAT_COHESIVE_*)\\n    - contact: duplicates nodes, user must add *CONTACT_* afterward\\n    - connection_mode=\\\"czm\\\" REQUIRES czm_material_card; without it, validation fails\\n\\n(3) ELEMENT TYPES AND RESTRICTIONS:\\n    - solid (HEX8): all features supported (tied/czm/contact, multi-layer, normal offset)\\n    - tshell (TSHELL): tied/none/czm/contact with the same meaning as solid (2026-10-16): tied keeps layer 0 on the source face nodes, czm duplicates them and puts ELFORM 20 cohesive elements in between\\n    - shell (QUAD4): the shell layer is a separate offset surface (no shared nodes). tied, the default, ties it to the source face with *CONTACT_TIED_SURFACE_TO_SURFACE_OFFSET between two new *SET_SEGMENT sets (slave = the shell layer, master = the source face; the same form restack writes for shell interfaces, 2026-10-17); czm is refused (exit code 1); contact and none leave the layer untied. With offset_direction: both the layer is not tied (warning)\\n    - When element_type is tshell/shell, shell_thickness MUST be set or defaults to thickness\\n\\n(4) OFFSET DIRECTION:\\n    - +normal/-normal: auto-detects surface normal per element (best for curved surfaces; use with use_local_normals=true for better quality)\\n    - ±x/±y/±z: fixed global direction (simpler, faster)\\n    - v1.1.0+: -normal direction fixed (prior versions had negative Jacobian bugs)\\n\\n(5) THICKNESS & LAYERS:\\n    - thickness: uniform per-layer thickness; with num_layers=3, creates 3 layers each of (thickness/3)\\n    - thickness_formula: if set, overrides thickness; supports x,y,z variables (e.g., \\\"1.0 + 0.01*x\\\")\\n    - num_layers must be ≥ 1\\n    - Multi-layer with different materials: use material_cards[] (array), one entry per layer\\n\\n(6) MATERIAL CARD MAGIC:\\n    - Use @MID@ placeholder in material_card; auto-replaced with assigned material ID\\n    - Use @CZM_MID@ placeholder in czm_material_card; auto-replaced with CZM material ID\\n    - If new_mid=0, MID auto-increments; if new_mid > 0, uses that ID\\n    - Multi-layer material_cards[] must have length == num_layers\\n    - material_card and material_cards[] are mutually exclusive\\n\\n(7) REGION FILTERS:\\n    - bbox_xmin/max, bbox_ymin/max, bbox_zmin/max: bounding box filter (all 6 values optional)\\n    - node_id_min/max: only offset nodes in this range (0 = disabled)\\n    - element_id_min/max: only offset elements in this range (0 = disabled)\\n    - Multiple filters can be combined (logical AND)\\n    - Filters apply to SOURCE elements; offset surfaces inherit the subset\\n\\n(8) QUALITY WARNINGS:\\n    - Aspect Ratio > 10: warning; > 20: error\\n    - Jacobian < 0.1: warning; < 1e-10: error (negative = degenerate)\\n    - Warping > 30°: warning; > 45°: error\\n    - -normal offset on highly concave surfaces may cause self-intersection → check warnings\\n\\n(9) PHASE/VERSION FEATURES:\\n    - use_local_normals, shell_offset, shell_thickness: Phase 2+\\n    - region filters (bbox_*, node_id_*, element_id_*): Phase 3+\\n    - thickness_formula: Phase 4+\\n    - prestress_mode=\\\"dual_offset\\\": Phase 3+ (advanced)\\n    - material_cards[]: Phase 3+\\n\\n(10) SOURCE ELEMENT SUPPORT:\\n    - Solid source elements: HEX8, TET4 (TET4 output quality degrades; HEX8 recommended)\\n    - Shell source elements: QUAD4, TRIA3 (auto-detected and handled)\\n    - Cannot use shell elements generated by prior offset in same operations[] list (PID tracking limitation)\\n\\n(11) YAML STRUCTURE:\\n    - operations[] array; each offset entry is one offset operation\\n    - Can chain multiple offset operations (e.g., offset PID 1 → PID 10, then offset PID 10 → PID 11)\\n    - Base model, output, and operations are at root level\\n\\n(12) @MID@ SUBSTITUTION:\\n    - material_card: \\\"*MAT_ELASTIC ... @MID@ ... \\\" → auto-replaces @MID@ with new_mid (or auto ID)\\n    - Each occurrence of @MID@ replaced; OK to have multiple @MID@ in same card\\n    - If material_card is empty/missing, no material written (user adds manually or via matswap)\\n\\n(13) COMMON MISTAKES:\\n    - Forgetting material_card when connection_mode=czm (validation will fail)\\n    - Using connection_mode=czm with element_type=shell (refused with exit code 1)\\n    - Setting thickness_formula but leaving variables undefined in coord system\\n    - Not setting shell_thickness for tshell/shell element types\\n    - Mixing material_card and material_cards[] (use one, not both)\\n    - Trying to offset shell elements created by prior offset in same operations[] call\"\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.",
       "keys": [
         {
           "path": "type",
@@ -4789,7 +4789,16 @@
           "yaml_path": "snap_tolerance",
           "required": false,
           "default": "0.001",
-          "description": "Search radius for snap mode boundary node merging"
+          "description": "Search radius for snap mode boundary node merging Also the tolerance for re-binding: a card pointing at a node the remesh removes is rewritten to the part's new node within this distance of the old one."
+        },
+        {
+          "name": "preview",
+          "type": "boolean",
+          "role": "yaml_field",
+          "yaml_path": "preview",
+          "required": false,
+          "default": false,
+          "description": "Do not run gmsh: list the cards (sets, SPC, loads, history, CNRB PNODE …) that point at nodes the remesh would remove, classified as surface (rewritten if gmsh puts a node at the same place; kept as is with boundary_nodes: fixed when matched) or blocking (interior node, inside an *INCLUDE, free-format line). Exit code 1 when any card would block. Writes no deck."
         },
         {
           "name": "algorithm",
@@ -4896,7 +4905,7 @@
         "note": "실행 검증된 예제 (입력: tetramesh.k)"
       },
       "example_folder": "examples/mesh",
-      "notes": "\nCRITICAL REQUIREMENTS:\n- Gmsh executable is searched in this order: (0) $KOOREMAPPER_GMSH (full path to the executable), (1) <exe-dir>/gmsh/gmsh or gmsh.exe, (2) <exe-dir>/gmsh-<ver>/[bin/]gmsh(.exe), (3) PATH (Linux), (4) /opt/gmsh-*/bin/gmsh (Linux). Note 'dist/gmsh/' next to the executable is NOT searched. Without a hit, the operation fails immediately with 'Gmsh not found'.\n- Input must be TET4 elements or degenerate HEX8 (nodes[3..7] all equal node[3]).\n\nSECTION HEADERS (optional YAML organization):\nAll top-level keys can also be nested under optional section headers for readability: [material], [adaptive], [gmsh], [boundary], [quality]. Keys under sections use slightly different names:\n- Under [boundary]: use 'nodes' instead of 'boundary_nodes'\n- Other section keys match top-level names (e.g., 'min_dt', 'E', 'nu' under [material]).\n\nAUTO-DETECTION & GEOMETRY:\n- lc_min auto-calc: If lc_min < 0 AND all of (min_dt, density, E, nu) > 0, computed from wave speed. Otherwise: lc_min = min(edge_min*0.8, lc_target*0.2).\n- THIN SOLID DETECTION: If min_bbox_dimension < avg_bbox_dimension * 0.3, geomThin=true → Mesh 2 skipped, 4-corner in-plane field used, Netgen passes skipped, autoRefineSurface=1 if needed.\n- AUTO refine_surface: Only applies when refine_surface=-1. Disabled for normal geometry (Mesh 2 handles it); applies 1 level for thin geometry if edge_avg > lc_target*1.5.\n\nDISTANCE FIELD SCALING (when adaptive=true):\n- Normal geometry: 8-corner field. DistMin = lcMinField*2, DistMax = lcMinField * decay_factor.\n- Thin geometry (thin axis detected): 4-corner in-plane field. DistMin = lcMinField*2, DistMax = lcMinField*4 (smaller decay to avoid flooding thin dim).\n\nPOLISH MODE (experimental):\n- Requires polish=true.\n- Identifies connected components of bad elements (Jac < polish_jac).\n- Each component expanded 2 rings, then patch re-meshed independently.\n- DUAL QUALITY GATES (both must pass to accept):\n  1. Min Jacobian retention: new_min_jac >= orig_min_jac * 0.95\n  2. Bad-element reduction: new_bad_count < orig_bad_count\n- If either gate fails, patch is discarded and original elements kept.\n- Mesh 2 skipped for patches; uses serial Delaunay (safer for small patches).\n\nBOUNDARY NODES:\n- free: all Gmsh nodes receive new sequential IDs (maxNodeId+1, maxNodeId+2, ...). Useful for independent part re-meshes.\n- fixed: Gmsh surface nodes matched to original model boundary nodes by coordinate (within snap_tolerance). Interior nodes get new IDs. Preserves node IDs at the interface for contact definitions.\n- snap: All Gmsh nodes get new IDs, but boundary nodes near adjacent parts are snapped to those part's nodes (within snap_tolerance). Allows loose coupling without strict coordinate matching.\n\nGOTCHAS & MUTUALLY EXCLUSIVE:\n- lc_min AND (min_dt, density, E, nu): if lc_min >= 0, dt-based calculation is skipped (explicit value takes priority).\n- optimize_netgen & optimize_passes: both skipped automatically for thin geometry regardless of setting.\n- refine_surface=-1 AND geomThin: auto refinement only applies to thin geometry. Normal geometry uses Mesh 2 instead.\n- polish=true AND 90° corners: if geometry has unrounded 90° corners, polish often cannot reduce bad elements (theoretical min ~0.03), so patches will be rejected.\n\nGMSH TIMEOUT & FAILURES:\n- No explicit timeout; Gmsh may hang on malformed STL or recursive ClassifySurfaces. If hung, Ctrl+C and check STL for open edges / non-manifold geometry.\n- Exit code 1 from Gmsh is often OK (warnings like ClassifySurfaces recursion). Check if .msh file was written before failing.\n\nPERFORMANCE HINTS:\n- Large meshes (100k+ TET4) take minutes. Use lc_target wisely to control output size.\n- Thin geometry disables Mesh 2 and Netgen, speeding up processing significantly.\n- Polish mode adds significant time; use sparingly on already-good meshes.\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.",
+      "notes": "\nCRITICAL REQUIREMENTS:\n- Gmsh executable is searched in this order: (0) $KOOREMAPPER_GMSH (full path to the executable), (1) <exe-dir>/gmsh/gmsh or gmsh.exe, (2) <exe-dir>/gmsh-<ver>/[bin/]gmsh(.exe), (3) PATH (Linux), (4) /opt/gmsh-*/bin/gmsh (Linux). Note 'dist/gmsh/' next to the executable is NOT searched. Without a hit, the operation fails immediately with 'Gmsh not found'.\n- Input must be TET4 elements or degenerate HEX8 (nodes[3..7] all equal node[3]).\n\nSECTION HEADERS (optional YAML organization):\nAll top-level keys can also be nested under optional section headers for readability: [material], [adaptive], [gmsh], [boundary], [quality]. Keys under sections use slightly different names:\n- Under [boundary]: use 'nodes' instead of 'boundary_nodes'\n- Other section keys match top-level names (e.g., 'min_dt', 'E', 'nu' under [material]).\n\nAUTO-DETECTION & GEOMETRY:\n- lc_min auto-calc: If lc_min < 0 AND all of (min_dt, density, E, nu) > 0, computed from wave speed. Otherwise: lc_min = min(edge_min*0.8, lc_target*0.2).\n- THIN SOLID DETECTION: If min_bbox_dimension < avg_bbox_dimension * 0.3, geomThin=true → Mesh 2 skipped, 4-corner in-plane field used, Netgen passes skipped, autoRefineSurface=1 if needed.\n- AUTO refine_surface: Only applies when refine_surface=-1. Disabled for normal geometry (Mesh 2 handles it); applies 1 level for thin geometry if edge_avg > lc_target*1.5.\n\nDISTANCE FIELD SCALING (when adaptive=true):\n- Normal geometry: 8-corner field. DistMin = lcMinField*2, DistMax = lcMinField * decay_factor.\n- Thin geometry (thin axis detected): 4-corner in-plane field. DistMin = lcMinField*2, DistMax = lcMinField*4 (smaller decay to avoid flooding thin dim).\n\nPOLISH MODE (experimental):\n- Requires polish=true.\n- Identifies connected components of bad elements (Jac < polish_jac).\n- Each component expanded 2 rings, then patch re-meshed independently.\n- DUAL QUALITY GATES (both must pass to accept):\n  1. Min Jacobian retention: new_min_jac >= orig_min_jac * 0.95\n  2. Bad-element reduction: new_bad_count < orig_bad_count\n- If either gate fails, patch is discarded and original elements kept.\n- Mesh 2 skipped for patches; uses serial Delaunay (safer for small patches).\n\nBOUNDARY NODES:\n- free: all Gmsh nodes receive new sequential IDs (maxNodeId+1, maxNodeId+2, ...). Useful for independent part re-meshes.\n- fixed: Gmsh surface nodes matched to original model boundary nodes by coordinate (within snap_tolerance). Interior nodes get new IDs. Preserves node IDs at the interface for contact definitions.\n- snap: All Gmsh nodes get new IDs, but boundary nodes near adjacent parts are snapped to those part's nodes (within snap_tolerance). Allows loose coupling without strict coordinate matching.\n\nGOTCHAS & MUTUALLY EXCLUSIVE:\n- lc_min AND (min_dt, density, E, nu): if lc_min >= 0, dt-based calculation is skipped (explicit value takes priority).\n- optimize_netgen & optimize_passes: both skipped automatically for thin geometry regardless of setting.\n- refine_surface=-1 AND geomThin: auto refinement only applies to thin geometry. Normal geometry uses Mesh 2 instead.\n- polish=true AND 90° corners: if geometry has unrounded 90° corners, polish often cannot reduce bad elements (theoretical min ~0.03), so patches will be rejected.\n\nGMSH TIMEOUT & FAILURES:\n- No explicit timeout; Gmsh may hang on malformed STL or recursive ClassifySurfaces. If hung, Ctrl+C and check STL for open edges / non-manifold geometry.\n- Exit code 1 from Gmsh is often OK (warnings like ClassifySurfaces recursion). Check if .msh file was written before failing.\n\nPERFORMANCE HINTS:\n- Large meshes (100k+ TET4) take minutes. Use lc_target wisely to control output size.\n- Thin geometry disables Mesh 2 and Netgen, speeding up processing significantly.\n- Polish mode adds significant time; use sparingly on already-good meshes.\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.\n- Cards that point at nodes the remesh removes (sets, SPC, loads, history, CNRB PNODE …, the same field table info --strict uses) are re-bound to the part's new node within snap_tolerance of the old position; if any cannot be re-bound (interior node, inside an *INCLUDE, free-format line, no node nearby) nothing is written and exit code is 1. preview: true reports the same without running gmsh.",
       "keys": [
         {
           "path": "model",
@@ -5506,7 +5515,7 @@
         "note": "Global 모드: 모든 파트에 CDAMP=0.99 댐핑 적용. FLOW ≈ 1.67MHz, FHIGH ≈ 167MHz 대역 댐핑"
       },
       "example_folder": "examples/hfdamp",
-      "notes": "VALIDATION CONSTRAINTS (from parser): dt_target must be > 0 (required, checked at runtime); cdamp must be in (0, 1] (inclusive upper bound); fhigh_ratio must be >= 2.0. SELECTIVE MODE REQUIREMENTS: K-file must contain material definitions (MAT_ELASTIC or other MAT_* with E, PR, RHO on card 1) mapped to each part via *PART sections. If selective mode is enabled but no parts qualify (min dt > dt_target), the operation falls back to global mode and prints a warning. FREQUENCY CALCULATIONS: FLOW = 1 / (2 × dt_target); FHIGH = FLOW × fhigh_ratio. These are computed by the parser and inserted into the generated *DAMPING_FREQUENCY_RANGE_DEFORM keyword. OUTPUT STRUCTURE (global mode): inserts *DAMPING_FREQUENCY_RANGE_DEFORM card before *END. (selective mode with qualifying parts): inserts *SET_PART_LIST_TITLE, title line, SID line, part ID list (8 per line, 10-char fields), then *DAMPING_FREQUENCY_RANGE_DEFORM with PSID pointing to the new set. PHYSICS: DEFORM option damps element stresses/forces, NOT rigid-body motion. Best for nonlinear explicit dynamics. Damping effectiveness is concentrated in [FLOW, FHIGH]; minimal effect outside this band. RELATIVE PATH RESOLUTION: paths in YAML are resolved relative to the YAML file's directory (configDir).\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.",
+      "notes": "VALIDATION CONSTRAINTS (from parser): dt_target must be > 0 (required, checked at runtime); cdamp must be in (0, 1] (inclusive upper bound); fhigh_ratio must be >= 2.0. SELECTIVE MODE REQUIREMENTS: K-file must contain material definitions (MAT_ELASTIC or other MAT_* with E, PR, RHO on card 1) mapped to each part via *PART sections. If selective mode is enabled but no parts qualify (min dt > dt_target), the operation falls back to global mode and prints a warning. On a master deck the parts and materials are read across the whole *INCLUDE closure (the new set and keyword are still written into the main deck). If some include files cannot be read and no part qualifies, it does not fall back: it stops with a non-zero exit code (255) and writes nothing, because global damping would silently differ from the request; if parts qualify but the closure is incomplete it warns that parts in unread includes were not considered. FREQUENCY CALCULATIONS: FLOW = 1 / (2 × dt_target); FHIGH = FLOW × fhigh_ratio. These are computed by the parser and inserted into the generated *DAMPING_FREQUENCY_RANGE_DEFORM keyword. OUTPUT STRUCTURE (global mode): inserts *DAMPING_FREQUENCY_RANGE_DEFORM card before *END. (selective mode with qualifying parts): inserts *SET_PART_LIST_TITLE, title line, SID line, part ID list (8 per line, 10-char fields), then *DAMPING_FREQUENCY_RANGE_DEFORM with PSID pointing to the new set. PHYSICS: DEFORM option damps element stresses/forces, NOT rigid-body motion. Best for nonlinear explicit dynamics. Damping effectiveness is concentrated in [FLOW, FHIGH]; minimal effect outside this band. RELATIVE PATH RESOLUTION: paths in YAML are resolved relative to the YAML file's directory (configDir).\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.",
       "keys": [
         {
           "path": "model",
@@ -6719,7 +6728,7 @@
         "note": "최소 구성: explicit.k에서 PID 3을 air ALE로 변환하여 ale_minimal.k로 저장. ale_parts는 필수 배열."
       },
       "example_folder": "examples/ale",
-      "notes": "기본 단위: t/mm/s (프리셋 물성값은 MPa 기준). 공유 섹션(*SECTION_SOLID)은 새 SECID로 복제되고 ELFORM이 변경됨. fsi_pids에 ALE 파트 PID를 포함시킬 수 없음(자기-커플링 불가, 오버래핑 감지). 커스텀 번들 파일은 *MAT_*, *EOS_, *HOURGLASS 블록 포함 가능. 폭약(tnt/c4) 프리셋 사용 시 detonation 섹션 권장(없으면 경고). 폐쇄 대상: 기존 *CONTROL_ALE, *ALE_MULTI-MATERIAL_GROUP, *ALE_REFERENCE_SYSTEM_GROUP, *CONSTRAINED_LAGRANGE_IN_SOLID는 자동 교체됨.\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.",
+      "notes": "기본 단위: t/mm/s (프리셋 물성값은 MPa 기준). 공유 섹션(*SECTION_SOLID)은 새 SECID로 복제되고 ELFORM이 변경됨. fsi_pids에 ALE 파트 PID를 포함시킬 수 없음(자기-커플링 불가, 오버래핑 감지). 커스텀 번들 파일은 *MAT_*, *EOS_, *HOURGLASS 블록 포함 가능. 폭약(tnt/c4) 프리셋 사용 시 detonation 섹션 권장(없으면 경고). 폐쇄 대상: 기존 *CONTROL_ALE, *ALE_MULTI-MATERIAL_GROUP, *ALE_REFERENCE_SYSTEM_GROUP, *CONSTRAINED_LAGRANGE_IN_SOLID는 자동 교체됨. ★인클루드 마스터 덱: 이 op 은 주 덱만 고쳐 쓰므로 `*PART` 가 `*INCLUDE` 안에 있으면 그 파트를 못 찾아 「PID … not found in model」 로 멈춘다(rc 1, 실측). 파트가 든 파일을 model 로 지목하고, 마스터 덱이 그 산출을 인클루드하게 바꿔라.\n\nYAML INPUT — COMMON RULES:\n---\n- A leading UTF-8 BOM is ignored, so a config saved by a Windows editor (Notepad) works as-is.\n- A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.\n- The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.\n- RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\\`, or an `X:` drive letter) are used as-is.",
       "keys": [
         {
           "path": "model",
@@ -13261,7 +13270,7 @@
       "name": "modelmeta",
       "category": "inspect",
       "summary": "Extract structured model metadata JSON — per-part free-surface area, volume, x/y/z projected areas, material (K-file card + bundled DB), and part-to-part contact connectivity.",
-      "description": "Reads a K-file and writes <output>_modelmeta.json with per-part geometric metrics (external free-surface area, volume via face-pyramid decomposition, projected areas onto the x/y/z planes), material metadata (PID→MID mapping, *MAT card keyword/title plus structurally parsed E/nu/rho/sigy, and a bundled material-DB lookup with name/category/representative properties reported with an explicit match_basis), and part connectivity resolved from *CONTACT definitions (SSID/MSID of PID, SET_PART, SET_NODE and SET_SEGMENT are resolved to part id lists; single-surface contacts are recorded as a scope, not exploded into pairs). Optional geometric contact-pair detection finds touching parts without *CONTACT cards. Conventions: solid parts use closed free-surface sums with projected areas halved (front/back faces cancel); shell parts use one-sided element areas without halving and volume 0. Read-only: the input model is never modified.",
+      "description": "Reads a K-file and writes <output>_modelmeta.json with per-part geometric metrics (external free-surface area, volume via face-pyramid decomposition, projected areas onto the x/y/z planes), material metadata (PID→MID mapping, *MAT card keyword/title plus structurally parsed E/nu/rho/sigy, and a bundled material-DB lookup with name/category/representative properties reported with an explicit match_basis), and part connectivity resolved from *CONTACT definitions (SSID/MSID of PID, SET_PART, SET_NODE and SET_SEGMENT are resolved to part id lists; single-surface contacts are recorded as a scope, not exploded into pairs). Optional geometric contact-pair detection finds touching parts without *CONTACT cards. Conventions: solid parts use closed free-surface sums with projected areas halved (front/back faces cancel); shell parts use one-sided element areas without halving and volume 0. Read-only: the input model is never modified. Second-order solid parts (ELFORM 16, 17, 25–28) are flagged part.second_order = true and their geometry-derived values — area_ext, volume, proj, edge_len, n_node and mass — are null with geometry_reason and mass_reason, because the reader keeps only the first eight *ELEMENT_SOLID node fields (measured volume error −48.4 %); model.second_order_solid_pids lists them, and model.orphan_nodes is null with orphan_nodes_reason when such a deck counts orphans, since its mid-side nodes would be counted as orphans.",
       "invocation": "yaml",
       "config_style": "structured",
       "takes_kfile": true,
@@ -13274,7 +13283,7 @@
           "role": "yaml_field",
           "yaml_path": "model",
           "required": true,
-          "description": "Input LS-DYNA K-file to analyze (read-only; *INCLUDE followed one level)"
+          "description": "Input LS-DYNA K-file to analyze (read-only). Its whole *INCLUDE closure is read — mesh, materials and contacts — nested, in LS-DYNA's order; the console says how many includes were read and which could not be"
         },
         {
           "name": "output",
@@ -13454,7 +13463,7 @@
           "role": "yaml_field",
           "yaml_path": "model",
           "required": true,
-          "description": "Deck to cut (k-file). Must contain the geometry — a master deck that only holds *INCLUDE cards is refused, with the include list, rather than producing an empty figure"
+          "description": "Deck to cut (k-file). A master deck is read with its whole *INCLUDE closure, so the included files must sit where the deck points (on the platform: uploaded to the same session). If no elements are found even then, it is refused rather than producing an empty figure, and the console says which includes could not be read, with the include list"
         },
         {
           "name": "output",
@@ -13462,7 +13471,7 @@
           "role": "yaml_field",
           "yaml_path": "output",
           "required": true,
-          "description": "Output prefix — writes <output>_section.json — writes <output>_section.json and <output>_section.svg"
+          "description": "Output prefix — writes <output>_section.json and <output>_section.svg"
         },
         {
           "name": "axis",
@@ -13583,7 +13592,7 @@
           "role": "yaml_field",
           "yaml_path": "model",
           "required": true,
-          "description": "Deck to draw (k-file); a deck holding only *INCLUDE cards is refused rather than drawn empty"
+          "description": "Deck to draw (k-file). A master deck is read with its whole *INCLUDE closure (the included files must sit where the deck points — on the platform, in the same session); if no elements are found even then, it is refused rather than drawn empty and the console says which includes could not be read"
         },
         {
           "name": "output",
@@ -13664,7 +13673,7 @@
       "name": "stackdiagram",
       "category": "inspect",
       "summary": "파트별 축 범위로 층 모식도를 그리고 중립축·기하 중심면을 함께 긋는다 (포개지는 적층은 거절한다).",
-      "description": "Draw the stack as a schematic from each part's extent along one axis, into <output>_stackdiagram.svg, with the EI-weighted neutral axis, the geometric mid-plane and axis=0 drawn across it. This is a schematic, not a cut: unlike `section`, which intersects the real geometry with a plane, this op uses only the axis-aligned extent of each part — effectively its AABB. That trade buys two things. No plane has to be chosen (`section` on a 61-part deck meets only one part if the axis is wrong), and the neutral axis appears in the same picture as the layers it was computed from. It costs the ability to read wound or folded stacks: measured on the wound deck `wrapped.k`, all three parts span z 0..1.0, so all three pairs overlap and no layer order exists to draw. In that case the op refuses and points at `section` rather than stacking overlapping ranges, because a schematic that invents a layer order looks entirely plausible and is the worst kind of wrong figure. Parts that strictly contain other layers (a case, a tab, a pouch) are separated out and drawn as dashed outlines instead of bars; the test is containment, not a fraction of the span, because a fraction threshold measured 88.4% on the battery deck's case and its denominator was inflated by shell bands sticking out past both ends. Layers whose modulus could not be read still draw — only the neutral axis is omitted, and the figure says so — because on real decks the *MAT cards live in an *INCLUDE file.",
+      "description": "Draw the stack as a schematic from each part's extent along one axis, into <output>_stackdiagram.svg, with the EI-weighted neutral axis, the geometric mid-plane and axis=0 drawn across it. This is a schematic, not a cut: unlike `section`, which intersects the real geometry with a plane, this op uses only the axis-aligned extent of each part — effectively its AABB. That trade buys two things. No plane has to be chosen (`section` on a 61-part deck meets only one part if the axis is wrong), and the neutral axis appears in the same picture as the layers it was computed from. It costs the ability to read wound or folded stacks: measured on the wound deck `wrapped.k`, all three parts span z 0..1.0, so all three pairs overlap and no layer order exists to draw. In that case the op refuses and points at `section` rather than stacking overlapping ranges, because a schematic that invents a layer order looks entirely plausible and is the worst kind of wrong figure. Parts that strictly contain other layers (a case, a tab, a pouch) are separated out and drawn as dashed outlines instead of bars; the test is containment, not a fraction of the span, because a fraction threshold measured 88.4% on the battery deck's case and its denominator was inflated by shell bands sticking out past both ends. Layers whose modulus could not be read still draw — only the neutral axis is omitted, and the figure says so. *MAT cards are read across the *INCLUDE closure, so on real decks, where they usually live in an include file, this happens only when that file cannot be found or no modulus can be read from the card.",
       "invocation": "yaml",
       "config_style": "structured",
       "takes_kfile": true,
@@ -13677,7 +13686,7 @@
           "role": "yaml_field",
           "yaml_path": "model",
           "required": true,
-          "description": "Deck to read (k-file); a deck holding only *INCLUDE cards is refused rather than drawn empty"
+          "description": "Deck to read (k-file). A master deck is read with its whole *INCLUDE closure, *MAT cards included (the included files must sit where the deck points — on the platform, in the same session); if no elements are found even then, it is refused rather than drawn empty and the console says which includes could not be read"
         },
         {
           "name": "output",
@@ -13858,7 +13867,7 @@
         "note": "실행 검증된 예제 (입력: cleanup_demo.k — 고아 4개 중 2개는 CNRB 가 세트로 가리켜 남는다)"
       },
       "example_folder": "examples/cleanup-nodes",
-      "notes": "The bbox_before/bbox_after pair is the point of the report, not decoration: on the deck that prompted this op the device was 14.55 mm thick but the *NODE bounding box read 67.50 mm, so the drop plane was built 53 mm away from the device and nothing ever touched it. Deleting the orphans closes that gap, and the two boxes side by side say how much of it was never geometry. Field widths follow the deck: *NODE and *ELEMENT_* cards are read at the width *KEYWORD declares (8, i10=y 10, long=y 20) or the keyword-line suffix ('%', '+', '-') overrides, while *SET_* cards are I10 (I20 under long). Fixed width is read FIRST and whitespace splitting is used only when a field genuinely holds two numbers — an 8-digit node ID fills an 8-wide field exactly, and splitting on whitespace there reads one token instead of eight and deletes every node the element uses. *SET_NODE_LIST_GENERATE ranges are expanded and kept rather than pruned, because keeping only the endpoints would delete the interior of the range and empty the set. *ELEMENT_BEAM, _DISCRETE, _MASS, _SEATBELT and _PLOTEL are read from manual-derived field positions, so a beam's RT1/LOCAL and a seatbelt's SBRID/SLEN are not counted as node references — an orphan whose ID happened to match one of those fields used to be kept forever. Families still not understood are handled by treating every integer except the element ID as a node reference and listing the keyword in element_keywords_opaque — over-keeping, which is the safe direction. Original newlines are preserved through DeckWriter; CRLF stays CRLF. Relative paths in model/output/report resolve against the YAML file's directory."
+      "notes": "Unknown YAML keys are reported as a warning and ignored (the run continues with the defaults).\n\nThe bbox_before/bbox_after pair is the point of the report, not decoration: on the deck that prompted this op the device was 14.55 mm thick but the *NODE bounding box read 67.50 mm, so the drop plane was built 53 mm away from the device and nothing ever touched it. Deleting the orphans closes that gap, and the two boxes side by side say how much of it was never geometry. Field widths follow the deck: *NODE and *ELEMENT_* cards are read at the width *KEYWORD declares (8, i10=y 10, long=y 20) or the keyword-line suffix ('%', '+', '-') overrides, while *SET_* cards are I10 (I20 under long). Fixed width is read FIRST and whitespace splitting is used only when a field genuinely holds two numbers — an 8-digit node ID fills an 8-wide field exactly, and splitting on whitespace there reads one token instead of eight and deletes every node the element uses. *SET_NODE_LIST_GENERATE ranges are expanded and kept rather than pruned, because keeping only the endpoints would delete the interior of the range and empty the set. *ELEMENT_BEAM, _DISCRETE, _MASS, _SEATBELT and _PLOTEL are read from manual-derived field positions, so a beam's RT1/LOCAL and a seatbelt's SBRID/SLEN are not counted as node references — an orphan whose ID happened to match one of those fields used to be kept forever. Families still not understood are handled by treating every integer except the element ID as a node reference and listing the keyword in element_keywords_opaque — over-keeping, which is the safe direction. Original newlines are preserved through DeckWriter; CRLF stays CRLF. Relative paths in model/output/report resolve against the YAML file's directory."
     },
     {
       "name": "extract-parts",
@@ -13985,7 +13994,184 @@
         "note": "실행 검증된 예제 (입력: assembly.k — 파트 2 는 *INCLUDE 안에 있어서 펼쳐 넣는다)"
       },
       "example_folder": "examples/extract-parts",
-      "notes": "What is carried: *KEYWORD, *TITLE, *PARAMETER*, *CONTROL_*, *DATABASE_ other than *DATABASE_HISTORY_*, the chosen parts' *PART pairs, their *SECTION_*/*MAT_*/*EOS_*/*HOURGLASS blocks, *DEFINE_CURVE/TABLE, the *NODE lines their elements use, their *ELEMENT_{SOLID,SHELL,TSHELL} cards and the trimmed sets. *DATABASE_HISTORY_* is dropped because it holds node and element IDs that may not survive. Everything else is dropped and counted by keyword in the report. A *PART_* variant the op cannot chunk (*PART_INERTIA and friends) is carried whole when one of its first-field PIDs was chosen, which may bring unselected parts along; LS-DYNA warns about a part with no elements, and that is far better than losing a rigid body silently. Card line counts come from the one shared judge, ElementCardLayout::elementCardSpan, so a higher-order solid's second node card is carried too. Field widths follow the deck: *NODE and *ELEMENT_* at the width *KEYWORD declares (8, i10=y 10, long=y 20) or the keyword suffix, *SET_* and *PART* at I10 (I20 under long). Lines are copied, not re-rendered, so fixed-width exponents are never truncated and original newlines survive; renumbering replaces single fields in place for the same reason. Relative paths resolve against the YAML file's directory."
+      "notes": "Unknown YAML keys are reported as a warning and ignored (the run continues with the defaults).\n\nWhat is carried: *KEYWORD, *TITLE, *PARAMETER*, *CONTROL_*, *DATABASE_ other than *DATABASE_HISTORY_*, the chosen parts' *PART pairs, their *SECTION_*/*MAT_*/*EOS_*/*HOURGLASS blocks, *DEFINE_CURVE/TABLE, the *NODE lines their elements use, their *ELEMENT_{SOLID,SHELL,TSHELL} cards and the trimmed sets. *DATABASE_HISTORY_* is dropped because it holds node and element IDs that may not survive. Everything else is dropped and counted by keyword in the report. A *PART_* variant the op cannot chunk (*PART_INERTIA and friends) is carried whole when one of its first-field PIDs was chosen, which may bring unselected parts along; LS-DYNA warns about a part with no elements, and that is far better than losing a rigid body silently. Card line counts come from the one shared judge, ElementCardLayout::elementCardSpan, so a higher-order solid's second node card is carried too. Field widths follow the deck: *NODE and *ELEMENT_* at the width *KEYWORD declares (8, i10=y 10, long=y 20) or the keyword suffix, *SET_* and *PART* at I10 (I20 under long). Lines are copied, not re-rendered, so fixed-width exponents are never truncated and original newlines survive; renumbering replaces single fields in place for the same reason. Relative paths resolve against the YAML file's directory."
+    },
+    {
+      "name": "id_floor",
+      "category": "mesh",
+      "summary": "Issue the start numbers for a StepForge part fragment (the deck's maxima plus one, include closure counted) and optionally check a fragment map's ranges against them.",
+      "description": "There is no ID band table: numbers are issued when a fragment is requested. The output names the four start numbers exactly like StepForge export_part_fragment's arguments (node_start, elem_start, pid_start, sid_start), so they can be passed straight through. A fragment written from them lies above the deck's maxima and cad_solid_merge_to_deck inserts it without renumbering — the fragment map's numbers are then the deck's numbers. The floor uses the same cursors as assemble, counting the whole *INCLUDE closure; pid_start is one above the largest of PID, SECID and MID because fragments use the same number for all three. With fragment_map, each used range is compared with the floor: above when its low end is at or over the start number, below otherwise (exit code 1 — that fragment would be renumbered on insert). This is the id_floor of the StepForge boundary agreement (Q7: it reads the map's ranges).",
+      "invocation": "yaml",
+      "config_style": "structured",
+      "takes_kfile": true,
+      "requires_gmsh": false,
+      "requires_tetgen": false,
+      "params": [
+        {
+          "name": "model",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "model",
+          "required": true,
+          "description": "The deck the fragment will go into. Its *INCLUDE closure is read."
+        },
+        {
+          "name": "output",
+          "type": "output",
+          "role": "yaml_field",
+          "yaml_path": "output",
+          "required": true,
+          "description": "JSON with deck, basis, node_start, elem_start, pid_start, sid_start and, when fragment_map is given, check — above, below or unused for each range (unused when the map's range is null). .json is appended if missing."
+        },
+        {
+          "name": "fragment_map",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "fragment_map",
+          "required": false,
+          "description": "Optional StepForge fragment map JSON whose ranges are checked against the floor."
+        }
+      ],
+      "example": {
+        "args": {
+          "model": "deck.k",
+          "output": "floor.json",
+          "fragment_map": "stepforge_fragment.json"
+        },
+        "note": "실행 검증된 예제 (조각 대응표는 StepForge 실물 — 시작 번호 500001/600001/900 이 덱 바닥 13/3/3 위에 있다)"
+      },
+      "example_folder": "examples/cad_solid_merge_to_deck",
+      "notes": "Relative paths resolve against the YAML file's directory. Unknown YAML keys are refused."
+    },
+    {
+      "name": "rebind_entities_after_remesh",
+      "category": "mesh",
+      "summary": "Re-bind the node, part and element IDs in blocks added on top of a deck (sets, SPC, loads, history, contacts, CNRB …) to a re-meshed deck: nodes by part title and exact coordinates, parts by title, elements by part title and node coordinates.",
+      "description": "StepForge renumbers its whole deck in part order on every mesh job, so sets, constraints and outputs we added on top of an earlier deck point at the wrong nodes afterwards. The boundary agreement makes re-binding ours, with the range table and coordinates as input (Q12). Each node referenced by the added blocks is matched to the node of the new deck that belongs to the same part (by *PART title) and sits at exactly the same coordinates, written as %16.9e like coord_sha; there is no tolerance and no nearest-node fallback, because that would change the physics silently. Nodes on a touching interface, which StepForge keeps separate per part, are told apart by the part name. The field positions are the same canonical table that info --strict uses (parser/NodeRefs). Parts and elements are re-bound too (v2): a PID by its *PART title in the new deck (StepForge may renumber PIDs), an element by its part title plus the exact coordinate set of its nodes; the field positions come from the canonical parser/IdRefs table (*SET_PART, contact Card 1 SSID/MSID when SSTYP/MSTYP is 3 and the STYP signature reads, *CONSTRAINED_RIGID_BODIES, *SET_SOLID/SHELL/BEAM/TSHELL, *DATABASE_HISTORY_SOLID/SHELL/BEAM/TSHELL). The op refuses, with exit code 1 and no output, when a referenced node, part or element has no single match (a re-meshed part's vanished position, a part title missing from new_deck, a PID that is not a *PART of old_deck, or several candidates), when the blocks hold cards whose node, part or element fields cannot be pinned down (initial stress, part damping, _GENERATE sets, a contact whose STYP fields do not read …), when a line is free-format, or when an ID the blocks define themselves (*NODE, set SID, CNRB PID, *ELEMENT_MASS EID, LCID, CID) already exists in the new deck. With range_diff, every coords.before / coords.after is measured again on the two decks and any difference refuses the run; unmatched nodes of a part the table marks as resized are reported as such. Only the node, part and element ID fields change, at their width; every other byte is kept.",
+      "invocation": "yaml",
+      "config_style": "structured",
+      "takes_kfile": true,
+      "requires_gmsh": false,
+      "requires_tetgen": false,
+      "params": [
+        {
+          "name": "old_deck",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "old_deck",
+          "required": true,
+          "description": "The deck the added blocks were written against (its numbering is what they point at). Single-file decks only."
+        },
+        {
+          "name": "new_deck",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "new_deck",
+          "required": true,
+          "description": "The re-meshed deck. Single-file decks only; its integer field width must equal old_deck's."
+        },
+        {
+          "name": "entities",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "entities",
+          "required": true,
+          "description": "A .k file holding only the blocks we added (sets of nodes, segments, parts and elements, SPC, loads, history, CNRB, rigid-body merges, contacts, mass, coordinate nodes, curves, boxes). It is not changed."
+        },
+        {
+          "name": "output",
+          "type": "output",
+          "role": "yaml_field",
+          "yaml_path": "output",
+          "required": true,
+          "description": "The re-bound blocks, to be *INCLUDEd together with new_deck. Must differ from entities."
+        },
+        {
+          "name": "range_diff",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "range_diff",
+          "required": false,
+          "description": "Optional StepForge range table (range_diff JSON). Each part's coord_sha is checked on both decks."
+        }
+      ],
+      "example": {
+        "args": {
+          "old_deck": "v1.k",
+          "new_deck": "v2.k",
+          "entities": "ours.k",
+          "output": "ours_rebound.k",
+          "range_diff": "range_diff.json"
+        },
+        "note": "실행 검증된 예제 (합성 — A 는 번호만 밀리고 B 는 다시 구웠다. 구간 표는 StepForge range_diff 꼴 그대로)"
+      },
+      "example_folder": "examples/rebind_entities_after_remesh",
+      "notes": "Relative paths resolve against the YAML file's directory. Unknown YAML keys are refused so that a stray model: key cannot silently pick another deck. The re-bound text is checked again with the same tables before it is written: every referenced node must exist in new_deck or in the blocks themselves, and every referenced part and element in new_deck."
+    },
+    {
+      "name": "cad_solid_merge_to_deck",
+      "category": "mesh",
+      "summary": "Insert a StepForge part fragment (.k + map JSON) into an existing deck: check it against the boundary contract, keep its numbers when they lie above the deck's IDs (otherwise move them above) and re-verify each part's coord_sha.",
+      "description": "The boundary agreement with StepForge splits the work: StepForge writes a part fragment, and inserting it into an existing deck is ours because it changes that deck's bytes. The fragment map is read exactly as the contract defines it — unit, frame, ranges (node, elem, pid, sid; each [lo, hi] or null) and parts (path, name, pid, node_start, node_count, elem_start, elem_count, coord_sha) — and any unknown or missing field is refused. Before anything is written the fragment is checked against its map: every ID lies in its range and each range is the actual minimum and maximum, the part sets match, and for every part the element count and range, the nodes its elements use and the coord_sha (the same function StepForge uses: each node as three %16.9e values, rows sorted, SHA-256, first 16 hex characters) agree. Any disagreement refuses the insert. A fragment whose ranges already lie above the deck's maxima (counting the whole *INCLUDE closure) is inserted without renumbering, so the map's numbers are the deck's numbers — that is what happens when it was requested with the start numbers id_floor issues; a range reaching down to or below the maxima is moved just above them, which is the transitional path for fragments written from 1; PID, SECID and MID share one shift so the fragment's convention that the three are equal still holds in the deck. Coordinates are kept byte for byte and only the ID fields are rewritten, at the deck's field width (8, or 10 for i10 decks); long-format decks are refused. The block to be inserted is re-read and its coord_sha measured again before it is placed before *END. The unit must equal deck_unit (default mm-t-s) and the frame must be world — nothing is converted. Fragments holding keywords outside the contract (*SET_*, *MAT_ADD_*, *MAT_THERMAL_*, …) or a non-null ranges.sid are refused. StepForge placeholder materials (RO = E = 1.0) are inserted as they are and reported per MID.",
+      "invocation": "yaml",
+      "config_style": "structured",
+      "takes_kfile": true,
+      "requires_gmsh": false,
+      "requires_tetgen": false,
+      "params": [
+        {
+          "name": "model",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "model",
+          "required": true,
+          "description": "The existing deck the fragment goes into. Its *INCLUDE closure is read so the new IDs stay clear of IDs defined in included files."
+        },
+        {
+          "name": "output",
+          "type": "output",
+          "role": "yaml_field",
+          "yaml_path": "output",
+          "required": true,
+          "description": "Output deck. <output>_fragment_map.json is written beside it: the same map with the deck numbers the fragment received."
+        },
+        {
+          "name": "fragment",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "fragment",
+          "required": true,
+          "description": "StepForge fragment .k (export_part_fragment)."
+        },
+        {
+          "name": "fragment_map",
+          "type": "file",
+          "role": "yaml_field",
+          "yaml_path": "fragment_map",
+          "required": true,
+          "description": "StepForge fragment map JSON. Unknown or missing fields are refused."
+        },
+        {
+          "name": "deck_unit",
+          "type": "string",
+          "role": "yaml_field",
+          "yaml_path": "deck_unit",
+          "required": false,
+          "default": "mm-t-s",
+          "description": "Unit system of the target deck. The fragment's unit must be the same; nothing is converted."
+        }
+      ],
+      "example": {
+        "args": {
+          "model": "deck.k",
+          "output": "merged.k",
+          "fragment": "stepforge_fragment.k",
+          "fragment_map": "stepforge_fragment.json"
+        },
+        "note": "실행 검증된 예제 (조각·대응표는 StepForge export_part_fragment 의 실물 산출 — 파트 4 · 시작 번호 500001/600001/900)"
+      },
+      "example_folder": "examples/cad_solid_merge_to_deck",
+      "notes": "Relative paths resolve against the YAML file's directory. Unknown YAML keys are refused (a typo such as deck_units would otherwise insert in the default unit). The insert is refused with exit code 1 and no output when the map or the fragment breaks the contract; the console lists every disagreement. After writing, the deck is read back and the element count of every part, including the inserted ones, is compared with the expected count."
     },
     {
       "name": "stcx_fullangle_drop",

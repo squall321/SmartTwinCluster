@@ -9,7 +9,7 @@ description: |
   # 인자
   | 이름 | 형식 | 필수 | 설명 |
   |---|---|---|---|
-  | `model` | file | 예 | Deck to draw (k-file); a deck holding only *INCLUDE cards is refused rather than drawn empty |
+  | `model` | file | 예 | Deck to draw (k-file). A master deck is read with its whole *INCLUDE closure (the included files must sit where the deck points — on the platform, in the same session); if no elements are found even then, it is refused rather than drawn empty and the console says which includes could not be read |
   | `output` | string | 예 | Output prefix — writes <output>_surface.svg |
   | `azimuth` | number |  | View azimuth in degrees |
   | `elevation` | number |  | View elevation in degrees |

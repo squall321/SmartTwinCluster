@@ -21,7 +21,7 @@
     },
     "output": {
       "type": "string",
-      "description": "Output prefix — writes <output>.k"
+      "description": "Output prefix — writes <output>.k (a trailing .k is dropped first, so output: x.k writes x.k)"
     },
     "extra_inputs": {
       "type": "array",

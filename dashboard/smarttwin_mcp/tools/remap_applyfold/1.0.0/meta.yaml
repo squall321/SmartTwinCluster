@@ -11,7 +11,7 @@ description: |
   |---|---|---|---|
   | `model` | file | 예 | Deck to fold (k-file) |
   | `groups` | file | 예 | Groups YAML written by `linkage-fit` |
-  | `output` | string | 예 | Output prefix — writes <output>.k |
+  | `output` | string | 예 | Output prefix — writes <output>.k (a trailing .k is dropped first, so output: x.k writes x.k) |
 
   # 주의
   - "No node left behind" is checked by counting, not assumed: the field report measured 712,103 nodes silently dropped because an id-indexed array had been sized by the node count rather than by the maximum id. This implementation looks nodes up in a map, so that particular trap does not exist, but the count is still verified and a mismatch fails. Note that "no unmoved node" is the wrong criterion on its own — nodes lying on a rotation axis stay put under a correct transform — so the readback compares against the computed target position instead.

@@ -10,12 +10,12 @@
   "properties": {
     "model": {
       "type": "string",
-      "description": "Deck to cut (k-file). Must contain the geometry — a master deck that only holds *INCLUDE cards is refused, with the include list, rather than producing an empty figure",
+      "description": "Deck to cut (k-file). A master deck is read with its whole *INCLUDE closure, so the included files must sit where the deck points (on the platform: uploaded to the same session). If no elements are found even then, it is refused rather than producing an empty figure, and the console says which includes could not be read, with the include list",
       "x-kind": "session_file"
     },
     "output": {
       "type": "string",
-      "description": "Output prefix — writes <output>_section.json — writes <output>_section.json and <output>_section.svg"
+      "description": "Output prefix — writes <output>_section.json and <output>_section.svg"
     },
     "axis": {
       "type": "string",

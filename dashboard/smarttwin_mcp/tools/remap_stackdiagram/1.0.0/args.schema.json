@@ -10,7 +10,7 @@
   "properties": {
     "model": {
       "type": "string",
-      "description": "Deck to read (k-file); a deck holding only *INCLUDE cards is refused rather than drawn empty",
+      "description": "Deck to read (k-file). A master deck is read with its whole *INCLUDE closure, *MAT cards included (the included files must sit where the deck points — on the platform, in the same session); if no elements are found even then, it is refused rather than drawn empty and the console says which includes could not be read",
       "x-kind": "session_file"
     },
     "output": {

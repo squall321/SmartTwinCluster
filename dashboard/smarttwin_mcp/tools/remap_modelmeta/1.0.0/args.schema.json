@@ -9,7 +9,7 @@
   "properties": {
     "model": {
       "type": "string",
-      "description": "Input LS-DYNA K-file to analyze (read-only; *INCLUDE followed one level)",
+      "description": "Input LS-DYNA K-file to analyze (read-only). Its whole *INCLUDE closure is read — mesh, materials and contacts — nested, in LS-DYNA's order; the console says how many includes were read and which could not be",
       "x-kind": "session_file"
     },
     "output": {

@@ -1,0 +1,77 @@
+name: remap_rebind_entities_after_remesh
+version: 1.0.0
+summary: KooRemapper rebind_entities_after_remesh — Re-bind the node, part and element IDs in blocks added
+  on top of a deck (sets, SPC, loads, history, contacts, CNRB …) to a re-meshed deck
+description: |
+  Re-bind the node, part and element IDs in blocks added on top of a deck (sets, SPC, loads, history, contacts, CNRB …) to a re-meshed deck: nodes by part title and exact coordinates, parts by title, elements by part title and node coordinates.
+
+  StepForge renumbers its whole deck in part order on every mesh job, so sets, constraints and outputs we added on top of an earlier deck point at the wrong nodes afterwards. The boundary agreement makes re-binding ours, with the range table and coordinates as input (Q12). Each node referenced by the added blocks is matched to the node of the new deck that belongs to the same part (by *PART title) and sits at exactly the same coordinates, written as %16.9e like coord_sha; there is no tolerance and no nearest-node fallback, because that would change the physics silently. Nodes on a touching interface, which StepForge keeps separate per part, are told apart by the part name. The field positions are the same canonical table that info --strict uses (parser/NodeRefs). Parts and elements are re-bound too (v2): a PID by its *PART title in the new deck (StepForge may renumber PIDs), an element by its part title plus the exact coordinate set of its nodes; the field positions come from the canonical parser/IdRefs table (*SET_PART, contact Card 1 SSID/MSID when SSTYP/MSTYP is 3 and the STYP signature reads, *CONSTRAINED_RIGID_BODIES, *SET_SOLID/SHELL/BEAM/TSHELL, *DATABASE_HISTORY_SOLID/SHELL/BEAM/TSHELL). The op refuses, with exit code 1 and no output, when a referenced node, part or element has no single match (a re-meshed part's vanished position, a part title missing from new_deck, a PID that is not a *PART of old_deck, or several candidates), when the blocks hold cards whose node, part or element fields cannot be pinned down (initial stress, part damping, _GENERATE sets, a contact whose STYP fields do not read …), when a line is free-format, or when an ID the blocks define themselves (*NODE, set SID, CNRB PID, *ELEMENT_MASS EID, LCID, CID) already exists in the new deck. With range_diff, every coords.before / coords.after is measured again on the two decks and any difference refuses the run; unmatched nodes of a part the table marks as resized are reported as such. Only the node, part and element ID fields change, at their width; every other byte is kept.
+
+  # 인자
+  | 이름 | 형식 | 필수 | 설명 |
+  |---|---|---|---|
+  | `old_deck` | file | 예 | The deck the added blocks were written against (its numbering is what they point at). Single-file decks only. |
+  | `new_deck` | file | 예 | The re-meshed deck. Single-file decks only; its integer field width must equal old_deck's. |
+  | `entities` | file | 예 | A .k file holding only the blocks we added (sets of nodes, segments, parts and elements, SPC, loads, history, CNRB, rigid-body merges, contacts, mass, coordinate nodes, curves, boxes). It is not changed. |
+  | `output` | output | 예 | The re-bound blocks, to be *INCLUDEd together with new_deck. Must differ from entities. |
+  | `range_diff` | file |  | Optional StepForge range table (range_diff JSON). Each part's coord_sha is checked on both decks. |
+
+  # 주의
+  - Relative paths resolve against the YAML file's directory. Unknown YAML keys are refused so that a stray model: key cannot silently pick another deck. The re-bound text is checked again with the same tables before it is written: every referenced node must exist in new_deck or in the blocks themselves, and every referenced part and element in new_deck.
+
+  사례 메모: 실행 검증된 예제 (합성 — A 는 번호만 밀리고 B 는 다시 구웠다. 구간 표는 StepForge range_diff 꼴 그대로)
+
+  # MCP 로 부르는 법
+  - 인자는 `KooRemapper rebind_entities_after_remesh` 의 인자 그대로다(kooremapper_core 가 argv·config.yaml 을 만든다).
+  - 입력 파일은 절대경로로 주면 같이 올라가고 파일 이름으로 바뀐다. 이름만 쓰려면 extra_inputs 에 절대경로를 둔다.
+  - 출력(output 등)은 파일 이름만 — 잡 work/ 폴더에 생긴다.
+  - gmsh 필요: 아니오 (SIF 에 포함).
+
+  # 결과 받기
+  - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
+  - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
+  - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+
+  생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
+tags:
+- kooremapper
+- remap
+- preprocess
+- lsdyna
+- mesh
+- rebind
+- entities
+- after
+- remesh
+- generated
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: catalog
+examples:
+- title: dry_run 으로 argv·config 확인
+  args:
+    old_deck: v1.k
+    new_deck: v2.k
+    entities: ours.k
+    output: ours_rebound.k
+    range_diff: range_diff.json
+    dry_run: true
+    extra_inputs: &id001
+    - /data/single/USER/case/v1.k
+    - /data/single/USER/case/v2.k
+    - /data/single/USER/case/ours.k
+    - /data/single/USER/case/range_diff.json
+- title: 제출하고 5분까지 기다리기
+  args:
+    old_deck: v1.k
+    new_deck: v2.k
+    entities: ours.k
+    output: ours_rebound.k
+    range_diff: range_diff.json
+    dry_run: false
+    extra_inputs: *id001
+    wait_sec: 300

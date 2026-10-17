@@ -23,7 +23,8 @@ description: |
   | `adaptive` | boolean |  | Enable MathEval distance-field size adaptation around bbox corners |
   | `decay_factor` | number |  | Corner refinement decay distance = lc_min * decay_factor |
   | `boundary_nodes` | enum |  | Boundary node handling: free (new IDs) \| fixed (match original) \| snap (merge to neighbors) |
-  | `snap_tolerance` | number |  | Search radius for snap mode boundary node merging |
+  | `snap_tolerance` | number |  | Search radius for snap mode boundary node merging Also the tolerance for re-binding: a card pointing at a node the remesh removes is rewritten to the part's new node within this distance of the old one. |
+  | `preview` | boolean |  | Do not run gmsh: list the cards (sets, SPC, loads, history, CNRB PNODE …) that point at nodes the remesh would remove, classified as surface (rewritten if gmsh puts a node at the same place; kept as is with boundary_nodes: fixed when matched) or blocking (interior node, inside an *INCLUDE, free-format line). Exit code 1 when any card would block. Writes no deck. |
   | `algorithm` | enum |  | Gmsh 3D mesh algorithm (hxt=parallel hybrid, frontal3d=advancing front, del3d=Delaunay) |
   | `optimize_netgen` | boolean |  | Enable Gmsh built-in Netgen optimization after Mesh 3 |
   | `optimize_passes` | integer |  | Number of additional OptimizeMesh Netgen passes after Mesh 3 (skipped for thin geometry) |
@@ -118,6 +119,7 @@ description: |
   - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
   - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
   - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+  - Cards that point at nodes the remesh removes (sets, SPC, loads, history, CNRB PNODE …, the same field table info --strict uses) are re-bound to the part's new node within snap_tolerance of the old position; if any cannot be re-bound (interior node, inside an *INCLUDE, free-format line, no node nearby) nothing is written and exit code is 1. preview: true reports the same without running gmsh.
 
   사례 메모: 실행 검증된 예제 (입력: tetramesh.k)
 

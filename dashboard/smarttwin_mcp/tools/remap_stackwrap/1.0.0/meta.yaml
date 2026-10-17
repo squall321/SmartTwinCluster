@@ -11,7 +11,7 @@ description: |
   |---|---|---|---|
   | `bent_shell` | file | 예 | Bent QUAD4 reference shell (k-file), e.g. from `refshell` |
   | `flat_stack` | file | 예 | Flat layered stack deck (k-file) to wrap |
-  | `output` | string | 예 | Output prefix — writes <output>.k and <output>_neutral.k |
+  | `output` | string | 예 | Output prefix — writes <output>.k and <output>_neutral.k (a trailing .k is dropped first, so output: x.k writes x.k) |
   | `thickness` | number |  | Shell thickness passed to the mapper; 0 lets it auto-detect from the stack's z-range |
   | `axis` | enum |  | Stacking direction used to measure the neutral axis |
   | `shift` | boolean |  | false wraps without translating — for comparing against the unaligned result; the op says so |

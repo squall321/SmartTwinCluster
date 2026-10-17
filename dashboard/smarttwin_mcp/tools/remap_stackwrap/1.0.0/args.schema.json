@@ -21,7 +21,7 @@
     },
     "output": {
       "type": "string",
-      "description": "Output prefix — writes <output>.k and <output>_neutral.k"
+      "description": "Output prefix — writes <output>.k and <output>_neutral.k (a trailing .k is dropped first, so output: x.k writes x.k)"
     },
     "thickness": {
       "type": "number",
