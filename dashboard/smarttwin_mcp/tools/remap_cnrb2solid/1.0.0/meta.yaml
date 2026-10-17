@@ -23,6 +23,7 @@ description: |
   | `head_offset_r` | number |  | 볼트 헤드 반경 오프셋 [mm] (0.0=헤드 미생성) |
   | `head_thickness` | number |  | 볼트 헤드 축방향 두께 [mm] |
   | `head_position` | enum |  | 헤드 위치 (auto=큰 R 또는 Z_max 쪽, none=헤드 미생성) |
+  | `flatten_includes` | boolean |  | Optional, default false (since 2026-10-17). When the model *INCLUDEs other files, read the whole closure flattened into one standalone deck — each *INCLUDE card replaced by its file's body in LS-DYNA reading order, the include files' *KEYWORD lines dropped — and write the result as one file without *INCLUDE. Without it the op edits only the main deck and stops with exit code 1 (naming this key) when its target parts, materials or cards live only inside an include. Refused when the closure cannot be read completely, has a cycle, or an *INCLUDE + / - or an include *KEYWORD changes the field width. |
 
   # config 키 (YAML)
   - `None` (file): Input K-file containing one or more *CONSTRAINED_NODAL_RIGID_BODY definitions. Each CNRB specifies PID, NSID (node set of hole nodes), PNODE (center point, optional).
@@ -39,6 +40,7 @@ description: |
   - `None` (number): Bolt head (flange) radius offset [mm]. Head radius = R_shaft + head_offset_r. Set to 0.0 (default) to skip head generation. Typical: 1.0–3.0 for visible head. Must be ≥ 0.
   - `None` (number): Bolt head axial (Z-direction) thickness [mm]. Only used if head_offset_r > 0. Extra Z-level added at shaft extremity ± head_thickness. Typical: 1.0–3.0. Must be > 0.
   - `None` (enum): 'auto' = place head at Z_max (or at end with larger radius if auto-selected). 'top' = force Z_max side. 'bottom' = force Z_min side. 'none' = disable head (same as head_offset_r: 0).
+  - `None` (boolean): Optional, default false (since 2026-10-17). When the model *INCLUDEs other files, read the whole closure flattened into one standalone deck — each *INCLUDE card replaced by its file's body in LS-DYNA reading order, the include files' *KEYWORD lines dropped — and write the result as one file without *INCLUDE. Without it the op edits only the main deck and stops with exit code 1 (naming this key) when its target parts, materials or cards live only inside an include. Refused when the closure cannot be read completely, has a cycle, or an *INCLUDE + / - or an include *KEYWORD changes the field width.
 
   # 주의
   - GOTCHAS & DESIGN NOTES:
@@ -100,6 +102,8 @@ description: |
   - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
   - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
   - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  INCLUDE CLOSURE (since 2026-10-17): this op edits only the main deck. If its targets live only inside an *INCLUDE it stops with exit code 1 and names flatten_includes; with flatten_includes: true it reads the closure flattened into one standalone deck and writes one file without *INCLUDE (measured: the same output as the unsplit deck). For an all-parts run on a master deck whose own parts are in the main file, the parts inside includes are left alone and a warning says so.
 
   사례 메모: 실제 예제 폴더의 bolt_simple.k 파일을 사용하며, 기본 설정은 헤드 없음(head_offset_r=0). head_offset_r>0으로 설정하면 볼트 헤드가 추가됨.
 

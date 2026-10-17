@@ -12,17 +12,17 @@
   "properties": {
     "old_deck": {
       "type": "string",
-      "description": "The deck the added blocks were written against (its numbering is what they point at). Single-file decks only.",
+      "description": "The deck the added blocks were written against (its numbering is what they point at). It may *INCLUDE other files; the whole closure must be readable.",
       "x-kind": "session_file"
     },
     "new_deck": {
       "type": "string",
-      "description": "The re-meshed deck. Single-file decks only; its integer field width must equal old_deck's.",
+      "description": "The re-meshed deck. It may *INCLUDE other files; the whole closure must be readable. Its integer field width must equal old_deck's.",
       "x-kind": "session_file"
     },
     "entities": {
       "type": "string",
-      "description": "A .k file holding only the blocks we added (sets of nodes, segments, parts and elements, SPC, loads, history, CNRB, rigid-body merges, contacts, mass, coordinate nodes, curves, boxes). It is not changed.",
+      "description": "A .k file holding only the blocks we added (sets of nodes, segments, parts and elements, SPC, loads, history, CNRB, rigid-body merges, contacts, mass, coordinate nodes, curves, boxes, part damping, initial stress). It is not changed.",
       "x-kind": "session_file"
     },
     "output": {
@@ -33,6 +33,10 @@
       "type": "string",
       "description": "Optional StepForge range table (range_diff JSON). Each part's coord_sha is checked on both decks.",
       "x-kind": "session_file"
+    },
+    "tolerance": {
+      "type": "number",
+      "description": "Optional coordinate tolerance (model length unit). 0 or absent means exact match only. A positive value matches a node without an exact partner to the single new node of the same part within this distance; it must be at least 0."
     },
     "extra_inputs": {
       "type": "array",

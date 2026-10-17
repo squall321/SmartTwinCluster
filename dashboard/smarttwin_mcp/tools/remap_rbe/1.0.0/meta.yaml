@@ -21,6 +21,7 @@ description: |
   - `None` (number): Max deviation angle in degrees between face normal and direction vector; faces outside this cone are excluded. Default: 45.0 degrees
   - `None` (enum): Constraint type: 'rbe2' (rigid, slave moves exactly with master) or 'rbe3' (interpolated, master is weighted average of slave motions)
   - `None` (enum): Master node grouping: 'spider' (single centroid for all selected faces) or 'face' (one centroid per selected face)
+  - `None` (boolean): Optional, default false (since 2026-10-17). When the model *INCLUDEs other files, read the whole closure flattened into one standalone deck — each *INCLUDE card replaced by its file's body in LS-DYNA reading order, the include files' *KEYWORD lines dropped — and write the result as one file without *INCLUDE. Without it the op edits only the main deck and stops with exit code 1 (naming this key) when its target parts, materials or cards live only inside an include. Refused when the closure cannot be read completely, has a cycle, or an *INCLUDE + / - or an include *KEYWORD changes the field width.
 
   # 주의
   -
@@ -43,6 +44,8 @@ description: |
   - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
   - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
   - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  INCLUDE CLOSURE (since 2026-10-17): this op edits only the main deck. If its targets live only inside an *INCLUDE it stops with exit code 1 and names flatten_includes; with flatten_includes: true it reads the closure flattened into one standalone deck and writes one file without *INCLUDE (measured: the same output as the unsplit deck). For an all-parts run on a master deck whose own parts are in the main file, the parts inside includes are left alone and a warning says so.
 
   사례 메모: rbe_spider.yaml 예제: 부품 PID=9 하단면(z-)에 1개 centroid 마스터 노드와 CONSTRAINED_INTERPOLATION 생성
 

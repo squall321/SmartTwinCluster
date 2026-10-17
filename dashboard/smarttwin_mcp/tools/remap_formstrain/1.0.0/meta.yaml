@@ -21,6 +21,7 @@ description: |
   - `None` (array): List of part IDs when target_pid = -1 or when multiple PIDs need processing. Each element is a positive integer (part ID). Range syntax supported (e.g., '1-5' expands to [1,2,3,4,5]).
   - `None` (number): Shell thickness override in mm (or model units). If 0 or omitted, thickness is auto-read from *SECTION_SHELL T1 field for each part. Positive value overrides all parts.
   - `None` (number): Minimum curvature threshold (1/mm) to filter out noise. Elements with max κ < min_curvature are assigned EPS=0. Typical range 0.001–0.01 depending on mesh scale and desired sensitivity. Use 0 to disable filter.
+  - `None` (boolean): Optional, default false (since 2026-10-17). When the model *INCLUDEs other files, read the whole closure flattened into one standalone deck — each *INCLUDE card replaced by its file's body in LS-DYNA reading order, the include files' *KEYWORD lines dropped — and write the result as one file without *INCLUDE. Without it the op edits only the main deck and stops with exit code 1 (naming this key) when its target parts, materials or cards live only inside an include. Refused when the closure cannot be read completely, has a cycle, or an *INCLUDE + / - or an include *KEYWORD changes the field width.
 
   # 주의
   -
@@ -83,6 +84,8 @@ description: |
   - A TAB used for INDENTATION anywhere in the file is rejected with rc=1 — `[ERROR] [<op>] YAML 들여쓰기에 탭을 쓸 수 없습니다 (공백을 쓰세요): <n>번째 줄: <line>`. The whole file is scanned, so a tab under a key this op never reads fails too; configs that used to run with rc=0 can now fail. Tabs inside a quoted value are kept, but a tab that starts a line inside a `|`/`>` literal block (material_card, czm_material_card, material_cards) is rejected, because the parser would otherwise drop that card line silently.
   - The tab scan is skipped when the config arrives on a stream that cannot be rewound (pipe, process substitution, /dev/stdin); such input reaches the parser unchecked.
   - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
+
+  INCLUDE CLOSURE (since 2026-10-17): this op edits only the main deck. If its targets live only inside an *INCLUDE it stops with exit code 1 and names flatten_includes; with flatten_includes: true it reads the closure flattened into one standalone deck and writes one file without *INCLUDE (measured: the same output as the unsplit deck). For an all-parts run on a master deck whose own parts are in the main file, the parts inside includes are left alone and a warning says so.
 
   사례 메모: Example shows a single operation targeting PID 1 with explicit thickness override and curvature floor. Omit target_pid to auto-detect all shell parts; omit shell_thickness/min_curvature for defaults.
 

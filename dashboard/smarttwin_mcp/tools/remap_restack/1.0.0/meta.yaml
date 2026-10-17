@@ -33,6 +33,7 @@ description: |
   - `None` (number): Per-layer override of CZM normal failure stress [MPa] at the interface below this layer (-1 = use parent czm_normal)
   - `None` (number): Per-layer override of CZM shear failure stress [MPa] at the interface below this layer (-1 = use parent czm_shear)
   - `None` (string): LS-DYNA material keyword block (e.g., *MAT_ELASTIC with 5 data lines). Raw multi-line text; placeholders like MID001, MID002 are auto-renumbered. Can include *MAT_GENERAL_VISCOELASTIC (Prony series) for czm_auto mode
+  - `None` (boolean): Optional, default false (since 2026-10-17). When the model *INCLUDEs other files, read the whole closure flattened into one standalone deck — each *INCLUDE card replaced by its file's body in LS-DYNA reading order, the include files' *KEYWORD lines dropped — and write the result as one file without *INCLUDE. Without it the op edits only the main deck and stops with exit code 1 (naming this key) when its target parts, materials or cards live only inside an include. Refused when the closure cannot be read completely, has a cycle, or an *INCLUDE + / - or an include *KEYWORD changes the field width.
 
   # 주의
   - **Critical requirements:**
@@ -117,6 +118,7 @@ description: |
   - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
   ELEMENT COUNT CHECK: restack prints a per-part element count table (input -> output) and, before writing, re-reads the output buffer to confirm the counts match what it intended — including parts it never touched, and the total. A mismatch exits 1 and writes nothing. This exists because a field deck once lost a whole part silently and 485 solver runs completed 'normally' on a model with the chip missing.
 
+  INCLUDE CLOSURE (since 2026-10-17): this op edits only the main deck. If its targets live only inside an *INCLUDE it stops with exit code 1 and names flatten_includes; with flatten_includes: true it reads the closure flattened into one standalone deck and writes one file without *INCLUDE (measured: the same output as the unsplit deck). For an all-parts run on a master deck whose own parts are in the main file, the parts inside includes are left alone and a warning says so.
 
   사례 메모: 실행 검증된 예제 (입력: restack_base.k)
 

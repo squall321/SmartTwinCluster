@@ -163,7 +163,7 @@ description: |
   - `None` (enum): (contact action create) Contact type. assemble now shares the standalone command's short-name table (one table in the code, ct_getPreset), so both accept the same 11 aliases: auto/automatic -> AUTOMATIC_SURFACE_TO_SURFACE, tied -> TIED_SURFACE_TO_SURFACE, tied_thermal/thermal -> TIED_SURFACE_TO_SURFACE_THERMAL, tiebreak -> AUTOMATIC_SURFACE_TO_SURFACE_TIEBREAK, mortar -> AUTOMATIC_SURFACE_TO_SURFACE_MORTAR, tied_mortar -> TIED_SURFACE_TO_SURFACE_MORTAR, single -> AUTOMATIC_SINGLE_SURFACE, eroding -> ERODING_SURFACE_TO_SURFACE, forming -> FORMING_SURFACE_TO_SURFACE; omitted = AUTOMATIC_SURFACE_TO_SURFACE. Matching ignores case and maps '-' to '_'. Until this commit assemble lacked the tied_thermal / thermal / tiebreak aliases and wrote them literally as *CONTACT_TIED_THERMAL / *CONTACT_THERMAL / *CONTACT_TIEBREAK, which LS-DYNA rejects. Any other value is uppercased and written as-is (rc=0) with "[WARNING] [contact] create: type '<value>' is not a known contact keyword".
   - `None` (integer): (contact action) Slave surface part ID.
   - `None` (array): (contact action) Multiple slave surface part IDs. Both an inline list (`pids: [1, 2]`) and a block list (`pids:` then `- 1` / `- 2` on the following lines) are read and produce the same deck; the block form used to be ignored, leaving no *SET_PART behind.
-  - … 외 86개 (KooRemapper help assemble)
+  - … 외 87개 (KooRemapper help assemble)
 
   # 주의
   - CRITICAL FEATURES & GOTCHAS:
@@ -208,6 +208,7 @@ description: |
   - RELATIVE PATHS: a path given on the COMMAND LINE is relative to the current working directory. A relative path INSIDE the YAML — with or without a folder part (`box.k` and `../data/box.k` alike) — is relative to the folder that holds that YAML file, and never falls back to the working directory. Absolute paths (leading `/` or `\`, or an `X:` drive letter) are used as-is.
   ELEMENT COUNT CHECK: restack prints a per-part element count table (input -> output) and, before writing, re-reads the output buffer to confirm the counts match what it intended — including parts it never touched, and the total. A mismatch exits 1 and writes nothing. This exists because a field deck once lost a whole part silently and 485 solver runs completed 'normally' on a model with the chip missing.
 
+  INCLUDE CLOSURE (since 2026-10-17): this op edits only the main deck. If its targets live only inside an *INCLUDE it stops with exit code 1 and names flatten_includes; with flatten_includes: true it reads the closure flattened into one standalone deck and writes one file without *INCLUDE (measured: the same output as the unsplit deck). For an all-parts run on a master deck whose own parts are in the main file, the parts inside includes are left alone and a warning says so.
 
   사례 메모: Real files from examples/assemble/: box.k (input), assemble_example.yaml (config). Output: assembled_box.k, optionally assembled_box.dynain if prestress is computed.
 

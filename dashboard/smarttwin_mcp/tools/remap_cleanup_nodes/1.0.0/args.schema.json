@@ -18,7 +18,7 @@
     },
     "mode": {
       "type": "string",
-      "description": "report (default) classifies and writes no deck. safe deletes only nodes no understood or unknown keyword could name, and refuses when an *INCLUDE could not be read. force additionally deletes nodes that only an unmodelled keyword named, and counts them in force_deleted_despite_unknown.",
+      "description": "report (default) classifies and writes no deck. safe deletes only nodes no understood or unknown keyword could name, and refuses when the *INCLUDE closure could not be read completely (a missing file, an unfollowed *INCLUDE_* variant, or nesting past 16 levels). force additionally deletes nodes that only an unmodelled keyword named, and counts them in force_deleted_despite_unknown.",
       "default": "report"
     },
     "prune_sets": {

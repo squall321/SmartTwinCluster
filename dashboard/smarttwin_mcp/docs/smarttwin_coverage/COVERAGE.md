@@ -1,7 +1,7 @@
 <!-- 생성됨: tools/_gen/generate_smarttwin_tools.py — SmartTwin 기능 ↔ MCP/REST 도구 대응표 -->
 # SmartTwin 기능 커버리지
 
-정본 pyKooCAE `493a86d` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 기능 131개 → 도구 129개.
+정본 pyKooCAE `15e5e8f` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 기능 131개 → 도구 129개.
 
 | 제품 | 분류 | 기능 | MCP 도구 (REST: POST /smarttwin-api/v1/tools/<도구>/run) | 요약 |
 |---|---|---|---|---|

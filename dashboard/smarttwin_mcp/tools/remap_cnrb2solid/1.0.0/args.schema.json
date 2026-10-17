@@ -89,6 +89,11 @@
       ],
       "default": "auto"
     },
+    "flatten_includes": {
+      "type": "boolean",
+      "description": "Optional, default false (since 2026-10-17). When the model *INCLUDEs other files, read the whole closure flattened into one standalone deck — each *INCLUDE card replaced by its file's body in LS-DYNA reading order, the include files' *KEYWORD lines dropped — and write the result as one file without *INCLUDE. Without it the op edits only the main deck and stops with exit code 1 (naming this key) when its target parts, materials or cards live only inside an include. Refused when the closure cannot be read completely, has a cycle, or an *INCLUDE + / - or an include *KEYWORD changes the field width.",
+      "default": false
+    },
     "extra_inputs": {
       "type": "array",
       "items": {

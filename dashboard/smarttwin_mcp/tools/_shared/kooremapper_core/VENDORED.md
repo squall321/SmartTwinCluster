@@ -4,7 +4,7 @@
 remap_* 도구가 op 스키마·argv/config 생성에 쓰는 KooRemapper 정본의 **바이트 동일 사본**이다.
 운영 헤드에는 KooRemapper 리포가 없어서 여기 둔다. 이 폴더 파일을 직접 고치지 말 것.
 
-- 원본: `KooRemapper/platform/core/kooremapper_core/` (복사 시점 커밋 5a0fbd6 — 노드 SIF v118 의 KooRemapper 1164d8ed 가 이 소스)
+- 원본: `KooRemapper/platform/core/kooremapper_core/` (복사 시점 커밋 44f16c9 — 노드 SIF v119 의 KooRemapper cd07c327 가 이 소스, BUILD_INFO.txt 의 「소스 커밋」)
 - 동기화: `cp -p <KooRemapper>/platform/core/kooremapper_core/{__init__,catalog,argbuild}.py <KooRemapper>/platform/core/kooremapper_core/catalog_data.json .`
   후 `tools/_gen/generate_smarttwin_tools.py` 재실행(remap_* 생성물 갱신)
   - 리포가 배포 바이너리보다 앞서 있으면 **배포 바이너리의 소스 커밋**에서 가져온다
