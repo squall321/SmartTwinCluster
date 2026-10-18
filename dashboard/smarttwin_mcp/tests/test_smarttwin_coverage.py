@@ -293,6 +293,18 @@ def test_dwi_routes_to_partial_impact_template():
     assert "LSTC_LICENSE_SERVER=10.1.2.3" in sc["environment"]["solver_command"]
 
 
+def test_dwi_preprocessor_sif_is_the_deployed_node_copy():
+    # DWI 전처리는 deploy_apptainers.sh 가 관리하는 노드 로컬 SIF 를 쓴다(/data/apptainers 사본은 07-07 판에서 멈춰 있었다)
+    r = _run("scenario_drop_weight_impact", {"model_path": "/data/single/u/m.k", "lstc_license_ip": "10.1.2.3",
+                                             "dry_run": True})
+    assert r.ok, r.stdout
+    kmm = r.parsed["scenario"]["environment"]["koomeshmodifier_path"]
+    assert "/opt/apptainers/SmartTwinPreprocessor.sif " in kmm and "/data/apptainers/" not in kmm
+    tpl = Path(__file__).resolve().parents[2] / "templates/official/simulation/smarttwin-partial-impact.yaml"
+    if tpl.is_file():   # 템플릿 기본 블록과 같은 명령이어야 한다 — 시나리오 없이 내면 템플릿 것이 그대로 돈다
+        assert f'"koomeshmodifier_path": "{kmm}"' in tpl.read_text(encoding="utf-8")
+
+
 def test_scenario_tool_locks_environment_and_unsafe_strings(tmp_path):
     r = _run("scenario_drop", {"model_path": "/data/single/u/m.k", "lstc_license_ip": "192.168.122.1", "dry_run": True,
                                "scenario": {"environment": {"solver_command": "id", "timeout_per_step_seconds": 900},

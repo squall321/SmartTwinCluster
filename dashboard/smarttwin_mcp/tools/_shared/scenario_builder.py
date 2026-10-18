@@ -383,7 +383,7 @@ def mode_environment(workflow: str | None, lstc_ip: str, *, ncpu: int = 2, memor
     if workflow == "drop_weight_impact":
         # smarttwin-partial-impact 템플릿 기본 블록과 같은 명령 문자열(DWI 워크플로우가 그대로 실행한다)
         env = {
-            "koomeshmodifier_path": ("apptainer exec --bind /data:/data /data/apptainers/SmartTwinPreprocessor.sif "
+            "koomeshmodifier_path": ("apptainer exec --bind /data:/data /opt/apptainers/SmartTwinPreprocessor.sif "
                                      "/opt/SmartTwinPreprocessor/bin/KooMeshModifier"),
             "sif_path": "",
             "solver_command": (f"apptainer exec --bind /data:/data --env LSTC_FILE=/opt/ls-dyna_license/LSTC_FILE "
