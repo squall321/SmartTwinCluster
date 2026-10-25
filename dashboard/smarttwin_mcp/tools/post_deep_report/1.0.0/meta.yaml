@@ -15,6 +15,7 @@ description: |
                          [--design-overrides JSON] [--material-overrides JSON]
                          [--install-dir DIR] [--verbose] [--section-view]
                          [--section-view-backend {lsprepost,software}]
+                         [--section-view-center {aabb,peak}]
                          [--section-view-mode {section,section_3d,iso_surface}]
                          [--section-view-background-alpha A]
                          [--section-view-per-part] [--no-section-view-per-part]
@@ -80,6 +81,10 @@ description: |
     --section-view-backend {lsprepost,software}
                           단면뷰 백엔드: lsprepost=LSPrePost drawcut (기본, 고품질),
                           software=내장 래스터라이저
+    --section-view-center {aabb,peak}
+                          단면 자를 자리 (software 백엔드만): aabb=형상 가운데(기본), peak=응력 피크가
+                          지나는 자리. 형상 가운데가 피크라는 보장은 없어서, 모서리·체결부에서 터지는 덱이면 aabb
+                          단면이 피크를 통째로 비켜 간다
     --section-view-mode {section,section_3d,iso_surface}
                           단면뷰 모드: section=2D, section_3d=3D 반절단, iso_surface=cut
                           없는 iso 외곽 (기본: section)
