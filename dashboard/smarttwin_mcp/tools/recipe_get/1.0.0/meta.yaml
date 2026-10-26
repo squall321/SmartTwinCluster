@@ -1,0 +1,23 @@
+name: recipe_get
+version: 1.0.0
+summary: 레시피 한 판의 전체(매개변수·인자 틀·근거·상태)를 본다
+description: "**Isolation mode: read-all.** 공유 등록소의 한 판을 본다. created_by 가 만든 사람이다.\n\n  인자 틀(args)·매개변수 정의(params)·근거(evidence: 효과를 본 잡과 그때의 값·메모)·상태(active·retired)·해시를 돌려준다.\n"
+tags:
+- recipe
+- detail
+- experience
+- smarttwin
+- mode-read-all
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 60
+expose: catalog
+examples:
+- title: 마지막 판
+  args:
+    name: shift_x_rigid
+- title: 판 지정
+  args:
+    name: shift_x_rigid
+    version: 1

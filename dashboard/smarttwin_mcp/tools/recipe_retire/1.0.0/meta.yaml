@@ -1,0 +1,26 @@
+name: recipe_retire
+version: 1.0.0
+summary: 레시피 판을 내린다(만든 사람만) — 파일은 남고 recipe_list 기본 결과에서 빠진다
+description: "**Isolation mode: own.** 만든 사람(created_by == 호출자)만 내릴 수 있다.\n\n  효과가 없거나 틀린 것으로 드러난 판을 내린다. 파일은 지우지 않아 옛 결과가 어느 판으로 돌았는지 계속 볼 수 있다.\n  내려진 판은 recipe_list 기본 결과에서 빠지고, recipe_run 은 version 을 줄 때만 경고와 함께 부른다.\n"
+tags:
+- recipe
+- retire
+- experience
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 60
+expose: catalog
+examples:
+- title: 판 1 내리기
+  args:
+    name: shift_x_rigid
+    version: 1
+    reason: 새 판에서 회전 중심을 고쳤다
+- title: 효과가 없던 판 내리기
+  args:
+    name: peak_vm_table
+    version: 2
+    reason: 다른 덱에서 기준이 맞지 않았다

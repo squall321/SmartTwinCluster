@@ -1,0 +1,61 @@
+name: recipe_save
+version: 1.0.0
+summary: 효과를 본 kmm_*·kmm_chain·post_* 잡을 근거로 그 인자 틀을 레시피(새 판)로 저장한다 — 재빌드 없이 쌓인다
+description: "**Isolation mode: own.** 근거 잡은 호출자 것(/data/single/<호출자>/)이어야 한다. 저장된 레시피는 모두가 찾고 부를 수 있다(공유).\n\n  해 본 설정(kmm_chain 의 modes, post_* 의 config·options 등)이 효과가 있으면 그것을 이름 붙은 레시피로 남긴다.\n  다음부터 recipe_run 으로 매개변수만 바꿔 다시 부른다. 코드가 아니라 원래 도구 인자의 틀이라 KMM·후처리 재빌드가 필요 없다.\n\n  # 저장 관문(효과를 본 바로 그 실행인가)\n  - evidence 의 잡이 끝났고 rc 0 이며 같은 도구여야 한다.\n  - 레시피를 evidence.params 로 펼쳐 만든 입력 글(stmc_options.txt·stmc_config.yaml …)과 argv 가 그 잡과 같아야 한다.\n    → 근거 잡의 인자를 그대로 args 로 옮기고, 바뀌는 값만 문자열 안 `{{이름}}` 자리로 바꿀 것.\n  - 값 전체가 자리 하나면(`\"{{dx}}\"`) 타입 그대로, 아니면 글로 끼운다(`\"{{dx}},0,0\"`).\n  - model_path·target·extra_inputs·slurm·dry_run 은 args 에 넣지 않는다 — recipe_run 이 받는다.\n\n  # 판\n  - 같은 이름으로 다시 저장하면 새 판이 된다(덮어쓰지 않음). 내용(도구·매개변수·인자 틀·요약·설명·태그)이 마지막 판과 같으면 새 판을 만들지 않는다.\n"
+tags:
+- recipe
+- register
+- experience
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 120
+expose: direct
+examples:
+- title: kmm_chain 잡을 근거로 이동량을 매개변수로
+  args:
+    recipe:
+      name: shift_x_rigid
+      tool: kmm_chain
+      summary: 파트 5 를 강체로 두고 x 로 옮긴다
+      params:
+        dx:
+          type: number
+          description: x 이동량(모델 단위)
+          default: 0.0
+      args:
+        modes:
+        - mode: TRANSFORM
+          options:
+            Translation: '{{dx}},0,0'
+    evidence:
+      job_id: '1174'
+      params:
+        dx: 5.0
+      note: 옮긴 뒤 접촉 초기 관통이 사라졌다
+- title: 후처리 설정을 근거 잡과 함께 저장(post)
+  args:
+    recipe:
+      name: peak_vm_table
+      tool: post_custom_report
+      summary: 파트별 최대 von Mises 표를 낸다
+      params:
+        top:
+          type: integer
+          description: 위에서 몇 개
+          default: 10
+          minimum: 1
+      args:
+        config:
+          sections:
+          - kind: table
+            metric: von_mises
+            top: '{{top}}'
+    evidence:
+      registry_id: 12
+      params:
+        top: 5
+      target: /data/single/USER/case/results
+      note: 상위 5개만 보면 충분했다

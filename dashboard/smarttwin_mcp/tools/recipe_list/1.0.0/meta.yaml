@@ -1,0 +1,22 @@
+name: recipe_list
+version: 1.0.0
+summary: 레시피 등록소에서 쓸 수 있는 레시피를 찾는다 — 새로 짜기 전에 먼저 볼 것
+description: "**Isolation mode: read-all.** 모든 사용자가 저장한 레시피를 본다(공유 등록소). 행마다 만든 사람(created_by)이 있다.\n\n  kmm_chain·post_* 설정을 새로 짜기 전에 비슷한 레시피가 있는지 찾는다. 낱말은 모두 들어 있어야 맞는다.\n  돌려주는 것: 이름·마지막 판·대상 도구·요약·태그·매개변수(type·default·description)·판 목록.\n"
+tags:
+- recipe
+- search
+- experience
+- smarttwin
+- mode-read-all
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 60
+expose: direct
+examples:
+- title: 낙하 관련 레시피
+  args:
+    query: drop
+- title: kmm_chain 레시피 전부
+  args:
+    tool: kmm_chain

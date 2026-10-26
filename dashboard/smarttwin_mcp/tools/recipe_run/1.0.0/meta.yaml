@@ -1,0 +1,30 @@
+name: recipe_run
+version: 1.0.0
+summary: 레시피를 매개변수로 펼쳐 원래 도구로 제출한다(dry_run 으로 펼친 요청만 볼 수 있다)
+description: "**Isolation mode: own.** 잡은 호출자 권한으로 돈다(원래 도구와 같음). 입력은 호출자 영역 안이어야 한다.\n\n  recipe_list·recipe_get 으로 찾은 레시피를 params 로 펼쳐 원래 도구(kmm_*·kmm_chain·post_*)에 넘긴다.\n  펼친 인자는 원래 도구의 args.schema.json 으로 다시 검사한다. 결과 받기는 원래 도구와 같다(tool_result).\n  - kmm 레시피는 model_path, post 레시피는 target 을 준다. 보조 파일은 extra_inputs.\n  - version 을 주지 않으면 쓸 수 있는 마지막 판. 내려진 판도 version 으로 부를 수 있지만 경고가 붙는다.\n  - 응답의 recipe 에 이름·판·해시가 있어 나중에 어느 판으로 돌았는지 볼 수 있다.\n"
+tags:
+- recipe
+- run
+- experience
+- smarttwin
+- mode-own
+transport:
+  kind: local
+  shell: /bin/bash
+  timeout_sec: 1950
+expose: direct
+examples:
+- title: dry_run 으로 펼친 요청 보기
+  args:
+    name: shift_x_rigid
+    params:
+      dx: 3.0
+    model_path: /data/single/USER/case/model.k
+    dry_run: true
+- title: 후처리 레시피를 결과 폴더에 바로 실행
+  args:
+    name: peak_vm_table
+    params:
+      top: 8
+    target: /data/single/USER/case/results
+    wait_sec: 120

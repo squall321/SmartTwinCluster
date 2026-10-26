@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recipe",
+    "evidence"
+  ],
+  "properties": {
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "tool",
+        "summary",
+        "args"
+      ],
+      "description": "저장할 레시피 — 원래 도구 인자 틀과 매개변수 정의",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{2,47}$",
+          "description": "레시피 이름(소문자로 시작하는 [a-z0-9_] 3~48자)"
+        },
+        "tool": {
+          "type": "string",
+          "pattern": "^(kmm_[a-z0-9_]+|post_[a-z0-9_]+)$",
+          "description": "레시피가 부를 원래 도구(kmm_<모드>·kmm_chain·post_*)"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 200,
+          "description": "무엇에 쓰는지 한 줄"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "언제 쓰는지·주의·효과를 본 맥락"
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+          },
+          "description": "찾기용 낱말"
+        },
+        "params": {
+          "type": "object",
+          "maxProperties": 32,
+          "description": "매개변수 정의 {이름: {type: number|integer|string|boolean, description, default?, minimum?, maximum?, enum?}}",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "args": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "원래 도구 인자 틀. 바뀌는 값은 문자열 안 {{이름}} 자리로. model_path·target·extra_inputs·slurm·dry_run 은 넣지 않는다(recipe_run 이 받는다)"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "note"
+      ],
+      "description": "효과를 본 잡 — 레시피를 이 params 로 펼친 입력이 그 잡의 입력과 같아야 저장된다",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,12}$",
+          "description": "근거 잡의 Slurm job_id"
+        },
+        "registry_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "근거 잡의 registry_id"
+        },
+        "work_dir": {
+          "type": "string",
+          "pattern": "^/.+",
+          "description": "근거 잡 결과 폴더(/data/single/<사용자>/ 아래)"
+        },
+        "params": {
+          "type": "object",
+          "description": "근거 잡에 쓴 매개변수 값"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 2000,
+          "description": "무엇이 효과였는지(전후 비교·지표)"
+        },
+        "model_path": {
+          "type": "string",
+          "pattern": "^/.+",
+          "description": "kmm 레시피: 근거 잡이 쓴 모델(생략하면 그 잡 work/ 의 모델)"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^/.+",
+          "description": "post 레시피: 근거 잡이 분석한 결과 경로"
+        },
+        "extra_inputs": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "pattern": "^/.+"
+          },
+          "description": "근거 잡에 같이 올린 보조 파일 절대경로"
+        }
+      }
+    }
+  }
+}

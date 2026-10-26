@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "version",
+    "reason"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,47}$",
+      "description": "레시피 이름(소문자로 시작하는 [a-z0-9_] 3~48자)"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "내릴 판 번호"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 1000,
+      "description": "왜 내리는지"
+    }
+  }
+}
