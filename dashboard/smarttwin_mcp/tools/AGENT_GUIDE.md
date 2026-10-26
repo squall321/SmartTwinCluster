@@ -3674,3 +3674,29 @@ venv/bin/smarttwin-mcp lint tools/ && pytest tests/test_smarttwin_coverage.py
 - `tests/test_smarttwin_coverage.py` fails when a catalog mode/op has no tool (coverage parity), when
   the vendored core drifts from its source, or when any tool's own dry-run example fails to render.
 
+
+## 31. Recipes (`recipe_*`) — reuse arguments that proved effective, no rebuild
+
+A recipe is a **parameterized argument template for one generated tool** (`kmm_<mode>`, `kmm_chain`,
+`post_*`), plus parameter definitions and the job that proved it effective. It is data, not code: `recipe_run`
+expands it and calls the original tool's runner (`stmc_tools`), so every existing check (KMM key regex,
+no structure lines, path scopes, args.schema.json) still applies and no KMM / postprocessor rebuild is needed.
+
+- **Tools**: `recipe_list` (search, read-all) · `recipe_get` (one version, read-all) · `recipe_save` (own) ·
+  `recipe_run` (own) · `recipe_retire` (own, creator only). Shared module: `_shared/recipes.py`.
+- **Store**: `$STMC_RECIPES_DIR` (default `/data/SmartTwinMCP/recipes`)`/<name>/<version>.yaml`. Versions are
+  immutable and never overwritten; `recipe_retire` only marks a version (the file stays, so old results can be
+  traced). Version numbers are assigned under a per-name `fcntl` lock; files are written via temp + rename.
+- **Save gate (effectiveness)**: the evidence job must be the caller's, `done`, `rc 0`, the same tool, and the
+  recipe expanded with `evidence.params` must reproduce **byte-for-byte** that job's input texts
+  (`work/stmc_options.txt`, `work/stmc_config.yaml`, …) and its argv (`stmc_result.json`). The comparison
+  builds inputs with the production runner (submit is captured, not sent), so the gate cannot drift from the
+  real path. Operating callers are monitored LLMs inside the server farm (user decision 2026-10-26), so there is
+  no human approval step — the gate is quality, not access.
+- **Placeholders**: `{{name}}` inside string values only (keys are never templated). A value that is exactly
+  one placeholder keeps the parameter's type; otherwise the value is formatted into the string. Undeclared
+  placeholders, unused parameters, and runtime keys inside `args` (`model_path`, `target`, `extra_inputs`,
+  `slurm`, `dry_run`, `wait_sec`, `job_name`) are refused.
+- **Agent workflow**: look with `recipe_list` before composing `kmm_chain` / `post_*` arguments; after a run
+  proves effective, `recipe_save` it with that job as evidence and a note on what improved.
+- Tests: `tests/test_recipes.py`. Plan/decisions: `docs/recipes_20261026/`.

@@ -107,7 +107,10 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
             "Use `catalog_search` to find a tool by keyword, "
             "then `catalog_describe` to see its arguments and examples, "
             "then `catalog_run` to execute it. "
-            "Use `name@version` or the `version` argument to pin a specific version."
+            "Use `name@version` or the `version` argument to pin a specific version. "
+            "Before composing kmm_chain / kmm_* / post_* arguments from scratch, look for a saved recipe with "
+            "`recipe_list`; when a run proves effective, save its arguments with `recipe_save` (evidence = that job) "
+            "so it can be reused by name via `recipe_run`."
         ),
     )
 

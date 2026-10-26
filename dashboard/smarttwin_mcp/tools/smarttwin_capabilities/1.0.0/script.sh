@@ -21,6 +21,7 @@ print(json.dumps({
     "ok": True, "total": len(rows), "families": families, "sources": specs.get("sources"),
     "how_to": ("catalog_describe(<tool>) 로 인자·사례 → catalog_run(<tool>, args), 계산 도구는 먼저 dry_run=true. "
                "결과: tool_result(job_id) · 캠페인은 job_status·job_collect. "
+               "새로 짜기 전에 recipe_list 로 저장된 레시피를 찾고, 효과를 본 설정은 recipe_save(근거=그 잡)로 남겨 recipe_run 으로 다시 부른다. "
                "REST: GET /smarttwin-api/v1/tools/<tool> · POST /smarttwin-api/v1/tools/<tool>/run (Bearer PAT)."),
 }, ensure_ascii=False))
 PY
