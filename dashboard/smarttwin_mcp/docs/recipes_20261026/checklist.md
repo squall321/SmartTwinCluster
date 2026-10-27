@@ -9,6 +9,6 @@
 - [x] 기존 시험 335 통과(실패 1 = test_vendored_kooremapper_core_matches_source, KooRemapper 리포가 벤더 원본보다 앞서 있어 전부터 실패 — 이 일과 무관)·lint 0 오류
 - [x] 사용 지침 — 서버 instructions(다음 재시작부터)·smarttwin_capabilities how_to·AGENT_GUIDE §31
 - [x] 실제 확인 — admin 의 kmm_chain 잡 1174(registry 23)를 근거로 대조 통과(stmc_options.txt·argv), 틀린 값(dz 6) 거절, 새 값(pid 7·dz 12.5)으로 펼친 옵션 파일 확인(임시 저장소)
-- [x] 커밋(내 파일만 — 저장소의 남의 미커밋 변경은 건드리지 않음), push 는 사용자 확인(로컬 main 에 이미 안 올린 커밋 251ee6b8 이 있음)
-- [ ] 운영 반영 — catalog_reload(또는 서비스 재시작)로 새 도구가 보인다. 재시작해야 instructions 문장이 반영된다
+- [x] 커밋(내 파일만 — 저장소의 남의 미커밋 변경은 건드리지 않음). 앞서 안 올렸던 251ee6b8 은 10-25 후처리 v41 때의 post_deep_report 재생성
+- [x] 운영 반영(10-27 00:13, 사용자 승인) — push 2d396153..078c02af, smarttwin-mcp 재시작(유휴 확인 뒤). 실제 MCP 클라이언트로 instructions 문장·직접 도구 3개·catalog_search 5개·recipe_list(빈 저장소) 확인
 - [ ] 다음 KMM 판 묶음에 `*Recipe` 펼치기 넣기(별도)
