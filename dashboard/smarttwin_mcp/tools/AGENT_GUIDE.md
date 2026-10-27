@@ -3699,4 +3699,11 @@ no structure lines, path scopes, args.schema.json) still applies and no KMM / po
   `slurm`, `dry_run`, `wait_sec`, `job_name`) are refused.
 - **Agent workflow**: look with `recipe_list` before composing `kmm_chain` / `post_*` arguments; after a run
   proves effective, `recipe_save` it with that job as evidence and a note on what improved.
+- **KMM option file (stage 2, KMM v126 — SIF 6254091c)**: a hand-written KooMeshModifier option file can call a
+  saved `kmm_chain` / `kmm_<mode>` recipe by name — `*Recipe,<name>[,<version>]` followed by `param,value` lines
+  (`KooMeshModifier --help recipe`). KMM expands it with the same rules (parameter checks, `{{name}}` filling,
+  value formatting, block names from its help catalog, the same option-value types as args.schema.json for
+  `kmm_<mode>`) into `<opt>_recipe.txt` and refuses a version whose sha256 no longer matches. For path-free recipes
+  the text is byte-identical to the `stmc_options.txt` `recipe_run` builds. `post_*` recipes run only via
+  `recipe_run`.
 - Tests: `tests/test_recipes.py`. Plan/decisions: `docs/recipes_20261026/`.

@@ -11,4 +11,4 @@
 - [x] 실제 확인 — admin 의 kmm_chain 잡 1174(registry 23)를 근거로 대조 통과(stmc_options.txt·argv), 틀린 값(dz 6) 거절, 새 값(pid 7·dz 12.5)으로 펼친 옵션 파일 확인(임시 저장소)
 - [x] 커밋(내 파일만 — 저장소의 남의 미커밋 변경은 건드리지 않음). 앞서 안 올렸던 251ee6b8 은 10-25 후처리 v41 때의 post_deep_report 재생성
 - [x] 운영 반영(10-27 00:13, 사용자 승인) — push 2d396153..078c02af, smarttwin-mcp 재시작(유휴 확인 뒤). 실제 MCP 클라이언트로 instructions 문장·직접 도구 3개·catalog_search 5개·recipe_list(빈 저장소) 확인
-- [ ] 다음 KMM 판 묶음에 `*Recipe` 펼치기 넣기(별도)
+- [x] 2단계 — KMM 옵션 파일 `*Recipe,<이름>[,<판>]` 펼치기(10-27, KMM v126 · SIF 6254091c · 헤드 /opt 교체). pyKooCAE a331d8e·d547730·4afbf7c·3296a37, 시험 tests/test_kmm_recipe.py(MCP recipes.save 로 판을 만들어 stmc_options.txt 와 바이트 대조)
