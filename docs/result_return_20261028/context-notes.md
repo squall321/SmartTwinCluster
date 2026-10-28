@@ -36,3 +36,11 @@ DynaForge 후처리 예약 연산(KooRemapper `platform/docs/REQUEST-postprocess
 - 매니페스트 작성기는 `dashboard/backend_5010/return_manifest.py` 한 곳. 백엔드가 스크립트를 만들 때
   템플릿 본문에 `write_return_manifest` 가 보이면 그 소스를 셸 함수(heredoc)로 심는다 — 노드에 따로 배포할 파일이 없다.
   C 의 후처리 잡 스크립트도 같은 함수를 심는다.
+
+## 진행 기록 (2026-10-28)
+- A `f8552d8c`, B·D `0a8c9cca`, C `2e257262`. 테스트 34건 `cd dashboard/backend_5010 && venv/bin/python -m unittest discover -s tests`
+  (venv 에 pytest 가 없어 unittest). `tests/_env.py` 가 SSO·DB·SLURM_BIN_DIR·KOOCHAINRUN_BIN 을 임시 경로로 고정한다.
+- 이른 종료 매니페스트가 처음엔 `ok: true` 로 나왔다(기대 판정을 stage=complete 에 묶었던 탓) — 테스트가 잡아 고침.
+  이른 종료도 리포트를 기대했던 잡이므로 없음 = ok 아님.
+- 후처리 잡의 job_submissions 기록은 원 잡 제출자 명의(user_id) — admin 이 대신 걸어도 그 잡 로그는 원 사용자에게 열린다.
+- 실제 Slurm 검증은 못 했다(dev 박스). 운영 반영 뒤 §3-B 확인 항목(성공·sif 틀린 실패·부분충격)으로 볼 것.

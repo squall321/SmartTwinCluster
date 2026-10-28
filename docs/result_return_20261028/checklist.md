@@ -27,4 +27,5 @@
 
 ## 마무리
 - [x] 백엔드 테스트 통과(34건, `venv/bin/python -m unittest discover -s tests`), 프런트 타입 검사(`tsc --noEmit`)
-- [ ] 요청서에 회신 절(무엇이 어느 커밋에) · peer(kooremapper-4a)에 회신
+- [x] 요청서에 회신 절(§6, 무엇이 어느 커밋에) · peer(kooremapper-4a)에 회신
+- [ ] 운영 반영(백엔드 재시작·템플릿 동기화) 뒤 실제 잡으로 §3-B 확인 — 사용자 결정 대기

@@ -139,3 +139,56 @@ D·E·F 는 작고 독립적입니다. E 는 지금도 잘못된 물성으로 �
 포털 절차에서 "실행해 두면 결과가 돌아온다" 를 펴 보다가, 자동은 `sphere_report.html` 생성까지이고 그 뒤는 사람이라는 것이
 드러났습니다(W-92, 네 리포 반박 검증). 단위계는 W-91, 귀환 모양과 명의는 W-93 에 적었습니다.
 **이미 되는 길이 있으면 알려 주십시오** — 예컨대 인증된 다른 파일 라우트나 완료 훅이 있다면 요청을 접고 그 길을 씁니다.
+
+---
+
+## 6. 회신 (2026-10-28) — A·B·C·D 반영, E·F 는 아직
+
+결정 근거는 [result_return_20261028/context-notes.md](result_return_20261028/context-notes.md), 진행은 같은 폴더 checklist.md.
+커밋은 로컬 main 에만 있고 **푸시·운영 배포 전**입니다.
+
+| 부탁 | 커밋 | 들어간 것 |
+|---|---|---|
+| A | `f8552d8c` | `/api/jobs/<id>/…` 8개 라우트 토큰 필수 + 소유 검사, 구분자 있는 경로 검사, `path=stdout` 500 해소, 다운로드 버튼은 단기 티켓 |
+| B·D | `0a8c9cca` | `output/return_manifest.json`, 리포트 잡 대기, 겹침 해소, 리포트가 없으면 드라이버 `exit 3` |
+| C | `2e257262` | `POST /api/jobs/<id>/postprocess` |
+
+### 6-1. DynaForge 가 쓸 계약
+
+- **신원** — 예약한 사용자 본인의 `kst_` PAT 를 `Authorization: Bearer` 로 보냅니다(§4 ③). 서비스 PAT + 대리 사용자 헤더(①)는
+  만들지 않았습니다. admin role PAT 는 모든 잡이 열리므로(②와 같은 효과) DynaForge 서비스 계정에 admin 을 주는 것은 권하지 않습니다.
+- **소유 규칙** — admin 은 전부, 그 밖엔 `job_submissions.user_id == 호출자 username`. `user_id='anonymous'`(정제로 섞이는 키)와
+  제출 기록이 없는 잡은 admin 만. 이름에 `[A-Za-z0-9._-]{1,32}` 밖의 글자가 있는 사용자는 결과가 `anonymous` 로 기록되므로 자기 잡도
+  열리지 않습니다(fail-closed) — 그런 사용자가 있으면 알려 주십시오.
+- **끝남 신호** — `GET /api/jobs/<id>/files/download?path=output/return_manifest.json` 이 404 면 아직, 200 이면 끝. 임시 파일 +
+  `os.replace` 라 반쯤 쓴 파일은 보이지 않습니다. 드라이버가 prepare·submit 에서 일찍 죽어도 `stage: "early_exit"` 로 한 장 남습니다.
+- **매니페스트** — `schema: "smarttwin.return_manifest"`, `version: 1`. 주요 키:
+  `ok`(기대한 리포트가 모두 있나) · `stage`(`complete`|`early_exit`) · `driver_rc` ·
+  `job{slurm_job_id, job_name, web_user, sim_type(fullangle_drop|partial_impact), result_dir}` ·
+  `postprocess{by(report_job|driver|postprocess_job|disabled), rc, report_job{id, state, exit_code}, postprocess_job_id}` ·
+  `reports[{kind(sphere|impact), path(RESULT_DIR 기준), present, size, sha256, reason, log_tail{파일: 끝 20줄}}]`.
+  있음/없음은 rc 가 아니라 **파일 유무**입니다.
+- **후처리 잡(C)** — `POST /api/jobs/<원 잡 id>/postprocess`, 본문(모두 선택) `{"mode": "all|deep|sphere|impact", "cpus_per_task": 8,
+  "mem": "32G", "time": "12:00:00"}`. 201 이면 `job_id`(후처리 잡)·`result_dir`·`manifest`. 제출 때 이전 매니페스트는
+  `return_manifest.prev.json` 으로 옮겨지고, 후처리 잡이 끝나면 `postprocess.by="postprocess_job"`, `postprocess_job_id=<그 잡>` 으로
+  다시 생깁니다. 남의 잡 403, 원 잡이나 같은 잡의 후처리 잡이 아직 큐에 있으면 409, KooChainRun 템플릿 잡이 아니면 400.
+- **ssh 대체 길** — 같은 파일(`RESULT_DIR/output/return_manifest.json`)을 읽으면 됩니다(/data/single 은 NFS).
+
+### 6-2. §4 의 나머지 결정
+
+- **겹침** — KooChainRun submit 이 건 리포트 잡이 정본입니다. `submit.log` 에 `(Sphere|Impact) Job ID` 가 있으면 post_exec 는 그 잡을
+  기다리기만 하고 `postprocess --all` 을 돌리지 않습니다. 리포트 잡이 없을 때(제출 실패)만 예전처럼 드라이버에서 돌립니다.
+- **D** — 리포트를 기대했는데(CHAIN_POSTPROCESS=true 이고 scenario `postprocess.enabled`) 없으면 드라이버가 `exit 3` → `FAILED 3:0`.
+  해석 산출물은 그대로 있고 까닭은 매니페스트에 있습니다.
+
+### 6-3. 확인한 것과 못 한 것
+
+- 확인 — 백엔드 테스트 34건(`dashboard/backend_5010/tests`, Flask 테스트 클라이언트·임시 DB). §3-A 의 401·403·`A_12`→`../A_123` 403·
+  `path=stdout` 200, 티켓 만료·다른 잡·Bearer 전용 거부. 두 템플릿의 post_exec·EXIT trap 을 bash 로 돌려(KooChainRun·squeue·sacct 대역)
+  있음 0·없음 3·리포트 잡 FAILED 이유·early_exit. C 가 만든 sbatch 스크립트를 bash 로 돌려 매니페스트가 다시 쓰이는 것. 프런트 `tsc --noEmit`.
+- **못 한 것** — 실제 Slurm 에서의 성공 잡·후처리 실패 잡·부분충격 잡(§3-B 확인 항목). dev 박스라 운영 클러스터 재현은 배포 뒤에 해야 합니다.
+- **운영 SSO** — SSO 꺼짐이면 미들웨어가 모든 요청을 admin 으로 넣으므로 A 의 검사는 SSO 켜짐에서만 의미가 있습니다.
+- **동작 변화** — 남의 잡은 대시보드 로그 뷰어·`mcp_slurm` 읽기 도구에서도 403. 드라이버는 리포트 잡이 있으면 전 Run deep 을 다시
+  돌리지 않으므로, inline deep 이 실패한 Run 의 재시도는 C(`mode: "all"`)로 합니다.
+- **배포** — 백엔드 재시작, 그리고 두 템플릿을 `$SHARED_BASE/templates/official/simulation/` 에 반영해야 드라이버가 바뀝니다.
+- E(카탈로그 물성 문구)·F(제출 응답 `result_dir`)는 이번 범위 밖입니다.
