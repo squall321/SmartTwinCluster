@@ -71,6 +71,30 @@ class WriterTest(unittest.TestCase):
         self.assertEqual((m['stage'], m['driver_rc']), ('early_exit', 1))
         self.assertIn('리포트 단계 전에 끝남', m['reports'][0]['reason'])
 
+    def test_dwi_output_dir_from_runner_config(self):
+        """부분충격은 최상위 output_dir(예 dwi_output)에 impact_report 가 생긴다 — 매니페스트는 output/ 에 그대로."""
+        with open(os.path.join(self.rd, 'runner_config.json'), 'w') as f:
+            json.dump({'mode': 'drop_weight_impact', 'output_dir': 'dwi_output'}, f)
+        os.makedirs(os.path.join(self.rd, 'dwi_output'))
+        with open(os.path.join(self.rd, 'dwi_output', 'impact_report.slurm.err'), 'w') as f:
+            f.write('boom\n')
+        self.assertEqual(self.run_main('--expect', 'impact'), return_manifest.EXIT_REPORT_MISSING)
+        m = _read_manifest(self.rd)
+        self.assertEqual(m['job']['output_dir'], 'dwi_output')
+        self.assertEqual(m['reports'][0]['path'], 'dwi_output/impact_report.html')
+        self.assertEqual(m['reports'][0]['log_tail'], {'dwi_output/impact_report.slurm.err': ['boom']})
+        with open(os.path.join(self.rd, 'dwi_output', 'impact_report.html'), 'w') as f:
+            f.write('<html/>')
+        self.assertEqual(self.run_main('--expect', 'impact'), 0)
+
+    def test_project_output_dir_absolute(self):
+        with open(os.path.join(self.rd, 'runner_config.json'), 'w') as f:
+            json.dump({'project': {'output_dir': os.path.join(self.rd, 'output')}, 'base_dir': '/elsewhere'}, f)
+        with open(os.path.join(self.rd, 'output', 'sphere_report.html'), 'w') as f:
+            f.write('<html/>')
+        self.assertEqual(self.run_main('--expect', 'sphere'), 0)
+        self.assertEqual(_read_manifest(self.rd)['reports'][0]['path'], 'output/sphere_report.html')
+
     def test_no_tmp_left_behind(self):
         self.run_main('--expect', 'sphere', '--postprocess', 'disabled')
         self.assertEqual(sorted(os.listdir(os.path.join(self.rd, 'output'))), ['return_manifest.json'])

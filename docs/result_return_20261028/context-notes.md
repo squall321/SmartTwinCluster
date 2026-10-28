@@ -44,3 +44,10 @@ DynaForge 후처리 예약 연산(KooRemapper `platform/docs/REQUEST-postprocess
   이른 종료도 리포트를 기대했던 잡이므로 없음 = ok 아님.
 - 후처리 잡의 job_submissions 기록은 원 잡 제출자 명의(user_id) — admin 이 대신 걸어도 그 잡 로그는 원 사용자에게 열린다.
 - 실제 Slurm 검증은 못 했다(dev 박스). 운영 반영 뒤 §3-B 확인 항목(성공·sif 틀린 실패·부분충격)으로 볼 것.
+- (같은 날 밤) kooremapper-4a 가 pyKooCAE 34203b7(SIF v127) 주의를 전했다. 부분충격 리포트는 `<output_dir>/impact_report.*` 이고
+  DWI 의 output_dir 은 runner_config 최상위 키(예제는 `dwi_output`)라 `output/` 고정 탐색이면 놓친다. 작성기가 KooChainRun 의
+  output_dir 규칙(project.output_dir → 최상위 output_dir → base_dir/output, 상대는 결과 폴더 기준)을 따르게 고쳤고,
+  `job.output_dir` 를 더했다. 매니페스트 위치는 계약대로 `output/` 고정이다. sphere_report.json(런 수에 비례해 커짐)은
+  W-93 이 "HTML 만" 이라 reports[] 에 싣지 않았다 — 필요해지면 v1 안에서 키를 더한다.
+- 사용자 결정(peer 경유): 운영 반영은 "실제 잡 하나로 검증한 뒤". dev 노드 VM 은 사용자 답 전에는 띄우지 않는다.
+  DynaForge 신원은 "예약한 사용자의 kst_ PAT 를 DynaForge 가 암호화해 맡았다가 반입 뒤 지운다".

@@ -60,10 +60,28 @@ def _sacct_state(job_id):
     return None, None
 
 
-def _report_entry(result_dir, kind, missing_reason):
-    rel = os.path.join('output', f'{kind}_report.html')
-    path = os.path.join(result_dir, rel)
-    entry = {'kind': kind, 'path': rel, 'present': os.path.isfile(path),
+def output_dir(result_dir):
+    """종합 리포트가 생기는 폴더 — KooChainRun 과 같은 규칙: project.output_dir → 최상위 output_dir(DWI, 예 dwi_output)
+    → <base_dir>/output(base_dir 기본은 runner_config 가 있는 결과 폴더). 상대 경로는 결과 폴더 기준(드라이버·후처리 잡의 cwd)."""
+    try:
+        with open(os.path.join(result_dir, 'runner_config.json'), encoding='utf-8') as f:
+            rc = json.load(f)
+    except (OSError, ValueError):
+        return os.path.join(result_dir, 'output')
+    out = ((rc.get('project') or {}).get('output_dir') or rc.get('output_dir')
+           or os.path.join(rc.get('base_dir') or result_dir, 'output'))
+    return os.path.normpath(os.path.join(result_dir, out))
+
+
+def _rel(path, result_dir):
+    """결과 폴더 기준 경로(파일 REST 의 path 로 바로 쓰게). 결과 폴더 밖이면 절대경로."""
+    rel = os.path.relpath(path, result_dir)
+    return path if rel == os.pardir or rel.startswith(os.pardir + os.sep) else rel
+
+
+def _report_entry(result_dir, out_dir, kind, missing_reason):
+    path = os.path.join(out_dir, f'{kind}_report.html')
+    entry = {'kind': kind, 'path': _rel(path, result_dir), 'present': os.path.isfile(path),
              'size': None, 'sha256': None, 'reason': None, 'log_tail': None}
     if entry['present']:
         entry['size'] = os.path.getsize(path)
@@ -72,9 +90,10 @@ def _report_entry(result_dir, kind, missing_reason):
     entry['reason'] = missing_reason
     tails = {}
     for name in (f'{kind}_report.slurm.err', f'{kind}_report.log'):
-        t = _tail(os.path.join(result_dir, 'output', name))
+        log = os.path.join(out_dir, name)
+        t = _tail(log)
         if t:
-            tails[os.path.join('output', name)] = t
+            tails[_rel(log, result_dir)] = t
     entry['log_tail'] = tails or None
     return entry
 
@@ -98,7 +117,8 @@ def build(a):
         state, exit_code = _sacct_state(a.report_job_id)
         report_job = {'id': str(a.report_job_id), 'state': state, 'exit_code': exit_code}
     reason = _missing_reason(a, report_job or {})
-    reports = [_report_entry(a.result_dir, kind, reason) for kind in a.expect]
+    out_dir = output_dir(a.result_dir)
+    reports = [_report_entry(a.result_dir, out_dir, kind, reason) for kind in a.expect]
     expected = a.postprocess != 'disabled'   # 이른 종료도 리포트를 기대했던 잡이라 없음 = ok 아님
     return {
         'schema': SCHEMA,
@@ -107,7 +127,8 @@ def build(a):
         'stage': a.stage,
         'driver_rc': a.driver_rc,
         'job': {'slurm_job_id': str(a.job_id) if a.job_id else None, 'job_name': a.job_name,
-                'web_user': a.web_user, 'sim_type': a.sim_type, 'result_dir': a.result_dir},
+                'web_user': a.web_user, 'sim_type': a.sim_type, 'result_dir': a.result_dir,
+                'output_dir': _rel(out_dir, a.result_dir)},
         'postprocess': {'by': a.postprocess, 'rc': a.pp_rc, 'report_job': report_job,
                         'postprocess_job_id': a.postprocess_job_id or None},
         'reports': reports,
