@@ -62,3 +62,11 @@ DynaForge 후처리 예약 연산(KooRemapper `platform/docs/REQUEST-postprocess
 - 사본 /data/single/admin/RRVerify_{ok_828,fail_1088} 은 남겨 두었다(peer 확인용). 지워도 원본에는 영향이 없다(d3plot 은 하드링크).
 - C 의 한계(pykoocae-88): KooChainRun postprocess 는 prepare 때 만든 .sh 를 돌린다 — 옛 결과 재후처리는 옛 sphere 셸(10-26 개선·JSON 없음).
   `--regen-sh` 같은 플래그는 pyKooCAE 사용자 결정 대기라 C 에 미리 옵션을 만들지 않았다(없는 플래그를 넘기면 KooChainRun 이 죽는다).
+- 사용자 결정(peer 경유, 23:2x): KooSlurm 운영 반영 「지금」, 헤드 SIF(v127·v41 이 결정보다 먼저 바뀐 것)는 「그대로 둔다」.
+  이 세션은 icn401 에 못 들어가므로 반영 = origin 푸시(23:34 UTC) + 사용자가 icn401 에서 start_production.sh.
+  start_production.sh 는 템플릿을 /shared/templates/official 로 cp -ru 한 뒤 부분충격 템플릿에 LSTC IP 를 다시 넣고,
+  frontend_3010 은 src 가 dist 보다 새로우면 다시 빌드한다. 운영 백엔드 계정은 YAML(346) web_services.service_user=koopark —
+  백엔드가 sbatch 를 직접 부르므로 잡·결과 폴더도 같은 계정이라 C 가 output/ 에 쓸 수 있다.
+- SSO: 저장소의 YAML 들(icn401 = my_multihead_cluster_346.yaml, 루트 my_multihead_cluster.yaml)은 sso.enabled=false.
+  미들웨어는 env SSO_ENABLED → CLUSTER_CONFIG_PATH → 루트 my_multihead_cluster.yaml 순. 운영 실제 값은 start_production.sh
+  출력의 "→ SSO=..." 줄로 본다. false 면 A 의 소유 검사는 꺼진 것과 같다(모두 admin).

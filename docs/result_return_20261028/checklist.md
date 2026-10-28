@@ -29,4 +29,6 @@
 - [x] 백엔드 테스트 통과(34건, `venv/bin/python -m unittest discover -s tests`), 프런트 타입 검사(`tsc --noEmit`)
 - [x] 요청서에 회신 절(§6, 무엇이 어느 커밋에) · peer(kooremapper-4a)에 회신
 - [x] 실제 Slurm 검증 — dev node001 에서 사본에 C(성공 COMPLETED·ok, 실패 FAILED 3:0), VM 끔
-- [ ] 운영 반영(백엔드 재시작·템플릿 동기화) — 사용자 결정(헤드 v127 교체와 함께)
+- [x] origin/main 푸시(10-28 23:34 UTC, `5f226d1f..7c280000`) — 사용자 결정 「지금 반영」
+- [ ] icn401 에서 `git pull && sudo ./dashboard/start_production.sh` (백엔드 재시작·템플릿 cp -ru·frontend_3010 자동 재빌드) — 사용자 실행
+- [ ] 운영 첫 실제 전각도 잡에서 `output/return_manifest.json` 생성 확인 — 안 생기면 C 로 다시 건다
