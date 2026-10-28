@@ -79,7 +79,17 @@ def _rel(path, result_dir):
     return path if rel == os.pardir or rel.startswith(os.pardir + os.sep) else rel
 
 
-def _report_entry(result_dir, out_dir, kind, missing_reason):
+def _log_names(kind, by):
+    """이번에 리포트를 돌린 쪽이 쓴 로그만 — 리포트 잡은 <kind>_report.slurm.{err,out}, 드라이버·후처리 잡의
+    KooChainRun postprocess 는 <kind>_report.log. 다른 쪽 파일은 지난 실행의 것일 수 있다(실 Slurm 검증에서 7월 err 가 섞였다)."""
+    if by == 'report_job':
+        return (f'{kind}_report.slurm.err', f'{kind}_report.slurm.out')
+    if by in ('driver', 'postprocess_job'):
+        return (f'{kind}_report.log',)
+    return ()
+
+
+def _report_entry(result_dir, out_dir, kind, missing_reason, by):
     path = os.path.join(out_dir, f'{kind}_report.html')
     entry = {'kind': kind, 'path': _rel(path, result_dir), 'present': os.path.isfile(path),
              'size': None, 'sha256': None, 'reason': None, 'log_tail': None}
@@ -89,7 +99,7 @@ def _report_entry(result_dir, out_dir, kind, missing_reason):
         return entry
     entry['reason'] = missing_reason
     tails = {}
-    for name in (f'{kind}_report.slurm.err', f'{kind}_report.log'):
+    for name in _log_names(kind, by):
         log = os.path.join(out_dir, name)
         t = _tail(log)
         if t:
@@ -118,7 +128,7 @@ def build(a):
         report_job = {'id': str(a.report_job_id), 'state': state, 'exit_code': exit_code}
     reason = _missing_reason(a, report_job or {})
     out_dir = output_dir(a.result_dir)
-    reports = [_report_entry(a.result_dir, out_dir, kind, reason) for kind in a.expect]
+    reports = [_report_entry(a.result_dir, out_dir, kind, reason, a.postprocess) for kind in a.expect]
     expected = a.postprocess != 'disabled'   # 이른 종료도 리포트를 기대했던 잡이라 없음 = ok 아님
     return {
         'schema': SCHEMA,

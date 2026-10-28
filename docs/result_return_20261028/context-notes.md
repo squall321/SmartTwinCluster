@@ -51,3 +51,12 @@ DynaForge 후처리 예약 연산(KooRemapper `platform/docs/REQUEST-postprocess
   W-93 이 "HTML 만" 이라 reports[] 에 싣지 않았다 — 필요해지면 v1 안에서 키를 더한다.
 - 사용자 결정(peer 경유): 운영 반영은 "실제 잡 하나로 검증한 뒤". dev 노드 VM 은 사용자 답 전에는 띄우지 않는다.
   DynaForge 신원은 "예약한 사용자의 kst_ PAT 를 DynaForge 가 암호화해 맡았다가 반입 뒤 지운다".
+- 실 Slurm 검증(23:06~23:15): 사용자 결정 "dev 노드 VM 을 띄워 사본으로". node001 만 기동(가용 44.8→약 38GiB, 조건 30GB 이상).
+  pykoocae-88 이 node001 에 SIF v127(4d31651f)·Postprocessor v41(6176ff66)을 깔았다(그 배포가 헤드 Preprocessor 도
+  v127 로 바꿨고 v126 백업은 없다 — pykoocae-88 이 사용자께 올리기로 함). 사본은 원본 경로를 sed 로 사본 경로로 바꾸고
+  원본을 가리키는 심링크를 지웠다. d3plot 은 하드링크(sphere 모드는 읽기만). 제출은 백엔드 서비스 재시작 없이
+  scratchpad 드라이버가 Flask 테스트 클라이언트로 새 라우트를 실제 sbatch·squeue 에 붙였다(임시 DB).
+  결과: 1245 COMPLETED 0:0 ok·sha256 일치, 1246·1247 FAILED 3:0. 검증 뒤 node001 shut off.
+- 실 Slurm 에서 찾은 결함: log_tail 에 지난 실행의 파일(사본에 남은 7월 리포트 잡의 sphere_report.slurm.err)이 섞였다.
+  postprocess.by 로 고른다 — report_job 이면 <kind>_report.slurm.{err,out}, driver·postprocess_job 이면 <kind>_report.log.
+- 사본 /data/single/admin/RRVerify_{ok_828,fail_1088} 은 남겨 두었다(peer 확인용). 지워도 원본에는 영향이 없다(d3plot 은 하드링크).

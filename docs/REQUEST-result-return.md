@@ -189,7 +189,12 @@ D·E·F 는 작고 독립적입니다. E 는 지금도 잘못된 물성으로 �
 - 확인 — 백엔드 테스트 34건(`dashboard/backend_5010/tests`, Flask 테스트 클라이언트·임시 DB). §3-A 의 401·403·`A_12`→`../A_123` 403·
   `path=stdout` 200, 티켓 만료·다른 잡·Bearer 전용 거부. 두 템플릿의 post_exec·EXIT trap 을 bash 로 돌려(KooChainRun·squeue·sacct 대역)
   있음 0·없음 3·리포트 잡 FAILED 이유·early_exit. C 가 만든 sbatch 스크립트를 bash 로 돌려 매니페스트가 다시 쓰이는 것. 프런트 `tsc --noEmit`.
-- **못 한 것** — 실제 Slurm 에서의 성공 잡·후처리 실패 잡·부분충격 잡(§3-B 확인 항목). dev 박스라 운영 클러스터 재현은 배포 뒤에 해야 합니다.
+- **실제 Slurm(dev node001, 10-28 23:10, SIF v127·Postprocessor v41, KooChainRun c556a678)** — 결과 폴더 **사본**에 C(mode=sphere).
+  성공 사본(verify_drop2_828, 26 Run): 잡 `COMPLETED 0:0`, `sphere_report.html` 13.2MB 새로 생성, 매니페스트 `ok: true` 이고
+  sha256 이 파일과 같다. 실패 사본(BindFix_Verify_2angle_1088, 정상 종료 0 Run): `FAILED 3:0`, `ok: false`, 이유와 이번 실행의
+  `sphere_report.log` 꼬리. 같은 잡을 다시 걸면 409, 제출 직후엔 `.prev.json` 만 있다가 끝나면 매니페스트가 다시 생긴다.
+  실제 파일로 REST — 본인 200·남 403·토큰 없음 401, 후처리 잡 로그도 본인에게 200.
+- **못 한 것** — 드라이버(B)를 실제 전각도·부분충격 잡으로 끝까지 돌리기(LS-DYNA 라이선스·노드 자원). 드라이버 post_exec 는 bash 대역으로만 확인했다.
 - **운영 SSO** — SSO 꺼짐이면 미들웨어가 모든 요청을 admin 으로 넣으므로 A 의 검사는 SSO 켜짐에서만 의미가 있습니다.
 - **동작 변화** — 남의 잡은 대시보드 로그 뷰어·`mcp_slurm` 읽기 도구에서도 403. 드라이버는 리포트 잡이 있으면 전 Run deep 을 다시
   돌리지 않으므로, inline deep 이 실패한 Run 의 재시도는 C(`mode: "all"`)로 합니다.

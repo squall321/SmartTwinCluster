@@ -48,16 +48,24 @@ class WriterTest(unittest.TestCase):
     def test_missing_with_err_tail(self):
         with open(os.path.join(self.rd, 'output', 'sphere_report.slurm.err'), 'w') as f:
             f.write(''.join(f'line {i}\n' for i in range(30)) + '[sphere_report] ERROR: SIF not found\n')
-        self.assertEqual(self.run_main('--expect', 'sphere', '--postprocess', 'driver', '--pp-rc', '0'),
+        with open(os.path.join(self.rd, 'output', 'sphere_report.log'), 'w') as f:
+            f.write('stale inline log\n')
+        self.assertEqual(self.run_main('--expect', 'sphere', '--postprocess', 'report_job', '--report-job-id', '7'),
                          return_manifest.EXIT_REPORT_MISSING)
         m = _read_manifest(self.rd)
         r = m['reports'][0]
         self.assertFalse(m['ok'])
         self.assertFalse(r['present'])
         self.assertIn('HTML 없음', r['reason'])
+        # 리포트 잡이 돌렸으면 그 잡의 slurm.err 만 — 지난 inline 실행의 .log 는 싣지 않는다
+        self.assertEqual(list(r['log_tail']), ['output/sphere_report.slurm.err'])
         tail = r['log_tail']['output/sphere_report.slurm.err']
         self.assertEqual(len(tail), return_manifest.LOG_TAIL_LINES)
         self.assertEqual(tail[-1], '[sphere_report] ERROR: SIF not found')
+        # 후처리 잡·드라이버가 돌렸으면 .log 만 — 지난 리포트 잡의 slurm.err 는 싣지 않는다
+        self.run_main('--expect', 'sphere', '--postprocess', 'postprocess_job', '--pp-rc', '1')
+        self.assertEqual(_read_manifest(self.rd)['reports'][0]['log_tail'],
+                         {'output/sphere_report.log': ['stale inline log']})
 
     def test_disabled_is_ok(self):
         self.assertEqual(self.run_main('--expect', 'impact', '--postprocess', 'disabled'), 0)
