@@ -9,12 +9,85 @@ import os
 import json
 import sqlite3
 import subprocess
-from datetime import datetime
-from flask import Blueprint, request, jsonify, send_file, Response
-from middleware.jwt_middleware import jwt_required, permission_required, optional_jwt
+from datetime import datetime, timedelta
+from functools import wraps
+import jwt
+from flask import Blueprint, request, jsonify, send_file, Response, g
+from middleware.jwt_middleware import jwt_required, JWT_SECRET_KEY, JWT_ALGORITHM
 
 # 제출 시 기록되는 result_dir 의 권위 조회용 DB (job_submit_api 와 동일 경로)
 DATABASE_PATH = os.getenv('DATABASE_PATH', '/home/koopark/web_services/backend/dashboard.db')
+
+# 단기 다운로드 티켓 — window.open 은 Authorization 헤더를 못 실으므로 download 라우트만 ?ticket= 을 받는다.
+# 로그인 JWT 와 다른 키로 서명해, URL(접근 로그)에 남은 티켓이 다른 API 의 Bearer 로 쓰이지 못하게 한다.
+DOWNLOAD_TICKET_SCOPE = 'job-download'
+DOWNLOAD_TICKET_TTL_SEC = 120
+_DOWNLOAD_TICKET_KEY = JWT_SECRET_KEY + ':' + DOWNLOAD_TICKET_SCOPE
+
+
+def _db_job_owner(job_id: str):
+    """job_submissions 에 기록된 제출자(user_id) 반환(없으면 None)."""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT user_id FROM job_submissions WHERE job_id=? ORDER BY id DESC LIMIT 1",
+            (str(job_id),))
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+    except Exception as e:
+        print(f"⚠️  owner DB lookup failed for job {job_id}: {e}")
+    return None
+
+
+def _caller_owns_job(job_id: str) -> bool:
+    """admin 은 모든 잡, 그 밖엔 제출 기록의 user_id 가 호출자 이름과 같을 때만.
+    user_id 는 제출 때 _sanitize_web_user 를 지난 이름이라(정상 이름은 그대로, 아니면 'anonymous')
+    그대로 비교한다. 'anonymous' 는 여러 사람이 섞이는 키라 admin 만 연다."""
+    user = g.get('user') or {}
+    if user.get('role') == 'admin':
+        return True
+    owner = _db_job_owner(job_id)
+    return bool(owner) and owner != 'anonymous' and owner == user.get('username')
+
+
+def job_owner_required(f):
+    """잡 로그·파일 라우트의 소유 검사 — 인증 데코레이터 아래에 둔다."""
+    @wraps(f)
+    def wrapper(job_id, *args, **kwargs):
+        if not _caller_owns_job(job_id):
+            return jsonify({'success': False, 'error': f'Forbidden — job {job_id} 는 호출자의 잡이 아닙니다'}), 403
+        return f(job_id, *args, **kwargs)
+    return wrapper
+
+
+def jwt_or_download_ticket(f):
+    """download·download-all 전용 인증: Authorization 헤더가 없고 ?ticket= 이 있으면 티켓으로, 아니면 jwt_required."""
+    authed = jwt_required(f)
+
+    @wraps(f)
+    def wrapper(job_id, *args, **kwargs):
+        ticket = request.args.get('ticket')
+        if ticket and not request.headers.get('Authorization'):
+            try:
+                claims = jwt.decode(ticket, _DOWNLOAD_TICKET_KEY, algorithms=[JWT_ALGORITHM])
+            except jwt.InvalidTokenError:
+                return jsonify({'success': False, 'error': 'Invalid or expired download ticket'}), 401
+            if claims.get('scope') != DOWNLOAD_TICKET_SCOPE or str(claims.get('job_id')) != str(job_id):
+                return jsonify({'success': False, 'error': 'Download ticket is not for this job'}), 401
+            g.user = {'username': claims.get('sub'), 'role': claims.get('role', 'user'),
+                      'email': None, 'groups': [], 'permissions': []}
+            return f(job_id, *args, **kwargs)
+        return authed(job_id, *args, **kwargs)
+    return wrapper
+
+
+def _within(path: str, base: str) -> bool:
+    """path 가 base 자신이거나 그 아래인가(realpath, 구분자 포함 비교 — A_12 가 A_123 을 품지 않게)."""
+    real, real_base = os.path.realpath(path), os.path.realpath(base)
+    return real == real_base or real.startswith(real_base + os.sep)
 
 
 def _db_result_dir(job_id: str):
@@ -126,6 +199,22 @@ def get_job_dir(job_id: str) -> str:
     return None
 
 
+def _resolve_job_file(job_id: str, file_path: str):
+    """path 쿼리 → (실제 경로 또는 None, 거부 여부). stdout/stderr 는 잡 id 로 찾은 로그,
+    그 밖은 잡 폴더 기준 상대 경로이고 폴더 밖(../, 절대경로, 바깥을 가리키는 심링크)은 거부한다."""
+    if file_path in ('stdout', 'out'):
+        return get_log_path(job_id, 'out'), False
+    if file_path in ('stderr', 'err'):
+        return get_log_path(job_id, 'err'), False
+    job_dir = get_job_dir(job_id)
+    if not job_dir:
+        return None, False
+    actual_path = os.path.join(job_dir, file_path)
+    if not _within(actual_path, job_dir):
+        return None, True
+    return actual_path, False
+
+
 # 파일 열람 불가 확장자 (바이너리/대용량)
 NON_VIEWABLE_EXTENSIONS = {
     '.sif', '.tar', '.gz', '.zip', '.bz2', '.xz', '.7z',
@@ -191,7 +280,8 @@ def get_job_info_from_slurm(job_id: str) -> dict:
 
 
 @job_logs_bp.route('/<job_id>/info', methods=['GET'])
-@optional_jwt
+@jwt_required
+@job_owner_required
 def get_job_info(job_id: str):
     """
     Job 상세 정보 조회
@@ -239,7 +329,8 @@ def get_job_info(job_id: str):
 
 
 @job_logs_bp.route('/<job_id>/logs', methods=['GET'])
-@optional_jwt
+@jwt_required
+@job_owner_required
 def get_job_logs(job_id: str):
     """
     Job 로그 조회 (stdout)
@@ -346,7 +437,8 @@ def get_job_logs(job_id: str):
 
 
 @job_logs_bp.route('/<job_id>/logs/tail', methods=['GET'])
-@optional_jwt
+@jwt_required
+@job_owner_required
 def tail_job_logs(job_id: str):
     """
     실시간 로그 조회 (tail -f 방식)
@@ -407,7 +499,8 @@ def tail_job_logs(job_id: str):
 
 
 @job_logs_bp.route('/<job_id>/files', methods=['GET'])
-@optional_jwt
+@jwt_required
+@job_owner_required
 def list_job_files(job_id: str):
     """
     Job 작업 디렉토리의 파일 목록 조회
@@ -499,7 +592,8 @@ def list_job_files(job_id: str):
 
 
 @job_logs_bp.route('/<job_id>/files/view', methods=['GET'])
-@optional_jwt
+@jwt_required
+@job_owner_required
 def view_job_file(job_id: str):
     """
     Job 파일 내용 조회 (텍스트 파일만)
@@ -515,30 +609,11 @@ def view_job_file(job_id: str):
         if not file_path:
             return jsonify({'success': False, 'error': 'path parameter required'}), 400
 
-        # 특수 경로 처리 (stdout, stderr)
-        if file_path in ['stdout', 'out']:
-            actual_path = get_log_path(job_id, 'out')
-        elif file_path in ['stderr', 'err']:
-            actual_path = get_log_path(job_id, 'err')
-        else:
-            job_dir = get_job_dir(job_id)
-            if job_dir:
-                actual_path = os.path.join(job_dir, file_path)
-            else:
-                actual_path = None
-
+        actual_path, denied = _resolve_job_file(job_id, file_path)
+        if denied:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not actual_path or not os.path.exists(actual_path):
             return jsonify({'success': False, 'error': f'File not found: {file_path}'}), 404
-
-        # 경로 검증 (path traversal 방지)
-        job_dir = get_job_dir(job_id)
-        if job_dir:
-            real_job_dir = os.path.realpath(job_dir)
-            real_file_path = os.path.realpath(actual_path)
-            if not real_file_path.startswith(real_job_dir) and \
-               not real_file_path.startswith(os.path.realpath(LOGS_DIR)) and \
-               not real_file_path.startswith(os.path.realpath(ALT_LOGS_DIR)):
-                return jsonify({'success': False, 'error': 'Access denied'}), 403
 
         # 파일 크기 및 viewable 확인
         stat = os.stat(actual_path)
@@ -571,8 +646,30 @@ def view_job_file(job_id: str):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@job_logs_bp.route('/<job_id>/files/download-ticket', methods=['POST'])
+@jwt_required
+@job_owner_required
+def issue_download_ticket(job_id: str):
+    """download·download-all 에 ?ticket= 으로 붙일 단기 티켓 발급(브라우저 다운로드 버튼용).
+
+    Returns: { "success": true, "ticket": "...", "expires_in": 120 }
+    """
+    user = g.get('user') or {}
+    now = datetime.utcnow()
+    ticket = jwt.encode({
+        'sub': user.get('username'),
+        'role': user.get('role', 'user'),
+        'job_id': str(job_id),
+        'scope': DOWNLOAD_TICKET_SCOPE,
+        'iat': now,
+        'exp': now + timedelta(seconds=DOWNLOAD_TICKET_TTL_SEC),
+    }, _DOWNLOAD_TICKET_KEY, algorithm=JWT_ALGORITHM)
+    return jsonify({'success': True, 'ticket': ticket, 'expires_in': DOWNLOAD_TICKET_TTL_SEC})
+
+
 @job_logs_bp.route('/<job_id>/files/download', methods=['GET'])
-@optional_jwt
+@jwt_or_download_ticket
+@job_owner_required
 def download_job_file(job_id: str):
     """
     Job 파일 다운로드
@@ -592,36 +689,17 @@ def download_job_file(job_id: str):
                 'error': 'path parameter required'
             }), 400
 
-        # 특수 경로 처리 (stdout, stderr)
-        if file_path in ['stdout', 'out']:
-            actual_path = get_log_path(job_id, 'out')
-        elif file_path in ['stderr', 'err']:
-            actual_path = get_log_path(job_id, 'err')
-        else:
-            # 작업 디렉토리 기준 상대 경로
-            job_dir = get_job_dir(job_id)
-            if job_dir:
-                actual_path = os.path.join(job_dir, file_path)
-            else:
-                actual_path = None
-
+        actual_path, denied = _resolve_job_file(job_id, file_path)
+        if denied:
+            return jsonify({
+                'success': False,
+                'error': 'Access denied'
+            }), 403
         if not actual_path or not os.path.exists(actual_path):
             return jsonify({
                 'success': False,
                 'error': f'File not found: {file_path}'
             }), 404
-
-        # 경로 검증 (path traversal 방지)
-        if job_dir:
-            real_job_dir = os.path.realpath(job_dir)
-            real_file_path = os.path.realpath(actual_path)
-            if not real_file_path.startswith(real_job_dir) and \
-               not real_file_path.startswith(os.path.realpath(LOGS_DIR)) and \
-               not real_file_path.startswith(os.path.realpath(ALT_LOGS_DIR)):
-                return jsonify({
-                    'success': False,
-                    'error': 'Access denied'
-                }), 403
 
         # 파일 전송
         return send_file(
@@ -639,7 +717,8 @@ def download_job_file(job_id: str):
 
 
 @job_logs_bp.route('/<job_id>/files/download-all', methods=['GET'])
-@optional_jwt
+@jwt_or_download_ticket
+@job_owner_required
 def download_job_files_zip(job_id: str):
     """잡 작업 디렉토리의 결과 파일 ★전체를 ZIP★ 으로 묶어 다운로드.
 
@@ -664,7 +743,7 @@ def download_job_files_zip(job_id: str):
             for root, _dirs, filenames in os.walk(job_dir):
                 for fn in filenames:
                     fp = os.path.join(root, fn)
-                    if not os.path.realpath(fp).startswith(real_job_dir):
+                    if not _within(fp, real_job_dir):
                         continue  # 심볼릭링크로 디렉토리 밖을 가리키는 파일 제외
                     try:
                         zf.write(fp, os.path.relpath(fp, job_dir))
@@ -700,7 +779,8 @@ def download_job_files_zip(job_id: str):
 
 
 @job_logs_bp.route('/<job_id>/logs/stream', methods=['GET'])
-@optional_jwt
+@jwt_required
+@job_owner_required
 def stream_job_logs(job_id: str):
     """
     SSE(Server-Sent Events)를 통한 실시간 로그 스트리밍

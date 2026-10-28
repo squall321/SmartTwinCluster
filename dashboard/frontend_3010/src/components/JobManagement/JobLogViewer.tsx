@@ -5,7 +5,7 @@ import {
   CheckCircle, Clock, XCircle, Loader2, File, FolderOpen,
   ChevronDown, ChevronRight, Copy, ExternalLink
 } from 'lucide-react';
-import { apiGet, getApiUrl } from '../../utils/api';
+import { apiGet, apiPost, getApiUrl } from '../../utils/api';
 import toast from 'react-hot-toast';
 
 interface JobInfo {
@@ -237,13 +237,31 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
     toast.success('Logs copied to clipboard');
   };
 
+  // 브라우저 다운로드는 Authorization 헤더를 못 실어 단기 티켓(?ticket=)으로 받는다
+  const downloadWithTicket = async (endpoint: string) => {
+    try {
+      const { ticket } = await apiPost<{ success: boolean; ticket: string }>(
+        `/api/jobs/${jobId}/files/download-ticket`
+      );
+      const sep = endpoint.includes('?') ? '&' : '?';
+      const a = document.createElement('a');
+      a.href = getApiUrl(`${endpoint}${sep}ticket=${encodeURIComponent(ticket)}`);
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast.error('Download failed');
+    }
+  };
+
   // Download file
   const handleDownloadFile = (file: JobFile) => {
     const path = file.logType === 'stdout' ? 'stdout' :
                  file.logType === 'stderr' ? 'stderr' :
                  file.path;
-    const url = getApiUrl(`/api/jobs/${jobId}/files/download?path=${encodeURIComponent(path)}`);
-    window.open(url, '_blank');
+    downloadWithTicket(`/api/jobs/${jobId}/files/download?path=${encodeURIComponent(path)}`);
   };
 
   if (!isOpen) return null;
@@ -350,7 +368,7 @@ export const JobLogViewer: React.FC<JobLogViewerProps> = ({ jobId, isOpen, onClo
                     </h3>
                     {files.length > 0 && (
                       <button
-                        onClick={() => window.open(getApiUrl(`/api/jobs/${jobId}/files/download-all`), '_blank')}
+                        onClick={() => downloadWithTicket(`/api/jobs/${jobId}/files/download-all`)}
                         className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1"
                         title="결과 파일 전체를 ZIP 으로 다운로드"
                       >
