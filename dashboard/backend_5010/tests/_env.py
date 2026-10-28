@@ -20,7 +20,8 @@ os.environ.update({
     'JOB_LOGS_DIR': os.path.join(ROOT, 'shared', 'logs'),
     'JOB_WORK_DIR': os.path.join(ROOT, 'shared', 'jobs'),
     'SINGLE_ROOT': os.path.join(ROOT, 'single'),
-    'SLURM_BIN_DIR': os.path.join(ROOT, 'no_slurm'),
+    'SLURM_BIN_DIR': os.path.join(ROOT, 'slurm_bin'),
+    'KOOCHAINRUN_BIN': os.path.join(ROOT, 'bin', 'KooChainRun'),
 })
 os.makedirs(os.environ['JOB_LOGS_DIR'], exist_ok=True)
 

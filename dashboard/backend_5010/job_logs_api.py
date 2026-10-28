@@ -42,7 +42,7 @@ def _db_job_owner(job_id: str):
     return None
 
 
-def _caller_owns_job(job_id: str) -> bool:
+def caller_owns_job(job_id: str) -> bool:
     """admin 은 모든 잡, 그 밖엔 제출 기록의 user_id 가 호출자 이름과 같을 때만.
     user_id 는 제출 때 _sanitize_web_user 를 지난 이름이라(정상 이름은 그대로, 아니면 'anonymous')
     그대로 비교한다. 'anonymous' 는 여러 사람이 섞이는 키라 admin 만 연다."""
@@ -57,7 +57,7 @@ def job_owner_required(f):
     """잡 로그·파일 라우트의 소유 검사 — 인증 데코레이터 아래에 둔다."""
     @wraps(f)
     def wrapper(job_id, *args, **kwargs):
-        if not _caller_owns_job(job_id):
+        if not caller_owns_job(job_id):
             return jsonify({'success': False, 'error': f'Forbidden — job {job_id} 는 호출자의 잡이 아닙니다'}), 403
         return f(job_id, *args, **kwargs)
     return wrapper

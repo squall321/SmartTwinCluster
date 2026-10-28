@@ -37,8 +37,9 @@ class PartitionNotAllowed(Exception):
         super().__init__(f"partition '{partition}' not allowed for role '{role}' (allowed={allowed})")
 
 # 절대 경로 import (systemd 환경에서 PATH 제한으로 필요)
-from slurm_commands import SSH, SBATCH, normalize_partition
+from slurm_commands import SSH, SBATCH, SQUEUE, normalize_partition
 import return_manifest
+from job_logs_api import caller_owns_job
 
 # Structured logging setup
 logger = logging.getLogger(__name__)
@@ -1611,6 +1612,153 @@ def rerun_job():
         'work_dir': real_wd,
         'request_id': request_id,
     }), (200 if ok else 500)
+
+
+# 끝난 잡에 거는 후처리 잡 — KooChainRun 템플릿 잡만(결과 폴더에 runner_config.json). 값 = (sim_type, 종합 리포트)
+POSTPROCESS_TEMPLATES = {
+    'smarttwin-fullangle-drop': ('fullangle_drop', 'sphere'),
+    'smarttwin-partial-impact': ('partial_impact', 'impact'),
+}
+POSTPROCESS_MODES = ('all', 'deep', 'sphere', 'impact')
+_ACTIVE_STATES = 'PENDING,RUNNING,SUSPENDED,COMPLETING,CONFIGURING'
+
+
+def _active_job_ids(*squeue_args):
+    """squeue 로 아직 끝나지 않은 잡 id 목록(끝나 사라진 잡 id 는 squeue 가 rc≠0 으로 답하므로 빈 목록)."""
+    r = subprocess.run([SQUEUE, '-h', '-o', '%i', f'--states={_ACTIVE_STATES}', *squeue_args],
+                       capture_output=True, text=True, timeout=10)
+    return r.stdout.split()
+
+
+@job_submit_bp.route('/api/jobs/<job_id>/postprocess', methods=['POST'])
+@jwt_required
+@permission_required('dashboard')
+def submit_postprocess_job(job_id):
+    """끝난 KooChainRun 잡의 결과 폴더에 후처리 잡(KooChainRun postprocess)을 건다 — 리포트가 없거나 다시 돌릴 때.
+
+    소유 검사는 잡 파일 REST 와 같다(admin 전부, 그 밖엔 제출 기록의 user_id == 호출자).
+    후처리 잡은 원 잡 폴더(output/)에 쓰고, 끝에 output/return_manifest.json 을 다시 쓴다
+    (postprocess.by=postprocess_job, postprocess_job_id=<이 잡>). 제출할 때 이전 매니페스트는
+    output/return_manifest.prev.json 으로 옮긴다 — 매니페스트가 있다 = 진행 중인 후처리가 없다.
+
+    Request (JSON, 모두 선택): {"mode": "all|deep|sphere|impact"(기본 all), "cpus_per_task": 8, "mem": "32G", "time": "12:00:00"}
+    Response 201: {"success", "job_id"(후처리 잡), "original_job_id", "result_dir", "mode", "manifest"}
+    """
+    import shlex
+    request_id = str(uuid.uuid4())
+    body = request.get_json(silent=True) or {}
+
+    def _err(msg, code, http):
+        return jsonify({'success': False, 'error': msg, 'error_code': code, 'request_id': request_id}), http
+
+    if not re.fullmatch(r'\d+', str(job_id)):
+        return _err('job_id 는 Slurm 잡 번호(숫자)', ErrorCode.INVALID_REQUEST, 400)
+    mode = body.get('mode', 'all')
+    cpus = body.get('cpus_per_task', 8)
+    mem = str(body.get('mem', '32G'))
+    time_limit = str(body.get('time', '12:00:00'))
+    if mode not in POSTPROCESS_MODES:
+        return _err(f'mode 는 {POSTPROCESS_MODES} 중 하나', ErrorCode.INVALID_REQUEST, 400)
+    if not (isinstance(cpus, int) and 1 <= cpus <= 256) or not re.fullmatch(r'\d{1,6}[MG]', mem) \
+            or not re.fullmatch(r'(\d{1,3}-)?\d{1,3}:\d{2}:\d{2}', time_limit):
+        return _err('cpus_per_task(1~256)·mem(예 32G)·time(예 12:00:00) 형식 오류', ErrorCode.INVALID_REQUEST, 400)
+
+    if not caller_owns_job(job_id):
+        return _err(f'job {job_id} 는 호출자의 잡이 아닙니다', ErrorCode.PERMISSION_DENIED, 403)
+
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT template_id, result_dir, job_name, user_id FROM job_submissions "
+        "WHERE job_id=? ORDER BY id DESC LIMIT 1", (str(job_id),)).fetchone()
+    conn.close()
+    if row is None:
+        return _err(f'job {job_id} 제출 기록 없음', ErrorCode.INVALID_REQUEST, 404)
+    template_id, result_dir, orig_name, owner = row[0], row[1], row[2], row[3]
+    if template_id not in POSTPROCESS_TEMPLATES:
+        return _err(f'후처리는 KooChainRun 템플릿 잡만({sorted(POSTPROCESS_TEMPLATES)}) — 이 잡은 {template_id}',
+                    ErrorCode.INVALID_REQUEST, 400)
+    sim_type, kind = POSTPROCESS_TEMPLATES[template_id]
+    if mode in ('sphere', 'impact') and mode != kind:
+        return _err(f'{template_id} 잡의 종합 리포트는 {kind} 입니다(mode={mode})', ErrorCode.INVALID_REQUEST, 400)
+    rd = os.path.realpath(result_dir or '')
+    if not os.path.isfile(os.path.join(rd, 'runner_config.json')):
+        return _err(f'결과 폴더에 runner_config.json 없음: {result_dir}', ErrorCode.INVALID_REQUEST, 409)
+
+    pp_name = f'pp_{job_id}'
+    try:
+        if _active_job_ids('-j', str(job_id)):
+            return _err(f'원 잡 {job_id} 이 아직 끝나지 않았습니다', ErrorCode.INVALID_REQUEST, 409)
+        if _active_job_ids('-n', pp_name):
+            return _err(f'잡 {job_id} 의 후처리 잡이 이미 대기·실행 중입니다', ErrorCode.INVALID_REQUEST, 409)
+    except (OSError, subprocess.SubprocessError) as e:
+        return _err(f'squeue 확인 실패: {e}', ErrorCode.SLURM_SUBMISSION_FAILED, 503)
+
+    out_dir = os.path.join(rd, 'output')
+    q = shlex.quote
+    script = (
+        "#!/bin/bash\n"
+        f"#SBATCH --job-name={pp_name}\n"
+        f"#SBATCH --output={out_dir}/postprocess_%j.out\n"
+        f"#SBATCH --error={out_dir}/postprocess_%j.out\n"
+        "#SBATCH --nodes=1\n#SBATCH --ntasks=1\n"
+        f"#SBATCH --cpus-per-task={cpus}\n#SBATCH --mem={mem}\n#SBATCH --time={time_limit}\n"
+        f"#SBATCH --chdir={out_dir}\n"
+        + _sbatch_account_qos_lines(g.get('user', {}).get('role', 'user')) +
+        "\n# 끝난 잡의 결과 폴더에 거는 후처리 잡 — 대시보드 POST /api/jobs/<id>/postprocess 가 만들었다\n"
+        "export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1 PYTHONIOENCODING=utf-8\n"
+        f"export RESULT_DIR={q(rd)} WEB_USER={q(owner)}\n\n"
+        + return_manifest.shell_function() +
+        f'cd "$RESULT_DIR"\n'
+        f'echo "=== KooChainRun postprocess --{mode} (원 잡 {job_id}) ==="\n'
+        f'{q(KOOCHAINRUN)} postprocess runner_config.json --{mode}\n'
+        'PP_RC=$?\n'
+        f'write_return_manifest --job-id {q(str(job_id))} --job-name {q(orig_name or "")} --web-user "$WEB_USER" '
+        f'--sim-type {sim_type} --expect {kind} --postprocess postprocess_job --pp-rc "$PP_RC" '
+        '--postprocess-job-id "$SLURM_JOB_ID"\n'
+        'exit $?\n'
+    )
+
+    script_dir = os.path.join(SHARED_BASE, 'slurm_scripts') if os.path.isdir(SHARED_BASE) else '/tmp/slurm_scripts'
+    os.makedirs(script_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)   # #SBATCH --output 대상 — 잡 시작 전에 있어야 한다
+    script_path = os.path.join(script_dir, f"{pp_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sh")
+    with open(script_path, 'w') as f:
+        f.write(script)
+    os.chmod(script_path, 0o755)
+
+    manifest = os.path.join(rd, return_manifest.MANIFEST_REL)
+    prev = manifest[:-len('.json')] + '.prev.json'
+    moved = os.path.exists(manifest)
+    if moved:
+        os.replace(manifest, prev)
+    try:
+        r = subprocess.run([SBATCH, script_path], capture_output=True, text=True, check=True, timeout=10)
+        pp_job_id = r.stdout.strip().split()[-1]
+        if not pp_job_id.isdigit():
+            raise ValueError(f'unexpected sbatch output: {r.stdout.strip()}')
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError) as e:
+        if moved:
+            os.replace(prev, manifest)
+        stderr = getattr(e, 'stderr', '') or str(e)
+        log_error(request_id, ErrorCode.SLURM_SUBMISSION_FAILED, 'postprocess sbatch failed',
+                  {'job_id': job_id, 'stderr': stderr[-500:]})
+        return _err(f'sbatch 실패: {stderr}', ErrorCode.SLURM_SUBMISSION_FAILED, 500)
+
+    try:
+        record_job_submission(
+            job_id=pp_job_id, job_name=pp_name, template_id='smarttwin-postprocess',
+            template={'template': {'name': 'SmartTwin 후처리', 'version': '1.0.0'}},
+            user_id=owner,   # 명의는 원 잡 제출자 — 후처리 잡 로그도 같은 소유 검사로 열린다
+            slurm_config={'partition': '', 'nodes': 1, 'ntasks': 1, 'mem': mem, 'time': time_limit},
+            apptainer_image=None, uploaded_files={}, script_path=script_path, result_dir=rd)
+    except Exception as e:
+        log_error(request_id, ErrorCode.DB_RECORD_FAILED, 'postprocess DB record failed (job still submitted)',
+                  {'job_id': pp_job_id, 'error': str(e)})
+
+    log_info(request_id, 'postprocess_submitted', {'original_job_id': job_id, 'job_id': pp_job_id,
+                                                   'mode': mode, 'result_dir': rd})
+    return jsonify({'success': True, 'job_id': pp_job_id, 'original_job_id': str(job_id), 'result_dir': rd,
+                    'mode': mode, 'manifest': return_manifest.MANIFEST_REL, 'request_id': request_id}), 201
 
 
 # Health check
