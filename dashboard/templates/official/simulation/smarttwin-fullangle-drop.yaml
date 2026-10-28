@@ -75,6 +75,10 @@ script:
     echo "Started: $(date)"
     echo "========================================"
 
+    # 귀환 매니페스트: post_exec 전에 끝나도(prepare·submit 실패 등) "끝났다·없다·왜" 를 한 장 남긴다.
+    # post_exec 가 이미 썼으면 건드리지 않는다. 작성기 write_return_manifest 는 백엔드가 심는다.
+    trap '_rc=$?; [ -f "$RESULT_DIR/output/return_manifest.json" ] || write_return_manifest --sim-type fullangle_drop --expect sphere --stage early_exit --driver-rc "$_rc"' EXIT
+
     # 캠페인 작업+결과 디렉토리 = RESULT_DIR (/data/single/<user>/..., NFS 라 전 노드 가시)
     RUN_DIR="$RESULT_DIR"
     mkdir -p "$RUN_DIR" || { echo "ERROR: RUN_DIR 생성 실패: $RUN_DIR (/data/single 권한 확인)"; exit 1; }
@@ -207,15 +211,39 @@ script:
     "$KCR" collect runner_config.json "$RESULT_DIR/collected" \
       || echo "WARN: collect 실패 — 원시 결과는 $RESULT_DIR 내 Run_* 에 존재"
 
-    if [ "${CHAIN_POSTPROCESS:-true}" = "true" ]; then
-      echo "=== KooChainRun postprocess (--all) ==="
-      "$KCR" postprocess runner_config.json --all || echo "WARN: postprocess 실패 (결과는 보존됨)"
+    # 종합 리포트(sphere_report.html)의 정본은 KooChainRun submit 이 자식들에 afterany 로 건 리포트 잡
+    # (submit.log 의 "Sphere Job ID: N"). 그 잡을 기다리고, 없을 때(제출 실패)만 드라이버에서
+    # postprocess --all — 둘이 같은 HTML 을 겹쳐 쓰면 sha256 이 흔들린다.
+    PP_BY=disabled; PP_RC=""
+    REPORT_JOB_ID=$(grep -oE 'Sphere Job ID: [0-9]+' submit.log 2>/dev/null | grep -oE '[0-9]+$' | tail -1)
+    # 업로드 scenario 가 postprocess.enabled=false 면 CHAIN_POSTPROCESS 와 무관하게 리포트를 기대하지 않는다
+    PP_ON=$(python3 -c "import json;print(str(bool((json.load(open('runner_config.json')).get('postprocess') or {}).get('enabled'))).lower())" 2>/dev/null || echo true)
+    if [ "${CHAIN_POSTPROCESS:-true}" = "true" ] && [ "$PP_ON" = "true" ]; then
+      if [ -n "$REPORT_JOB_ID" ]; then
+        PP_BY=report_job
+        echo "=== 리포트 잡 $REPORT_JOB_ID 완료 대기 (60초 간격) ==="
+        while [ "$(squeue -h -j "$REPORT_JOB_ID" 2>/dev/null | wc -l)" -gt 0 ]; do
+          sleep 60
+        done
+      else
+        PP_BY=driver
+        echo "=== KooChainRun postprocess (--all) — 리포트 잡 없음 ==="
+        "$KCR" postprocess runner_config.json --all; PP_RC=$?
+        [ "$PP_RC" -eq 0 ] || echo "WARN: postprocess 실패 rc=$PP_RC (결과는 보존됨)"
+      fi
     fi
 
     echo "=== 진단 요약 ==="
     "$KCR" diagnose . 2>/dev/null | tail -20 || true
 
+    echo "=== 귀환 매니페스트 ==="
+    write_return_manifest --sim-type fullangle_drop --expect sphere --postprocess "$PP_BY" \
+      --pp-rc "$PP_RC" --report-job-id "$REPORT_JOB_ID"
+    RC=$?
+
     echo "========================================"
     echo "완료: $(date)"
     echo "결과 위치: $RESULT_DIR"
+    [ "$RC" -eq 0 ] || echo "리포트 없음 — 드라이버를 rc=$RC 로 끝낸다(까닭: $RESULT_DIR/output/return_manifest.json)"
     echo "========================================"
+    exit "$RC"

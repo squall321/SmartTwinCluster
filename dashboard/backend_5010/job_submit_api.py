@@ -38,6 +38,7 @@ class PartitionNotAllowed(Exception):
 
 # 절대 경로 import (systemd 환경에서 PATH 제한으로 필요)
 from slurm_commands import SSH, SBATCH, normalize_partition
+import return_manifest
 
 # Structured logging setup
 logger = logging.getLogger(__name__)
@@ -844,6 +845,11 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
         script += "\n"
 
     script += "# =============================================================================\n\n"
+
+    # 귀환 매니페스트 작성기 — 템플릿이 부를 때만 셸 함수로 심는다(정본 return_manifest.py, 노드 배포 불필요)
+    tmpl_body = ''.join(template['script'].get(k) or '' for k in ('pre_exec', 'main_exec', 'post_exec'))
+    if 'write_return_manifest' in tmpl_body:
+        script += return_manifest.shell_function()
 
     # 작업 디렉토리 설정 및 파일 복사
     script += "# Setup work directory\n"
