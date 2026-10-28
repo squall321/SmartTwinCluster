@@ -60,3 +60,5 @@ DynaForge 후처리 예약 연산(KooRemapper `platform/docs/REQUEST-postprocess
 - 실 Slurm 에서 찾은 결함: log_tail 에 지난 실행의 파일(사본에 남은 7월 리포트 잡의 sphere_report.slurm.err)이 섞였다.
   postprocess.by 로 고른다 — report_job 이면 <kind>_report.slurm.{err,out}, driver·postprocess_job 이면 <kind>_report.log.
 - 사본 /data/single/admin/RRVerify_{ok_828,fail_1088} 은 남겨 두었다(peer 확인용). 지워도 원본에는 영향이 없다(d3plot 은 하드링크).
+- C 의 한계(pykoocae-88): KooChainRun postprocess 는 prepare 때 만든 .sh 를 돌린다 — 옛 결과 재후처리는 옛 sphere 셸(10-26 개선·JSON 없음).
+  `--regen-sh` 같은 플래그는 pyKooCAE 사용자 결정 대기라 C 에 미리 옵션을 만들지 않았다(없는 플래그를 넘기면 KooChainRun 이 죽는다).

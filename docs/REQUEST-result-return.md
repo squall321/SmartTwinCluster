@@ -195,6 +195,10 @@ D·E·F 는 작고 독립적입니다. E 는 지금도 잘못된 물성으로 �
   `sphere_report.log` 꼬리. 같은 잡을 다시 걸면 409, 제출 직후엔 `.prev.json` 만 있다가 끝나면 매니페스트가 다시 생긴다.
   실제 파일로 REST — 본인 200·남 403·토큰 없음 401, 후처리 잡 로그도 본인에게 200.
 - **못 한 것** — 드라이버(B)를 실제 전각도·부분충격 잡으로 끝까지 돌리기(LS-DYNA 라이선스·노드 자원). 드라이버 post_exec 는 bash 대역으로만 확인했다.
+- **C 의 한계(pykoocae-88 지적)** — C 는 `KooChainRun postprocess` 를 부르고, 그것은 **prepare 때 만든** `<kind>_report.sh` 를 그대로 돌린다.
+  그래서 이번 판 전에 prepare 한 옛 결과를 다시 후처리하면 10-26 sphere 개선(Loaded 0 판정·`--parallel-runs`·자원)과
+  `sphere_report.json` 이 들어가지 않는다(검증 1245 도 그랬다). 셸을 다시 만드는 길(예 `postprocess --regen-sh`)은
+  pyKooCAE 쪽 사용자 결정 대기. 생기면 C 본문에 옵션 하나로 넘긴다.
 - **운영 SSO** — SSO 꺼짐이면 미들웨어가 모든 요청을 admin 으로 넣으므로 A 의 검사는 SSO 켜짐에서만 의미가 있습니다.
 - **동작 변화** — 남의 잡은 대시보드 로그 뷰어·`mcp_slurm` 읽기 도구에서도 403. 드라이버는 리포트 잡이 있으면 전 Run deep 을 다시
   돌리지 않으므로, inline deep 이 실패한 Run 의 재시도는 C(`mode: "all"`)로 합니다.
