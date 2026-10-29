@@ -85,6 +85,14 @@ function getJwtToken(): string | null {
 }
 
 /**
+ * apiRequest 를 거치지 않는 raw fetch 용 Authorization 헤더 — SSO 켜짐에서 보호 라우트 401 방지
+ */
+export function getAuthHeaders(): Record<string, string> {
+  const token = getJwtToken();
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+/**
  * Set JWT token in localStorage
  */
 export function setJwtToken(token: string): void {

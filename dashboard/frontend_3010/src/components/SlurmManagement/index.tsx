@@ -1,6 +1,7 @@
 // Slurm 관리 콘솔 컴포넌트
 import React, { useState, useEffect, useCallback } from 'react';
 import { API_CONFIG } from '../../config/api.config';
+import { getAuthHeaders } from '../../utils/api';
 import {
   Activity, RefreshCw, Server, Briefcase, Gauge, Power,
   PlayCircle, PauseCircle, RotateCw, ArrowUpCircle, AlertTriangle,
@@ -81,7 +82,7 @@ const SlurmManagement: React.FC = () => {
       // 1) dry_run 미리보기
       const pv = await fetch(`${base()}${path}`, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ ...body, dry_run: true }),
       });
       const pvData: ApiResult = await pv.json();
@@ -92,7 +93,7 @@ const SlurmManagement: React.FC = () => {
       // 2) 실제 실행
       const r = await fetch(`${base()}${path}`, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ ...body, dry_run: false }),
       });
       const data: ApiResult = await r.json();

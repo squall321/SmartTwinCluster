@@ -1,6 +1,7 @@
 // 노드 관리(drain/resume 등) 컴포넌트
 import React, { useState, useEffect } from 'react';
 import { API_CONFIG } from '../../config/api.config';
+import { getAuthHeaders } from '../../utils/api';
 import {
   Server,
   Activity,
@@ -148,7 +149,8 @@ const NodeManagement: React.FC = () => {
       const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/nodes/${action}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
         },
         body: JSON.stringify({ node_name: nodeName, reason })
       });
@@ -201,7 +203,8 @@ const NodeManagement: React.FC = () => {
         const response = await fetch(`${API_CONFIG.API_BASE_URL}/api/nodes/resume`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
           },
           body: JSON.stringify({ node_name: node.name, reason: 'Bulk resume' })
         });

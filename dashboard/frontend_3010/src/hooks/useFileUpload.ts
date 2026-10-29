@@ -5,6 +5,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { chunkUploader } from '../utils/ChunkUploader';
+import { getAuthHeaders } from '../utils/api';
 import { UploadedFile, UploadSession } from '../types/upload';
 
 export interface FileUploadOptions {
@@ -109,7 +110,7 @@ export const useFileUpload = (options: FileUploadOptions): UseFileUploadResult =
       });
 
       // 4. 업로드 완료된 파일 정보 조회
-      const response = await fetch(`/api/v2/files/uploads/${session.upload_id}`);
+      const response = await fetch(`/api/v2/files/uploads/${session.upload_id}`, { headers: getAuthHeaders() });
       if (!response.ok) {
         throw new Error('Failed to get upload info');
       }
