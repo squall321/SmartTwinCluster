@@ -50,8 +50,8 @@ chmod 600 $ENVF && sudo systemctl restart dashboard_backend
 
 ```bash
 J=<드라이버 잡 id>
-RD=$(sqlite3 "${DATABASE_PATH:-/home/koopark/web_services/backend/dashboard.db}" \
-     "SELECT result_dir FROM job_submissions WHERE job_id='$J' ORDER BY id DESC LIMIT 1")
+DB="${DATABASE_PATH:-/home/koopark/web_services/backend/dashboard.db}"   # backend_5010/.env 의 DATABASE_PATH
+RD=$(python3 -c "import sqlite3,sys;r=sqlite3.connect(sys.argv[1]).execute(\"SELECT result_dir FROM job_submissions WHERE job_id=? ORDER BY id DESC LIMIT 1\",(sys.argv[2],)).fetchone();print(r[0] if r else '')" "$DB" "$J")
 sacct -j $J -X -n -P --format=State,ExitCode
 tail -15 /shared/logs/$J.out
 python3 -m json.tool $RD/output/return_manifest.json | head -40

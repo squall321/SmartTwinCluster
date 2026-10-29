@@ -47,9 +47,9 @@ PAT 는 발급 순간의 신원을 저장한다. SSO 꺼짐 동안 대시보드 
 
 ```bash
 DB="${DATABASE_PATH:-/home/koopark/web_services/backend/dashboard.db}"   # backend_5010/.env 의 DATABASE_PATH
-sqlite3 "$DB" "SELECT id, username, role, name, created_at FROM personal_access_tokens WHERE username='admin' OR role='admin'"
+python3 -c "import sqlite3,sys;[print(r) for r in sqlite3.connect(sys.argv[1]).execute(\"SELECT id, username, role, name, created_at FROM personal_access_tokens WHERE username='admin' OR role='admin'\")]" "$DB"
 # 목록을 보고 실제 관리자가 쓰는 것이 아니면 지운다(사용자는 SSO 로그인 뒤 다시 발급)
-sqlite3 "$DB" "DELETE FROM personal_access_tokens WHERE username='admin'"
+python3 -c "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);print(c.execute(\"DELETE FROM personal_access_tokens WHERE username='admin'\").rowcount, 'deleted');c.commit()" "$DB"
 ```
 
 위임 창구가 낸 토큰(`위임: <client>`)은 실제 사용자 이름이라 그대로 둔다. Claude 클라이언트·게이트웨이 설정에 박힌 옛 `kst_`
