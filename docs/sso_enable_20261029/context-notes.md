@@ -44,3 +44,11 @@ DynaForge 참고 구현(KooRemapper platform/backend/app/modules/auth/routes.py 
   `git pull && sudo ./dashboard/start_production.sh`(사용자 몫). 창구는 운영 `HEAX_GATEWAY_SECRET` 을 넣어야 열린다.
 - 게이트웨이의 사람별 위임(cae00 provision.env 의 smart-twin 두 쌍)은 포털이 미룬다(사용자: 「나로 하는게 일단은 지금…
   나중에 다시」). 그래서 당장 창구를 부르는 쪽은 DynaForge(`dynaforge`) 하나다.
+
+## 운영 문서(2026-10-29) — 사용자 지시 「다 반영하자 … 포탈에 cae00 점검할 내용을 md 로 … 업로드까지」
+- icn401_apply_check.md(반영 뒤 확인 명령·첫 전각도 잡 매니페스트), sso_enable_procedure.md(켜기 절차·되돌리기). 포털이 cae00 점검 문서로 옮긴다.
+- 쓰면서 찾은 것: **SSO 꺼짐 동안 'MCP 토큰' 화면에서 발급한 kst_ 는 전부 username admin·role admin 스냅샷**이다
+  (mcp_token_api 가 g.user 를 저장하는데 SSO 꺼짐이면 g.user = FULL_ACCESS_USER). 켠 뒤 그대로면 관리자 토큰 — 절차서 §2 에서 지운다.
+- 운영 YAML 사본은 `sso.saml.idp.sso_url` 이 비어 있다 — IdP 가 없으면 켜는 순간 아무도 로그인 못 한다. 절차서 §0 의 첫 조건.
+- 기대값은 이 박스에서 대 봤다: 템플릿 grep -c 는 3(주석 포함), C 라우트의 한글 오류는 JSON 이스케이프라 상태 코드·error_code 로 본다,
+  YAML sed 는 두 YAML 모두 enabled → True.

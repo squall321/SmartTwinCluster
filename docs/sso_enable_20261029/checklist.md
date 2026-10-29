@@ -18,6 +18,10 @@
 - [ ] icn401 `git pull && sudo ./dashboard/start_production.sh` — 사용자 실행
 - [ ] 운영 `HEAX_GATEWAY_SECRET` = DynaForge `KOORM_KOOSLURM_SSO_SECRET` (게이트웨이 쪽은 포털이 위임을 다시 할 때)
 
+## 운영 문서
+- [x] icn401 적용 확인 명령·첫 전각도 잡 매니페스트 확인 — [icn401_apply_check.md](icn401_apply_check.md)
+- [x] SSO 켜기 절차서(조건·바꿀 것·PAT 정리·확인·되돌리기) — [sso_enable_procedure.md](sso_enable_procedure.md)
+
 ## SSO 켜는 날(사용자 결정 대기)
 - [ ] 걸린 DynaForge 예약 없음 확인
 - [ ] 유닛 env SSO_ENABLED·YAML sso.enabled·nginx 정본 conf
