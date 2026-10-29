@@ -28,7 +28,10 @@ DynaForge 참고 구현(KooRemapper platform/backend/app/modules/auth/routes.py 
   role user 의 파티션 제한(YAML roles.definitions.user)을 받는다.
 - **수명** — `expires_in` 3600초. 발급은 같은 (사람, 클라이언트) 의 직전 토큰을 지우고 새로 낸다(한 트랜잭션) — 사람·클라이언트당 활성 1개.
   클라이언트가 다르면 건드리지 않는다. 토큰 이름은 `위임: <client>` — 사용자의 'MCP 토큰' 화면에 보이고 사용자가 지울 수 있다.
-- **클라이언트 허용 목록** — env `SSO_DELEGATE_CLIENTS`, 기본 `dynaforge,gateway`. 이름은 포털이 정하므로 env 로 늘린다.
+- **클라이언트 허용 목록** — env `SSO_DELEGATE_CLIENTS`, 기본 `dynaforge,gateway-smart-twin-mcp,gateway-smart-twin-cluster`.
+  처음엔 `dynaforge,gateway` 였으나 포털이 게이트웨이 위임 이름을 백엔드별로 갈랐다(HWAXMcpGateway 7bcdf49·포털 6e9fb08) —
+  한 이름이면 같은 사람의 :5013·:5012 위임 토큰이 서로를 회수한다. 운영 env 단계를 늘리지 않게 기본값을 바꾸고
+  아무도 보내지 않는 `gateway` 는 뺐다.
   목록 밖이면 400(임의 이름을 받으면 회수 안 되는 토큰이 쌓인다 — 참고 구현과 같은 이유).
 - **비밀 하나** — 게이트웨이와 DynaForge 가 같은 비밀을 쥔다(다른 앱 넷과 같은 방식, 사용자 결정의 전제). 클라이언트 이름은
   비밀에 묶이지 않으므로 비밀을 쥔 쪽은 어느 허용 이름으로도 발급할 수 있다 — 클라이언트별 비밀은 포털 `sso-set-app.sh` 와 맞지 않아 고르지 않았다.

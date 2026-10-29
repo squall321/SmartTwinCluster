@@ -32,8 +32,12 @@ def _secret() -> str:
     return os.getenv('HEAX_GATEWAY_SECRET', '')
 
 
+# 게이트웨이는 백엔드마다 이름을 따로 쓴다 — 한 이름이면 같은 사람의 두 위임 토큰이 서로를 회수한다(HWAXMcpGateway 7bcdf49).
+DEFAULT_CLIENTS = 'dynaforge,gateway-smart-twin-mcp,gateway-smart-twin-cluster'
+
+
 def _allowed_clients() -> set:
-    raw = os.getenv('SSO_DELEGATE_CLIENTS', 'dynaforge,gateway')
+    raw = os.getenv('SSO_DELEGATE_CLIENTS', DEFAULT_CLIENTS)
     return {c.strip().lower() for c in raw.split(',') if c.strip()}
 
 

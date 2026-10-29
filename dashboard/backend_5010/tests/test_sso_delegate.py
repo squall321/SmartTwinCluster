@@ -84,19 +84,23 @@ class SsoDelegateTest(unittest.TestCase):
     def test_client_allowlist(self):
         self.assertEqual(self.mint(client='').status_code, 400)
         self.assertEqual(self.mint(client='random').status_code, 400)
-        self.assertEqual(self.mint(client='GATEWAY').status_code, 200)
+        self.assertEqual(self.mint(client='gateway').status_code, 400)   # 이름을 백엔드별로 가른 뒤 아무도 안 보낸다
+        self.assertEqual(self.mint(client='GATEWAY-SMART-TWIN-MCP').status_code, 200)
+        self.assertEqual(self.mint(client='gateway-smart-twin-cluster').status_code, 200)
         os.environ['SSO_DELEGATE_CLIENTS'] = 'dynaforge,deliberation'
         self.assertEqual(self.mint(client='deliberation').status_code, 200)
-        self.assertEqual(self.mint(client='gateway').status_code, 400)
+        self.assertEqual(self.mint(client='gateway-smart-twin-mcp').status_code, 400)
 
     def test_rotation_per_client(self):
         first = self.mint().get_json()['access_token']
-        other = self.mint(client='gateway').get_json()['access_token']
+        other = self.mint(client='gateway-smart-twin-mcp').get_json()['access_token']
+        cluster = self.mint(client='gateway-smart-twin-cluster').get_json()['access_token']
         second = self.mint().get_json()['access_token']
         self.assertIsNone(mcp_token.resolve_token(first))          # 같은 클라이언트 직전 것은 회수
         self.assertIsNotNone(mcp_token.resolve_token(second))
         self.assertIsNotNone(mcp_token.resolve_token(other))        # 다른 클라이언트는 그대로
-        self.assertEqual(len(mcp_token.list_tokens('koo.park')), 2)
+        self.assertIsNotNone(mcp_token.resolve_token(cluster))      # 게이트웨이 두 위임도 서로 안 죽인다
+        self.assertEqual(len(mcp_token.list_tokens('koo.park')), 3)
 
     def test_expired_token_rejected(self):
         tok = self.mint().get_json()['access_token']
