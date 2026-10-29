@@ -28,6 +28,8 @@
 
 **7-1 과 같은 것, 예약한 사용자 본인의 `kst_` PAT** 를 업로드·삭제 네 호출에 `Authorization: Bearer` 로 싣는다.
 그 PAT 는 도구 인자로 나르지 않고 **위임 창구** `POST /api/auth/sso` 로 그때그때 받는다(사용자 결정 10-29, 규격은 context-notes.md).
+**보류(10-29)** — 지금 제출은 게이트웨이 경유 단일 신원(smarttwin-mcp `STMC_CLUSTER_TOKEN`)이라, 업로드만 잡 소유자로 바꾸면 켜는 순간
+제출이 업로드 경로를 거절한다. 업로드 신원은 제출 신원과 함께 SSO 를 켤 때 정한다(sso_enable_procedure.md §0 조건 5).
 
 - 업로드는 토큰 사용자 폴더 `/shared/uploads/users/<user>/data/…` 에 놓인다(`file_classifier.get_storage_path`).
   smarttwin_mcp 는 입력 파일을 **호출자 본인의** `/shared/uploads/users/{user}` 아래에서만 받는다(`STMC_INPUT_ROOTS` 기본값).

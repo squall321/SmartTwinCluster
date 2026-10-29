@@ -12,7 +12,8 @@
 | 2 | 사용자 이름 = IdP `uid` = 이메일 @ 앞부분(사용자 확인 10-29) | `sso.attribute_mapping.username: uid` |
 | 3 | 쓰는 사람의 그룹에 `dashboard` 권한 — 없으면 잡 제출·업로드·결과 조회가 403 | `sso.group_permissions` 의 HPC-Admins·DX-Users·CAEG-Users 는 모두 있음. 다른 그룹 사용자가 있으면 추가 |
 | 4 | **걸린 DynaForge 예약이 없다** — 켜기 전 잡은 전부 `admin` 명의라 켠 뒤 일반 사용자 토큰으로 403 | DynaForge 쪽에 확인 |
-| 5 | DynaForge 덱 업로드가 위임 토큰을 싣는다(KooRemapper 작업 중) · 운영 `HEAX_GATEWAY_SECRET` 이 들어가 있다 | [icn401_apply_check.md](icn401_apply_check.md) §3 의 11 → `204` |
+| 5 | **DynaForge 덱 업로드 신원 = 제출 신원.** 제출이 게이트웨이 경유 단일 신원(smarttwin-mcp 유닛 env `STMC_CLUSTER_TOKEN`)이면 업로드도 그 토큰, 사람별 위임이면 업로드도 위임 토큰(창구 `/api/auth/sso`). 어긋나면 켜는 순간 smarttwin_mcp 가 업로드 경로를 거절한다 — 신원 방식은 켤 때 사용자 결정(KooRemapper 보류 10-29) | DynaForge 쪽에 확인 |
+| 5b | 위임 창구를 쓰는 쪽이 있으면 운영 `HEAX_GATEWAY_SECRET` 이 들어가 있다 | [icn401_apply_check.md](icn401_apply_check.md) §3 의 11 → `204` |
 | 6 | 화면 JWT 수정(`f267c127`)과 결과 귀환이 반영돼 있다 | icn401_apply_check.md §2 의 1 → `포함` |
 
 ## 1. 바꿀 것
@@ -52,8 +53,9 @@ python3 -c "import sqlite3,sys;[print(r) for r in sqlite3.connect(sys.argv[1]).e
 python3 -c "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);print(c.execute(\"DELETE FROM personal_access_tokens WHERE username='admin'\").rowcount, 'deleted');c.commit()" "$DB"
 ```
 
-위임 창구가 낸 토큰(`위임: <client>`)은 실제 사용자 이름이라 그대로 둔다. Claude 클라이언트·게이트웨이 설정에 박힌 옛 `kst_`
-(예: `~/.claude.json` 의 smarttwin)도 SSO 로그인 뒤 다시 발급해 바꾼다.
+위임 창구가 낸 토큰(`위임: <client>`)은 실제 사용자 이름이라 그대로 둔다. 설정에 박힌 옛 `kst_` 도 SSO 로그인 뒤 다시 발급해 바꾼다 —
+Claude 클라이언트(`~/.claude.json` 의 smarttwin), **smarttwin-mcp 유닛의 `STMC_CLUSTER_TOKEN`**(게이트웨이 경유 단일 신원 제출이 이것으로 간다),
+그리고 DynaForge 덱 업로드가 쓰는 토큰(조건 5). 다시 발급한 토큰의 주인이 그 뒤 제출·업로드의 명의가 된다.
 
 ## 3. 켠 뒤 확인
 
