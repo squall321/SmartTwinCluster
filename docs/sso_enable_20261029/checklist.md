@@ -13,6 +13,11 @@
       같은 클라이언트 재발급이 직전 것 무효화·다른 클라이언트는 그대로, 위임 헤더 우선, 발급 토큰으로 보호 라우트 통과(SSO 켜짐)
 - [x] callers.md 에 창구 반영, peer 회신(주소·변수·규칙·클라이언트·수명·권한)
 
+## 반영
+- [x] origin 푸시 — 사용자 결정 「지금 올리고 반영」(10-29)
+- [ ] icn401 `git pull && sudo ./dashboard/start_production.sh` — 사용자 실행
+- [ ] 운영 `HEAX_GATEWAY_SECRET` = DynaForge `KOORM_KOOSLURM_SSO_SECRET` (게이트웨이 쪽은 포털이 위임을 다시 할 때)
+
 ## SSO 켜는 날(사용자 결정 대기)
 - [ ] 걸린 DynaForge 예약 없음 확인
 - [ ] 유닛 env SSO_ENABLED·YAML sso.enabled·nginx 정본 conf
