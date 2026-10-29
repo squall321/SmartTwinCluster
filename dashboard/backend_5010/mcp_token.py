@@ -74,12 +74,32 @@ def create_token(identity: dict, name: str, expires_days=DEFAULT_EXPIRES_DAYS):
         name: 토큰 라벨(예: '내 노트북').
         expires_days: 만료일수(None 이면 무기한).
     """
-    plaintext = TOKEN_PREFIX + secrets.token_urlsafe(32)
     now = datetime.utcnow()
     expires_at = (now + timedelta(days=expires_days)) if expires_days else None
-    username = (identity.get('username') or 'unknown')
-
     conn = _connect()
+    info, plaintext = _insert(conn, identity, name, now, expires_at)
+    conn.commit()
+    conn.close()
+    return info, plaintext
+
+
+def rotate_token(identity: dict, name: str, expires_seconds: int):
+    """같은 사용자·같은 이름의 직전 토큰을 지우고 새로 발급(한 트랜잭션) — 위임 창구가 (사람, 클라이언트)당 활성 1개를 유지한다.
+    (info dict, 평문) 반환."""
+    now = datetime.utcnow()
+    conn = _connect()
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("DELETE FROM personal_access_tokens WHERE username = ? AND name = ?",
+                 ((identity.get('username') or 'unknown'), name))
+    info, plaintext = _insert(conn, identity, name, now, now + timedelta(seconds=expires_seconds))
+    conn.commit()
+    conn.close()
+    return info, plaintext
+
+
+def _insert(conn, identity: dict, name: str, now, expires_at):
+    plaintext = TOKEN_PREFIX + secrets.token_urlsafe(32)
+    username = (identity.get('username') or 'unknown')
     cur = conn.execute(
         "INSERT INTO personal_access_tokens "
         "(username, name, token_prefix, token_hash, email, groups_json, permissions_json, role, "
@@ -98,11 +118,9 @@ def create_token(identity: dict, name: str, expires_days=DEFAULT_EXPIRES_DAYS):
             expires_at.isoformat(sep=' ', timespec='seconds') if expires_at else None,
         ),
     )
-    conn.commit()
     row = conn.execute(
         "SELECT * FROM personal_access_tokens WHERE id = ?", (cur.lastrowid,)
     ).fetchone()
-    conn.close()
     return _public(row), plaintext
 
 

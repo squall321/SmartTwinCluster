@@ -161,6 +161,7 @@ from audit_api import audit_bp
 from audit_log import ensure_audit_table, log_admin_action
 # 개인 액세스 토큰(MCP 연동) — 발급/조회/삭제 + /api/me whoami
 from mcp_token_api import mcp_token_bp
+from sso_delegate_api import sso_delegate_bp
 from mcp_token import ensure_token_table
 # Slurm 계정/Association(sacctmgr) · 예약(reservation) · 사용량 리포트(sreport) 관리 API
 from slurm_account_api import slurm_account_bp
@@ -328,6 +329,7 @@ print("✅ Slurm Admin API registered: /api/slurm/ read{diag,fairshare,partition
 app.register_blueprint(audit_bp)
 ensure_audit_table()
 app.register_blueprint(mcp_token_bp)
+app.register_blueprint(sso_delegate_bp)
 ensure_token_table()
 app.register_blueprint(slurm_account_bp)
 app.register_blueprint(slurm_reservation_bp)

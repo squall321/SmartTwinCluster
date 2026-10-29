@@ -27,6 +27,7 @@
 ## 2. DynaForge 덱 업로드에 실을 토큰 — 제안
 
 **7-1 과 같은 것, 예약한 사용자 본인의 `kst_` PAT** 를 업로드·삭제 네 호출에 `Authorization: Bearer` 로 싣는다.
+그 PAT 는 도구 인자로 나르지 않고 **위임 창구** `POST /api/auth/sso` 로 그때그때 받는다(사용자 결정 10-29, 규격은 context-notes.md).
 
 - 업로드는 토큰 사용자 폴더 `/shared/uploads/users/<user>/data/…` 에 놓인다(`file_classifier.get_storage_path`).
   smarttwin_mcp 는 입력 파일을 **호출자 본인의** `/shared/uploads/users/{user}` 아래에서만 받는다(`STMC_INPUT_ROOTS` 기본값).
