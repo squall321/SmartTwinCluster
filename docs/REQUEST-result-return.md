@@ -166,7 +166,9 @@ D·E·F 는 작고 독립적입니다. E 는 지금도 잘못된 물성으로 �
   `ok`(기대한 리포트가 모두 있나) · `stage`(`complete`|`early_exit`) · `driver_rc` ·
   `job{slurm_job_id, job_name, web_user, sim_type(fullangle_drop|partial_impact), result_dir, output_dir}` ·
   `postprocess{by(report_job|driver|postprocess_job|disabled), rc, report_job{id, state, exit_code}, postprocess_job_id}` ·
-  `reports[{kind(sphere|impact), path(RESULT_DIR 기준), present, size, sha256, reason, log_tail{파일: 끝 20줄}}]`.
+  `reports[{kind(sphere|impact), path(RESULT_DIR 기준), present, size, sha256, reason, log_tail{파일: 끝 20줄},
+  ontology{path, present, size, sha256}}]`. `ontology` 는 짝 HTML 곁의 해석 온톨로지 꾸러미(`<kind>_report.ontology.json`, 10-31 추가 —
+  DynaForge 요청). ok·종료 코드에는 들지 않고, 칸이 없으면 옛 작성기다.
   있음/없음은 rc 가 아니라 **파일 유무**입니다. 리포트는 KooChainRun 과 같은 규칙으로 찾은 output_dir(`project.output_dir` →
   최상위 `output_dir`(부분충격, 예 `dwi_output`) → `<base_dir>/output`)에서 보며, `reports[].path` 는 그 실제 위치(결과 폴더 기준)입니다.
   매니페스트 자신은 언제나 `output/return_manifest.json` 입니다. `sphere_report.json` 등 JSON 은 v1 에 싣지 않습니다(필요하면

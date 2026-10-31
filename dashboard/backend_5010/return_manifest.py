@@ -89,10 +89,21 @@ def _log_names(kind, by):
     return ()
 
 
+def _ontology(result_dir, out_dir, kind):
+    """리포트 곁의 해석 온톨로지 꾸러미(짝 HTML 과 같은 폴더·같은 줄기). ok·종료 코드에는 들지 않는다 —
+    리포트가 정본이고 꾸러미는 덧붙이는 산출물(DynaForge 요청 10-31). 없으면 present:false, 까닭은 없다."""
+    path = os.path.join(out_dir, f'{kind}_report.ontology.json')
+    present = os.path.isfile(path)
+    return {'path': _rel(path, result_dir), 'present': present,
+            'size': os.path.getsize(path) if present else None,
+            'sha256': _sha256(path) if present else None}
+
+
 def _report_entry(result_dir, out_dir, kind, missing_reason, by):
     path = os.path.join(out_dir, f'{kind}_report.html')
     entry = {'kind': kind, 'path': _rel(path, result_dir), 'present': os.path.isfile(path),
-             'size': None, 'sha256': None, 'reason': None, 'log_tail': None}
+             'size': None, 'sha256': None, 'reason': None, 'log_tail': None,
+             'ontology': _ontology(result_dir, out_dir, kind)}
     if entry['present']:
         entry['size'] = os.path.getsize(path)
         entry['sha256'] = _sha256(path)

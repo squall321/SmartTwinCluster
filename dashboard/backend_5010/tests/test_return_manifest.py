@@ -103,6 +103,39 @@ class WriterTest(unittest.TestCase):
         self.assertEqual(self.run_main('--expect', 'sphere'), 0)
         self.assertEqual(_read_manifest(self.rd)['reports'][0]['path'], 'output/sphere_report.html')
 
+    def test_ontology_package_field(self):
+        """꾸러미 칸 — 있으면 네 칸, 없으면 present:false. ok·종료 코드는 리포트만으로 정해진다."""
+        out = os.path.join(self.rd, 'output')
+        with open(os.path.join(out, 'sphere_report.html'), 'w') as f:
+            f.write('<html/>')
+        self.assertEqual(self.run_main('--expect', 'sphere', '--postprocess', 'disabled'), 0)
+        onto = _read_manifest(self.rd)['reports'][0]['ontology']
+        self.assertEqual(onto, {'path': 'output/sphere_report.ontology.json', 'present': False,
+                                'size': None, 'sha256': None})
+        self.assertEqual(self.run_main('--expect', 'sphere'), 0)      # 꾸러미가 없어도 리포트가 있으면 ok
+        self.assertTrue(_read_manifest(self.rd)['ok'])
+
+        with open(os.path.join(out, 'sphere_report.ontology.json'), 'w') as f:
+            f.write('{"@context": {}}')
+        self.assertEqual(self.run_main('--expect', 'sphere'), 0)
+        onto = _read_manifest(self.rd)['reports'][0]['ontology']
+        self.assertEqual((onto['present'], onto['size']), (True, 16))
+        self.assertEqual(len(onto['sha256']), 64)
+
+        os.remove(os.path.join(out, 'sphere_report.html'))          # 꾸러미만 있고 리포트가 없으면 ok 아님
+        self.assertEqual(self.run_main('--expect', 'sphere'), return_manifest.EXIT_REPORT_MISSING)
+        m = _read_manifest(self.rd)
+        self.assertFalse(m['ok'])
+        self.assertTrue(m['reports'][0]['ontology']['present'])
+
+    def test_ontology_follows_output_dir(self):
+        with open(os.path.join(self.rd, 'runner_config.json'), 'w') as f:
+            json.dump({'mode': 'drop_weight_impact', 'output_dir': 'dwi_output'}, f)
+        os.makedirs(os.path.join(self.rd, 'dwi_output'))
+        self.run_main('--expect', 'impact')
+        self.assertEqual(_read_manifest(self.rd)['reports'][0]['ontology']['path'],
+                         'dwi_output/impact_report.ontology.json')
+
     def test_no_tmp_left_behind(self):
         self.run_main('--expect', 'sphere', '--postprocess', 'disabled')
         self.assertEqual(sorted(os.listdir(os.path.join(self.rd, 'output'))), ['return_manifest.json'])
