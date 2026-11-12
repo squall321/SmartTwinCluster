@@ -6,7 +6,7 @@
 ## 분담
 - [ ] 1. 노드 배포 안전(phase8_containers.sh --image, deploy_compute_images.sh) — kooslurminstallautomationrefactory-de 에 제안
 - [x] 2. 읽기 전용 이미지 점검 스크립트 — 이쪽 → [image_check.md](image_check.md)
-- [ ] 3. 해석기 없는 dev E2E 차례 — 이쪽
+- [x] 3. 해석기 없는 dev E2E 차례 — 이쪽(준비 끝, VM 켠 뒤 실행 대기)
 
 ## 2. 읽기 전용 이미지 점검
 - [x] 점검 항목·경로 확정(헤드·표본 노드·NFS: SIF sha256, /opt/kood3plot/VERSION, KooRemapper BUILD_INFO, NFS KooChainRun sha, /data/SmartTwinPostprocessor 판)
@@ -14,7 +14,7 @@
 - [x] dev 박스에서 실제로 돌려 표가 나오는지
 
 ## 3. dev E2E
-- [ ] DynaForge 후처리 예약 흐름 확인(예약 만들기·위임·폴링·반입)
-- [ ] dev 설정 — HEAX_GATEWAY_SECRET(dev 백엔드)·DynaForge dev 의 KOORM_* · 시험 잡 기록
+- [x] DynaForge 후처리 예약 흐름 확인(예약 만들기·위임·폴링·반입)
+- [x] dev 설정(KooSlurm 쪽) — 비밀 파일·dev 백엔드 HEAX_GATEWAY_SECRET·결과 사본·시험 잡 기록 9000001 / [ ] DynaForge dev 의 KOORM_* (kooremapper-4a)
 - [ ] 노드 이미지 Pre v136·Post v51 맞추기(deploy_apptainers.sh) 차례
-- [ ] 차례 문서 — 준비되면 포털에 알림(VM 은 포털이 켠다)
+- [x] 차례 문서 — [dev_e2e_runbook.md](dev_e2e_runbook.md), 포털에 알림(VM 은 포털이 켠다)
