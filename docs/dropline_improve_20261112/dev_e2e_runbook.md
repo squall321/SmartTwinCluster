@@ -35,7 +35,11 @@ sinfo -n node001 -h -o %T                       # → idle
 grep MemAvailable /proc/meminfo                  # 30GB 이상 유지(earlyoom) — 띄우는 노드는 node001 하나
 ```
 
-**노드 이미지 맞추기** — 헤드가 이미 같은 판이라 헤드 사본은 내용이 바뀌지 않는다(`deploy_apptainers.sh` 는 헤드에 먼저 복사한다).
+**노드 이미지 맞추기 — 11-12 에 끝남(다음엔 건너뛴다).** node001 `/opt/apptainers` 에 Pre v136(1,615,892,480 B, 7초)·
+Post v51(1,156,505,600 B, 4초). 노드 홈(vda2, `/opt` 와 같은 파일시스템)에 `.part` 로 올린 뒤 `sudo mv` 로 원자 교체했다 —
+node001 은 `/tmp` 가 별도 파일시스템(vda3)이다. **`deploy_apptainers.sh --image` 는 쓰지 않았다**: 헤드 사본을 비교 없이
+`sudo cp` 로 제자리에서 덮어(L609-612) 쓰는 중이면 squashfs 가 깨질 수 있고, 헤드는 이미 같은 판이었다. 다시 돌릴 때는 아래 확인 한 줄만.
+아래 명령은 참고로 남긴다(헤드 덮어쓰기 위험 — 1번 노드 배포 안전이 고치기 전에는 쓰지 말 것).
 
 ```bash
 cd $R && echo node001 > /tmp/e2e_nodes.txt
@@ -43,6 +47,11 @@ cd $R && echo node001 > /tmp/e2e_nodes.txt
 ./deploy_apptainers.sh --config my_multihead_cluster_2.yaml --nodes-file /tmp/e2e_nodes.txt --image SmartTwinPostprocessor.sif
 NODES=node001 EXPECT_PRE_SHA=1c973c25 EXPECT_POST_SHA=32997e9b bash cluster/utils/image_version_check.sh   # 노드 두 줄 OK
 ```
+
+> **11-12 실행 기록** — ① 까지 하고 멈췄다(사용자 결정 「멈추고 VM 끄기」). node001 을 켠 뒤 호스트 MemAvailable 이 30.7 → 28.5 GiB 로
+> 내려갔다 — 이미지 2.7 GB 를 받는 동안 VM(qemu) RSS 가 3.9 GiB 로 늘었고 게스트가 비워도 호스트로 돌아오지 않는다. ②·③ 은 VM 을
+> 최대 8 GiB 까지 키울 수 있어 「가용 30 GB 이상」 조건을 지킬 수 없었다. **다시 돌릴 때는 호스트 여유 메모리를 넉넉히(VM 최대 8 GiB 를 더해도
+> 30 GiB 이상) 확보한 뒤 사용자에게 다시 묻는다.** 결과 사본·시험 잡 9000001·비밀 파일·node001 의 v136/v51 은 그대로 남아 있다.
 
 ## 3. C — 결과 사본에 후처리 잡
 
