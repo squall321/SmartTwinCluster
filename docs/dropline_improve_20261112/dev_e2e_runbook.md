@@ -1,6 +1,6 @@
 # 해석기 없는 dev E2E — C 후처리 잡 → DynaForge 후처리 예약·반입
 
-**읽는 사람** 이 시험을 함께 돌리는 세션들 — 포털(hwaxportal-a5, VM 담당), KooRemapper(kooremapper-4a, DynaForge 쪽), KooSlurm(이 문서).
+**읽는 사람** 이 시험을 함께 돌리는 세션들 — 포털(hwaxportal-a5, VM 담당), KooRemapper(kooremapper-fd, DynaForge 반입 쪽 — 포털 11-12), KooSlurm(이 문서).
 **결정** 사용자 11-12 — 해석기 없이 이미 있는 결과 사본으로 한 번 돈다. 노드 VM 은 포털이 켠다(승인은 포털 세션에서 받았다).
 **모양** LS-DYNA 를 돌리지 않는다. 결과 사본에 C(`POST /api/jobs/<id>/postprocess`)를 걸어 노드에서 sphere 리포트를 다시 만들고,
 DynaForge 후처리 예약이 위임 창구로 토큰을 받아 귀환 매니페스트를 읽고 리포트(·온톨로지 꾸러미)를 반입하는 데까지.
@@ -15,7 +15,7 @@ DynaForge 후처리 예약이 위임 창구로 토큰을 받아 귀환 매니페
 | 시험 잡 기록 | dev DB(`/home/koopark/web_services/backend/dashboard.db`) `job_submissions` id 67 — `job_id=9000001`, `template_id=smarttwin-fullangle-drop`, `user_id=e2etest`, `result_dir`=위 사본. Slurm 에 없는 번호(현재 최대 1223) |
 | 노드 이미지 기대값 | 헤드는 이미 Pre v136 `1c973c25…`·Post v51 `32997e9b…` — [image_check.md](image_check.md) |
 
-## 1. 준비 — DynaForge 쪽(kooremapper-4a)
+## 1. 준비 — DynaForge 쪽(kooremapper-fd)
 
 ```bash
 # P = KooRemapper/platform
@@ -63,7 +63,7 @@ python3 -m json.tool /data/single/e2etest/E2E_drop_9000001/output/return_manifes
 **예약은 이 매니페스트가 생긴 뒤에 건다.** 사본에는 이전 매니페스트가 없어 C 도중에는 `.prev` 가 없다 — 그때 예약하면 DynaForge 가
 「끝났는데 매니페스트 없음」으로 2분 뒤 닫는다.
 
-## 4. DynaForge 후처리 예약(kooremapper-4a)
+## 4. DynaForge 후처리 예약(kooremapper-fd)
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer <e2etest 의 토큰>" -H 'Content-Type: application/json' \

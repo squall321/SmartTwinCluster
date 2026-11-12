@@ -15,6 +15,6 @@
 
 ## 3. dev E2E
 - [x] DynaForge 후처리 예약 흐름 확인(예약 만들기·위임·폴링·반입)
-- [x] dev 설정(KooSlurm 쪽) — 비밀 파일·dev 백엔드 HEAX_GATEWAY_SECRET·결과 사본·시험 잡 기록 9000001 / [ ] DynaForge dev 의 KOORM_* (kooremapper-4a)
+- [x] dev 설정(KooSlurm 쪽) — 비밀 파일·dev 백엔드 HEAX_GATEWAY_SECRET·결과 사본·시험 잡 기록 9000001 / [ ] DynaForge dev 의 KOORM_* (kooremapper-fd)
 - [ ] 노드 이미지 Pre v136·Post v51 맞추기(deploy_apptainers.sh) 차례
 - [x] 차례 문서 — [dev_e2e_runbook.md](dev_e2e_runbook.md), 포털에 알림(VM 은 포털이 켠다)
