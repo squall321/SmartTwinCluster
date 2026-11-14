@@ -32,5 +32,5 @@
 - [ ] (승인 후) dev VM에서 --verify-only, 이어서 실배포
 
 ## 마무리
-- [ ] 논리 단위로 커밋(가지에만)
-- [ ] 포털·-35에 결과 알림, 각 호스트 로컬 deploy_compute_images.sh 삭제 안내
+- [x] 논리 단위로 커밋(가지에만)
+- [x] 포털·-35에 결과 알림, 각 호스트 로컬 deploy_compute_images.sh 삭제 안내
