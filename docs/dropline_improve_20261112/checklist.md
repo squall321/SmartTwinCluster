@@ -1,7 +1,7 @@
 # 스마트트윈 낙하 파이프라인 개선 — KooSlurm 몫 (2026-11-12)
 
 요청: hwaxportal-a5(사용자 지시 11-12 「우리가 해 줄 수 있는 건 개선한다」). cae00 판 고정 중 → 가지 `feat/dropline-check-e2e`
-(worktree `KooSlurmInstallAutomationRefactory-wt-dropline`)에서 짓고 보류가 풀리면 올린다. 결정 근거는 [context-notes.md](context-notes.md).
+(worktree `KooSlurmInstallAutomationRefactory-wt-dropline`)에서 짓고 보류가 풀리면 올린다 → 11-14 판 고정 해제(포털), main 에 올림. 결정 근거는 [context-notes.md](context-notes.md).
 
 ## 분담
 - [ ] 1. 노드 배포 안전(phase8_containers.sh --image, deploy_compute_images.sh) — kooslurminstallautomationrefactory-de 에 제안
