@@ -5,12 +5,14 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/cluster/utils/sif_deploy_lib.sh" || { echo "❌ cluster/utils/sif_deploy_lib.sh 를 읽을 수 없음" >&2; exit 1; }
 CONFIG_FILE="$SCRIPT_DIR/my_multihead_cluster_2.yaml"
 
 # 옵션 플래그
 UPDATE_ONLY=false  # --update: 이미지만 업데이트 (Apptainer 설치 스킵)
 SKIP_APPTAINER_INSTALL=false
 TARGET_IMAGE=""    # --image: 특정 이미지만 배포
+IMAGE_SHA256=false # --sha256: --image 판정·검증에 sha256 사용
 PARALLEL=1         # --parallel N: 동시 배포 노드 수
 NODES_FILE=""      # --nodes-file FILE: 호스트네임 목록 파일 (yaml에서 필터)
 
@@ -35,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_APPTAINER_INSTALL=true
             shift 2
             ;;
+        --sha256)
+            IMAGE_SHA256=true
+            shift
+            ;;
         --parallel|-j)
             PARALLEL="$2"
             shift 2
@@ -51,6 +57,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --update          이미지만 업데이트 (Apptainer 설치 스킵)"
             echo "  --skip-install    Apptainer 설치 스킵"
             echo "  --image FILE      특정 SIF 이미지만 모든 노드에 배포"
+            echo "                    같음 = 크기와 mtime 이 모두 같을 때, 교체 = 같은 FS 스테이징 → .part → rename"
+            echo "  --sha256          (--image 와 함께) 크기+sha256 으로 판정, 내용 같고 mtime 만 다르면 mtime 만 맞춤"
             echo "  --parallel, -j N  병렬 배포 노드 수 (기본: 1, 350노드는 20~30 권장)"
             echo "  --nodes-file FILE 호스트네임 목록 파일 (한 줄 한 호스트, # 주석/빈 줄 무시)"
             echo "                    yaml 노드 중 이 파일에 적힌 호스트네임만 대상"
@@ -61,6 +69,7 @@ while [[ $# -gt 0 ]]; do
             echo "  $0 --config my_multihead_cluster.yaml           # 다른 YAML 파일 사용"
             echo "  $0 --update                                     # 이미지만 업데이트"
             echo "  $0 --image vnc_gnome_lsprepost.sif              # 특정 이미지만 배포"
+            echo "  $0 --image SmartTwinPostprocessor.sif --sha256  # 내용이 같으면 다시 쓰지 않음"
             echo "  $0 --nodes-file failed_nodes.txt --parallel 10  # 특정 노드만"
             exit 0
             ;;
@@ -263,6 +272,49 @@ image_needs_update() {
     # 크기 동일 + 로컬이 같거나 오래됨 → 스킵
     return 1
 }
+
+# 노드에 이미지를 원자 교체로 깐다 — 같은 FS 스테이징 → scp → <dst>.part → rename. 실패하면 기존 파일 유지.
+# want_sha 가 있으면 .part 의 sha256 을 확인한 뒤에만 바꾼다.
+install_image_on_node() {
+    local node="$1" ip="$2" img="$3" want_sha="${4:-}"
+    local ssh_cmd="ssh $SSH_OPTS $SSH_TIMEOUT" img_name bytes mtime staging staged err
+    img_name=$(basename "$img")
+    read -r bytes mtime <<< "$(sif_local_stat "$img")"
+    if ! staging=$(sif_remote "$ssh_cmd" "$SSH_USER" "$ip" sif_pick_staging "$NODE_IMAGE_PATH" "$bytes" 2>&1) || [[ -z "$staging" ]]; then
+        echo -e "${RED}[${node}]${NC} ❌ $img_name 스테이징 준비 실패: $staging"
+        return 1
+    fi
+    staging="${staging##*$'\n'}"
+    staged="${staging}/.${img_name}.${node}.incoming"   # 공유 FS 스테이징에서 노드끼리 겹치지 않게
+    if ! scp $SSH_OPTS "$img" "${SSH_USER}@${ip}:${staged}"; then
+        ssh $SSH_OPTS ${SSH_USER}@${ip} "rm -f $(printf '%q' "$staged")" </dev/null 2>/dev/null || true
+        echo -e "${RED}[${node}]${NC} ❌ $img_name 전송 실패"
+        return 1
+    fi
+    if ! err=$(sif_remote "$ssh_cmd" "$SSH_USER" "$ip" sif_atomic_install "$staged" "${NODE_IMAGE_PATH}/${img_name}" "$mtime" "$want_sha" yes 2>&1); then
+        ssh $SSH_OPTS ${SSH_USER}@${ip} "rm -f $(printf '%q' "$staged")" </dev/null 2>/dev/null || true
+        echo -e "${RED}[${node}]${NC} ❌ $img_name 설치 실패 (기존 파일 유지): $err"
+        return 1
+    fi
+}
+
+# 컨트롤러(로컬) 사본 — 같으면 건너뛰고, sha256 이 같고 mtime 만 다르면 mtime 만 맞추고, 아니면 원자 교체.
+# cp 로 덮어쓰면 같은 inode 를 잘라 써서 헤드에서 그 SIF 를 쓰는 프로세스가 깨지므로 원본은 보존하며 rename 으로 바꾼다.
+# 출력: SKIP / MTIME_FIXED / DEPLOYED(<이유>)
+install_image_on_controller() {
+    local img="$1" want_sha="${2:-}" img_name dst lsize lmtime remote status
+    img_name=$(basename "$img")
+    dst="${NODE_IMAGE_PATH}/${img_name}"
+    read -r lsize lmtime <<< "$(sif_local_stat "$img")"
+    remote=$(sif_fingerprint "$dst" "$([[ -n "$want_sha" ]] && echo yes || echo no)")
+    status=$(sif_classify "$lsize" "$lmtime" "$want_sha" "$remote")
+    case "$status" in
+        OK) echo "SKIP"; return 0 ;;
+        SHA_OK_MTIME) sif_set_mtime "$dst" "$lmtime" || return 1; echo "MTIME_FIXED"; return 0 ;;
+    esac
+    sif_atomic_install "$img" "$dst" "$lmtime" "$want_sha" no || return 1
+    echo "DEPLOYED(${status})"
+}
 echo ""
 
 # gres.conf 확인 (GPU 노드가 있으면 경고)
@@ -445,15 +497,8 @@ deploy_to_node() {
 
                         echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size) — 전송 중..."
 
-                        scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:$img_name || {
-                            echo -e "${RED}[${node}]${NC} ❌ $img_name 전송 실패"
-                            continue
-                        }
-
-                        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv ~/$img_name ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/$img_name && sudo chmod 755 ${NODE_IMAGE_PATH}/$img_name" || {
-                            echo -e "${RED}[${node}]${NC} ❌ $img_name 설치 실패"
-                            continue
-                        }
+                        # 같은 FS 스테이징 → .part → rename (기존 파일은 교체 순간까지 그대로)
+                        install_image_on_node "$node" "$ip" "$img" || continue
                         transferred=$((transferred + 1))
                     done
 
@@ -500,15 +545,8 @@ deploy_to_node() {
 
                 echo -e "${YELLOW}[${node}]${NC}   → $img_name ($img_size) — 전송 중..."
 
-                scp $SSH_OPTS "$img" ${SSH_USER}@${ip}:$img_name || {
-                    echo -e "${RED}[${node}]${NC} ❌ $img_name 전송 실패"
-                    continue
-                }
-
-                ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv ~/$img_name ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/$img_name && sudo chmod 755 ${NODE_IMAGE_PATH}/$img_name" || {
-                    echo -e "${RED}[${node}]${NC} ❌ $img_name 설치 실패"
-                    continue
-                }
+                # 같은 FS 스테이징 → .part → rename (기존 파일은 교체 순간까지 그대로)
+                install_image_on_node "$node" "$ip" "$img" || continue
                 transferred=$((transferred + 1))
             done
 
@@ -531,11 +569,12 @@ deploy_to_node() {
             # VNC 이미지 복사 (controller도 VNC 기능 가능)
             if [ -d "${VIZ_IMAGES_SOURCE}" ]; then
                 for img in ${VIZ_IMAGES_SOURCE}/*.sif; do
-                    local img_name=$(basename "$img")
-                    echo -e "${YELLOW}[${node}]${NC}   → $img_name"
-                    sudo cp "$img" ${NODE_IMAGE_PATH}/
-                    sudo chown root:root ${NODE_IMAGE_PATH}/$img_name
-                    sudo chmod 755 ${NODE_IMAGE_PATH}/$img_name
+                    local img_name=$(basename "$img") ctl_result
+                    if ctl_result=$(install_image_on_controller "$img" ""); then
+                        echo -e "${YELLOW}[${node}]${NC}   → $img_name — ${ctl_result}"
+                    else
+                        echo -e "${RED}[${node}]${NC}   ❌ $img_name 설치 실패 (기존 파일 유지)"
+                    fi
                 done
                 echo -e "${GREEN}[${node}]${NC} ✅ Controller 배포 완료"
             fi
@@ -605,12 +644,18 @@ if [[ -n "$TARGET_IMAGE" ]]; then
     IMG_DEPLOY_FAIL=0
     IMG_FAILED_NODES=()
 
-    # Controller 로컬 배포
-    echo -e "${YELLOW}[controller]${NC} ${TARGET_IMAGE} 배포 중..."
-    if sudo cp "$IMAGE_FILE" ${NODE_IMAGE_PATH}/ && \
-       sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && \
-       sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}; then
-        echo -e "${GREEN}[controller]${NC} ✅ 배포 완료"
+    # sha256 은 원본에서 한 번만 잰다
+    IMG_SHA=""
+    if [[ "$IMAGE_SHA256" == "true" ]]; then
+        echo "  원본 sha256 계산 중..."
+        IMG_SHA=$(sha256sum "$IMAGE_FILE" | cut -d' ' -f1)
+        echo "  sha256: ${IMG_SHA}"
+    fi
+
+    # Controller 로컬 사본 — 같으면 건너뜀, 다르면 원자 교체(cp 덮어쓰기 금지)
+    echo -e "${YELLOW}[controller]${NC} ${TARGET_IMAGE} 확인 중..."
+    if ctl_result=$(install_image_on_controller "$IMAGE_FILE" "$IMG_SHA"); then
+        echo -e "${GREEN}[controller]${NC} ✅ ${ctl_result}"
         IMG_DEPLOY_SUCCESS=$((IMG_DEPLOY_SUCCESS + 1))
     else
         echo -e "${RED}[controller]${NC} ❌ 배포 실패"
@@ -631,15 +676,29 @@ if [[ -n "$TARGET_IMAGE" ]]; then
             echo "FAIL $ip" > "$IMG_RESULTS_DIR/$node"
             return
         fi
-        ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mkdir -p ${NODE_IMAGE_PATH}" 2>/dev/null
-        if ! image_needs_update "$IMAGE_FILE" "$ip" "${NODE_IMAGE_PATH}"; then
+        # 같음 = 크기+mtime 일치 (--sha256 이면 크기+sha256). "로컬 mtime ≤ 원격" 은 롤백을 건너뛰므로 쓰지 않는다.
+        local lsize lmtime remote status
+        read -r lsize lmtime <<< "$(sif_local_stat "$IMAGE_FILE")"
+        remote=$(sif_remote "ssh $SSH_OPTS $SSH_TIMEOUT" "$SSH_USER" "$ip" sif_fingerprint \
+            "${NODE_IMAGE_PATH}/${TARGET_IMAGE}" "$([[ -n "$IMG_SHA" ]] && echo yes || echo no)" 2>/dev/null)
+        status=$(sif_classify "$lsize" "$lmtime" "$IMG_SHA" "$remote")
+        if [[ "$status" == "OK" ]]; then
             echo -e "${GREEN}[${node}]${NC} = 동일, 스킵"
             echo "OK" > "$IMG_RESULTS_DIR/$node"
             return
         fi
-        if scp $SSH_OPTS "$IMAGE_FILE" ${SSH_USER}@${ip}:${TARGET_IMAGE} 2>/dev/null \
-            && ssh $SSH_OPTS ${SSH_USER}@${ip} "sudo mv ~/${TARGET_IMAGE} ${NODE_IMAGE_PATH}/ && sudo chown root:root ${NODE_IMAGE_PATH}/${TARGET_IMAGE} && sudo chmod 755 ${NODE_IMAGE_PATH}/${TARGET_IMAGE}" 2>/dev/null; then
-            echo -e "${GREEN}[${node}]${NC} ✅"
+        if [[ "$status" == "SHA_OK_MTIME" ]]; then
+            if sif_remote "ssh $SSH_OPTS $SSH_TIMEOUT" "$SSH_USER" "$ip" sif_set_mtime "${NODE_IMAGE_PATH}/${TARGET_IMAGE}" "$lmtime" &>/dev/null; then
+                echo -e "${GREEN}[${node}]${NC} = sha256 같음, mtime 만 맞춤"
+                echo "OK" > "$IMG_RESULTS_DIR/$node"
+            else
+                echo -e "${RED}[${node}]${NC} ❌ mtime 맞추기 실패"
+                echo "FAIL $ip" > "$IMG_RESULTS_DIR/$node"
+            fi
+            return
+        fi
+        if install_image_on_node "$node" "$ip" "$IMAGE_FILE" "$IMG_SHA"; then
+            echo -e "${GREEN}[${node}]${NC} ✅ (${status} → 교체)"
             echo "OK" > "$IMG_RESULTS_DIR/$node"
         else
             echo -e "${RED}[${node}]${NC} ❌"
