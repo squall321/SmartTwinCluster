@@ -21,7 +21,14 @@
 #   --mode MODE         SIF deployment mode: skip | overwrite | update (overrides YAML setting)
 #   --skip-install      Apptainer 바이너리 설치 스킵 (이미지만 배포)
 #   --image FILE        특정 SIF 이미지만 모든 노드에 배포
-#   --parallel N        병렬 처리 노드 수 (기본: 8)
+#                       같음 판정 = 크기와 mtime 이 모두 같을 때(설치 시 mtime 을 원본 값으로 맞춤)
+#                       교체 = 대상과 같은 FS 에 스테이징 → <dst>.part → rename (쓰는 중 덮어쓰기 없음)
+#   --verify-only       (--image 와 함께) 쓰지 않고 노드별 상태표만 출력, 불일치가 있으면 exit 1
+#   --sha256            (--image 와 함께) 모든 노드에서 크기+sha256 으로 판정하고 설치본도 sha256 확인
+#                       내용이 같고 mtime 만 다르면 복사 없이 mtime 만 맞춤
+#   --sha256-sample N   (--image 와 함께) 무작위 N 대만 sha256, 나머지는 크기+mtime
+#   --nodes-file FILE   호스트네임 목록 파일로 대상 노드 제한
+#   --parallel N        병렬 처리 노드 수 (기본: 4)
 #   --help              Show this help message
 #
 # Deployment Modes (from YAML container_support.apptainer.sif_deployment_mode):
@@ -35,6 +42,8 @@
 #   sudo ./phase8_containers.sh --mode overwrite
 #   sudo ./phase8_containers.sh --skip-install
 #   sudo ./phase8_containers.sh --image vnc_gnome.sif
+#   sudo ./phase8_containers.sh --image SmartTwinPostprocessor.sif --verify-only --sha256
+#   sudo ./phase8_containers.sh --image SmartTwinPostprocessor.sif --sha256-sample 10
 #   sudo ./phase8_containers.sh --parallel 16
 ################################################################################
 
@@ -51,6 +60,7 @@ readonly NC='\033[0m' # No Color
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../utils/ssh_helpers.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/../utils/sif_deploy_lib.sh" || { echo "[ERROR] sif_deploy_lib.sh 를 읽을 수 없음" >&2; exit 1; }
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Default values
@@ -60,6 +70,10 @@ FORCE=false
 SIF_DEPLOYMENT_MODE=""  # Will be read from YAML (skip | overwrite | update)
 SKIP_INSTALL=false
 TARGET_IMAGE=""
+IMAGE_VERIFY_ONLY=false   # --verify-only
+IMAGE_SHA_MODE=""         # --sha256 → all, --sha256-sample N → sample
+IMAGE_SHA_SAMPLE=0
+IMAGE_TARGET_DIR="/opt/apptainers"
 # 병렬 수: 환경변수 PHASE8_PARALLEL > CLI > 기본값 4 (대역폭 보호)
 PARALLEL="${PHASE8_PARALLEL:-4}"
 NODES_FILE=""  # --nodes-file: 호스트네임 목록 파일 (yaml에서 필터)
@@ -213,6 +227,23 @@ parse_args() {
             --image)
                 TARGET_IMAGE="$2"
                 SKIP_INSTALL=true
+                shift 2
+                ;;
+            --verify-only)
+                IMAGE_VERIFY_ONLY=true
+                shift
+                ;;
+            --sha256)
+                IMAGE_SHA_MODE="all"
+                shift
+                ;;
+            --sha256-sample)
+                IMAGE_SHA_MODE="sample"
+                IMAGE_SHA_SAMPLE="$2"
+                if [[ ! "$IMAGE_SHA_SAMPLE" =~ ^[1-9][0-9]*$ ]]; then
+                    log_error "--sha256-sample 은 1 이상의 정수여야 함: $IMAGE_SHA_SAMPLE"
+                    exit 1
+                fi
                 shift 2
                 ;;
             --parallel)
@@ -628,25 +659,24 @@ deploy_to_node() {
             continue
         fi
 
-        # Determine staging directory (/scratch preferred for large files, /tmp as fallback)
-        local staging_dir
-        if timeout 5 $SSH_CMD ${user}@${ip} "test -d /scratch && test -w /scratch" 2>/dev/null; then
-            staging_dir="/scratch"
-        else
-            staging_dir="/tmp"
+        # 스테이징: 대상과 같은 FS 의 쓰기 가능 디렉토리(/scratch, $HOME, /tmp 순) + 대상 FS 여유 확인
+        local sif_bytes sif_mtime staging_dir staged
+        read -r sif_bytes sif_mtime <<< "$(sif_local_stat "$sif")"
+        if ! staging_dir=$(sif_remote "$SSH_CMD" "$user" "$ip" sif_pick_staging "$target_path" "$sif_bytes" 2>&1) || [[ -z "$staging_dir" ]]; then
+            log_error "  스테이징 준비 실패: $staging_dir"
+            fail_count=$((fail_count + 1))
+            continue
         fi
+        staging_dir="${staging_dir##*$'\n'}"
+        staged="${staging_dir}/.${sif_name}.${hostname}.incoming"   # 공유 FS 스테이징에서 노드끼리 겹치지 않게
 
-        # Copy to staging directory first (user writable)
-        # Use timeout and show progress for large files
         local sif_size=$(du -h "$sif" | cut -f1)
         log_info "  Copying .sif to ${staging_dir}... (${sif_size})"
-
-        # Use scp with compression and show error output (SCP_OPTS doesn't have -n)
-        if ! timeout 600 scp -C $SCP_OPTS "$sif" ${user}@${ip}:${staging_dir}/${sif_name}; then
+        # $SCP_CMD 는 setup_node_ssh 가 고른 노드별 인증(키 → sshpass)을 담고 있다
+        if ! timeout 600 $SCP_CMD -C "$sif" "${user}@${ip}:${staged}"; then
             log_error "  Failed to copy $sif_name (check disk space on target ${staging_dir})"
-            # Check target disk space
-            $SSH_CMD ${user}@${ip} "df -h ${staging_dir} /opt 2>/dev/null" || true
-            ((fail_count++))
+            $SSH_CMD ${user}@${ip} "rm -f $(printf '%q' "$staged"); df -h ${staging_dir} ${target_path} 2>/dev/null" || true
+            fail_count=$((fail_count + 1))
             continue
         fi
 
@@ -657,13 +687,12 @@ deploy_to_node() {
                 log_warning "  Failed to copy metadata $json_name"
         fi
 
-        # Move to target with sudo
-        log_info "  Moving to $target_path..."
-        if timeout 30 $SSH_CMD ${user}@${ip} "sudo mv ${staging_dir}/${sif_name} $remote_path && \
-            sudo chown root:root $remote_path && \
-            sudo chmod 755 $remote_path" 2>/dev/null; then
+        # 원자 교체: <dst>.part 를 만들고 mtime 을 원본 값으로 맞춘 뒤 rename (쓰는 중 덮어쓰기 없음)
+        log_info "  Installing to $target_path (atomic rename)..."
+        local install_err
+        if install_err=$(sif_remote "$SSH_CMD" "$user" "$ip" sif_atomic_install "$staged" "$remote_path" "$sif_mtime" "" yes 2>&1); then
             log_success "  ✅ $sif_name deployed successfully"
-            ((success_count++))
+            success_count=$((success_count + 1))
 
             # Move metadata JSON if it was copied
             if [[ -f "$json_file" ]]; then
@@ -674,10 +703,9 @@ deploy_to_node() {
                     log_warning "  Metadata not deployed"
             fi
         else
-            log_error "  Failed to move $sif_name to target (timeout or permission denied)"
-            # Clean up temp files if move failed
-            $SSH_CMD ${user}@${ip} "rm -f ${staging_dir}/${sif_name} ${staging_dir}/${json_name}" 2>/dev/null || true
-            ((fail_count++))
+            log_error "  Failed to install $sif_name — 기존 파일 유지: ${install_err}"
+            $SSH_CMD ${user}@${ip} "rm -f $(printf '%q' "$staged") ${staging_dir}/${json_name}" 2>/dev/null || true
+            fail_count=$((fail_count + 1))
         fi
     done
 
@@ -1053,6 +1081,158 @@ deploy_metadata_to_headnode() {
 }
 
 ################################################################################
+# --image: 단일 이미지 확인/배포
+################################################################################
+
+# 오류 메시지를 결과표 한 칸에 들어가게 한 줄·300자로 줄인다.
+_oneline() {
+    tr '\n' ' ' | head -c 300
+}
+
+# 한 노드에서 단일 이미지를 확인하거나 깐다. 결과는 "$results_dir/<hostname>" 에 "상태|설명" 한 줄.
+# 상태 — 확인 모드: OK · SHA_OK_MTIME · MISSING · SIZE · MTIME · SHA256 · UNREACHABLE
+#        배포 모드: SKIP · MTIME_FIXED · DEPLOYED · FAIL · UNREACHABLE
+# IMG_LOCAL_STAT / IMG_LOCAL_SHA 는 호출 전에 한 번만 잰다.
+image_node_task() {
+    local hostname="$1" ip="$2" user="$3" image_file="$4" do_sha="$5" results_dir="$6"
+    local out="$results_dir/$hostname" err="$results_dir/.${hostname}.err"
+    local img_name remote_path lsize lmtime lsha="" remote status staging staged detail
+    img_name=$(basename "$image_file")
+    remote_path="${IMAGE_TARGET_DIR}/${img_name}"
+    read -r lsize lmtime <<< "$IMG_LOCAL_STAT"
+    [[ "$do_sha" == "yes" ]] && lsha="$IMG_LOCAL_SHA"
+
+    if ! setup_node_ssh "$user" "$ip" &>/dev/null; then
+        echo "UNREACHABLE|ssh 접속 실패" > "$out"; return
+    fi
+    if ! remote=$(sif_remote "$SSH_CMD" "$user" "$ip" sif_fingerprint "$remote_path" "$do_sha" 2>"$err") || [[ -z "$remote" ]]; then
+        echo "UNREACHABLE|원격 확인 실패 $(_oneline < "$err")" > "$out"; return
+    fi
+    status=$(sif_classify "$lsize" "$lmtime" "$lsha" "$remote")
+
+    if [[ "$IMAGE_VERIFY_ONLY" == "true" ]]; then
+        echo "${status}|원격 ${remote}" > "$out"; return
+    fi
+
+    case "$status" in
+        OK)
+            echo "SKIP|같음 (${remote})" > "$out"; return ;;
+        SHA_OK_MTIME)
+            if sif_remote "$SSH_CMD" "$user" "$ip" sif_set_mtime "$remote_path" "$lmtime" &>"$err"; then
+                echo "MTIME_FIXED|sha256 같음, mtime 만 맞춤" > "$out"
+            else
+                echo "FAIL|mtime 맞추기 실패 $(_oneline < "$err")" > "$out"
+            fi
+            return ;;
+    esac
+
+    if ! staging=$(sif_remote "$SSH_CMD" "$user" "$ip" sif_pick_staging "$IMAGE_TARGET_DIR" "$lsize" 2>"$err") || [[ -z "$staging" ]]; then
+        echo "FAIL|스테이징 준비 실패: $(_oneline < "$err")" > "$out"; return
+    fi
+    staged="${staging}/.${img_name}.${hostname}.incoming"   # 공유 FS 스테이징에서 노드끼리 겹치지 않게
+    # shellcheck disable=SC2086  # SCP_CMD/SSH_CMD 는 의도적으로 단어 분리
+    if ! timeout 900 $SCP_CMD -C "$image_file" "${user}@${ip}:${staged}" 2>"$err"; then
+        $SSH_CMD "${user}@${ip}" "rm -f $(printf '%q' "$staged")" &>/dev/null || true
+        echo "FAIL|scp 실패 (${status}) $(_oneline < "$err")" > "$out"; return
+    fi
+    if sif_remote "$SSH_CMD" "$user" "$ip" sif_atomic_install "$staged" "$remote_path" "$lmtime" "$lsha" yes &>"$err"; then
+        echo "DEPLOYED|${status} → 교체 (스테이징 ${staging})" > "$out"
+    else
+        $SSH_CMD "${user}@${ip}" "rm -f $(printf '%q' "$staged")" &>/dev/null || true
+        detail=$(_oneline < "$err")
+        echo "FAIL|설치 실패, 기존 파일 유지: ${detail}" > "$out"
+    fi
+}
+
+# --image 본체. 실패·불일치가 있으면 1 을 돌려준다.
+deploy_single_image() {
+    local mode_label="배포"
+    [[ "$DRY_RUN" == "true" ]] && IMAGE_VERIFY_ONLY=true   # --image 에서 dry-run 은 쓰지 않는 확인과 같다
+    [[ "$IMAGE_VERIFY_ONLY" == "true" ]] && mode_label="확인(쓰기 없음)"
+    log_phase "=== 단일 이미지 ${mode_label} 모드: $TARGET_IMAGE ==="
+
+    local image_file="" search_dir
+    for search_dir in "$COMPUTE_IMAGES_SOURCE" "$VIZ_IMAGES_SOURCE"; do
+        if [[ -f "${search_dir}/${TARGET_IMAGE}" ]]; then
+            image_file="${search_dir}/${TARGET_IMAGE}"
+            break
+        fi
+    done
+    if [[ -z "$image_file" ]]; then
+        log_error "이미지 파일을 찾을 수 없음: $TARGET_IMAGE"
+        log_info "검색 경로: $COMPUTE_IMAGES_SOURCE, $VIZ_IMAGES_SOURCE"
+        return 1
+    fi
+    log_info "이미지 경로: $image_file ($(du -h "$image_file" | cut -f1))"
+
+    local all_nodes
+    all_nodes=$(python3 << EOPY | filter_nodes_stdin
+import yaml
+with open('$CONFIG_PATH') as f:
+    cfg = yaml.safe_load(f)
+nodes = cfg.get('nodes', {})
+for n in nodes.get('compute_nodes', []) + nodes.get('viz_nodes', []):
+    print(f"{n['hostname']}|{n['ip_address']}|{n.get('ssh_user','root')}")
+EOPY
+)
+    if [[ -z "$all_nodes" ]]; then
+        log_error "대상 노드가 없음 (YAML 또는 --nodes-file 확인)"
+        return 1
+    fi
+
+    IMG_LOCAL_STAT=$(sif_local_stat "$image_file")
+    IMG_LOCAL_SHA=""
+    local sha_hosts=""
+    case "$IMAGE_SHA_MODE" in
+        all)    sha_hosts=$(cut -d'|' -f1 <<< "$all_nodes") ;;
+        sample) sha_hosts=$(cut -d'|' -f1 <<< "$all_nodes" | shuf -n "$IMAGE_SHA_SAMPLE") ;;
+    esac
+    if [[ -n "$sha_hosts" ]]; then
+        log_info "원본 sha256 계산 중 (한 번만)..."
+        IMG_LOCAL_SHA=$(sha256sum "$image_file" | cut -d' ' -f1)
+        log_info "원본 sha256: $IMG_LOCAL_SHA, sha256 확인 노드: $(wc -l <<< "$sha_hosts")대"
+    fi
+    log_info "원본 크기/mtime: $IMG_LOCAL_STAT"
+
+    local results_dir pids=() node_info hostname ip user do_sha
+    results_dir=$(mktemp -d)
+    while IFS= read -r node_info; do
+        [[ -z "$node_info" ]] && continue
+        IFS='|' read -r hostname ip user <<< "$node_info"
+        do_sha=no
+        grep -qxF "$hostname" <<< "$sha_hosts" && do_sha=yes
+        ( image_node_task "$hostname" "$ip" "$user" "$image_file" "$do_sha" "$results_dir" ) </dev/null &
+        pids+=($!)
+        if [[ ${#pids[@]} -ge $PARALLEL ]]; then
+            for pid in "${pids[@]}"; do wait "$pid" || true; done
+            pids=()
+        fi
+    done < <(echo "$all_nodes")
+    for pid in "${pids[@]}"; do wait "$pid" || true; done
+
+    # 결과표 + 집계
+    local pass=0 bad=0 f line st
+    printf '%-24s %-14s %s\n' "HOST" "STATUS" "DETAIL" | tee -a "$LOG_FILE"
+    while IFS= read -r f; do
+        line=$(cat "$f" 2>/dev/null || echo "FAIL|결과 없음")
+        st="${line%%|*}"
+        printf '%-24s %-14s %s\n' "$(basename "$f")" "$st" "${line#*|}" | tee -a "$LOG_FILE"
+        case "$st" in
+            OK|SHA_OK_MTIME|SKIP|MTIME_FIXED|DEPLOYED) pass=$((pass + 1)) ;;
+            *) bad=$((bad + 1)) ;;
+        esac
+    done < <(find "$results_dir" -maxdepth 1 -type f ! -name '.*' | sort)
+    rm -rf "$results_dir"
+
+    if [[ $bad -gt 0 ]]; then
+        log_error "단일 이미지 ${mode_label}: 정상 ${pass}, 불일치/실패 ${bad}"
+        return 1
+    fi
+    log_success "단일 이미지 ${mode_label}: 정상 ${pass}, 불일치/실패 0"
+    return 0
+}
+
+################################################################################
 # Main execution
 ################################################################################
 
@@ -1109,78 +1289,13 @@ print(cfg.get('cluster_info', {}).get('ssh_password', '') or cfg.get('nodes', {}
     log_info "SIF Deployment Mode: $SIF_DEPLOYMENT_MODE"
     echo ""
 
-    # --image 단일 이미지 배포 모드
+    # --image 단일 이미지 확인/배포 모드 (실패·불일치가 있으면 exit 1)
     if [[ -n "$TARGET_IMAGE" ]]; then
-        log_phase "=== 단일 이미지 배포 모드: $TARGET_IMAGE ==="
-        local image_file=""
-        for search_dir in "$COMPUTE_IMAGES_SOURCE" "$VIZ_IMAGES_SOURCE"; do
-            if [[ -f "${search_dir}/${TARGET_IMAGE}" ]]; then
-                image_file="${search_dir}/${TARGET_IMAGE}"
-                break
-            fi
-        done
-        if [[ -z "$image_file" ]]; then
-            log_error "이미지 파일을 찾을 수 없음: $TARGET_IMAGE"
-            log_info "검색 경로: $COMPUTE_IMAGES_SOURCE, $VIZ_IMAGES_SOURCE"
-            exit 1
-        fi
-        log_info "이미지 경로: $image_file ($(du -h "$image_file" | cut -f1))"
-
-        local all_nodes
-        all_nodes=$(python3 << EOPY
-import yaml
-with open('$CONFIG_PATH') as f:
-    cfg = yaml.safe_load(f)
-nodes = cfg.get('nodes', {})
-for n in nodes.get('compute_nodes', []) + nodes.get('viz_nodes', []):
-    print(f"{n['hostname']}|{n['ip_address']}|{n.get('ssh_user','root')}")
-EOPY
-)
-        local pids=() results_dir
-        results_dir=$(mktemp -d)
-        while IFS= read -r node_info; do
-            [[ -z "$node_info" ]] && continue
-            local hostname=$(echo "$node_info" | cut -d'|' -f1)
-            local ip=$(echo "$node_info" | cut -d'|' -f2)
-            local user=$(echo "$node_info" | cut -d'|' -f3)
-            (
-                setup_node_ssh "$user" "$ip" &>/dev/null
-                if ! $SSH_CMD ${user}@${ip} "exit" &>/dev/null; then
-                    log_warning "[$hostname] SSH 실패 — 스킵"
-                    echo "fail" > "$results_dir/$hostname"; exit
-                fi
-                local img_name=$(basename "$image_file")
-                local remote_path="/opt/apptainers/$img_name"
-                $SSH_CMD ${user}@${ip} "sudo mkdir -p /opt/apptainers" 2>/dev/null
-                local local_size=$(stat -c%s "$image_file")
-                local remote_size=$($SSH_CMD ${user}@${ip} "sudo stat -c%s $remote_path 2>/dev/null || echo 0" 2>/dev/null)
-                if [[ "$local_size" == "$remote_size" ]]; then
-                    log_info "[$hostname] $img_name — 동일, 스킵"
-                    echo "ok" > "$results_dir/$hostname"; exit
-                fi
-                if timeout 600 $SCP_CMD "$image_file" ${user}@${ip}:/tmp/ && \
-                   $SSH_CMD ${user}@${ip} "sudo mv /tmp/$img_name $remote_path && sudo chown root:root $remote_path && sudo chmod 755 $remote_path"; then
-                    log_success "[$hostname] ✅ $img_name 배포 완료"
-                    echo "ok" > "$results_dir/$hostname"
-                else
-                    log_error "[$hostname] ❌ 배포 실패"
-                    echo "fail" > "$results_dir/$hostname"
-                fi
-            ) &
-            pids+=($!)
-            if [[ ${#pids[@]} -ge $PARALLEL ]]; then
-                for pid in "${pids[@]}"; do wait "$pid" || true; done
-                pids=()
-            fi
-        done <<< "$all_nodes"
-        for pid in "${pids[@]}"; do wait "$pid" || true; done
-        local ok=0 fail=0
-        for f in "$results_dir"/*; do
-            [[ "$(cat "$f" 2>/dev/null)" == "ok" ]] && ((ok++)) || ((fail++))
-        done
-        rm -rf "$results_dir"
-        log_success "단일 이미지 배포 완료: 성공 ${ok}, 실패 ${fail}"
-        exit 0
+        if deploy_single_image; then exit 0; else exit 1; fi
+    fi
+    if [[ "$IMAGE_VERIFY_ONLY" == "true" || -n "$IMAGE_SHA_MODE" ]]; then
+        log_error "--verify-only / --sha256 / --sha256-sample 은 --image 와 함께만 쓸 수 있음"
+        exit 1
     fi
 
     # Deploy viz-node images
@@ -1228,5 +1343,7 @@ EOPY
     echo ""
 }
 
-# Run main function
-main "$@"
+# Run main function (source 할 때는 실행하지 않음 — cluster/utils/test_sif_deploy.sh 가 함수만 불러 시험한다)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
