@@ -39,14 +39,20 @@ grep MemAvailable /proc/meminfo                  # 30GB 이상 유지(earlyoom) 
 Post v51(1,156,505,600 B, 4초). 노드 홈(vda2, `/opt` 와 같은 파일시스템)에 `.part` 로 올린 뒤 `sudo mv` 로 원자 교체했다 —
 node001 은 `/tmp` 가 별도 파일시스템(vda3)이다. **`deploy_apptainers.sh --image` 는 쓰지 않았다**: 헤드 사본을 비교 없이
 `sudo cp` 로 제자리에서 덮어(L609-612) 쓰는 중이면 squashfs 가 깨질 수 있고, 헤드는 이미 같은 판이었다. 다시 돌릴 때는 아래 확인 한 줄만.
-아래 명령은 참고로 남긴다(헤드 덮어쓰기 위험 — 1번 노드 배포 안전이 고치기 전에는 쓰지 말 것).
+**1번(노드 배포 안전, kooslurminstallautomationrefactory-de `feat/dropline-node-deploy`)이 main 에 들어간 뒤**에는 스크립트로 맞춘다.
+헤드·노드 모두 같은 파일시스템 `.part` → rename, `--sha256` 이면 크기+sha 가 같을 때 복사 없이 mtime 만 맞춘다 —
+node001 의 11-12 사본(mtime 이 복사 시각)도 복사 없이 넘어가 VM 에 쓰는 바이트가 거의 없다(메모리 조건에 맞다).
+`--nodes-file` 은 실제 파일이어야 한다(`<(echo …)` 는 `-f` 검사에 걸려 「파일 없음」).
 
 ```bash
 cd $R && echo node001 > /tmp/e2e_nodes.txt
-./deploy_apptainers.sh --config my_multihead_cluster_2.yaml --nodes-file /tmp/e2e_nodes.txt --image SmartTwinPreprocessor.sif
-./deploy_apptainers.sh --config my_multihead_cluster_2.yaml --nodes-file /tmp/e2e_nodes.txt --image SmartTwinPostprocessor.sif
+./deploy_apptainers.sh --config my_multihead_cluster_2.yaml --nodes-file /tmp/e2e_nodes.txt --image SmartTwinPreprocessor.sif --sha256
+./deploy_apptainers.sh --config my_multihead_cluster_2.yaml --nodes-file /tmp/e2e_nodes.txt --image SmartTwinPostprocessor.sif --sha256
 NODES=node001 EXPECT_PRE_SHA=1c973c25 EXPECT_POST_SHA=32997e9b bash cluster/utils/image_version_check.sh   # 노드 두 줄 OK
 ```
+
+그 전(지금 main 의 deploy_apptainers.sh)에는 `--image` 가 헤드를 비교 없이 제자리 `cp` 로 덮으므로 쓰지 않는다 —
+노드에만 11-12 손 방식(노드 홈에 `.part` 로 scp → `sudo mv`), 다시 돌릴 때는 위 확인 한 줄만.
 
 > **11-12 실행 기록** — ① 까지 하고 멈췄다(사용자 결정 「멈추고 VM 끄기」). node001 을 켠 뒤 호스트 MemAvailable 이 30.7 → 28.5 GiB 로
 > 내려갔다 — 이미지 2.7 GB 를 받는 동안 VM(qemu) RSS 가 3.9 GiB 로 늘었고 게스트가 비워도 호스트로 돌아오지 않는다. ②·③ 은 VM 을
