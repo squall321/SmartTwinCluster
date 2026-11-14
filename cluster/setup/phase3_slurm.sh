@@ -3596,20 +3596,16 @@ main() {
         if [[ "$AUTO_DEPLOY_COMPUTE" == "true" ]]; then
             setup_remote_compute_nodes
 
-            # Step 16: Deploy Apptainer images to compute nodes
+            # Step 16: Apptainer 이미지 배포는 여기서 하지 않는다.
+            # 예전 apptainer/deploy_compute_images.sh 는 아무도 읽지 않는 /opt/apptainers/compute 에 쓰고 결과와
+            # 상관없이 '완료' 를 찍었다. 노드 이미지는 phase8_containers.sh(/opt/apptainers, 원자 교체)로 배포한다.
             log INFO ""
-            log INFO "=== Deploying Apptainer images to compute nodes ==="
-
-            DEPLOY_SCRIPT="${PROJECT_ROOT}/apptainer/deploy_compute_images.sh"
-            if [[ -f "$DEPLOY_SCRIPT" ]]; then
-                if bash "$DEPLOY_SCRIPT" "$CONFIG_FILE"; then
-                    log SUCCESS "Apptainer images deployed to compute nodes"
-                else
-                    log WARNING "Apptainer image deployment failed or skipped (non-critical)"
-                fi
-            else
-                log WARNING "Deployment script not found: $DEPLOY_SCRIPT (skipping)"
+            log INFO "=== Apptainer 이미지 배포: phase8_containers.sh 로 진행 (여기서는 건너뜀) ==="
+            LEGACY_DEPLOY_SCRIPT="${PROJECT_ROOT}/apptainer/deploy_compute_images.sh"
+            if [[ -f "$LEGACY_DEPLOY_SCRIPT" ]]; then
+                log WARNING "레거시 스크립트 발견, 실행하지 않음: $LEGACY_DEPLOY_SCRIPT — 삭제 권장 (git 에 없는 로컬 파일)"
             fi
+            log INFO "  이미지 배포: sudo cluster/setup/phase8_containers.sh --skip-install"
         fi
     fi
 
