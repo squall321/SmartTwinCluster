@@ -1,7 +1,9 @@
 # 귀환 매니페스트 작성기와 두 드라이버 템플릿 post_exec(리포트 잡 대기·매니페스트·exit 3) 회귀 테스트
+import hashlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -148,6 +150,97 @@ class WriterTest(unittest.TestCase):
         r = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
         self.assertIn('rc=0', r.stdout, r.stderr)
         self.assertEqual(_read_manifest(self.rd)['job']['sim_type'], 'partial_impact')
+
+
+class ImagesProvenanceTest(unittest.TestCase):
+    """images{} — 매니페스트를 쓰는 노드의 SIF sha256·판 글자, 리포트 노드, 리포트 노드 곁 파일."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='img_')
+        self.rd = os.path.join(self.tmp, 'result')
+        self.sif = os.path.join(self.tmp, 'sif')
+        self.bin = os.path.join(self.tmp, 'bin')
+        self.root = os.path.join(self.tmp, 'sifroot')          # 가짜 apptainer 가 SIF 안 파일로 보여 줄 곳
+        for d in (os.path.join(self.rd, 'output'), self.sif, self.bin):
+            os.makedirs(d)
+        self._env = {k: os.environ.get(k) for k in ('SMARTTWIN_SIF_DIR', 'PATH')}
+        os.environ['SMARTTWIN_SIF_DIR'] = self.sif
+        os.environ['PATH'] = f"{self.bin}:{os.environ['PATH']}"
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _stub(self, name, body):
+        p = os.path.join(self.bin, name)
+        with open(p, 'w') as f:
+            f.write(f'#!/bin/bash\n{body}\n')
+        os.chmod(p, 0o755)
+
+    def _inner(self, sif_name, inner_path, text):
+        p = os.path.join(self.root, sif_name) + inner_path
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w') as f:
+            f.write(text)
+
+    def _fake_apptainer(self):
+        # apptainer exec <sif> cat <path> → sifroot/<sif 이름>/<path>
+        self._stub('apptainer', f'[ "$1" = exec ] && [ "$3" = cat ] && exec cat "{self.root}/$(basename "$2")$4"; exit 1')
+
+    def run_main(self, *extra):
+        return return_manifest.main(['--result-dir', self.rd, '--sim-type', 'fullangle_drop', '--expect', 'sphere', *extra])
+
+    def test_manifest_node_images(self):
+        with open(os.path.join(self.sif, 'SmartTwinPreprocessor.sif'), 'wb') as f:
+            f.write(b'pre-bytes')
+        with open(os.path.join(self.sif, 'SmartTwinPostprocessor.sif'), 'wb') as f:
+            f.write(b'post')
+        self._inner('SmartTwinPreprocessor.sif', '/opt/SmartTwinPreprocessor/VERSION', 'Version: v137\nBuilt: x\n')
+        self._inner('SmartTwinPreprocessor.sif', '/opt/kooremapper/bin/KooRemapper.BUILD_INFO.txt',
+                    '빌드: …\n소스 커밋: e6407dcda8d02727c978c55143608878098d1acd\n')
+        self._inner('SmartTwinPostprocessor.sif', '/opt/kood3plot/VERSION', 'Version: 226eca7\nBuild Type: Release\n')
+        self._fake_apptainer()
+        self.run_main('--postprocess', 'driver', '--pp-rc', '0')
+        img = _read_manifest(self.rd)['images']
+        node = img['manifest_node']
+        self.assertEqual(node['node'], socket.gethostname().split('.')[0])
+        self.assertEqual((node['pre']['present'], node['pre']['size'], node['pre']['version']), (True, 9, 'v137'))
+        self.assertEqual(node['pre']['kooremapper_commit'], 'e6407dcda8d02727c978c55143608878098d1acd')
+        self.assertEqual(node['pre']['sha256'], hashlib.sha256(b'pre-bytes').hexdigest())
+        self.assertEqual((node['post']['version'], node['post']['size']), ('226eca7', 4))
+        self.assertEqual(img['report_node'], node['node'])     # driver 가 이 노드에서 직접 만들었다
+        self.assertIsNone(img['report_images'])
+
+    def test_missing_sif_and_no_apptainer(self):
+        with open(os.path.join(self.sif, 'SmartTwinPostprocessor.sif'), 'wb') as f:
+            f.write(b'post')
+        self.run_main('--postprocess', 'disabled')
+        node = _read_manifest(self.rd)['images']['manifest_node']
+        self.assertEqual(node['pre'], {'path': os.path.join(self.sif, 'SmartTwinPreprocessor.sif'), 'present': False})
+        self.assertTrue(node['post']['present'])
+        self.assertIsNone(node['post']['version'])          # apptainer 가 없으면 판 글자는 null
+        self.assertIsNone(_read_manifest(self.rd)['images']['report_node'])
+
+    def test_report_job_node_and_sidecar(self):
+        self._stub('sacct', 'echo "COMPLETED|0:0|icn401-0203-h04"')
+        side = {'node': 'icn401-0203-h04', 'post': {'present': True, 'sha256': 'ab' * 32, 'version': '226eca7'}}
+        with open(os.path.join(self.rd, 'output', 'sphere_report.images.json'), 'w') as f:
+            json.dump(side, f)
+        self.run_main('--postprocess', 'report_job', '--report-job-id', '902')
+        m = _read_manifest(self.rd)
+        self.assertEqual(m['images']['report_node'], 'icn401-0203-h04')
+        self.assertEqual(m['images']['report_images'], {'sphere': side})
+        self.assertEqual(m['postprocess']['report_job'], {'id': '902', 'state': 'COMPLETED', 'exit_code': '0:0'})
+
+    def test_images_do_not_change_ok(self):
+        with open(os.path.join(self.rd, 'output', 'sphere_report.html'), 'w') as f:
+            f.write('<html/>')
+        self.assertEqual(self.run_main('--postprocess', 'driver', '--pp-rc', '0'), 0)   # SIF 가 없어도 ok
+        self.assertTrue(_read_manifest(self.rd)['ok'])
 
 
 class DriverPostExecTest(unittest.TestCase):

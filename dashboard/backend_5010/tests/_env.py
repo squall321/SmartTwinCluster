@@ -22,6 +22,7 @@ os.environ.update({
     'SINGLE_ROOT': os.path.join(ROOT, 'single'),
     'SLURM_BIN_DIR': os.path.join(ROOT, 'slurm_bin'),
     'KOOCHAINRUN_BIN': os.path.join(ROOT, 'bin', 'KooChainRun'),
+    'SMARTTWIN_SIF_DIR': os.path.join(ROOT, 'sif'),   # 매니페스트 images{} 가 실 SIF(수 GB)를 해시하지 않게
 })
 os.makedirs(os.environ['JOB_LOGS_DIR'], exist_ok=True)
 

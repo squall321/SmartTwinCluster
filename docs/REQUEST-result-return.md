@@ -169,6 +169,15 @@ D·E·F 는 작고 독립적입니다. E 는 지금도 잘못된 물성으로 �
   `reports[{kind(sphere|impact), path(RESULT_DIR 기준), present, size, sha256, reason, log_tail{파일: 끝 20줄},
   ontology{path, present, size, sha256}}]`. `ontology` 는 짝 HTML 곁의 해석 온톨로지 꾸러미(`<kind>_report.ontology.json`, 10-31 추가 —
   DynaForge 요청). ok·종료 코드에는 들지 않고, 칸이 없으면 옛 작성기다.
+  `images{manifest_node{node, pre{path, present, size, sha256, version, kooremapper_commit}, post{path, present, size, sha256, version}},
+  report_node, report_images}` — 이미지 출처(11-24 추가, 포털 PLAN §3 ⑥, 리포트 셸의 헤드·노드 판 탐침 F4 대신).
+  `manifest_node` 는 매니페스트를 쓴 노드(드라이버 노드 또는 C 후처리 잡 노드)의 `/opt/apptainers` SIF 와 그 안의 판 글자 —
+  `pre.version` 은 Pre SIF 안 `/opt/SmartTwinPreprocessor/VERSION` 의 `Version:`(pyKooCAE 가 넣는다, 없으면 null),
+  `pre.kooremapper_commit` 은 `/opt/kooremapper/bin/KooRemapper.BUILD_INFO.txt` 의 소스 커밋, `post.version` 은 `/opt/kood3plot/VERSION` 의 `Version:`.
+  SIF 가 없으면 `{path, present:false}`, apptainer 가 없으면 판 글자는 null, 수집이 실패하면 `{node, error}`.
+  `report_node` 는 리포트를 만든 노드(리포트 잡이면 sacct NodeList, 드라이버·C 가 직접 만들었으면 매니페스트 노드, 아니면 null).
+  `report_images` 는 리포트 노드가 곁에 남긴 `<output_dir>/<kind>_report.images.json`(manifest_node 와 같은 꼴, 선택 — 리포트 셸이 쓰면 실린다)을
+  `{kind: …}` 로, 없으면 null. ok·종료 코드에는 들지 않는다. version 은 1 그대로.
   있음/없음은 rc 가 아니라 **파일 유무**입니다. 리포트는 KooChainRun 과 같은 규칙으로 찾은 output_dir(`project.output_dir` →
   최상위 `output_dir`(부분충격, 예 `dwi_output`) → `<base_dir>/output`)에서 보며, `reports[].path` 는 그 실제 위치(결과 폴더 기준)입니다.
   매니페스트 자신은 언제나 `output/return_manifest.json` 입니다. `sphere_report.json` 등 JSON 은 v1 에 싣지 않습니다(필요하면
