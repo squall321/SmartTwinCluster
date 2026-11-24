@@ -3,18 +3,21 @@
 **읽는 사람** cae00 에서 stcx(운영 헤드) 이미지 판을 확인하는 운영자·포털 세션.
 **하는 일** 헤드·표본 노드·NFS 의 SmartTwin Pre/Post 판을 기대값과 대조해 markdown 표로 낸다. **아무것도 설치·변경하지 않는다.**
 
-## 붙여넣기(현재 목표: Pre v136 · Post v51)
+## 붙여넣기(현재 목표: Pre v141 · Post v54 — cae00 에 깔라고 안내한 판)
 
 ```bash
-ssh stcx 'EXPECT_PRE_SHA=1c973c25dc140dd934567d20033469632e89673246a96241a8d281716a8be70a \
-          EXPECT_POST_SHA=32997e9b6efb1fdc36737a1f9706a3156bee0a7256a6fe9382135495182ada24 \
-          EXPECT_POST_VERSION=226eca7 \
-          EXPECT_REMAPPER_COMMIT=e6407dcda8d02727c978c55143608878098d1acd \
-          EXPECT_KCR_SHA=35511107d417d202ffdf6f3fd19d9646752f39e3c6ce36f59429705097af289b \
+ssh stcx 'EXPECT_PRE_SHA=9b81405bbc1fd2cc870af2ee1b219c793e5bc07dfcc85353e77547425406efcc \
+          EXPECT_POST_SHA=bbaa491b45cc07d99ca1551338e47f8aaf692f7b75f16ccc47e2a31cd3c3b368 \
+          EXPECT_POST_VERSION=da81ad3 \
+          EXPECT_REMAPPER_COMMIT=faf758b8770e9e515170afbae825b2578fa1baad \
+          EXPECT_KCR_SHA=1170561e80a4181a58696cd2eb75a2f148bdfd05fa69ea6eda191bf881287888 \
           bash -s' < cluster/utils/image_version_check.sh
 ```
 
-기대값은 dev 헤드(smarttwincluster)의 v136·v51 실물에서 읽었다(2026-11-12). 판이 바뀌면 이 다섯 값만 바꾼다.
+기대값 출처(2026-11-24): Pre·Post SIF sha256 과 Post VERSION 은 포털이 준 v141·v54 값이고, dev 헤드(smarttwincluster) 실측과 같다.
+KooRemapper 커밋·KooChainRun.bin sha256 은 dev 헤드 v141 실측(NFS 사본과 SIF 안 사본이 같다, KooChainRun md5 `03eae3654ce29acbc7ceaf2766abd388`).
+Post GUI SIF(`SmartTwinPostprocessorGUI.sif`, 스크립트가 보지 않음)는 `6025f32f23c293031b4695c95b83452bc24f6184272dd0d789d19c53701bab6a` 로 포털 값과 같다.
+판이 바뀌면 이 다섯 값만 바꾼다. 앞 판(v136·v51, 11-12)은 Pre `1c973c25…`·Post `32997e9b…`·VERSION `226eca7` 이었다.
 앞 8자 이상이면 접두 일치로 판정한다.
 
 | 변수 | 무엇 | 어디서 |
@@ -45,3 +48,5 @@ ssh stcx 'EXPECT_PRE_SHA=1c973c25dc140dd934567d20033469632e89673246a96241a8d2817
 - `/data/apptainers/SmartTwinPreprocessor.sif` 는 7월 사본이라 보지 않는다(쓰는 스크립트가 없다).
 - SIF 안에는 v 번호가 없다(v136·v51 은 tar 이름에만 있다) — 판은 sha·커밋으로 본다.
 - dev 박스에서 돌려 보았다: 표준입력 실행 모든 항목 OK(6초), 틀린 기대값 → DIFF·종료 1, 닿지 않는 노드 → ERR·종료 1.
+  11-24 v141·v54 값으로 다시 돌려 헤드·NFS 전 항목 OK.
+- MCP 에서도 부를 수 있다 — smarttwin_mcp `image_version_check` 도구(같은 스크립트를 감싼다, 인자 `expect_*`·`nodes`·`node_sha`).

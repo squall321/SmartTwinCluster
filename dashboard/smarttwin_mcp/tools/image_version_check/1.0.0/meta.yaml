@@ -36,9 +36,9 @@ transport:
   timeout_sec: 900
 expose: catalog
 examples:
-  - title: 기대값 다섯 개로 헤드·NFS·자동 표본 노드 대조(값은 판마다 바꾼다 — 예는 v136·v51)
-    args: {expect_pre_sha: "1c973c25", expect_post_sha: "32997e9b", expect_post_version: "226eca7",
-           expect_remapper_commit: "e6407dcd", expect_kcr_sha: "35511107"}
+  - title: 기대값 다섯 개로 헤드·NFS·자동 표본 노드 대조(값은 판마다 바꾼다 — 예는 Pre v141·Post v54)
+    args: {expect_pre_sha: "9b81405b", expect_post_sha: "bbaa491b", expect_post_version: "da81ad3",
+           expect_remapper_commit: "faf758b8", expect_kcr_sha: "1170561e"}
   - title: 노드 하나만 빠르게(크기·시각)
     args: {nodes: ["node001"], node_sha: false}
   - title: 기대값 없이 실제 판만 보기

@@ -7,4 +7,4 @@
 - [x] ⑨ image_version_check 도구 — `795b6932`, smarttwin_mcp 시험 343 통과(6 추가, 실패 3 은 기준선)
 - [ ] 동결 해제 뒤 push, 반영 판을 포털·-53·-4a 에 알림
 - [ ] (포털) 게이트웨이 등재 — PA-16 뒤
-- [ ] image_check.md 기대값을 현재 판으로(dev 는 Pre v141·Post v54) — 다음 붙여넣기 전
+- [x] image_check.md 기대값을 Pre v141·Post v54 로(포털 값 + dev 실측 대조, 헤드·NFS 전 항목 OK)
