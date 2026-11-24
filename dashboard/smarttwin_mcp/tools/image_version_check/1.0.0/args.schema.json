@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "image_version_check args",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expect_pre_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8,64}$",
+      "description": "기대하는 SmartTwinPreprocessor.sif sha256(앞 8자 이상 — 접두 일치). 비우면 판정 없이 실제값만."
+    },
+    "expect_post_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8,64}$",
+      "description": "기대하는 SmartTwinPostprocessor.sif sha256(앞 8자 이상 — 접두 일치)."
+    },
+    "expect_post_version": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{7,40}$",
+      "description": "Post SIF 안 /opt/kood3plot/VERSION 의 Version(KooD3plotReader 커밋), NFS /data/SmartTwinPostprocessor/VERSION 과도 대조."
+    },
+    "expect_remapper_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$",
+      "description": "Pre SIF 안 KooRemapper.BUILD_INFO.txt 의 소스 커밋."
+    },
+    "expect_kcr_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8,64}$",
+      "description": "KooChainRun.bin sha256 — NFS /data/SmartTwinPreprocessor/lib/KooChainRun 과 Pre SIF 안 사본 모두."
+    },
+    "nodes": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"},
+      "description": "표본 노드 호스트명 목록. 비우면 sinfo 로 파티션마다 sample_per_partition 대(idle·mix·alloc)."
+    },
+    "sample_per_partition": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "default": 1,
+      "description": "nodes 를 비웠을 때 파티션마다 고를 표본 노드 수."
+    },
+    "node_sha": {
+      "type": "boolean",
+      "default": true,
+      "description": "true 면 표본 노드의 두 SIF sha256(노드당 수십 초), false 면 크기·시각만(빠름, 판정 없음)."
+    }
+  }
+}
