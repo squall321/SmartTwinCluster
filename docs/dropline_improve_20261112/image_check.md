@@ -17,6 +17,9 @@ ssh stcx 'EXPECT_PRE_SHA=9b81405bbc1fd2cc870af2ee1b219c793e5bc07dfcc85353e775474
 기대값 출처(2026-11-24): Pre·Post SIF sha256 과 Post VERSION 은 포털이 준 v141·v54 값이고, dev 헤드(smarttwincluster) 실측과 같다.
 KooRemapper 커밋·KooChainRun.bin sha256 은 dev 헤드 v141 실측(NFS 사본과 SIF 안 사본이 같다, KooChainRun md5 `03eae3654ce29acbc7ceaf2766abd388`).
 Post GUI SIF(`SmartTwinPostprocessorGUI.sif`, 스크립트가 보지 않음)는 `6025f32f23c293031b4695c95b83452bc24f6184272dd0d789d19c53701bab6a` 로 포털 값과 같다.
+참고(스크립트가 보지 않는 값, v141 — 포털 4차 받은 편지함 3절 값과 dev 실측이 같다): Pre SIF 안
+`/opt/SmartTwinPreprocessor/lib/KooMeshModifier/KooMeshModifier.bin` `dd11a1cf177d9513eb9a86c9f22691aa72eef217e95e9b34d373ec3db7322601`,
+`/opt/kooremapper/bin/KooRemapper` `066e21a3508ac3fe1fa549575b30c4359c466ac527cfe1ee88b637708a02372e`. KooChainRun.bin 도 그 절 값과 같다.
 판이 바뀌면 이 다섯 값만 바꾼다. 앞 판(v136·v51, 11-12)은 Pre `1c973c25…`·Post `32997e9b…`·VERSION `226eca7` 이었다.
 앞 8자 이상이면 접두 일치로 판정한다.
 
