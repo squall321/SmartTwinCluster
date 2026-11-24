@@ -178,6 +178,8 @@ D·E·F 는 작고 독립적입니다. E 는 지금도 잘못된 물성으로 �
   `report_node` 는 리포트를 만든 노드(리포트 잡이면 sacct NodeList, 드라이버·C 가 직접 만들었으면 매니페스트 노드, 아니면 null).
   `report_images` 는 리포트 노드가 곁에 남긴 `<output_dir>/<kind>_report.images.json`(manifest_node 와 같은 꼴, 선택 — 리포트 셸이 쓰면 실린다)을
   `{kind: …}` 로, 없으면 null. ok·종료 코드에는 들지 않는다. version 은 1 그대로.
+  ⚠ `manifest_node.pre` 는 매니페스트를 쓴 노드에 그 시각 깔린 Pre 판(배포 스냅숏)이다 — 전처리는 KooChainRun 자식 런 잡들이 여러 노드에서
+  먼저 돌렸으므로 그 증거가 아니다. 런마다 실제로 쓴 SIF·덱은 KC-01 런별 provenance.json(pyKooCAE RunProvenance)이 정본. 리포트는 Post 만 쓴다.
   있음/없음은 rc 가 아니라 **파일 유무**입니다. 리포트는 KooChainRun 과 같은 규칙으로 찾은 output_dir(`project.output_dir` →
   최상위 `output_dir`(부분충격, 예 `dwi_output`) → `<base_dir>/output`)에서 보며, `reports[].path` 는 그 실제 위치(결과 폴더 기준)입니다.
   매니페스트 자신은 언제나 `output/return_manifest.json` 입니다. `sphere_report.json` 등 JSON 은 v1 에 싣지 않습니다(필요하면
