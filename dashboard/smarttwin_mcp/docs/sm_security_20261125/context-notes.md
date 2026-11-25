@@ -18,3 +18,5 @@
 - SM-02: mode-read 태그를 따르라는 요청서 문장은 쓰지 않는다 — hwaxportal-71 정정대로 mode-* 는 시야 구분(job_status 같은 읽기도 mode-own). meta.yaml 에 read_only 칸을 따로.
 - SM-02: job_diagnose(KooChainRun diagnose 가 파일을 쓰는지 확인 못 함)·job_collect(요약 파일을 씀)는 read_only 를 달지 않았다 — 확실한 것만. readOnlyHint 는 모든 직접 도구에 true/false 로 명시.
 - SM-02: fastmcp 3.3.1 tool(annotations=dict) 동작 확인(ToolAnnotations 로 바뀜).
+- SM-03: SHA256SUMS 는 dev main 트리의 wheel 68개로 만들었다. cae00 의 wheel 이 다른 판이면 설치기가 불일치로 멈춘다 — 그때는 그쪽 wheel 로 다시 만들 것.
+- SM-03: 이미 깔린 유닛(/etc/systemd/system/smarttwin-mcp.service)은 건드리지 않는다 — 새로 설치할 때만 의미가 있다. 운영 재설치 불필요.

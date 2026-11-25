@@ -3,8 +3,9 @@
 # NOTE: HTTP 모드(streamable)는 원격 Claude 가 nginx /mcp 로 접속하므로 상시 데몬으로 띄웁니다.
 #
 # 본 예시는 dashboard/mcp_slurm/mcp-slurm.service.example 패턴을 그대로 따릅니다.
-# install_offline.sh --install-service 가 __SERVICE_USER__ / __SERVICE_GROUP__ / __PROJECT_HOME__
-# placeholder 를 치환합니다(계정은 YAML web_services.service_user|users.ssh_user 에서, 경로는 repo 위치에서).
+# install_offline.sh --install-service 가 __SERVICE_USER__ / __SERVICE_GROUP__ / __PROJECT_HOME__ / __APP_HOME__
+# placeholder 를 치환합니다(계정은 YAML web_services.service_user|users.ssh_user 에서, __PROJECT_HOME__ 은 그 계정의 홈,
+# __APP_HOME__ 은 이 폴더(smarttwin_mcp) — STMC_APP_HOME 으로 바꿀 수 있다).
 # ExecStart 는 smarttwin_mcp 전용 venv(install_offline.sh 가 오프라인 wheel 로 생성)를 가리킵니다.
 
 [Unit]
@@ -18,15 +19,15 @@ Type=simple
 # User/Group placeholder 는 install_offline.sh 가 동적 치환 (systemd 는 지시어 줄 인라인 주석 미지원 — 별도 줄 유지)
 User=__SERVICE_USER__
 Group=__SERVICE_GROUP__
-WorkingDirectory=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp
-Environment="PATH=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
+WorkingDirectory=__APP_HOME__
+Environment="PATH=__APP_HOME__/venv/bin:/usr/local/slurm/bin:/usr/bin:/bin"
 Environment="HOME=__PROJECT_HOME__"
-Environment="PYTHONPATH=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/src"
+Environment="PYTHONPATH=__APP_HOME__/src"
 # transport / 바인딩 — nginx /mcp 뒤 loopback 유지(보안). 외부 직노출 시 STMC_MCP_HOST=0.0.0.0.
 Environment="STMC_CLUSTER_URL=http://127.0.0.1:5010"
 Environment="STMC_JOBS_DB=/data/SmartTwinMCP/jobs.db"
 Environment="STMC_AUDIT_DB=/data/SmartTwinMCP/audit.db"
-ExecStart=__PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/venv/bin/python -m smarttwin_mcp.server serve --transport streamable-http --host 127.0.0.1 --port 5013 --tools-root __PROJECT_HOME__/claude/KooSlurmInstallAutomationRefactory/dashboard/smarttwin_mcp/tools
+ExecStart=__APP_HOME__/venv/bin/python -m smarttwin_mcp.server serve --transport streamable-http --host 127.0.0.1 --port 5013 --tools-root __APP_HOME__/tools
 Restart=on-failure
 RestartSec=5
 KillMode=mixed

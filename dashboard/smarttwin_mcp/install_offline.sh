@@ -9,11 +9,12 @@
 # 계정/경로는 하드코딩하지 않는다:
 #   - SERVICE_USER: env SERVICE_USER → YAML web_services.service_user → users.ssh_user
 #                   → cluster_info.head_nodes[0].ssh_user → SUDO_USER/whoami
-#   - PROJECT_HOME: repo 위치에서 유도(표준 레이아웃 ~/claude/KooSlurmInstallAutomationRefactory)
+#   - APP_HOME: env STMC_APP_HOME → 이 스크립트 폴더(어디에 풀어도 된다). PROJECT_HOME(유닛 HOME=)은 SERVICE_USER 의 홈
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+APP_HOME="${STMC_APP_HOME:-$SCRIPT_DIR}"
+REPO_ROOT="$(cd "$APP_HOME/../.." && pwd)"
 INSTALL_SERVICE=false
 [ "${1:-}" = "--install-service" ] && INSTALL_SERVICE=true
 
@@ -67,16 +68,24 @@ for d in "${CANDIDATES[@]}"; do
 done
 [ -n "$WHEELDIR" ] || { echo "ERROR: smarttwin_mcp wheel 디렉토리 없음 (python${PY_MM}). 후보: ${CANDIDATES[*]}"; exit 1; }
 echo "[smarttwin_mcp] wheel: $WHEELDIR ($(ls "$WHEELDIR"/*.whl | wc -l) 개)"
+# wheel 해시 — SHA256SUMS 는 git 에 있다(wheel 은 git 밖). 다르면 설치하지 않는다.
+if [ -f "$WHEELDIR/SHA256SUMS" ]; then
+    (cd "$WHEELDIR" && sha256sum -c --quiet SHA256SUMS) \
+        && echo "[smarttwin_mcp] ✓ wheel sha256 일치" \
+        || { echo "[smarttwin_mcp] ✗ wheel sha256 불일치 — $WHEELDIR/SHA256SUMS"; exit 1; }
+else
+    echo "  ⚠️  $WHEELDIR/SHA256SUMS 없음 — wheel 해시를 확인하지 못했다"
+fi
 
 # 3) venv + 오프라인 설치 (--no-index, requirements.txt 전체 핀). root 면 SERVICE_USER 로 생성.
-VENV_DIR="$SCRIPT_DIR/venv"
+VENV_DIR="$APP_HOME/venv"
 [ -d "$VENV_DIR" ] || "${RUN_AS[@]}" "$PYBIN" -m venv "$VENV_DIR"
-"${RUN_AS[@]}" "$VENV_DIR/bin/pip" install --no-index --find-links="$WHEELDIR" -r "$SCRIPT_DIR/requirements.txt" \
+"${RUN_AS[@]}" "$VENV_DIR/bin/pip" install --no-index --find-links="$WHEELDIR" -r "$APP_HOME/requirements.txt" \
     && echo "[smarttwin_mcp] ✓ 설치 완료: $VENV_DIR" \
     || { echo "[smarttwin_mcp] ✗ 설치 실패"; exit 1; }
 
 # 4) 검증 — 벤더링 패키지는 PYTHONPATH=src.
-PYTHONPATH="$SCRIPT_DIR/src" "$VENV_DIR/bin/python" -c \
+PYTHONPATH="$APP_HOME/src" "$VENV_DIR/bin/python" -c \
     "import fastmcp, smarttwin_mcp.server as s; print('[smarttwin_mcp] ✓ import OK fastmcp', fastmcp.__version__)" \
     || { echo "[smarttwin_mcp] ✗ import 검증 실패"; exit 1; }
 
@@ -86,23 +95,19 @@ PYTHONPATH="$SCRIPT_DIR/src" "$VENV_DIR/bin/python" -c \
     exit 0
 }
 
-# 5) systemd 유닛 설치 — .service.example placeholder 치환(계정=SERVICE_USER, 경로=repo 유도).
+# 5) systemd 유닛 설치 — .service.example placeholder 치환(계정=SERVICE_USER, 경로=APP_HOME, HOME=그 계정의 홈).
 SERVICE_GROUP="$(id -gn "$SERVICE_USER" 2>/dev/null || echo "$SERVICE_USER")"
-# PROJECT_HOME: 표준 레이아웃(~/claude/KooSlurmInstallAutomationRefactory)에서 유도.
-PROJECT_HOME="${REPO_ROOT%/claude/KooSlurmInstallAutomationRefactory}"
-if [ "$PROJECT_HOME" = "$REPO_ROOT" ]; then
-    echo "  ⚠️  repo 가 표준 경로(~/claude/KooSlurmInstallAutomationRefactory)에 없음 → 유닛 경로 수동 확인 필요"
-    PROJECT_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
-fi
-echo "  → PROJECT_HOME=$PROJECT_HOME"
+PROJECT_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
+echo "  → APP_HOME=$APP_HOME  PROJECT_HOME=$PROJECT_HOME"
 
 UNIT=/etc/systemd/system/smarttwin-mcp.service
 # 주의: 지시어 줄 인라인 주석은 systemd 가 값의 일부로 읽음(→ 217/USER). 템플릿은 주석을 별도 줄로 유지,
-#       여기선 placeholder 3종만 치환한다. ('grep -v' 로 줄 삭제 금지 — User= 줄 통째 사라져 root 실행됨.)
+#       여기선 placeholder 4종만 치환한다. ('grep -v' 로 줄 삭제 금지 — User= 줄 통째 사라져 root 실행됨.)
 sed -e "s|__SERVICE_USER__|$SERVICE_USER|g" \
     -e "s|__SERVICE_GROUP__|$SERVICE_GROUP|g" \
     -e "s|__PROJECT_HOME__|$PROJECT_HOME|g" \
-    "$SCRIPT_DIR/smarttwin-mcp.service.example" > "$UNIT"
+    -e "s|__APP_HOME__|$APP_HOME|g" \
+    "$APP_HOME/smarttwin-mcp.service.example" > "$UNIT"
 systemctl daemon-reload
 systemctl enable smarttwin-mcp
 systemctl restart smarttwin-mcp
