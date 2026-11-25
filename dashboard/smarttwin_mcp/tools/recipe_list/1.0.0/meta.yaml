@@ -13,6 +13,7 @@ transport:
   shell: /bin/bash
   timeout_sec: 60
 expose: direct
+read_only: true
 examples:
 - title: 낙하 관련 레시피
   args:

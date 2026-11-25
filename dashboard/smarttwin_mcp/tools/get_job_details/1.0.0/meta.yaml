@@ -18,6 +18,7 @@ transport:
   shell: /bin/bash
   timeout_sec: 10
 expose: direct
+read_only: true
 examples:
   - title: registry_id로 조회
     args: {registry_id: 42}

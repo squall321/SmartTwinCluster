@@ -22,6 +22,7 @@ tags: [status, squeue, jobs, monitor, mode-own]
 aliases: [status, squeue, check]
 transport: {kind: local, shell: /bin/bash, timeout_sec: 30}
 expose: direct
+read_only: true
 examples:
   - title: registry_id로 조회
     args: {registry_id: 42}

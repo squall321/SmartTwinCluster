@@ -173,6 +173,7 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         }
 
     @mcp.tool(
+        annotations={"readOnlyHint": True},
         description=(
             "Find SmartTwinCluster tools by free-text query. "
             "Returns ranked hits (name, version=latest, summary, tags). "
@@ -183,6 +184,7 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         return _search_impl(query, limit)
 
     @mcp.tool(
+        annotations={"readOnlyHint": True},
         description=(
             "Show full usage info for a tool: summary, description, args JSON Schema, "
             "examples, available versions. Accepts 'name' or 'name@version'."
@@ -192,12 +194,14 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         return _describe_impl(name)
 
     @mcp.tool(
+        annotations={"readOnlyHint": True},
         description="List all versions of a tool, marking the latest."
     )
     def catalog_versions(name: str) -> dict:
         return _versions_impl(name)
 
     @mcp.tool(
+        annotations={"readOnlyHint": False},
         description=(
             "Execute a SmartTwinCluster tool. Required: name, args (object). "
             "Optional: version (pin a specific version; default = latest). "
@@ -208,6 +212,7 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         return _run_impl(name, args, version, _auth_extra_env())
 
     @mcp.tool(
+        annotations={"readOnlyHint": False},
         description=(
             "Re-scan the tools/ directory and rebuild the catalog without restarting. "
             "Returns counts and any issues found."
@@ -238,7 +243,7 @@ def _register_direct(mcp: FastMCP, entry, state: dict) -> None:
     if entry.meta.description:
         desc = f"{desc}\n\n{entry.meta.description}"
 
-    @mcp.tool(name=tool_name, description=desc)
+    @mcp.tool(name=tool_name, description=desc, annotations={"readOnlyHint": entry.meta.read_only})
     def _direct(args: dict | None = None) -> dict:
         args = args or {}
         # Always re-resolve from current catalog so reloads pick up new versions.

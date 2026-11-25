@@ -15,3 +15,6 @@
 - SM-01: submit_lsdyna_remote 는 닫는다 — 서버 env 에 STMC_CLUSTER_HEAD 가 없어 dev 에서 애초에 못 돌고, registry 사용 기록 0. 같은 일은 submit_lsdyna_job(backend 경유).
   transport 를 local 로 바꿔 ssh 를 열지 않고 거절만 돌려준다. 1.0.0 도 transport local(1.1.0 으로 위임).
 - SM-01: train_script 위치는 요청 범위 밖이라 보지 않는다(work_dir 만). dry_run 도 이제 PAT 가 있어야 한다(요청서 '남의 work_dir → dry_run 에서도 거절').
+- SM-02: mode-read 태그를 따르라는 요청서 문장은 쓰지 않는다 — hwaxportal-71 정정대로 mode-* 는 시야 구분(job_status 같은 읽기도 mode-own). meta.yaml 에 read_only 칸을 따로.
+- SM-02: job_diagnose(KooChainRun diagnose 가 파일을 쓰는지 확인 못 함)·job_collect(요약 파일을 씀)는 read_only 를 달지 않았다 — 확실한 것만. readOnlyHint 는 모든 직접 도구에 true/false 로 명시.
+- SM-02: fastmcp 3.3.1 tool(annotations=dict) 동작 확인(ToolAnnotations 로 바뀜).

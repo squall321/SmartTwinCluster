@@ -17,6 +17,7 @@ tags: [result, status, outputs, smarttwin, mode-own]
 aliases: [result, outputs]
 transport: {kind: local, shell: /bin/bash, timeout_sec: 1900}
 expose: direct
+read_only: true
 examples:
   - title: job_id 로 결과 보기
     args: {job_id: "1173"}

@@ -11,6 +11,7 @@ transport:
   shell: /bin/bash
   timeout_sec: 10
 expose: direct
+read_only: true
 examples:
   - title: simple message
     args: { message: "hello" }

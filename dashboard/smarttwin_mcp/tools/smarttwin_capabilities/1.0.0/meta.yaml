@@ -14,6 +14,7 @@ tags: [capabilities, index, smarttwin, help, mode-read-all]
 aliases: [capabilities, features]
 transport: {kind: local, shell: /bin/bash, timeout_sec: 30}
 expose: direct
+read_only: true
 examples:
   - title: 전체 목록
     args: {}

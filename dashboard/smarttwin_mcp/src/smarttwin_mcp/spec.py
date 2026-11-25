@@ -81,6 +81,13 @@ class ToolMeta(BaseModel):
             "both: same as direct."
         ),
     )
+    read_only: bool = Field(
+        default=False,
+        description=(
+            "true: 환경을 바꾸지 않는 도구 — 직접 노출 시 MCP annotations readOnlyHint 로 실린다(SM-02). "
+            "mode-* 태그(시야 구분)와는 별개다."
+        ),
+    )
     examples: list[Example] = Field(default_factory=list)
     deprecated: bool = False
     deprecation_note: str | None = None
