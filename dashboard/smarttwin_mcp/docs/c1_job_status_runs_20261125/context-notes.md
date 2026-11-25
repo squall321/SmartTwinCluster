@@ -11,3 +11,4 @@
 - 각도별 목록이 예외로 깨져도 job_status 의 상태 응답은 돌려준다(runs: [] + runs_note). 폴링이 이 기능 때문에 죽으면 안 된다.
 - mode 는 index 값 우선, 없으면(pending) runner_config steps 의 step 별 mode.
 - 시험은 SmartTwinMCP/.venv 파이썬 + PYTHONPATH=src 로 돌린다(이 리포 venv 에 pytest 없음 — 운영 venv 에 깔지 않음).
+- 직접 도구(expose: direct)는 MCP inputSchema 가 일반 `args: object` 하나다. runs 는 inputSchema 가 아니라 설명문과 서버 쪽 args.schema 검사에 나타난다 — 확인은 catalog_describe·실호출로.
