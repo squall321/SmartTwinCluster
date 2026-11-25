@@ -34,6 +34,7 @@ def whoami():
         'role': user.get('role', 'user'),
         'groups': user.get('groups', []),
         'permissions': user.get('permissions', []),
+        'auth': user.get('auth'),  # pat|jwt|sso_off — MCP 는 pat 만 받는다(SM-04)
     }), 200
 
 

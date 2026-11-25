@@ -64,7 +64,8 @@ class PatVerifier:
             return (401 if e.code in (401, 403) else 503), None
         except Exception:  # noqa: BLE001
             return 503, None
-        if not isinstance(ident, dict) or not ident.get("username"):
+        # SSO 꺼진 backend 는 아무 Bearer 나 전체 권한 admin 으로 푼다 — PAT 로 풀린 신원만 받는다(SM-04).
+        if not isinstance(ident, dict) or not ident.get("username") or ident.get("auth") != "pat":
             return 401, None
         with self._lock:
             self._cache[key] = (now + _CACHE_TTL, ident)

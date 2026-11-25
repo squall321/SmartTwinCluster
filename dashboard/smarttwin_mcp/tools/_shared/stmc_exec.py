@@ -77,6 +77,7 @@ TOOL_TEMPLATE_ID = "smarttwin-tool"
 DEFAULT_INPUT_ROOTS = "/data/single/{user}:/shared/uploads/users/{user}:/data/scenario"
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _USER_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+_NOT_A_CALLER = {"root", "anonymous", "nobody", "unknown"}  # 사람 아닌 이름 — 호출자로 받지 않는다(SM-04)
 _TEXT_SUFFIXES = (".json", ".txt", ".log", ".csv", ".yaml", ".yml", ".md", ".msg", ".out", ".dat")
 
 
@@ -156,11 +157,17 @@ def backend_multipart(path: str, fields: dict, files: dict, *, timeout: int = 60
 
 
 def caller_identity(timeout: int = 15) -> dict:
+    # SSO 꺼진 backend 는 PAT 가 아니어도 전체 권한 admin 으로 풀어 준다 — PAT 로 풀린 신원만 받는다(SM-04).
+    if not _base_and_token()[1].startswith("kst_"):
+        raise StmcError("호출자 확인 실패 — 요청 토큰이 PAT(kst_…)가 아니다(fail-closed).")
     status, data = backend_request("GET", "/api/me", timeout=timeout)
     if not (200 <= status < 300) or not isinstance(data, dict):
         raise StmcError(f"호출자 확인 실패(/api/me http={status}) — PAT 가 유효한지 확인할 것(fail-closed).")
+    if data.get("auth") != "pat":
+        raise StmcError(f"호출자 확인 실패 — backend 가 PAT 로 신원을 풀지 않았다(auth={data.get('auth')!r}). "
+                        "backend_5010 이 SM-04 판인지 확인할 것(fail-closed).")
     username = data.get("username")
-    if not username or not _USER_RE.fullmatch(str(username)):
+    if not username or not _USER_RE.fullmatch(str(username)) or str(username).lower() in _NOT_A_CALLER:
         raise StmcError("호출자 확인 실패 — /api/me 응답에 쓸 수 있는 username 이 없다(fail-closed).")
     return {"username": str(username), "role": data.get("role") or "user",
             "permissions": list(data.get("permissions") or []),

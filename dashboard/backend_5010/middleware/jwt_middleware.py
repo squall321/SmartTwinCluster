@@ -105,18 +105,40 @@ def verify_jwt_token(token: str) -> Optional[Dict]:
         raise
 
 
+def _bearer_pat() -> Optional[str]:
+    """Authorization: Bearer kst_… 이면 그 PAT, 아니면 None."""
+    auth_header = request.headers.get('Authorization') or ''
+    if not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header.split(' ')[1]
+    return token if token.startswith('kst_') else None
+
+
 def jwt_required(f):
     """
     JWT 토큰 검증 데코레이터
     Authorization 헤더에서 Bearer 토큰을 추출하고 검증
 
-    SSO가 비활성화된 경우, 모든 요청에 전체 권한 부여
+    SSO가 비활성화된 경우, PAT(kst_) 가 아닌 모든 요청에 전체 권한 부여(PAT 는 언제나 그 사람으로)
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # PAT(kst_) 를 SSO 꺼짐보다 먼저 본다 — 꺼짐이어도 위임 PAT 는 그 사람으로 풀어야 한다(SM-04).
+        pat = _bearer_pat()
+        if pat:
+            import mcp_token  # 지연 import (경로/순환 안전)
+            identity = mcp_token.resolve_token(pat)
+            if identity is None:
+                return jsonify({
+                    'error': 'Invalid token',
+                    'message': 'Personal access token is invalid, expired, or revoked.'
+                }), 401
+            g.user = {**identity, 'auth': 'pat'}
+            return f(*args, **kwargs)
+
         # SSO가 비활성화된 경우, 전체 권한 사용자로 자동 로그인
         if not SSO_ENABLED:
-            g.user = FULL_ACCESS_USER.copy()
+            g.user = {**FULL_ACCESS_USER, 'auth': 'sso_off'}
             return f(*args, **kwargs)
 
         # SSO 활성화 모드: JWT 검증 진행
@@ -138,18 +160,6 @@ def jwt_required(f):
         # 토큰 추출
         token = auth_header.split(' ')[1]
 
-        # PAT(kst_) 우선: JWT 가 아니라 개인 액세스 토큰(MCP 연동)이면 DB 로 검증.
-        if token.startswith('kst_'):
-            import mcp_token  # 지연 import (경로/순환 안전)
-            identity = mcp_token.resolve_token(token)
-            if identity is None:
-                return jsonify({
-                    'error': 'Invalid token',
-                    'message': 'Personal access token is invalid, expired, or revoked.'
-                }), 401
-            g.user = identity
-            return f(*args, **kwargs)
-
         try:
             # JWT 토큰 검증
             payload = jwt.decode(
@@ -164,7 +174,8 @@ def jwt_required(f):
                 'email': payload.get('email'),
                 'groups': payload.get('groups', []),
                 'permissions': payload.get('permissions', []),
-                'role': payload.get('role', 'user')
+                'role': payload.get('role', 'user'),
+                'auth': 'jwt'
             }
 
             return f(*args, **kwargs)
@@ -272,7 +283,7 @@ def optional_jwt(f):
     토큰이 있으면 검증하지만, 없어도 요청을 허용
     토큰이 있으면 g.user에 사용자 정보 저장
 
-    SSO가 비활성화된 경우, 항상 전체 권한 사용자로 설정
+    SSO가 비활성화된 경우, PAT(kst_) 가 아니면 전체 권한 사용자로 설정
 
     Usage:
         @app.route('/api/public/data')
@@ -287,9 +298,17 @@ def optional_jwt(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # PAT(kst_) 를 SSO 꺼짐보다 먼저 본다(SM-04). 유효하면 g.user 설정, 아니면(선택적이므로) None 으로 진행.
+        pat = _bearer_pat()
+        if pat:
+            import mcp_token  # 지연 import (경로/순환 안전)
+            identity = mcp_token.resolve_token(pat)
+            g.user = {**identity, 'auth': 'pat'} if identity else None
+            return f(*args, **kwargs)
+
         # SSO가 비활성화된 경우, 전체 권한 사용자로 자동 설정
         if not SSO_ENABLED:
-            g.user = FULL_ACCESS_USER.copy()
+            g.user = {**FULL_ACCESS_USER, 'auth': 'sso_off'}
             return f(*args, **kwargs)
 
         # SSO 활성화 모드: 선택적 JWT 검증
@@ -297,12 +316,6 @@ def optional_jwt(f):
 
         if auth_header and auth_header.startswith('Bearer '):
             token = auth_header.split(' ')[1]
-
-            # PAT(kst_) 우선: 유효하면 g.user 설정, 아니면(선택적이므로) None 으로 진행.
-            if token.startswith('kst_'):
-                import mcp_token  # 지연 import (경로/순환 안전)
-                g.user = mcp_token.resolve_token(token)
-                return f(*args, **kwargs)
 
             try:
                 payload = jwt.decode(
@@ -316,7 +329,8 @@ def optional_jwt(f):
                     'email': payload.get('email'),
                     'groups': payload.get('groups', []),
                     'permissions': payload.get('permissions', []),
-                    'role': payload.get('role', 'user')
+                    'role': payload.get('role', 'user'),
+                    'auth': 'jwt'
                 }
             except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
                 # 토큰이 유효하지 않으면 무시하고 진행

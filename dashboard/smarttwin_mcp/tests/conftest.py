@@ -24,9 +24,14 @@ TOOLS = Path(__file__).resolve().parent.parent / "tools"
 SHARED = TOOLS / "_shared"
 USER, OTHER = "stmcpytest", "stmcother"
 FAKE_SLURM_JOB_ID = 4242  # 가짜 backend 가 /api/jobs/submit 에 돌려주는 잡 번호
-TOKENS = {"Bearer kst_user": {"username": USER, "role": "user"},
-          "Bearer kst_admin": {"username": USER, "role": "admin"},
-          "Bearer kst_other": {"username": OTHER, "role": "user"}}
+TOKENS = {"Bearer kst_user": {"username": USER, "role": "user", "auth": "pat"},
+          "Bearer kst_admin": {"username": USER, "role": "admin", "auth": "pat"},
+          "Bearer kst_other": {"username": OTHER, "role": "user", "auth": "pat"},
+          # SM-04 이전 backend·SSO 꺼짐처럼 PAT 아닌 신원을 돌려주는 경우
+          "Bearer kst_ssooff": {"username": "admin", "role": "admin", "auth": "sso_off"},
+          "Bearer kst_noauth": {"username": USER, "role": "user"},
+          "Bearer kst_root": {"username": "root", "role": "admin", "auth": "pat"},
+          "Bearer notapat": {"username": USER, "role": "user", "auth": "jwt"}}
 
 
 class _FakeBackend(BaseHTTPRequestHandler):
