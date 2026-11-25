@@ -5,6 +5,7 @@
   "oneOf": [{"required": ["registry_id"]}, {"required": ["work_dir"]}],
   "properties": {
     "registry_id": {"type": "integer", "minimum": 1, "description": "DB primary key from the registry (preferred lookup)."},
-    "work_dir": {"type": "string", "pattern": "^/.+", "description": "Absolute path to the job's work directory (fallback if registry_id unknown)."}
+    "work_dir": {"type": "string", "pattern": "^/.+", "description": "Absolute path to the job's work directory (fallback if registry_id unknown)."},
+    "runs": {"type": "boolean", "default": false, "description": "true 면 각도 DOE 잡(전각도·낙하 시나리오)의 각도별 목록 runs 를 싣는다 — run 폴더·d3plot 경로·상태. 각도 수만큼 응답이 커지니 폴링에는 끄고 필요할 때만."}
   }
 }

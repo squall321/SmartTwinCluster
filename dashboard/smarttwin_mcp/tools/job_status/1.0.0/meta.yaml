@@ -9,6 +9,15 @@ description: |
 
   # 인자: registry_id 또는 work_dir
   단순 .k 잡(submit_lsdyna_job)도 squeue 부분은 동작 (KooChainRun status는 skip).
+
+  # runs: true — 각도별 목록 (전각도·낙하 시나리오처럼 runner_config 에 doe_angles 가 있는 잡)
+  계획된 각도마다 한 줄, doe·step 순. 실패·대기 각도도 빠지지 않는다.
+  `{doe, step, mode, case_key, angle{name,roll,pitch,yaw}, run_dir, d3plot, status, error?}`
+  - case_key = Run 폴더 이름(Run_<시각>_<해시>), run_dir = <output_dir>/<case_key>. 아직 폴더가 없으면 둘 다 null.
+  - d3plot = <run_dir>/Output/d3plot 이 실제로 있을 때만 경로, 없으면 null(가족 파일 d3plot01… 은 같은 폴더).
+  - status = KooChainRun simulation_index 값 그대로(running/completed/failed), index 에 없으면 pending. 실패면 error 도.
+  - 재시도한 각도는 마지막 시도의 폴더만 나온다(KooChainRun 이 같은 별칭을 덮어쓴다).
+  - 각도 DOE 잡이 아니거나 목록을 못 만들면 runs: [] 와 runs_note.
 tags: [status, squeue, jobs, monitor, mode-own]
 aliases: [status, squeue, check]
 transport: {kind: local, shell: /bin/bash, timeout_sec: 30}
@@ -18,3 +27,5 @@ examples:
     args: {registry_id: 42}
   - title: work_dir로 조회
     args: {work_dir: /data/koopark/fullangle_test}
+  - title: 각도별 run 폴더·d3plot 경로까지
+    args: {registry_id: 42, runs: true}

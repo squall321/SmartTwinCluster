@@ -2,11 +2,57 @@
 set -euo pipefail
 export SHARED_DIR="$(cd "$(dirname "$0")"/../../_shared && pwd)"
 python3 - <<'PY'
-import json, os, sys
+import json, os, re, sys
 sys.path.insert(0, os.environ["SHARED_DIR"])
 import registry
 import audit
 from job_helpers import resolve_job, run_koochainrun, slurm_queue_for, fail
+
+RUN_FOLDER = re.compile(r"^Run_[A-Za-z0-9_]+$")
+ALIAS = re.compile(r"_DOE(\d+)_S(\d+)_")  # KooChainRun 별칭 <project>_CUM<n>_DOE<ddd>_S<sss>_<MODE>_<condition>
+
+def drop_runs(job):
+    """각도마다 run 폴더·d3plot·상태 (C-1) — runner_config 의 doe_angles 와 output_dir 의 simulation_index 를 잇는다.
+    index 는 registry output_dir 기준으로만 읽는다(runner_config 의 index_file 은 사용자가 고칠 수 있는 파일이다)."""
+    rc_path = job.get("runner_config_path")
+    if not rc_path or not os.path.exists(rc_path):
+        return [], "KooChainRun 잡이 아니다(runner_config.json 없음)"
+    with open(rc_path, encoding="utf-8") as f:
+        scen = json.load(f).get("scenario") or {}
+    angles = scen.get("doe_angles")
+    if not angles:
+        return [], "각도 DOE 잡이 아니다(runner_config 에 doe_angles 없음)"
+    modes = {int(s["step"]): s.get("mode") for s in scen.get("steps") or [] if "step" in s}
+    out_dir = job["output_dir"]
+    try:
+        with open(os.path.join(out_dir, "simulation_index.json"), encoding="utf-8") as f:
+            index_runs = json.load(f)["scenarios"][0]["runs"]
+    except (OSError, ValueError, KeyError, IndexError):
+        index_runs = {}  # 아직 아무 각도도 시작하지 않았다 — 전부 pending
+    by_key = {}
+    for alias, rec in index_runs.items():
+        m = ALIAS.search(alias)
+        if m:
+            by_key[(int(m[1]), int(m[2]))] = rec
+    runs = []
+    for doe in sorted(angles, key=int):
+        for step in sorted(angles[doe], key=int):
+            a = angles[doe][step]
+            rec = by_key.get((int(doe), int(step))) or {}
+            folder = rec.get("folder") or ""
+            run_dir = os.path.join(out_dir, folder) if RUN_FOLDER.match(folder) else None
+            d3plot = os.path.join(run_dir, "Output", "d3plot") if run_dir else None
+            row = {"doe": int(doe), "step": int(step), "mode": rec.get("mode") or modes.get(int(step)),
+                   "case_key": folder if run_dir else None,
+                   "angle": {"name": a.get("angle_name"), "roll": a.get("roll"),
+                             "pitch": a.get("pitch"), "yaw": a.get("yaw")},
+                   "run_dir": run_dir,
+                   "d3plot": d3plot if d3plot and os.path.isfile(d3plot) else None,
+                   "status": rec.get("status") or "pending"}
+            if rec.get("error"):
+                row["error"] = rec["error"]
+            runs.append(row)
+    return runs, None
 
 def main():
     args = json.loads(os.environ["STMC_ARGS_JSON"])
@@ -29,6 +75,15 @@ def main():
     if rc_path and os.path.exists(rc_path):
         rc, so, se = run_koochainrun("status", rc_path, timeout=30)
         out["koochainrun_status"] = {"rc": rc, "stdout": so[-2000:], "stderr": se[-500:]}
+
+    if args.get("runs"):
+        # 각도별 목록이 깨져도 상태 응답은 돌려준다.
+        try:
+            out["runs"], note = drop_runs(job)
+        except Exception as e:
+            out["runs"], note = [], f"각도별 목록을 만들지 못했다 — {type(e).__name__}: {e}"
+        if note:
+            out["runs_note"] = note
 
     # §25.3.3 inspection audit with 5-min session_seen dedup guard.
     caller = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
