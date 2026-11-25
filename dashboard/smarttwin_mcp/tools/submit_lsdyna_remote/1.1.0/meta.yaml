@@ -1,7 +1,10 @@
 name: submit_lsdyna_remote
 version: 1.1.0
-summary: Raw LS-DYNA .k → sbatch on a remote cluster head via SSH (no local Slurm CLI needed).
+summary: 닫힘(SM-01) — 호출자(PAT)를 확인할 수 없는 원격 sbatch. submit_lsdyna_job 을 쓸 것.
 description: |
+  **닫힘(SM-01, 2026-11-25)** — 원격 헤드에서 ssh 로 돌아 호출자(PAT)를 확인할 수 없고, 서비스 계정 명의로
+  sbatch 를 냈다. 이제 부르면 이유와 함께 거절한다. 같은 일은 `submit_lsdyna_job`(backend 경유 — PAT 확인·감사)으로 한다.
+
   v1.1.0: writes audit log per §25.3 (inline SQL — SSH transport, see §25.3.2).
 
   Same submission flow as `submit_lsdyna_job` (raw .k → sbatch, KooChainRun bypass),
@@ -60,16 +63,7 @@ description: |
   }
   ```
 tags: [lsdyna, simulation, slurm, sbatch, raw, kfile, ssh, remote, mode-own]
-transport:
-  kind: ssh
-  host: ${STMC_CLUSTER_HEAD}
-  user: ${STMC_CLUSTER_USER:-svc-stmc}
-  key_path: ${STMC_SSH_KEY:-~/.ssh/id_ed25519}
-  port: 22
-  env:
-    PATH: /usr/local/slurm/bin:/usr/local/bin:/usr/bin:/bin
-    STMC_JOBS_DB: /data/SmartTwinMCP/jobs.db
-  timeout_sec: 300
+transport: {kind: local, shell: /bin/bash, timeout_sec: 30}
 expose: catalog
 examples:
   - title: minimal dry_run (no real submission)
@@ -85,3 +79,4 @@ examples:
       time_limit: "24:00:00"
       dry_run: false
     note: dry_run=false actually submits to Slurm on the remote head. Confirm with user.
+deprecated: true

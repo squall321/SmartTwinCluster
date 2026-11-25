@@ -58,16 +58,7 @@ description: |
   }
   ```
 tags: [lsdyna, simulation, slurm, sbatch, raw, kfile, ssh, remote, mode-own]
-transport:
-  kind: ssh
-  host: ${STMC_CLUSTER_HEAD}
-  user: ${STMC_CLUSTER_USER:-svc-stmc}
-  key_path: ${STMC_SSH_KEY:-~/.ssh/id_ed25519}
-  port: 22
-  env:
-    PATH: /usr/local/slurm/bin:/usr/local/bin:/usr/bin:/bin
-    STMC_JOBS_DB: /data/SmartTwinMCP/jobs.db
-  timeout_sec: 300
+transport: {kind: local, shell: /bin/bash, timeout_sec: 30}
 expose: catalog
 examples:
   - title: minimal dry_run (no real submission)

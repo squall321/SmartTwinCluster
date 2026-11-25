@@ -40,6 +40,13 @@ srun --mpi=pmix \\
 
 def main():
     args = json.loads(os.environ["STMC_ARGS_JSON"])
+    # 호출자(PAT) 확인·work_dir 가 그 사람 허용 루트 안인지 — dry_run 에서도 sbatch 파일을 쓰기 전에(SM-01).
+    caller = job_helpers.caller_name()
+    from stmc_exec import StmcError, check_under, work_roots
+    try:
+        check_under(args["work_dir"], work_roots(caller), kind="dir")
+    except StmcError as e:
+        job_helpers.fail(str(e))
 
     # --- domain pre-conditions (JSON Schema can't check these) ---
     train_script = args["train_script"]
@@ -155,7 +162,7 @@ def main():
     if not dry_run:
         try:
             r = subprocess.run(
-                ["sbatch", sbatch_path],
+                ["sbatch", f"--comment=stmc:{caller}", sbatch_path],
                 capture_output=True, text=True, check=True, timeout=60,
             )
         except FileNotFoundError:
@@ -207,11 +214,12 @@ def main():
             "extra_args": extra_args,
             "sbatch_path": sbatch_path,
             "sbatch_params": sbatch_params,
+            "caller": caller,
         },
     )
 
     # §25.3.1 audit row (success path only; failures stay silent per §25.3).
-    actor = os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
+    actor = caller
     audit.record_event(
         actor=actor,
         tool="submit_distributed_train@1.1.0",
