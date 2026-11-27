@@ -10,6 +10,7 @@ tags: [stop, cancel, scancel, jobs, mode-own]
 aliases: [stop, cancel, kill]
 transport: {kind: local, shell: /bin/bash, timeout_sec: 30}
 expose: direct
+destructive: true
 examples:
   - title: registry_id
     args: {registry_id: 42}

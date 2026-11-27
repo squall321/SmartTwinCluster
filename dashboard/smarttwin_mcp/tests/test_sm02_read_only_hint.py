@@ -34,3 +34,21 @@ def test_direct_tools_follow_meta_read_only():
     for e in load_catalog(TOOLS).all_entries():
         if e.is_latest and e.meta.expose in ("direct", "both"):
             assert listed[e.name].readOnlyHint is e.meta.read_only, e.name
+
+
+def test_c6_four_hints_in_camel_case_on_every_listed_tool():
+    import json
+    from starlette.testclient import TestClient
+    hdr = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+    with TestClient(build_server(TOOLS).http_app(stateless_http=True)) as c:
+        r = c.post("/mcp", headers=hdr, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    body = r.text if r.text.lstrip().startswith("{") else r.text.split("data:", 1)[1]
+    tools = json.loads(body)["result"]["tools"]
+    keys = {"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"}
+    for t in tools:
+        assert keys <= set(t.get("annotations") or {}), t["name"]
+        assert not any("_hint" in k for k in t["annotations"]), t["name"]  # snake_case 가 새면 클라이언트가 못 읽는다
+    by = {t["name"]: t["annotations"] for t in tools}
+    assert by["job_stop"]["destructiveHint"] is True and by["catalog_run"]["destructiveHint"] is True
+    assert by["job_status"]["idempotentHint"] is True and by["submit_job"]["idempotentHint"] is False
+    assert all(a["openWorldHint"] is False for a in by.values())

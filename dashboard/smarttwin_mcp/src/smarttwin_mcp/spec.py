@@ -88,6 +88,10 @@ class ToolMeta(BaseModel):
             "mode-* 태그(시야 구분)와는 별개다."
         ),
     )
+    destructive: bool = Field(
+        default=False,
+        description="true: 되돌릴 수 없게 바꾸는 쓰기 도구(잡 취소 등) — MCP annotations destructiveHint(C6). read_only 면 무시.",
+    )
     examples: list[Example] = Field(default_factory=list)
     deprecated: bool = False
     deprecation_note: str | None = None

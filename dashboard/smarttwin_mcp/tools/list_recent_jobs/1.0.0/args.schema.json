@@ -18,7 +18,8 @@
     "since_hours_ago": {
       "type": "number",
       "minimum": 0,
-      "description": "Filter to jobs submitted within the last N hours."
+      "maximum": 8760,
+      "description": "Filter to jobs submitted within the last N hours (0~8760, 8760 = 1 year)."
     },
     "project_like": {
       "type": "string",

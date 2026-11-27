@@ -179,7 +179,7 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         }
 
     @mcp.tool(
-        annotations={"readOnlyHint": True},
+        annotations=_annotations(read_only=True),
         description=(
             "Find SmartTwinCluster tools by free-text query. "
             "Returns ranked hits (name, version=latest, summary, tags). "
@@ -190,7 +190,7 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         return _search_impl(query, limit)
 
     @mcp.tool(
-        annotations={"readOnlyHint": True},
+        annotations=_annotations(read_only=True),
         description=(
             "Show full usage info for a tool: summary, description, args JSON Schema, "
             "examples, available versions. Accepts 'name' or 'name@version'."
@@ -200,14 +200,14 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         return _describe_impl(name)
 
     @mcp.tool(
-        annotations={"readOnlyHint": True},
+        annotations=_annotations(read_only=True),
         description="List all versions of a tool, marking the latest."
     )
     def catalog_versions(name: str) -> dict:
         return _versions_impl(name)
 
     @mcp.tool(
-        annotations={"readOnlyHint": False},
+        annotations=_annotations(read_only=False, destructive=True),
         description=(
             "Execute a SmartTwinCluster tool. Required: name, args (object). "
             "Optional: version (pin a specific version; default = latest). "
@@ -218,7 +218,7 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
         return _run_impl(name, args, version, _auth_extra_env())
 
     @mcp.tool(
-        annotations={"readOnlyHint": False},
+        annotations=_annotations(read_only=False, idempotent=True),
         description=(
             "Re-scan the tools/ directory and rebuild the catalog without restarting. "
             "Returns counts and any issues found."
@@ -240,6 +240,12 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
                   versions=_versions_impl, execute=_run_impl, reload=_reload_impl,
                   verifier=rest_verifier)
     return mcp
+
+
+def _annotations(read_only: bool, destructive: bool = False, idempotent: bool | None = None) -> ToolAnnotations:
+    """C6 표지 넷 — tools/list 에 camelCase 로 나간다(SDK 1.x). 이 서버는 닫힌 클러스터만 부른다(openWorld false)."""
+    return ToolAnnotations(readOnlyHint=read_only, destructiveHint=False if read_only else destructive,
+                           idempotentHint=read_only if idempotent is None else idempotent, openWorldHint=False)
 
 
 class _DirectTool(Tool):
@@ -270,7 +276,7 @@ def _register_direct(mcp: FastMCP, entry, state: dict) -> None:
         desc = f"{desc}\n\n{entry.meta.description}"
     params = {k: v for k, v in entry.args_schema.items() if k != "$schema"}
     tool = _DirectTool(name=entry.name, description=desc, parameters=params,
-                       annotations=ToolAnnotations(readOnlyHint=entry.meta.read_only))
+                       annotations=_annotations(entry.meta.read_only, entry.meta.destructive))
     tool._state = state
     mcp.add_tool(tool)
 
