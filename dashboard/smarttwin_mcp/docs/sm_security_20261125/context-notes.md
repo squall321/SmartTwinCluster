@@ -31,3 +31,8 @@
 - C(SH): 운영 손일 — .env 에 UPLOAD_BASE=/data/<…>, JOB_LOGS_DIR=/data/<…>/logs 두 줄, 그 폴더를 실행 계정 소유로. 값이 없거나 못 만들면 backend 가 안 뜬다(예전엔 조용히 /tmp).
 - SH-04 의 「헤드에서 쓴 표시 파일을 계산 노드 하나에서 읽어 보는 점검」은 안 함 — 기동 중 srun 은 큐 상태에 묶여 기동을 막을 수 있다. 노드 배포 Step 4.5 가 /data 마운트를 본다.
 - check_vnc_job_script.sh 는 이 일 전부터 83행 문법 오류(for file in $path_pattern 2>/dev/null) — 범위 밖이라 둠(보고만).
+- A: 운영 stcx 깔린 판은 Pre v128 · Post v53(71 바로잡음 11-26). 새 KCR 명령 도구는 실행 전 `KooChainRun <cmd> --help` 로 판을 보고 koochainrun_outdated 로 거절.
+  생성 도구(KMM·post)는 잡 안에서 SIF 가 모르는 키를 만나면 rc 1 — 설명에 판 경고 한 줄과 image_version_check 안내.
+- A: 사용자 결정(11-27) — extract·d3plot-delete·keeper 는 required_extractions command 를 실행(헤드·서비스 계정)할 수 있음을 알고 그대로 도구화. 설명에 ⚠ 로 적음.
+- A: smarttwin-tool 템플릿은 backend 가 SHARED_BASE/templates 에서 읽는다. start_production.sh 가 /shared/templates 로 동기화(운영). dev 는 SHARED_BASE=/data 라 /data/templates 로 손 복사 필요.
+- A: test_vendored_kooremapper_core_matches_source 는 사본(노드 SIF v119 판 44f16c9 에 고정)과 KooRemapper HEAD 를 비교해 늘 실패 — 「HEAD 를 따른다」와 「깔린 SIF 판에 고정」 중 사용자 결정 필요.

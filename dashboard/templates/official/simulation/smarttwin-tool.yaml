@@ -252,12 +252,16 @@ script:
         if len(outputs) >= 500:
             break
 
-    write_result(ok=(rc == 0), rc=rc, state="done", tool=req.get("tool"), family=family,
-                 binary=binary, argv=argv, cwd=cwd, inputs=inputs, outputs=outputs,
+    # unified_analyzer rc 3 = 분석 산출물은 썼고 렌더·파트 단면·단면뷰 잡만 실패(후처리 v42~) — 경고 붙은 완료.
+    warning = ("unified_analyzer rc 3 — 분석 산출물은 정상, 렌더·파트 단면·단면뷰 잡이 실패했다"
+               if binary == "unified_analyzer" and rc == 3 else None)
+    write_result(ok=(rc == 0 or warning is not None), rc=rc, warning=warning, state="done", tool=req.get("tool"),
+                 family=family, binary=binary, argv=argv, cwd=cwd, inputs=inputs, outputs=outputs,
                  started=started, finished=finished, duration_s=round(finished - started, 1),
                  stdout_log=so_path, stderr_log=se_path)
-    print("[stmc] rc=%d  duration=%.1fs  outputs=%d" % (rc, finished - started, len(outputs)), flush=True)
-    sys.exit(rc)
+    print("[stmc] rc=%d  duration=%.1fs  outputs=%d%s" % (rc, finished - started, len(outputs),
+                                                          "  (경고: %s)" % warning if warning else ""), flush=True)
+    sys.exit(0 if warning else rc)
     STMC_DISPATCH
     STMC_RC=$?
 

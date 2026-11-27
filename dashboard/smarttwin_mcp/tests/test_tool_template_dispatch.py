@@ -117,6 +117,17 @@ def test_nonzero_rc_is_reported(env):
     assert res["ok"] is False and res["rc"] == 3
 
 
+def test_unified_analyzer_rc3_is_a_completion_with_a_warning(env):
+    req = _req(tool="post_unified_analyzer", family="post", binary="unified_analyzer", argv=["--help"])
+    proc, res = _run(env, req, extra_env={"STMC_FAKE_RC": "3"})
+    if res.get("error") and "SIF" in res["error"]:
+        pytest.skip("이 환경에 후처리 SIF 화이트리스트 경로가 없다")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert res["ok"] is True and res["rc"] == 3 and "렌더" in res["warning"], res
+    proc, res = _run(env, req, extra_env={"STMC_FAKE_RC": "1"})
+    assert proc.returncode == 1 and res["ok"] is False and res["warning"] is None
+
+
 @pytest.mark.parametrize("family,binary", [("remap", "bash"), ("shell", "KooRemapper"),
                                            ("post", "python3"), ("kmm", "KooRemapper")])
 def test_rejects_non_whitelisted(env, family, binary):
