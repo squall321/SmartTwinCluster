@@ -20,3 +20,5 @@
 - SM-02: fastmcp 3.3.1 tool(annotations=dict) 동작 확인(ToolAnnotations 로 바뀜).
 - SM-03: SHA256SUMS 는 dev main 트리의 wheel 68개로 만들었다. cae00 의 wheel 이 다른 판이면 설치기가 불일치로 멈춘다 — 그때는 그쪽 wheel 로 다시 만들 것.
 - SM-03: 이미 깔린 유닛(/etc/systemd/system/smarttwin-mcp.service)은 건드리지 않는다 — 새로 설치할 때만 의미가 있다. 운영 재설치 불필요.
+- B: 운영 MCP 는 배포 리포 판 길(build→push→stage→swap)로 바뀌고 판 폴더는 smarttwin_mcp 만 담는다(71, Q45). 리포 뿌리를 넘는 경로는 운영에서 없다 —
+  image_version_check 는 tools/_shared 사본으로. 착지 안내에 「KooSlurm git + start_production.sh」 외에 MCP 판 길을 따로 적을 것.

@@ -71,7 +71,8 @@ def test_no_table_fails(tmp_path):
     assert rc == 1 and out["ok"] is False and "boom" in out["stderr"]
 
 
-def test_default_script_path_resolves_to_repo_script():
-    # 도구 폴더에서 다섯 단계 위 = 리포 뿌리 — 배포된 리포에서 env 없이 찾는다
-    resolved = (TOOL.parent / "../../../../.." / "cluster/utils/image_version_check.sh").resolve()
-    assert resolved == REAL_SCRIPT.resolve() and REAL_SCRIPT.is_file()
+def test_default_script_path_is_the_copy_inside_the_mcp_tree():
+    # 운영 MCP 판 폴더는 smarttwin_mcp 만 담는다 — env 없이 판 안 사본을 찾고, 그 사본은 원본과 바이트가 같다
+    resolved = (TOOL.parent / "../../_shared/image_version_check.sh").resolve()
+    assert resolved.is_file() and os.access(resolved, os.X_OK)
+    assert resolved.read_bytes() == REAL_SCRIPT.read_bytes(), "cluster/utils 원본이 바뀌었다 — tools/_shared 사본을 다시 복사할 것"

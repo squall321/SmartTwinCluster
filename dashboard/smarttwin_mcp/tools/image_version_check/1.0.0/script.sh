@@ -22,9 +22,10 @@ def fail(reason, **extra):
 
 
 args = json.loads(os.environ.get("STMC_ARGS_JSON") or "{}")
-# 리포 안 점검 스크립트(tools/<name>/<ver>/ 에서 다섯 단계 위가 리포 뿌리). 배포·시험이 다르면 env 로.
+# 점검 스크립트는 판 안 사본(tools/_shared — cluster/utils/image_version_check.sh 와 바이트 동일, 시험이 묶는다).
+# 운영 MCP 판 폴더는 smarttwin_mcp 만 담아 리포 뿌리의 cluster/ 가 없다. 시험·다른 배치는 env 로.
 script = os.environ.get("STMC_IMAGE_CHECK_SCRIPT") or os.path.normpath(
-    os.path.join(os.environ["STMC_TOOL_DIR"], "../../../../../cluster/utils/image_version_check.sh"))
+    os.path.join(os.environ["STMC_TOOL_DIR"], "../../_shared/image_version_check.sh"))
 if not os.path.isfile(script):
     fail(f"점검 스크립트가 없다: {script}")
 
