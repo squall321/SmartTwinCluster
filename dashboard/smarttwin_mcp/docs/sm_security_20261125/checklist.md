@@ -12,7 +12,7 @@
 - [x] SM-03 — 유닛 예시 리포 경로 5곳(21·22·24·29행)→__APP_HOME__, 설치기 APP_HOME=${STMC_APP_HOME:-$SCRIPT_DIR}·HOME=서비스 계정 홈(옛 93-96행 엉뚱한 홈 대체 걷음), wheel SHA256SUMS(68개) git 에·설치기가 sha256sum -c(불일치면 rc 1). 확인: scratchpad 다른 경로에 풀어 venv 설치 성공·해시 변조 시 거절·치환 유닛에 자리표시 0
 ## 같은 판에 묶는 것(사용자 결정 11-27: B → E1 → C → A → D → E2, 전부 끝낸 뒤 한 번에 push — push 전 71 에 알림)
 - [x] B — image_version_check 운영 결함: 점검 스크립트를 tools/_shared 에 바이트 사본, 도구는 env → 판 안 사본. 시험이 원본과 바이트 동일을 묶음(6건). 판 밖 경로를 쓰는 도구는 이것 하나뿐 확인
-- [ ] E1 — stateless_http·직접 도구 inputSchema
+- [x] E1 — serve 의 http·streamable-http 를 stateless_http=True(fastmcp 3.3.1 은 run() 인자 — 생성자 아님). 서버→클라이언트 채널(elicitation·sampling·list_changed·roots) 사용 없음 확인. 직접 도구는 _DirectTool(Tool) — inputSchema = 카탈로그 args.schema($schema 만 뺌), 옛 {"args": {...}} 꼴도 풀어 받음, readOnlyHint 는 ToolAnnotations(camelCase). 시험 tests/test_e1_stateless_direct_schema.py 4건, 전체 369 통과
 - [ ] C — SH-01·02·04 → 03·05·06
 - [ ] A — 카탈로그 재생성 + KCR 새 명령 9개(사용자: 9개 모두)
 - [ ] D — KS-AP1~3

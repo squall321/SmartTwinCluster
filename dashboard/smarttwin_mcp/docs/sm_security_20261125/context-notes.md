@@ -22,3 +22,7 @@
 - SM-03: 이미 깔린 유닛(/etc/systemd/system/smarttwin-mcp.service)은 건드리지 않는다 — 새로 설치할 때만 의미가 있다. 운영 재설치 불필요.
 - B: 운영 MCP 는 배포 리포 판 길(build→push→stage→swap)로 바뀌고 판 폴더는 smarttwin_mcp 만 담는다(71, Q45). 리포 뿌리를 넘는 경로는 운영에서 없다 —
   image_version_check 는 tools/_shared 사본으로. 착지 안내에 「KooSlurm git + start_production.sh」 외에 MCP 판 길을 따로 적을 것.
+- E1: 직접 도구 호출 꼴이 바뀐다 — 이제 납작한 인자({"registry_id": 1, "runs": true})가 정본이고, 옛 꼴 {"args": {...}} 은 카탈로그 스키마에 args 칸이 없을 때만 풀어 받는다(호환).
+  kooremapper-4a(C-1 runs 를 args 안에 넣는다고 적어 둠)·포털에 알릴 것.
+- E1: 직접 도구 실행은 anyio.to_thread 로 — run_tool 이 subprocess 로 막히므로. Authorization 은 요청 컨텍스트에서 먼저 읽어 넘긴다.
+- 린트 L070 경고 하나 늘었다: 닫은 submit_lsdyna_remote 1.1.0 에 dry_run 인자가 남아 변경 도구로 잡힘(1.0.0 위임 시험이 두 판 스키마 동일을 요구). 오류 아님 — 둠.

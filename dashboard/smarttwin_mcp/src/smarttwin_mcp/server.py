@@ -20,13 +20,19 @@ catalog_run.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from pathlib import Path
 from typing import Any
 
+import anyio
 import jsonschema
 from fastmcp import FastMCP
+from fastmcp.tools import Tool
+from fastmcp.tools.tool import ToolResult
+from mcp.types import ToolAnnotations
+from pydantic import PrivateAttr
 
 from .catalog import Catalog, load_catalog
 from .runner import run as run_tool
@@ -236,23 +242,37 @@ def build_server(tools_root: Path, rest_verifier=None) -> FastMCP:
     return mcp
 
 
+class _DirectTool(Tool):
+    """직접 노출 도구 — inputSchema 는 카탈로그 args.schema 그대로(E1). 옛 호출 꼴 {"args": {...}} 도 받는다."""
+    _state: dict = PrivateAttr()
+
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        # Always re-resolve from current catalog so reloads pick up new versions.
+        current = self._state["catalog"].latest_by_name.get(self.name)
+        args = arguments or {}
+        if set(args) == {"args"} and isinstance(args["args"], dict) \
+                and "args" not in (current.args_schema.get("properties") or {}):
+            args = args["args"]  # E1 이전 꼴 — 모든 인자를 args 하나에 감싸 보냈다
+        err = _validate_args(current.args_schema, args)
+        if err:
+            out = {"ok": False, "error": err, "tool": current.qualified_name}
+        else:
+            extra_env = _auth_extra_env()  # HTTP 요청 컨텍스트에서 읽고 나서 스레드로 넘긴다
+            result = await anyio.to_thread.run_sync(lambda: run_tool(current, args, extra_env=extra_env))
+            out = {"tool": current.qualified_name, **result.to_dict()}
+        return ToolResult(content=json.dumps(out, ensure_ascii=False, default=str), structured_content=out)
+
+
 def _register_direct(mcp: FastMCP, entry, state: dict) -> None:
-    """Register an individual tool as a top-level MCP tool. Closure captures `entry`."""
-    tool_name = entry.name
+    """Register an individual tool as a top-level MCP tool, with the catalog args schema as its inputSchema."""
     desc = entry.meta.summary
     if entry.meta.description:
         desc = f"{desc}\n\n{entry.meta.description}"
-
-    @mcp.tool(name=tool_name, description=desc, annotations={"readOnlyHint": entry.meta.read_only})
-    def _direct(args: dict | None = None) -> dict:
-        args = args or {}
-        # Always re-resolve from current catalog so reloads pick up new versions.
-        current = state["catalog"].latest_by_name.get(tool_name, entry)
-        err = _validate_args(current.args_schema, args)
-        if err:
-            return {"ok": False, "error": err, "tool": current.qualified_name}
-        result = run_tool(current, args, extra_env=_auth_extra_env())
-        return {"tool": current.qualified_name, **result.to_dict()}
+    params = {k: v for k, v in entry.args_schema.items() if k != "$schema"}
+    tool = _DirectTool(name=entry.name, description=desc, parameters=params,
+                       annotations=ToolAnnotations(readOnlyHint=entry.meta.read_only))
+    tool._state = state
+    mcp.add_tool(tool)
 
 
 def _suggest(query: str, catalog: Catalog, k: int = 5) -> list[str]:
@@ -311,7 +331,11 @@ def _add_serve_args(p: argparse.ArgumentParser) -> None:
 def _cmd_serve(args) -> int:
     tools_root = Path(args.tools_root).resolve()
     server = build_server(tools_root)
-    if args.transport in ("http", "streamable-http", "sse"):
+    if args.transport in ("http", "streamable-http"):
+        # stateless — 요청마다 독립(세션·서버→클라이언트 채널 없음). 이 서버는 elicitation·sampling·
+        # list_changed·roots 를 쓰지 않는다(E1, 포털 mcp-modernize 1단계).
+        server.run(transport=args.transport, host=args.host, port=args.port, stateless_http=True)
+    elif args.transport == "sse":
         server.run(transport=args.transport, host=args.host, port=args.port)
     else:
         server.run(transport=args.transport)
