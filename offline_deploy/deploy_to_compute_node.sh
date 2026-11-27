@@ -1124,9 +1124,9 @@ EOFAUTOFS
         run_sudo ls "$GLUSTER_MOUNT" >/dev/null 2>&1 || true
         sleep 2
 
-        # 마운트 확인
-        if run_sudo test -d "$GLUSTER_MOUNT"; then
-            echo "  ✓ $GLUSTER_MOUNT is accessible"
+        # 마운트 확인 — test -d 는 빈 폴더에도 참이라 노드 디스크에 만들고도 「GlusterFS 에」라고 찍었다(SH-05)
+        if mountpoint -q "$GLUSTER_MOUNT"; then
+            echo "  ✓ $GLUSTER_MOUNT is mounted"
 
             # logs와 jobs 디렉토리 생성 (GlusterFS에)
             run_sudo mkdir -p "$GLUSTER_MOUNT/logs" "$GLUSTER_MOUNT/jobs" 2>/dev/null || true
@@ -1134,9 +1134,7 @@ EOFAUTOFS
             run_sudo chmod 1777 "$GLUSTER_MOUNT/jobs" 2>/dev/null || true
             echo "  ✓ Created logs and jobs directories in GlusterFS"
         else
-            echo "  ⚠ Warning: $GLUSTER_MOUNT not accessible, creating local directories"
-            run_sudo mkdir -p /shared/logs /shared/jobs 2>/dev/null || true
-            run_sudo chmod 1777 /shared/logs /shared/jobs 2>/dev/null || true
+            echo "  ⚠ Warning: $GLUSTER_MOUNT 가 마운트되지 않았다 — 잡 폴더는 아래 Step 4.5 에서 노드 디스크에 만든다(공유 아님)"
         fi
 
         # /shared 처리
@@ -1180,6 +1178,21 @@ EOFAUTOFS
     fi
 else
     echo "  Skipping GlusterFS setup (no server configured)"
+fi
+
+# 4.5 잡 폴더 준비 (SH-05) — 공유 볼륨이 안 붙은 노드에서도 잡이 시작하게.
+# 작업 폴더(/shared/jobs)는 노드 디스크면 된다(SH-03). /shared/logs 는 backend 가 JOB_LOGS_DIR 를
+# 아직 /data 로 옮기지 않은 판을 위한 자리 — Slurm 은 스크립트보다 먼저 --output 파일을 연다.
+# 업로드·로그(backend UPLOAD_BASE·JOB_LOGS_DIR, SH-01·02)는 /data 아래라 /data 가 붙어 있어야 한다.
+echo ""
+echo "Step 4.5: Preparing job folders..."
+run_sudo mkdir -p /shared/jobs /shared/logs 2>/dev/null || true
+run_sudo chmod 1777 /shared/jobs /shared/logs 2>/dev/null || true
+echo "  ✓ /shared/jobs · /shared/logs (1777)"
+if mountpoint -q /data; then
+    echo "  ✓ /data is mounted (업로드·잡 로그)"
+else
+    echo "  ⚠ WARNING: /data 가 마운트되지 않았다 — 업로드가 있는 웹 잡과 잡 로그가 이 노드에서 실패한다"
 fi
 
 # 5. slurmd 서비스 시작

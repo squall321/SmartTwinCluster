@@ -29,3 +29,5 @@
 - C(SH): 로그 환경값은 새 이름(JOB_LOGS_BASE) 대신 읽는 쪽(job_logs_api)이 이미 쓰던 JOB_LOGS_DIR 를 쓰는 쪽에도 쓴다 — 한 이름으로 맞춤. 업로드는 UPLOAD_BASE(새). 기본값은 예전과 같아 환경값이 없으면 동작이 그대로(dev 는 SHARED_BASE=/data).
 - C(SH): lsdyna_submit_api 의 lsdyna_uploads 도 같은 결함이라 함께 UPLOAD_BASE 로. ensure_dir 실패는 job_submit_api import 때 RuntimeError → gunicorn 기동 실패(SH-04).
 - C(SH): 운영 손일 — .env 에 UPLOAD_BASE=/data/<…>, JOB_LOGS_DIR=/data/<…>/logs 두 줄, 그 폴더를 실행 계정 소유로. 값이 없거나 못 만들면 backend 가 안 뜬다(예전엔 조용히 /tmp).
+- SH-04 의 「헤드에서 쓴 표시 파일을 계산 노드 하나에서 읽어 보는 점검」은 안 함 — 기동 중 srun 은 큐 상태에 묶여 기동을 막을 수 있다. 노드 배포 Step 4.5 가 /data 마운트를 본다.
+- check_vnc_job_script.sh 는 이 일 전부터 83행 문법 오류(for file in $path_pattern 2>/dev/null) — 범위 밖이라 둠(보고만).

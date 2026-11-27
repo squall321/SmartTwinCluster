@@ -435,8 +435,8 @@ setup_glusterfs_offline_repo_remote() {
         ssh $SSH_OPTS "$remote_user@$remote_ip" "
             sudo mkdir -p '$GLUSTER_MOUNT'
             # Try mounting from VIP first, then from any controller
-            if ! sudo mount -t glusterfs ${VIP_ADDRESS}:/gv0 '$GLUSTER_MOUNT' 2>/dev/null; then
-                if ! sudo mount -t glusterfs ${CURRENT_IP}:/gv0 '$GLUSTER_MOUNT' 2>/dev/null; then
+            if ! sudo mount -t glusterfs ${VIP_ADDRESS}:/${GLUSTER_VOLUME} '$GLUSTER_MOUNT' 2>/dev/null; then
+                if ! sudo mount -t glusterfs ${CURRENT_IP}:/${GLUSTER_VOLUME} '$GLUSTER_MOUNT' 2>/dev/null; then
                     echo 'Failed to mount GlusterFS'
                     exit 1
                 fi
@@ -627,6 +627,9 @@ load_config() {
     GLUSTER_MOUNT=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get shared_storage.glusterfs.mount_point 2>/dev/null || \
                     python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get storage.glusterfs.mount_point 2>/dev/null || \
                     echo "/mnt/gluster")
+    # 볼륨 이름 — 옛 설계의 gv0 을 박아 두어 「볼륨 파일 못 받음」으로 실패했다(SH-06). 노드 배포와 같은 기본값.
+    GLUSTER_VOLUME=$(python3 "$PARSER_SCRIPT" --config "$CONFIG_FILE" --get shared_storage.glusterfs.volume_name 2>/dev/null || \
+                     echo "shared_data")
 
     # Also check if GlusterFS service is enabled for this controller
     GLUSTERFS_ENABLED=$(echo "$CURRENT_CONTROLLER" | jq -r '.services.glusterfs // false')
