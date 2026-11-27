@@ -36,3 +36,5 @@
 - A: 사용자 결정(11-27) — extract·d3plot-delete·keeper 는 required_extractions command 를 실행(헤드·서비스 계정)할 수 있음을 알고 그대로 도구화. 설명에 ⚠ 로 적음.
 - A: smarttwin-tool 템플릿은 backend 가 SHARED_BASE/templates 에서 읽는다. start_production.sh 가 /shared/templates 로 동기화(운영). dev 는 SHARED_BASE=/data 라 /data/templates 로 손 복사 필요.
 - A: test_vendored_kooremapper_core_matches_source 는 사본(노드 SIF v119 판 44f16c9 에 고정)과 KooRemapper HEAD 를 비교해 늘 실패 — 「HEAD 를 따른다」와 「깔린 SIF 판에 고정」 중 사용자 결정 필요.
+- KS-AP3: 끝난 여러 잡이 섞이면 cancelled > failed > completed. 하나라도 돌면 running, 대기만 있으면 queued, 모르는 상태가 섞이면 unknown.
+  KR-10(DynaForge 의 종료 판정 고정)은 이 칸으로 닫을 수 있다 — 저쪽 첫 실제 제출 원문으로 확인할 것.

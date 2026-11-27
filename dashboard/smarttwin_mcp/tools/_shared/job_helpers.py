@@ -248,3 +248,20 @@ def slurm_queue_for(slurm_job_ids: list[str]) -> dict:
                 "reason": parts[3] if len(parts) > 3 else None,
             }
     return out
+
+
+def slurm_final_states(slurm_job_ids: list[str]) -> dict:
+    """sacct 로 잡별 상태(끝난 잡 포함) — squeue 는 잡이 끝나면 비어서 끝·실패·취소를 못 가른다(KS-AP3)."""
+    if not slurm_job_ids:
+        return {}
+    try:
+        r = subprocess.run(["sacct", "-n", "-X", "-P", "-j", ",".join(slurm_job_ids), "-o", "JobID,State"],
+                           capture_output=True, text=True, timeout=15)
+    except Exception:
+        return {}
+    out = {}
+    for line in r.stdout.splitlines():
+        jid, _, state = line.strip().partition("|")
+        if jid and state.strip():
+            out[jid] = state.split()[0]  # "CANCELLED by 1000" → CANCELLED
+    return out

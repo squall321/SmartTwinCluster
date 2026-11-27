@@ -5,6 +5,11 @@ description: |
   레지스트리에서 잡 찾아서 squeue + KooChainRun status 결과 통합 반환.
   Slurm job별 state(PENDING/RUNNING/COMPLETED/FAILED), output_dir 디스크 진행도 포함.
   응답 slurm_job_ids·sphere_job_id — 이 잡의 Slurm 번호(squeue 가 비어도 무엇을 물었는지 알 수 있다).
+  응답 state — 잡 전체를 안정된 낱말 하나로: queued·running·completed·failed·cancelled·unknown.
+  (아직 도는 잡이 있으면 running, 대기만 있으면 queued, 모두 끝났으면 cancelled > failed > completed 순.
+  끝난 잡은 squeue 에 없어 sacct 로 본다.) slurm_states 는 잡별 Slurm 상태 그대로.
+  runs_summary — KooChainRun 캠페인이면 각도(런) 상태 수 {completed, failed, running…}.
+  드라이버 잡이 completed 여도 실패한 각도가 있을 수 있다.
   호출자(PAT)의 잡만 — 잡 폴더가 /data/single/<사용자>/ 안이어야 한다.
 
   # 인자: registry_id 또는 work_dir

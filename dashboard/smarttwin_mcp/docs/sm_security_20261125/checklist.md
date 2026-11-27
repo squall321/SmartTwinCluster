@@ -15,6 +15,6 @@
 - [x] E1 — serve 의 http·streamable-http 를 stateless_http=True(fastmcp 3.3.1 은 run() 인자 — 생성자 아님). 서버→클라이언트 채널(elicitation·sampling·list_changed·roots) 사용 없음 확인. 직접 도구는 _DirectTool(Tool) — inputSchema = 카탈로그 args.schema($schema 만 뺌), 옛 {"args": {...}} 꼴도 풀어 받음, readOnlyHint 는 ToolAnnotations(camelCase). 시험 tests/test_e1_stateless_direct_schema.py 4건, 전체 369 통과
 - [x] C — SH-01·02·04: shared_paths(UPLOAD_BASE·JOB_LOGS_DIR, 못 만들면 기동 실패), job_submit·app·lsdyna_submit·job_logs 연결, 시험 tests/test_sh_shared_paths.py 4건(backend 60 통과). SH-03 주석. SH-05: deploy_to_compute_node.sh 마운트 판정 test -d→mountpoint -q, Step 4.5 잡 폴더(/shared/jobs·logs 1777)·/data 마운트 확인 — gluster 설정 없어도 돎. SH-06: phase3_slurm.sh gv0→설정 volume_name(기본 shared_data), 진단 스크립트 셋의 「노드에 /mnt/gluster/logs 만들기」 안내를 바로잡음
 - [x] A — KCR 새 명령 9개 도구(kcr_tools 공통·판 확인 koochainrun_outdated·dry_run 기본·감사, 시험 4건 — 실제 v141 바이너리로 health·manifest 인자 꼴 확인), 카탈로그 재생성(pyKooCAE 721fc9a·후처리 a42043b, kmm_rigid_drop_endtime, 설명에 판 경고 한 줄), unified_analyzer rc 3 = 경고 붙은 완료(smarttwin-tool 템플릿, 잡 0 으로 끝남, 시험 1건). 전체 377 중 실패 1(kooremapper 벤더 사본 — 사용자 결정 필요)
-- [ ] D — KS-AP1~3
+- [x] D — KS-AP3: job_status 에 state(queued·running·completed·failed·cancelled·unknown, 끝난 잡은 sacct)·slurm_states·runs_summary(덧붙임). 시험 7건. KS-AP2 = SH-01·02. KS-AP1: 코드 없음 — 운영이 계정을 정하면 그 계정 PAT 로 부르면 SM-04 판에서 그 이름으로 풀린다(감사 actor·작업 폴더 /data/single/<계정>). 한도는 계정이 정해지면 Slurm QOS/assoc 로
 - [ ] E2 — C1~C9·SDK 2.x·R1 (되면 이번 판, 아니면 항목별 답)
 - [ ] hwaxportal-71 에 착지 넷(push 해시·Drive·SIF sha256/캐시 열쇠·운영 수작업)

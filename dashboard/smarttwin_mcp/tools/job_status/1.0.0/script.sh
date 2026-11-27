@@ -6,7 +6,7 @@ import json, os, re, sys
 sys.path.insert(0, os.environ["SHARED_DIR"])
 import registry
 import audit
-from job_helpers import resolve_job, run_koochainrun, slurm_queue_for, fail
+from job_helpers import resolve_job, run_koochainrun, slurm_final_states, slurm_queue_for, fail
 
 RUN_FOLDER = re.compile(r"^Run_[A-Za-z0-9_]+$")
 ALIAS = re.compile(r"_DOE(\d+)_S(\d+)_")  # KooChainRun 별칭 <project>_CUM<n>_DOE<ddd>_S<sss>_<MODE>_<condition>
@@ -54,6 +54,50 @@ def drop_runs(job):
             runs.append(row)
     return runs, None
 
+# KS-AP3 — Slurm 상태를 안정된 낱말로. 끝난 잡은 squeue 에 없어 sacct 로 본다.
+STATE_WORD = {"PENDING": "queued", "REQUEUED": "queued", "CONFIGURING": "running", "RUNNING": "running",
+              "COMPLETING": "running", "SUSPENDED": "running", "RESIZING": "running", "STAGE_OUT": "running",
+              "COMPLETED": "completed", "CANCELLED": "cancelled", "FAILED": "failed", "TIMEOUT": "failed",
+              "NODE_FAIL": "failed", "OUT_OF_MEMORY": "failed", "BOOT_FAIL": "failed", "DEADLINE": "failed",
+              "PREEMPTED": "failed"}
+
+def job_state(ids, squeue):
+    """잡 전체 상태 — queued·running·completed·failed·cancelled·unknown 하나와 잡별 Slurm 상태."""
+    states = {i: (squeue.get(i) or {}).get("state") for i in ids}
+    missing = [i for i, st in states.items() if not st]
+    if missing:
+        final = slurm_final_states(missing)
+        states.update({i: final.get(i) for i in missing})
+    words = {STATE_WORD.get(st or "", "unknown") for st in states.values()}
+    if not ids:
+        word = "unknown"
+    elif "running" in words:
+        word = "running"
+    elif "queued" in words:
+        word = "queued"
+    elif words == {"completed"}:
+        word = "completed"
+    elif "cancelled" in words:
+        word = "cancelled"
+    elif "failed" in words:
+        word = "failed"
+    else:
+        word = "unknown"
+    return word, {i: st or "UNKNOWN" for i, st in states.items()}
+
+def runs_summary(job):
+    """KooChainRun 캠페인이면 simulation_index 의 런 상태 수 — 드라이버 잡이 끝나도 실패한 각도가 있을 수 있다."""
+    try:
+        with open(os.path.join(job["output_dir"], "simulation_index.json"), encoding="utf-8") as f:
+            runs = json.load(f)["scenarios"][0]["runs"]
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return None
+    counts = {}
+    for rec in runs.values():
+        st = (rec.get("status") if isinstance(rec, dict) else None) or "unknown"
+        counts[st] = counts.get(st, 0) + 1
+    return counts
+
 def main():
     args = json.loads(os.environ["STMC_ARGS_JSON"])
     job = resolve_job(args)
@@ -69,6 +113,10 @@ def main():
     if job.get("sphere_job_id"):
         slurm_ids = list(slurm_ids) + [job["sphere_job_id"]]
     out["squeue"] = slurm_queue_for(slurm_ids) if slurm_ids else {}
+    out["state"], out["slurm_states"] = job_state([str(i) for i in slurm_ids], out["squeue"])
+    summary = runs_summary(job) if job.get("runner_config_path") else None
+    if summary is not None:
+        out["runs_summary"] = summary
 
     # KooChainRun status (only for tools that use KooChainRun)
     rc_path = job.get("runner_config_path")
