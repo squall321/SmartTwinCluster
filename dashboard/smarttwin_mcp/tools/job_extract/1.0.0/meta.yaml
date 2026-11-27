@@ -1,0 +1,20 @@
+name: job_extract
+version: 1.0.0
+summary: KooChainRun extract — 런 하나의 필수 추출(postprocess.required_extractions)만 돌리고 확인(지우지 않음)
+description: |
+  runner_config 의 postprocess.required_extractions(또는 spec 파일)에 적힌 추출을 돌리고 산출물이 완결인지 본다.
+  ⚠ 추출 항목의 command 를 이 헤드에서 그대로 실행한다 — 시간이 오래 걸릴 수 있다(최대 1시간).
+
+  # 쓰는 법
+  - registry_id·job_id·work_dir 중 하나. 캠페인 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+  ⚠ KooChainRun `extract` 은 SmartTwinPreprocessor v141 이상에만 있다. 이 헤드의 KooChainRun 에 명령이 없으면
+  실행하지 않고 `koochainrun_outdated` 로 거절한다(운영 헤드가 낮은 판일 수 있다).
+tags: [koochainrun, extract, s1, d3plot, mode-own]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 3600}
+expose: catalog
+examples:
+  - title: registry_id 로
+    args: {"registry_id": 42, "case_key": "Run_20260711_062815_d42360"}
+  - title: 추출 목록 파일로
+    args: {"registry_id": 42, "case_key": "Run_20260711_062815_d42360", "spec": "/data/single/USER/camp1/extractions.json"}
+    note: 추출 command 를 이 헤드에서 실행한다. 오래 걸릴 수 있다.

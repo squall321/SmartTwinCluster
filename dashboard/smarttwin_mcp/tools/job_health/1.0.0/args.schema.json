@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "registry_id"
+      ]
+    },
+    {
+      "required": [
+        "job_id"
+      ]
+    },
+    {
+      "required": [
+        "work_dir"
+      ]
+    }
+  ],
+  "properties": {
+    "registry_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "캠페인 제출 응답의 registry_id"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "integer"
+      ],
+      "pattern": "^[0-9]{1,12}$",
+      "minimum": 1,
+      "description": "캠페인 드라이버 잡의 Slurm job_id"
+    },
+    "work_dir": {
+      "type": "string",
+      "pattern": "^/.+",
+      "description": "캠페인 결과 폴더 절대경로(/data/single/<사용자>/ 아래)"
+    },
+    "case_key": {
+      "type": "string",
+      "pattern": "^Run_[A-Za-z0-9_]+$",
+      "description": "Run 폴더 이름(Run_<시각>_<해시>) — job_status runs:true 의 case_key"
+    },
+    "thresholds": {
+      "type": "string",
+      "pattern": "^/.+\\.json$",
+      "description": "문턱 JSON 파일(runner_config 의 health.thresholds 위에) — 호출자 영역 안"
+    },
+    "no_binout": {
+      "type": "boolean",
+      "default": false,
+      "description": "binout(파트 IE·접촉 에너지) 읽기를 건너뛴다"
+    },
+    "write": {
+      "type": "boolean",
+      "default": true,
+      "description": "false 면 health.json 을 쓰지 않고 보기만"
+    }
+  }
+}

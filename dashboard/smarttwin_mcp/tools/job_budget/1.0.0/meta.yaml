@@ -1,0 +1,19 @@
+name: job_budget
+version: 1.0.0
+summary: KooChainRun budget — 파일럿 런 기준 디스크 예산. 끝 코드 0 통과 · 2 축소/삭제 켜기 · 1 거절
+description: |
+  정상 파일럿 런(Run_* 폴더)의 산출물 크기로 이 캠페인을 다 돌렸을 때의 디스크 사용을 어림한다.
+  끝 코드 0 통과 · 2 축소나 d3plot 삭제를 켜라 · 1 거절. 2 는 실패가 아니다.
+
+  # 쓰는 법
+  - registry_id·job_id·work_dir 중 하나. 캠페인 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+  ⚠ KooChainRun `budget` 은 SmartTwinPreprocessor v141 이상에만 있다. 이 헤드의 KooChainRun 에 명령이 없으면
+  실행하지 않고 `koochainrun_outdated` 로 거절한다(운영 헤드가 낮은 판일 수 있다).
+tags: [koochainrun, budget, storage, disk, mode-own]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 300}
+expose: catalog
+examples:
+  - title: registry_id 로
+    args: {"registry_id": 42, "pilot": "/data/single/USER/pilot_campaign/output/Run_20260711_062815_d42360"}
+  - title: 동시 수·문턱 지정
+    args: {"registry_id": 42, "pilot": "/data/single/USER/camp1/output/Run_20260711_062815_d42360", "concurrency": 20, "threshold": 85}

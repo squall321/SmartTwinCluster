@@ -1,0 +1,19 @@
+name: job_health
+version: 1.0.0
+summary: KooChainRun health — 정상 종료·건강 판정(에너지·질량·첫 운동에너지 — health.json · health_table.csv)
+description: |
+  case_key 를 주면 그 런 하나, 안 주면 캠페인 전체를 판정한다. 판정 JSON 을 그대로 돌려주고, write 가 true(기본)면
+  런마다 health.json(캠페인이면 health_table.csv 도)을 쓴다.
+
+  # 쓰는 법
+  - registry_id·job_id·work_dir 중 하나. 캠페인 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+  ⚠ KooChainRun `health` 은 SmartTwinPreprocessor v141 이상에만 있다. 이 헤드의 KooChainRun 에 명령이 없으면
+  실행하지 않고 `koochainrun_outdated` 로 거절한다(운영 헤드가 낮은 판일 수 있다).
+tags: [koochainrun, health, verdict, quality, mode-own]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 600}
+expose: catalog
+examples:
+  - title: registry_id 로
+    args: {"registry_id": 42}
+  - title: 캠페인 전체를 보기만(health.json 안 씀)
+    args: {"registry_id": 42, "write": false}

@@ -14,7 +14,8 @@ from typing import Any
 import registry
 
 
-KOOCHAINRUN = "/data/SmartTwinPreprocessor/bin/KooChainRun"
+# STMC_KOOCHAINRUN — 시험·다른 배치용(운영은 기본 경로).
+KOOCHAINRUN = os.environ.get("STMC_KOOCHAINRUN") or "/data/SmartTwinPreprocessor/bin/KooChainRun"
 
 
 def backend_result_dir(user: str, job_name: str, job_id) -> str:

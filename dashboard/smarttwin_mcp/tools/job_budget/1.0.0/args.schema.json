@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "registry_id"
+      ]
+    },
+    {
+      "required": [
+        "job_id"
+      ]
+    },
+    {
+      "required": [
+        "work_dir"
+      ]
+    }
+  ],
+  "properties": {
+    "registry_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "캠페인 제출 응답의 registry_id"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "integer"
+      ],
+      "pattern": "^[0-9]{1,12}$",
+      "minimum": 1,
+      "description": "캠페인 드라이버 잡의 Slurm job_id"
+    },
+    "work_dir": {
+      "type": "string",
+      "pattern": "^/.+",
+      "description": "캠페인 결과 폴더 절대경로(/data/single/<사용자>/ 아래)"
+    },
+    "pilot": {
+      "type": "string",
+      "pattern": "^/.+/Run_[A-Za-z0-9_]+/?$",
+      "description": "정상 파일럿 런 폴더 절대경로(호출자 영역 안)"
+    },
+    "pilot_config": {
+      "type": "string",
+      "pattern": "^/.+\\.json$",
+      "description": "파일럿의 runner_config(IMPACT 상태 수 비교) — 호출자 영역 안"
+    },
+    "concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "동시 실행 수(%N)"
+    },
+    "threshold": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 100,
+      "description": "문턱 선 % (기본 90)"
+    },
+    "backlog": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "후처리 대기로 d3plot 을 든 런 수 여유(기본 = 동시 수)"
+    }
+  },
+  "required": [
+    "pilot"
+  ]
+}

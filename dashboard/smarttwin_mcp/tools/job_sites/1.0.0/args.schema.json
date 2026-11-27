@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "registry_id"
+      ]
+    },
+    {
+      "required": [
+        "job_id"
+      ]
+    },
+    {
+      "required": [
+        "work_dir"
+      ]
+    }
+  ],
+  "properties": {
+    "registry_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "캠페인 제출 응답의 registry_id"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "integer"
+      ],
+      "pattern": "^[0-9]{1,12}$",
+      "minimum": 1,
+      "description": "캠페인 드라이버 잡의 Slurm job_id"
+    },
+    "work_dir": {
+      "type": "string",
+      "pattern": "^/.+",
+      "description": "캠페인 결과 폴더 절대경로(/data/single/<사용자>/ 아래)"
+    },
+    "face": {
+      "type": "string",
+      "enum": [
+        "TOP",
+        "BOT"
+      ],
+      "description": "면 표시 — 없으면 scenario position_source.face"
+    }
+  }
+}

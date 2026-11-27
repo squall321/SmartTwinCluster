@@ -1,0 +1,19 @@
+name: job_provenance
+version: 1.0.0
+summary: KooChainRun provenance — 런 하나가 실제로 읽은 설정·덱·include·SIF·LS-DYNA 판·잡 정보(provenance.json)
+description: |
+  런 폴더의 provenance.json(DynaForge DF-02 run.provenance 와 같은 칸)을 돌려준다. 없으면 지금 파일로 다시 만들고
+  missing 에 그 까닭을 적는다(런이 읽은 시점과 다를 수 있다).
+
+  # 쓰는 법
+  - registry_id·job_id·work_dir 중 하나. 캠페인 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+  ⚠ KooChainRun `provenance` 은 SmartTwinPreprocessor v141 이상에만 있다. 이 헤드의 KooChainRun 에 명령이 없으면
+  실행하지 않고 `koochainrun_outdated` 로 거절한다(운영 헤드가 낮은 판일 수 있다).
+tags: [koochainrun, provenance, dynaforge, mode-own]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 120}
+expose: catalog
+examples:
+  - title: registry_id 로
+    args: {"registry_id": 42, "case_key": "Run_20260711_062815_d42360"}
+  - title: work_dir 로
+    args: {"work_dir": "/data/single/USER/camp1", "case_key": "Run_20260711_062815_d42360"}

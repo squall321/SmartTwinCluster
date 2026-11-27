@@ -1,0 +1,21 @@
+name: job_keeper
+version: 1.0.0
+summary: KooChainRun keeper — 리포트 없는 끝난 런만 deep 배열 잡 하나로(기본 dry_run). 되풀이(--interval)는 하지 않는다
+description: |
+  캠페인에서 끝났는데 deep 리포트가 없는 런을 골라 Slurm 배열 잡 하나로 낸다. 한 번만 돈다(MCP 는 되풀이하지 않음).
+  - dry_run 기본 true — 고르기만 하고 제출하지 않는다.
+  ⚠ 잡은 MCP 서비스 계정 명의로 sbatch 된다. 감사 기록에 호출자를 남긴다.
+
+  # 쓰는 법
+  - registry_id·job_id·work_dir 중 하나. 캠페인 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+  ⚠ KooChainRun `keeper` 은 SmartTwinPreprocessor v141 이상에만 있다. 이 헤드의 KooChainRun 에 명령이 없으면
+  실행하지 않고 `koochainrun_outdated` 로 거절한다(운영 헤드가 낮은 판일 수 있다).
+tags: [koochainrun, keeper, deep, postprocess, array, mode-own]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 300}
+expose: catalog
+examples:
+  - title: registry_id 로
+    args: {"registry_id": 42}
+  - title: deep 배열 잡 실제 제출
+    args: {"registry_id": 42, "dry_run": false, "mem": "300G"}
+    note: MCP 서비스 계정 명의로 sbatch 된다. 사용자 확인.

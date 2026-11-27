@@ -1,0 +1,19 @@
+name: job_manifest
+version: 1.0.0
+summary: KooChainRun manifest — 끝난 런 귀환 매니페스트(return_manifest.jsonl, 첫 줄 머리 + 런 한 줄씩)
+description: |
+  캠페인 결과 폴더에 return_manifest.jsonl 을 만들고 돌려준다. 첫 줄은 머리(래퍼별·설정 sha 별·health 별 런 수),
+  다음 줄부터 끝난 런 하나씩. since 를 주면 그 시각 뒤에 끝난 런만.
+
+  # 쓰는 법
+  - registry_id·job_id·work_dir 중 하나. 캠페인 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+  ⚠ KooChainRun `manifest` 은 SmartTwinPreprocessor v141 이상에만 있다. 이 헤드의 KooChainRun 에 명령이 없으면
+  실행하지 않고 `koochainrun_outdated` 로 거절한다(운영 헤드가 낮은 판일 수 있다).
+tags: [koochainrun, manifest, return, dynaforge, mode-own]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 300}
+expose: catalog
+examples:
+  - title: registry_id 로
+    args: {"registry_id": 42}
+  - title: 이 시각 뒤에 끝난 런만
+    args: {"registry_id": 42, "since": "2026-11-17T00:00"}

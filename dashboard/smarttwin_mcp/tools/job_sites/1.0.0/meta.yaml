@@ -1,0 +1,18 @@
+name: job_sites
+version: 1.0.0
+summary: KooChainRun sites — IMPACT 자리 표(sites.csv — 자리 이름·좌표·면)
+description: |
+  IMPACT(부분 충격) 캠페인의 충격 자리 표를 결과 폴더의 sites.csv 로 만들고 줄을 돌려준다.
+
+  # 쓰는 법
+  - registry_id·job_id·work_dir 중 하나. 캠페인 폴더는 호출자 영역(/data/single/<사용자>/) 안이어야 한다(PAT 필요).
+  ⚠ KooChainRun `sites` 은 SmartTwinPreprocessor v141 이상에만 있다. 이 헤드의 KooChainRun 에 명령이 없으면
+  실행하지 않고 `koochainrun_outdated` 로 거절한다(운영 헤드가 낮은 판일 수 있다).
+tags: [koochainrun, sites, impact, dwi, mode-own]
+transport: {kind: local, shell: /bin/bash, timeout_sec: 120}
+expose: catalog
+examples:
+  - title: registry_id 로
+    args: {"registry_id": 42}
+  - title: 윗면 자리만
+    args: {"registry_id": 42, "face": "TOP"}
