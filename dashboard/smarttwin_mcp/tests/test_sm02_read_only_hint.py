@@ -12,7 +12,7 @@ from smarttwin_mcp.server import build_server
 
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
 READ = {"catalog_search", "catalog_describe", "catalog_versions", "echo", "get_job_details", "job_status",
-        "list_recent_jobs", "recipe_list", "smarttwin_capabilities", "tool_result"}
+        "list_recent_jobs", "recipe_list", "smarttwin_capabilities", "tool_result", "job_changes"}
 
 
 def _listed() -> dict:

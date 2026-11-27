@@ -265,3 +265,36 @@ def slurm_final_states(slurm_job_ids: list[str]) -> dict:
         if jid and state.strip():
             out[jid] = state.split()[0]  # "CANCELLED by 1000" → CANCELLED
     return out
+
+
+# KS-AP3 — Slurm 상태를 안정된 낱말로. 끝난 잡은 squeue 에 없어 sacct 로 본다.
+STATE_WORD = {"PENDING": "queued", "REQUEUED": "queued", "CONFIGURING": "running", "RUNNING": "running",
+              "COMPLETING": "running", "SUSPENDED": "running", "RESIZING": "running", "STAGE_OUT": "running",
+              "COMPLETED": "completed", "CANCELLED": "cancelled", "FAILED": "failed", "TIMEOUT": "failed",
+              "NODE_FAIL": "failed", "OUT_OF_MEMORY": "failed", "BOOT_FAIL": "failed", "DEADLINE": "failed",
+              "PREEMPTED": "failed"}
+
+def state_word(states: list) -> str:
+    """잡 여럿의 Slurm 상태 → 낱말 하나. 하나라도 돌면 running, 대기만 있으면 queued, 모두 끝났으면 cancelled > failed > completed."""
+    words = {STATE_WORD.get(st or "", "unknown") for st in states}
+    if not states:
+        return "unknown"
+    for w in ("running", "queued"):
+        if w in words:
+            return w
+    if words == {"completed"}:
+        return "completed"
+    for w in ("cancelled", "failed"):
+        if w in words:
+            return w
+    return "unknown"
+
+
+def job_state(ids: list[str], squeue: dict) -> tuple[str, dict]:
+    """잡 전체 상태 — queued·running·completed·failed·cancelled·unknown 하나와 잡별 Slurm 상태."""
+    states = {i: (squeue.get(i) or {}).get("state") for i in ids}
+    missing = [i for i, st in states.items() if not st]
+    if missing:
+        final = slurm_final_states(missing)
+        states.update({i: final.get(i) for i in missing})
+    return state_word(list(states.values())), {i: st or "UNKNOWN" for i, st in states.items()}
