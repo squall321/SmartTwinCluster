@@ -30,6 +30,7 @@ DB_PATH = Path(os.getenv('DATABASE_PATH', '/home/koopark/web_services/backend/da
 # 공유 스토리지 베이스 — 운영은 /shared(GlusterFS), gluster 미마운트 환경은 SHARED_BASE(예: /data).
 # job_submit_api 와 동일 규칙(기본 /shared, 운영 무해).
 SHARED_BASE = os.getenv('SHARED_BASE', '/shared')
+from shared_paths import JOB_LOGS_DIR, UPLOAD_BASE, ensure_dir  # SH-01·02·04
 
 # ── LS-DYNA Apptainer 실행 설정 (전부 서버사이드 env — 운영/개발마다 다름) ──────────
 # 이 클러스터는 LS-DYNA 를 호스트 바이너리가 아니라 Apptainer 컨테이너(.sif)로 실행한다.
@@ -258,8 +259,8 @@ def generate_script_from_template(template, image, slurm_config, input_files, cu
     if slurm_config.get('qos'):
         lines.append(f"#SBATCH --qos={slurm_config['qos']}")
 
-    lines.append(f'#SBATCH --output={SHARED_BASE}/logs/%j.out')
-    lines.append(f'#SBATCH --error={SHARED_BASE}/logs/%j.err')
+    lines.append(f'#SBATCH --output={JOB_LOGS_DIR}/%j.out')
+    lines.append(f'#SBATCH --error={JOB_LOGS_DIR}/%j.err')
     lines.append('')
 
     # Environment variables
@@ -373,11 +374,9 @@ def submit_lsdyna_jobs():
                     'allowed_partitions': _allowed,
                 }), 403
 
-            # 업로드 k파일 저장 — 공유 스토리지에 둬야 compute 노드가 읽는다(/tmp 는 노드로컬).
-            temp_dir = os.path.join(SHARED_BASE, 'lsdyna_uploads') if os.path.isdir(SHARED_BASE) else '/tmp/lsdyna_uploads'
-            os.makedirs(temp_dir, exist_ok=True)
-            if os.path.isdir(SHARED_BASE):
-                os.makedirs(os.path.join(SHARED_BASE, 'logs'), exist_ok=True)  # #SBATCH --output 대상
+            # 업로드 k파일 저장 — 계산 노드가 읽으므로 UPLOAD_BASE 아래(SH-01). 못 만들면 /tmp 로 물러나지 않는다(SH-04).
+            temp_dir = ensure_dir(os.path.join(UPLOAD_BASE, 'lsdyna_uploads'))
+            ensure_dir(JOB_LOGS_DIR)  # #SBATCH --output 대상
 
             # 파일명 위생: basename + 경로구분자 제거(경로탈출 차단), \w 로 한글 보존.
             safe_name = re.sub(r'[^\w.\-]', '_', os.path.basename(str(file.filename or '')))[:128] or f'input_{i}.k'
@@ -547,8 +546,8 @@ def generate_traditional_script(meta, k_file_path, web_role=None):
     lines.append(f"#SBATCH --ntasks={cores}")
     lines.append(f"#SBATCH --mem={cores * 2}G")
     lines.append("#SBATCH --time=24:00:00")
-    lines.append(f'#SBATCH --output={SHARED_BASE}/logs/%j.out')
-    lines.append(f'#SBATCH --error={SHARED_BASE}/logs/%j.err')
+    lines.append(f'#SBATCH --output={JOB_LOGS_DIR}/%j.out')
+    lines.append(f'#SBATCH --error={JOB_LOGS_DIR}/%j.err')
     lines.append('')
 
     sif = _select_lsdyna_sif(meta)

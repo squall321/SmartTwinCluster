@@ -116,7 +116,8 @@ job_logs_bp = Blueprint('job_logs', __name__, url_prefix='/api/jobs')
 # 공유 스토리지 베이스 — 제출(job_submit/lsdyna/app.py)이 쓰는 위치와 동일 규칙.
 # 운영은 /shared(=GlusterFS), gluster 미마운트 환경은 SHARED_BASE(예: /data).
 SHARED_BASE = os.getenv('SHARED_BASE', '/shared')
-LOGS_DIR = os.getenv('JOB_LOGS_DIR', os.path.join(SHARED_BASE, 'logs'))
+from shared_paths import JOB_LOGS_DIR as LOGS_DIR  # 제출이 #SBATCH --output 으로 쓰는 곳과 같은 값(SH-02)
+# 작업 폴더는 계산 노드 디스크라 헤드에서는 대개 보이지 않는다(SH-03) — 보이면 읽는다.
 JOBS_DIR = os.getenv('JOB_WORK_DIR', os.path.join(SHARED_BASE, 'jobs'))
 
 # 대체 경로 (다른 마운트 규칙/레거시 fallback)

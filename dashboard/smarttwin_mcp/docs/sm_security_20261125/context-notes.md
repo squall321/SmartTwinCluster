@@ -26,3 +26,6 @@
   kooremapper-4a(C-1 runs 를 args 안에 넣는다고 적어 둠)·포털에 알릴 것.
 - E1: 직접 도구 실행은 anyio.to_thread 로 — run_tool 이 subprocess 로 막히므로. Authorization 은 요청 컨텍스트에서 먼저 읽어 넘긴다.
 - 린트 L070 경고 하나 늘었다: 닫은 submit_lsdyna_remote 1.1.0 에 dry_run 인자가 남아 변경 도구로 잡힘(1.0.0 위임 시험이 두 판 스키마 동일을 요구). 오류 아님 — 둠.
+- C(SH): 로그 환경값은 새 이름(JOB_LOGS_BASE) 대신 읽는 쪽(job_logs_api)이 이미 쓰던 JOB_LOGS_DIR 를 쓰는 쪽에도 쓴다 — 한 이름으로 맞춤. 업로드는 UPLOAD_BASE(새). 기본값은 예전과 같아 환경값이 없으면 동작이 그대로(dev 는 SHARED_BASE=/data).
+- C(SH): lsdyna_submit_api 의 lsdyna_uploads 도 같은 결함이라 함께 UPLOAD_BASE 로. ensure_dir 실패는 job_submit_api import 때 RuntimeError → gunicorn 기동 실패(SH-04).
+- C(SH): 운영 손일 — .env 에 UPLOAD_BASE=/data/<…>, JOB_LOGS_DIR=/data/<…>/logs 두 줄, 그 폴더를 실행 계정 소유로. 값이 없거나 못 만들면 backend 가 안 뜬다(예전엔 조용히 /tmp).

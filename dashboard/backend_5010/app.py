@@ -928,12 +928,11 @@ def submit_job():
                     f.write(f"#SBATCH --mem={data['memory']}\n")
                 if data.get('time'):
                     f.write(f"#SBATCH --time={data['time']}\n")
-                # 로그를 공유 스토리지에 — 로그뷰어/결과/MCP 가 SHARED_BASE/logs/%j.* 를 찾는다(Path A 와 정합).
-                # 공유 베이스가 없으면(비공유 환경) Slurm 기본 위치로 둔다.
-                if os.path.isdir(SHARED_BASE):
-                    os.makedirs(os.path.join(SHARED_BASE, 'logs'), exist_ok=True)
-                    f.write(f"#SBATCH --output={SHARED_BASE}/logs/%j.out\n")
-                    f.write(f"#SBATCH --error={SHARED_BASE}/logs/%j.err\n")
+                # 로그는 JOB_LOGS_DIR — 계산 노드가 쓰고 로그 보기가 같은 곳을 읽는다(SH-02, Path A 와 정합).
+                from shared_paths import JOB_LOGS_DIR, ensure_dir
+                ensure_dir(JOB_LOGS_DIR)
+                f.write(f"#SBATCH --output={JOB_LOGS_DIR}/%j.out\n")
+                f.write(f"#SBATCH --error={JOB_LOGS_DIR}/%j.err\n")
                 f.write(f"\n")
 
                 # 결과 디렉토리 — 잡을 여기서 실행(cd). 상대경로 산출물이 여기 모이고,

@@ -149,14 +149,11 @@ APPTAINER_DIRS = {
 # 메타데이터 디렉토리 (GlusterFS 공유 스토리지)
 APPTAINER_METADATA_DIR = os.getenv('APPTAINER_METADATA_DIR', '/mnt/gluster/apptainer/metadata')
 
-# 업로드 임시 디렉토리 — 공유 FS 에 둬야 compute 노드가 cp 가능(노드로컬 /tmp 면 멀티노드 실패).
-UPLOAD_DIR = os.path.join(SHARED_BASE, 'slurm_uploads')
-try:
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    os.makedirs(os.path.join(SHARED_BASE, 'logs'), exist_ok=True)  # #SBATCH --output 대상
-except OSError:
-    UPLOAD_DIR = '/tmp/slurm_uploads'
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+# 업로드 — 잡 시작 때 계산 노드가 cp 하므로 모든 노드가 보는 UPLOAD_BASE 아래(SH-01).
+# 잡 로그(#SBATCH --output)도 JOB_LOGS_DIR(SH-02). 못 만들면 /tmp 로 물러나지 않고 기동 실패(SH-04).
+from shared_paths import JOB_LOGS_DIR, UPLOAD_BASE, ensure_dir
+UPLOAD_DIR = ensure_dir(os.path.join(UPLOAD_BASE, 'slurm_uploads'))
+ensure_dir(JOB_LOGS_DIR)
 
 # 파티션별 대표 노드 (이미지 파일 존재 확인용) - YAML에서 동적 로드
 def get_partition_nodes_from_yaml():
@@ -775,8 +772,8 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
 
     script += f"#SBATCH --mem={slurm_config.get('mem', slurm_config.get('memory', '16G'))}\n"
     script += f"#SBATCH --time={slurm_config['time']}\n"
-    script += f"#SBATCH --output={SHARED_BASE}/logs/%j.out\n"
-    script += f"#SBATCH --error={SHARED_BASE}/logs/%j.err\n\n"
+    script += f"#SBATCH --output={JOB_LOGS_DIR}/%j.out\n"
+    script += f"#SBATCH --error={JOB_LOGS_DIR}/%j.err\n\n"
 
     # 환경 변수 설정
     script += "# =============================================================================\n"
@@ -798,8 +795,8 @@ def generate_slurm_script(template: dict, job_config: dict) -> str:
         script += f"export APPTAINER_IMAGE=\"{job_config['apptainer_image_path']}\"\n\n"
 
     # 작업 디렉토리
-    # 스크래치(WORK_DIR)는 기존대로 /shared/jobs/<id>, 결과(RESULT_DIR)는
-    # /data/single/<웹사용자>/<잡이름>_<id> — 개별 잡 결과를 웹사용자별 홈에 보관.
+    # 스크래치(WORK_DIR)는 SHARED_BASE/jobs/<id> — 계산 노드 디스크다(공유 아님, 속도 때문 — SH-03).
+    # 헤드에서는 보이지 않는다. 남길 것은 RESULT_DIR(/data/single/<웹사용자>/<잡이름>_<id>, NFS)로 옮긴다.
     web_user = _sanitize_web_user(job_config.get('web_user', 'anonymous'))
     safe_job = re.sub(r'[^A-Za-z0-9._-]', '_', str(job_config.get('job_name', 'job')))[:64]
     script += "# --- 작업 디렉토리 ---\n"
