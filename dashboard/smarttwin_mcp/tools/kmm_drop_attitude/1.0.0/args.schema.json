@@ -95,7 +95,7 @@
             "number",
             "string"
           ],
-          "description": "실수 · 기본 0 (필수로 줄 것) — 종료 시간. tFinal 과 dt 가 둘 다 0 이 아니어야 CONTROL/DATABASE 카드를 쓴다"
+          "description": "실수 · 기본 0 (필수로 줄 것) — 종료 시간. tFinal 과 dt 가 둘 다 0 이 아니어야 CONTROL/DATABASE 카드를 쓴다 (EndTimeTable 이 있으면 각도마다 표 값)"
         },
         "dt": {
           "type": [
@@ -110,6 +110,16 @@
             "string"
           ],
           "description": "실수 · 기본 없음 — CONTROL_TERMINATION DTMIN — dt 붕괴 시 자동 종료 비율"
+        },
+        "EndTimeTable": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "array"
+          ],
+          "description": "경로 · 기본 없음 (모든 각도가 tFinal 하나) — 각도별 종료 시간 표 csv (RIGID_DROP_ENDTIME 의 <base>_endtime.csv). 각도마다 낙하 방향이 0.01° 안으로 같은 줄의 endtim(덱 시간 단위)을 그 각도 덱의 ENDTIM 으로 쓰고 d3plot·INTFOR NPLTC = int(ENDTIM/dt) 를 다시 매긴다 — 한 각도·여러 각도 모두, 맞는 줄이 여럿이면 최대. 표에 없는 각도·잘못된 표·dt 없음은 덱을 쓰지 않고 종료 코드 1. 표 메타 time_unit(s·ms)이 덱 시간 단위(재질 밀도 중앙값 판정)와 다르면 종료 코드 1, 판정이 안 되면 경고만 한다. 표 메타 v0(√(2gh), 덱 단위)가 이 낙하의 √(2gh) 와 상대 1e-3 넘게 다르면(다른 높이·다른 g) 종료 코드 1 'V0_MISMATCH' — 양쪽 높이·g 를 찍는다. v0 가 있는 표에 0 이 아닌 InitialVelocity·각속도가 오면 종료 코드 1 'NOT_PURE_DROP'(표는 정지 낙하). 표 값이 tFinal 보다 길면 '[EndTimeTable] WARNING max ENDTIM=… (x… of tFinal) — raise time limits' 한 줄. 표 reach(첫 접촉점에서 바닥 위 접촉점까지 가장 먼 거리)가 메시 바닥판(Plane·PlaneGraded·PlanewithRoughness)의 충돌점 둘레 반폭보다 길면 각도마다 'WARNING plate reach' 와 요약(판 한 변 = 2·reach 이상 권장, RigidWall 은 무관). 키 이름 전체가 같아야 한다(대소문자 무관) — EndTimeTabel·'EndTimeTable;…'·쉼표 없는 'EndTimeTable /…' 처럼 비슷한 키는 종료 코드 1 '[DROP_ATTITUDE] UNKNOWN_KEY'. 상대 경로는 작업폴더 기준"
         },
         "DropSurface": {
           "type": [
@@ -126,7 +136,7 @@
             "boolean",
             "string"
           ],
-          "description": "True/False · 기본 False — DEFORMABLE_TO_RIGID_AUTOMATIC 쌍 스위치(SWSET 20 code 2: 접촉력 0→강체 / SWSET 10 code 4: 접촉력 비0→변형체). 바닥판 접촉이 S2S 여야 켜진다(매뉴얼 Remark 1) — ConvertGeneralToSingleSurface=False 면 S2S 로 자동 선택"
+          "description": "True/False · 기본 False — DEFORMABLE_TO_RIGID_AUTOMATIC 쌍 스위치(SWSET 20 code 2: 접촉력 0→강체 / SWSET 10 code 4: 접촉력 비0→변형체 — 덱 D2R 이 20·10 을 쓰면 비는 번호로 옮긴다). 바닥판 접촉이 S2S 여야 켜진다(매뉴얼 Remark 1) — ConvertGeneralToSingleSurface=False 면 S2S 로 자동 선택"
         },
         "D2RLrb": {
           "type": [

@@ -69,7 +69,9 @@ MCP_HOW_COMMON = """\
 # 결과 받기
 - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
 - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
-- 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다."""
+- 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+- 이 설명은 카탈로그를 만든 정본 판 기준이다(판은 COVERAGE.md·stmc_specs.json). 헤드·노드 이미지가 그보다 낮으면
+  새 키·모드·플래그가 없어 잡이 rc 1 로 끝날 수 있다 — `image_version_check` 로 깔린 판을 볼 것."""
 
 
 # ── 공통 ─────────────────────────────────────────────────────────────────────────
@@ -650,7 +652,9 @@ SCENARIO_TOOLS = {"DROP": "scenario_drop", "IMPACT": "scenario_impact", "VIBRATI
 KCR_COMMAND_TOOLS = {"prepare": "scenario_submit", "submit": "scenario_submit", "status": "job_status",
                      "collect": "job_collect", "postprocess": "job_postprocess", "diagnose": "job_diagnose",
                      "rerun": "job_rerun", "stop": "job_stop", "reprioritize": "job_reprioritize",
-                     "harvest": "job_harvest"}
+                     "harvest": "job_harvest", "provenance": "job_provenance", "manifest": "job_manifest",
+                     "health": "job_health", "extract": "job_extract", "d3plot-delete": "job_d3plot_delete",
+                     "budget": "job_budget", "keeper": "job_keeper", "sites": "job_sites", "gate": "job_gate"}
 KCR_INTERNAL_COMMANDS = {"run"}  # 계산 노드에서 submit 이 부르는 내부 명령
 ONE_CLICK_TOOLS = {"fullangle_drop_simulation": "전각도 낙하 원클릭 — 모델 하나로 피보나치 N 방향 낙하 + 자동 후처리",
                    "single_drop_simulation": "지정 각도(roll/pitch/yaw) 1방향 낙하 원클릭"}
@@ -774,12 +778,15 @@ def main() -> int:
     gen_scenario(written, skipped, specs, index)
     rev = lambda p: subprocess.run(["git", "-C", str(p), "rev-parse", "--short", "HEAD"],  # noqa: E731
                                    capture_output=True, text=True).stdout.strip() or "?"
-    out = {"version": 1, "sources": {"pykoocae": rev(PYKOOCAE), "post_bin": str(POST_BIN)},
+    vf = POST_BIN.parent / "VERSION"
+    m = re.search(r"Version:\s*(\S+)", vf.read_text(errors="replace")) if vf.is_file() else None
+    out = {"version": 1, "sources": {"pykoocae": rev(PYKOOCAE), "post_bin": str(POST_BIN),
+                                     "post_version": m.group(1) if m else "?"},
            "kmm_blocks": blocks, "tools": specs, "index": index}
     (SHARED / "stmc_specs.json").write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     cov = ["<!-- 생성됨: tools/_gen/generate_smarttwin_tools.py — SmartTwin 기능 ↔ MCP/REST 도구 대응표 -->",
            "# SmartTwin 기능 커버리지", "",
-           f"정본 pyKooCAE `{out['sources']['pykoocae']}` · 후처리 `{POST_BIN}` 기준. "
+           f"정본 pyKooCAE `{out['sources']['pykoocae']}` · 후처리 `{POST_BIN}`(VERSION `{out['sources']['post_version']}`) 기준. "
            f"기능 {len(index)}개 → 도구 {len({r['tool'] for r in index})}개.", "",
            "| 제품 | 분류 | 기능 | MCP 도구 (REST: POST /smarttwin-api/v1/tools/<도구>/run) | 요약 |", "|---|---|---|---|---|"]
     for r in index:

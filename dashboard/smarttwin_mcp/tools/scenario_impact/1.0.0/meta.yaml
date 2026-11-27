@@ -12,12 +12,16 @@ description: |
   |---|---|---|---|
   | `position_source.source_type` | 문자 | grid_nxm | grid_nxm(nx, ny, bbox) \| grid_spacing(spacing_x, spacing_y, bbox) \| manual |
   | `position_source.grid_nxm.bbox` | [xmin,ymin,xmax,ymax] | 모델 bbox | 위치 격자 범위 |
+  | `position_source.manual.positions` | 배열 | - | [[x, y], …] 또는 [{"name": "P_A", "x": …, "y": …}, …] — 이름이 겹치면 오류 |
+  | `position_source.manual.file` | 경로 | - | JSON {"positions": [...]}(scenario.json 기준) — positions 와 함께 쓰지 않는다 |
+  | `position_source.face` | 문자 | - | sites.csv 의 face 칸(TOP·BOT) — 표시만 |
   | `simulation_params.impact.type` | Sphere \| cylinder | Sphere | 충격추 형상 |
   | `simulation_params.impact.dimension` | 실수 | 0.008 | 구 반지름 |
   | `simulation_params.impact.cylinder_stages` | 배열 | - | [front, back] 또는 [front, mid, back]. 각 role, diameter, outer_diameter(front), height, density, youngs_modulus, poisson |
   | `simulation_params.impact.height` | 실수 | 0.5 | 낙하 높이 (모델 단위) |
   | `simulation_params.impact.gravity` | 실수 | 재질 밀도로 판정 | 자유낙하 g (모델 단위, --help units) |
-  | `simulation_params.impact.mesh_size / offset_distance` | 실수 | 0.001 / 1e-5 | 충격추 요소 크기 / 초기 간격 |
+  | `simulation_params.impact.mesh_size / offset_distance` | 실수 | 미지정 → KMM 이 치수로 정함 / 1e-5 | 충격추 요소 크기 / 초기 간격 |
+  | `simulation_params.impact.dimension_damper` | [폭,높이,길이] | 미지정 → KMM 이 단위계로 정함 | 댐퍼 보 치수 (ton-mm-s 1,1,1 / SI 0.001×3) |
   | `simulation_params.impact.density / youngs_modulus / poisson_ratio` | 실수 | 7.85e-9 / 2.01e5 / 0.3 | 구 재질 (실린더는 stage 값 우선, back 단 = 본체) |
   | `simulation_params.impact.tFinal / dt / dtmin` | 실수 | 0.001 / 1e-6 / - | 시간 |
   | `simulation_params.wall.density / youngs_modulus / poisson_ratio / num_x,y,z` | - | 1e-9 / 1e4 / 0.3 / 10 | 바닥 벽 |
@@ -197,6 +201,11 @@ description: |
   }
   ```
   - back 단 재질이 KMM 의 *Impactor 슬롯(본체)으로 들어간다.
+
+  # 주의
+  - impact 아래 모르는 키·하위 객체(예 "sphere": {"diameter": …})는 러너가 읽지 않는다 — prepare 가 경고한다. 구 크기는 impact.dimension(반지름)
+  - height·dimension·dt·tFinal 기본값은 SI 크기다 — mm 모델이면 꼭 줄 것(prepare 가 경고). dt 가 d3plot·ELOUT·NODOUT·INTFOR 간격
+  - 제출 전 관문: KooChainRun prepare scenario.json --check-impact [--sample N|all] — 충격추 요소(몸통 0 거절)·질량·VZ 대 √(2gh)·자리 오차·접촉 겹침·상태 수
 
   # MCP 로 부르는 법
   - 위 첫 사례가 기본 시나리오다. 바꿀 부분만 `scenario` 로 준다(딥머지, 목록은 통째 교체 — scenarios 를 주면 사례의 scenarios 가 통째로 바뀌므로 사례 형식을 그대로 따를 것).

@@ -94,7 +94,7 @@
             "boolean",
             "string"
           ],
-          "description": "True/False · 기본 - — controls.k 와 globals.k 분리"
+          "description": "True/False · 기본 - — controls.k 와 globals.k 분리 — False 면 CONTROL·DATABASE 를 globals.k 에 함께 쓴다"
         },
         "GroupBoundaryPolicy": {
           "type": [

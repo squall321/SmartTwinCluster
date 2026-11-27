@@ -74,6 +74,24 @@
           ],
           "description": "--yield-stress YIELD_STRESS — Material yield stress (MPa) for safety factor calculation (객체를 주면 YAML 파일로 만들어 넘긴다)"
         },
+        "parallel_runs": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--parallel-runs N — 에너지 흐름 적재를 N개 프로세스로 (기본 1 = 현행, 0 = SLURM_CPUS_PER_TASK 또는 코어 수) (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "yield_map": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--yield-map FILE — 파트별 항복 한계 JSON (값은 **덱 단위**, MPa 아님). 생략하면 첫 DropSet.json 의 model.part_yield 를 쓴다 (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
         "ts_points": {
           "type": [
             "string",

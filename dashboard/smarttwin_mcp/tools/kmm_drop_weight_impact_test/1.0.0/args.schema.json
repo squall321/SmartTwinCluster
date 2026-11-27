@@ -57,7 +57,7 @@
             "number",
             "string"
           ],
-          "description": "실수 · 기본 0.001 — 충격추 요소 크기"
+          "description": "실수 · 기본 0.001 (치수/0.001 > 100 이면 치수/8) — 충격추 요소 크기 — 단위계에 맞게 지정 권장"
         },
         "DimensionDamper": {
           "type": [
@@ -67,7 +67,7 @@
             "boolean",
             "array"
           ],
-          "description": "실수 리스트 · 기본 - — 댐퍼 치수 (있을 때만 댐퍼 생성)"
+          "description": "실수 리스트 · 기본 단위계별 (ton-mm-s 1,1,1 / SI 0.001×3) — 댐퍼 보 [폭, 높이, 길이]. 댐퍼 보는 BoundaryDistance(없으면 StressWaveVelocity×TFinal×DistanceMargin)가 0 이 아닐 때 경계 절점마다 생긴다"
         },
         "tFinal": {
           "type": [
@@ -105,7 +105,7 @@
             "boolean",
             "array"
           ],
-          "description": "DampingSpring|Part · 기본 DampingSpring — Part = PartIDs 파트 표면 격자에 자동 배치"
+          "description": "DampingSpring|OutsideRigidElement|OutsideRigidPart|Part · 기본 DampingSpring — OutsideRigidElement·OutsideRigidPart = 충격 지점에서 BoundaryDistance 밖의 요소·파트를 강체로(댐퍼 대신, KMM 이 해석하지 않는 재질의 파트는 강체로 바꾸지 않는다), Part = PartIDs 파트 표면 격자에 자동 배치. 넷 다 *RunDirectoryMode 를 따른다"
         },
         "PartIDs": {
           "type": [

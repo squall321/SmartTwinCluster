@@ -11,6 +11,8 @@ description: |
 
     전체 파이프라인: unified_analyzer → sphere_report (빠름) → deep_report (느림)
     각 단계는 기존 결과가 있으면 자동 스킵 (--force 로 강제 재계산)
+    끝으로 sphere/impact 리포트 JSON 옆에 DynaForge 온톨로지 꾸러미(<이름>.ontology.json)를 낸다
+    (deep 은 리포트 폴더에 report.ontology.json 을 스스로 쓴다 — 꾸러미는 늘 짝 HTML 과 같은 이름 줄기)
 
   [모드]
       --deep-only             deep report 만
@@ -43,11 +45,20 @@ description: |
       --design-overrides JSON
       --material-overrides JSON
 
+  [리포트 그림]
+      --no-figures            리포트 그림(최대 순간 스냅샷 PNG · 호버 SVG · 차트)을 만들지 않는다 —
+                              런마다 deep 의 figures/ 와 캠페인의 파트별 최악 방향 그림
+                              (<test_dir>/figures, 그룹이면 figures_<그룹>) 둘 다
+      --no-hide-floor         deep 영상에 바닥(환경 파트)을 그대로 둔다 (기본은 숨김 — 카메라 ·
+                              단면 위치도 바닥을 빼고 정한다)
+
   [섹션뷰 (deep_report 전달)]
       --section-view
       --section-view-backend {lsprepost|software}
       --section-view-mode {section|section_3d}
-      --section-view-per-part
+      --section-view-per-part        모든 파트의 파트별 영상(느리다 — 기본은 아래 키워드 파트만)
+      --section-view-part-keywords KW...
+                                     파트별 영상을 찍을 파트 이름 키워드(기본 BGA, 대소문자 무시 · 부분 일치)
       --section-view-axes x y z
       --section-view-fields von_mises eps strain ...
       --section-view-target-ids ID...
@@ -62,6 +73,9 @@ description: |
       --scatter-opts "..."    koo_scatter_report 옵션 pass-through
                               (예: '--criterion max_principal --ground-truth ng.tsv')
       --impact-opts "..."     koo_impact_report 추가 옵션 pass-through (예: '--units ton-mm-s')
+      --s1                    런마다 S1 경량 추출본(<d3plot 폴더>/s1.h5) 생성 — 마지막 단계
+      --s1-opts "..."         s1_extract 옵션 pass-through (공백으로 쪼갠다 — 단위는 공백 없이)
+                              (예: '--floor-part 23 --units mm,t,s,MPa --state-step 10')
       -h|--help
 
   예시:
@@ -84,6 +98,8 @@ description: |
   - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
   - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
   - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+  - 이 설명은 카탈로그를 만든 정본 판 기준이다(판은 COVERAGE.md·stmc_specs.json). 헤드·노드 이미지가 그보다 낮으면
+    새 키·모드·플래그가 없어 잡이 rc 1 로 끝날 수 있다 — `image_version_check` 로 깔린 판을 볼 것.
 
   생성됨: tools/_gen/generate_smarttwin_tools.py — 직접 고치지 말고 정본을 고친 뒤 다시 생성할 것.
 tags:

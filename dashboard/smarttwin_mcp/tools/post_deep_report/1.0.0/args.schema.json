@@ -141,6 +141,15 @@
           ],
           "description": "--section-view-center {aabb,peak} — 단면 자를 자리 (software 백엔드만): aabb=형상 가운데(기본), peak=응력 피크가 지나는 자리. 형상 가운데가 피크라는 보장은 없어서, 모서리·체결부에서 터지는 덱이면 aabb 단면이 피크를 통째로 비켜 간다"
         },
+        "section_view_state_step": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--section-view-state-step N — LS-PrePost 단면 영상 프레임 보폭: 상태 0, N, 2N … 만 그린다 (기본 1 = 전 상태). 상태가 수천 개인 덱의 영상 길이·렌더 시간을 줄인다 (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
         "section_view_mode": {
           "type": "string",
           "enum": [
@@ -161,7 +170,7 @@
         },
         "section_view_per_part": {
           "type": "boolean",
-          "description": "--section-view-per-part — 파트별 단면뷰 렌더링 강제 ON (기본은 target ID/pattern 미지정 시 자동 ON)"
+          "description": "--section-view-per-part — 파트별 단면뷰를 모든 파트에 강제 ON (느리다). 기본은 이름에 --section-view- part-keywords(기본 BGA)가 든 파트만, --section-view-target- ids 를 주면 그 파트들만, --section-view-target-patterns 만 주면 끔"
         },
         "no_section_view_per_part": {
           "type": "boolean",
@@ -193,7 +202,7 @@
               "number"
             ]
           },
-          "description": "--section-view-fields FIELD [FIELD ...] — 단면뷰 스칼라 필드 (기본: von_mises strain). strain=변위기반 총변형률, eps=소성변형률"
+          "description": "--section-view-fields FIELD [FIELD ...] — 단면뷰 스칼라 필드 (기본: von_mises strain). strain=소프트웨어 렌더는 변위기반 총변형률, LS-PrePost 백엔드(기본)는 유효 소성변형률. eps=소성변형률"
         },
         "section_view_target_ids": {
           "type": [
@@ -207,7 +216,7 @@
               "number"
             ]
           },
-          "description": "--section-view-target-ids ID [ID ...] — 단면뷰 타겟 파트 ID 목록 (미지정=전체)"
+          "description": "--section-view-target-ids ID [ID ...] — 단면뷰 타겟 파트 ID 목록 (미지정=전체). 주면 개관에서 강조하고 그 파트들의 파트별 단면도 만든다 — 분석 대상은 좁히지 않는다(--parts 와 다르다)"
         },
         "section_view_target_patterns": {
           "type": [
@@ -222,6 +231,20 @@
             ]
           },
           "description": "--section-view-target-patterns PAT [PAT ...] — 단면뷰 타겟 파트 패턴 (예: \"*PKG*\")"
+        },
+        "section_view_part_keywords": {
+          "type": [
+            "array",
+            "string",
+            "number"
+          ],
+          "items": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "description": "--section-view-part-keywords KW [KW ...] — 파트별 단면 영상을 찍을 파트 이름 키워드(대소문자 무시 · 부분 일치, 쉼표로도 여럿). 기본 BGA — 단면 대상 ID 를 주지 않으면 이 이름이 든 파트만 파트별 영상을 만든다(모든 파트를 찍으면 서버에서 너무 느리다, 2026-11-08 표준). 모든 파트는 --section- view-per-part"
         },
         "section_view_fade": {
           "type": [
@@ -288,7 +311,7 @@
             "integer",
             "object"
           ],
-          "description": "--hotspot-criterion C[,C] — 군집 선별 기준량, 쉼표로 여러 개 (default von_mises). von_mises | max_principal | min_principal | max_shear | x_tension | y_tension | z_tension. 별칭: vm, sigma1/s1/p1, sigma3/s3/p3, tau_max/tresca, sigma_xx/sxx (y·z 도 같은 꼴). 여러 개면 파트x기준 항목이 각각 나온다. min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다. max_shear = (σ1−σ3)/2. x/y/z_tension = 전역 좌표 수직응력 σxx/σyy/σzz 의 최댓값. 허용 목록은 실행할 unified_analyzer --capabilities 를 따른다 (객체를 주면 YAML 파일로 만들어 넘긴다)"
+          "description": "--hotspot-criterion C[,C] — 군집 선별 기준량, 쉼표로 여러 개 (default von_mises,plastic_strain — 엔진이 모르는 기준은 빼고 쓴다). von_mises | max_principal | min_principal | max_shear | x_tension | y_tension | z_tension | plastic_strain | plastic_work. 별칭: vm, sigma1/s1/p1, sigma3/s3/p3, tau_max/tresca, sigma_xx/sxx (y·z 도 같은 꼴), eps_p, w_p. 여러 개면 파트x기준 항목이 각각 나온다. min_principal 은 '가장 압축인' 요소를 뽑는다 — stress_max 가 최솟값이 된다. max_shear = (σ1−σ3)/2. x/y/z_tension = 전역 좌표 수직응력 σxx/σyy/σzz 의 최댓값. plastic_strain = 유효소성변형률 이력 최댓값, plastic_work = 누적 소성일 밀도 — 응력 상위 밖의 소성 영역용이고 소성이 없는(ε_p ≤ 1e-6) 요소는 뽑지 않는다(이때 stress_max 는 그 값이다). 허용 목록은 실행할 unified_analyzer --capabilities 를 따른다 (객체를 주면 YAML 파일로 만들어 넘긴다)"
         },
         "hotspot_time_aggregate": {
           "type": [
@@ -418,6 +441,81 @@
         "no_section_view_sliding_iso_style": {
           "type": "boolean",
           "description": "--no-section-view-sliding-iso-style — (sliding) iso 스타일 OFF"
+        },
+        "no_figures": {
+          "type": "boolean",
+          "description": "--no-figures — 리포트 그림 꾸러미를 만들지 않는다 (기본은 만든다)"
+        },
+        "figure_top": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--figure-top N — 그릴 상위 파트 수 — 안전율 낮은 순, 안전율이 없으면 최대 응력 순 (default 5) (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "figure_parts": {
+          "type": [
+            "array",
+            "string",
+            "number"
+          ],
+          "items": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "description": "--figure-parts ID [ID ...] — 그릴 파트를 직접 고른다 — 주면 상위 N 대신 이것"
+        },
+        "hide_parts": {
+          "type": [
+            "array",
+            "string",
+            "number"
+          ],
+          "items": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "description": "--hide-parts ID [ID ...] — 그림 · 영상에서 숨길 파트 — 그림은 바닥(환경 파트)을 늘 자동으로 숨기고 이것을 더한다. 영상(단면 · 개관)은 이 파트들을 빼고 카메라 · 단면 위치도 그것을 빼고 정한다"
+        },
+        "hide_floor": {
+          "type": "boolean",
+          "description": "--hide-floor — 영상에서 바닥(환경 파트 — 다른 파트를 다 합친 상자보다 두 축 이상에서 1.5배 넘게 큰 파트)을 숨긴다. 카메라 · 단면 위치도 바닥을 빼고 정한다 (기본 켬)"
+        },
+        "no_hide_floor": {
+          "type": "boolean",
+          "description": "--no-hide-floor — 영상에 바닥을 그대로 둔다(예전 모양)"
+        },
+        "view_fit": {
+          "type": "string",
+          "enum": [
+            "model",
+            "target"
+          ],
+          "description": "--view-fit {model,target} — LS-PrePost 단면 영상의 카메라 맞춤. target = 타겟 파트(--section- view-target-ids · --section-view-target-patterns, 단면뷰를 끄면 --part-pattern · --per-part-render)의 단면(잘린 면)에 화면을 맞춘다 — 영상을 오려 확대하는 것이 아니라 카메라를 당기는 것이라 해상도가 그대로다. model = 보이는 모델 전체의 단면 (default model)"
+        },
+        "view_margin": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--view-margin M — --view-fit target 의 여백 — zin 약속: 음수 = 넓게(-0.3 = 꼭 맞을 때의 1.6배 범위), 0 = 꼭 맞게, 양수 = 타겟 안쪽으로. 0.5 보다 작아야 한다 (default -0.3) (객체를 주면 YAML 파일로 만들어 넘긴다)"
+        },
+        "figure_context_opacity": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "object"
+          ],
+          "description": "--figure-context-opacity A — 그림의 주변 파트 불투명도 0–1 (default 0.15) (객체를 주면 YAML 파일로 만들어 넘긴다)"
         }
       },
       "additionalProperties": false,

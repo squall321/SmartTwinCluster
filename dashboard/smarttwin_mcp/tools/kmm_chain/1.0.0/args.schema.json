@@ -51,6 +51,7 @@
               "REMESH_TETRA",
               "REMOVE_DUPLICATE_TIED_CONTACTS",
               "RIGIDIFY_SMALL_DT",
+              "RIGID_DROP_ENDTIME",
               "SIMULATION_AUTOMATION",
               "THERMAL_LOAD",
               "TRANSFORM",

@@ -17,7 +17,7 @@ description: |
   # 키
   | 키 | 형식 | 기본 | 설명 |
   |---|---|---|---|
-  | `ImportFile` | 경로 | - | 붙일 .k (ID 는 자동 재번호) |
+  | `ImportFile` | 경로 | - | 붙일 .k (파트·절점·요소·단면·셋·접촉 ID 는 기준 덱 뒤로 재번호) |
 
   # 사례 — new_part.k 를 base_model 에 합침
   ```text
@@ -32,6 +32,11 @@ description: |
   ```
   - 출력: base_model_imported.k
 
+  # 주의
+  - 재질 MID·EOS·HOURGLASS·곡선 LCID·좌표계 CID 는 번호를 지킨다(공통 DB). 같은 번호에 내용이 다른 곡선·HOURGLASS 는 기준 덱 것을 남기고 🔴(종료 코드 3).
+  - 구속·부분 감쇠·강체벽·INTERFACE·하중·초기 조건과 KMM 이 해석하지 않는 원문 키워드는 번호를 밀 수 없어 옮기지 않고 🔴(종료 코드 3) — 로그 목록을 보고 병합 뒤 직접 넣을 것.
+  - CONTROL·DATABASE·DAMPING_GLOBAL 설정은 기준 덱 것을 쓴다(가져온 설정은 알리기만 한다).
+
   관련 모드: MERGE_K
 
   # MCP 로 부르는 법
@@ -45,6 +50,8 @@ description: |
   - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
   - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
   - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+  - 이 설명은 카탈로그를 만든 정본 판 기준이다(판은 COVERAGE.md·stmc_specs.json). 헤드·노드 이미지가 그보다 낮으면
+    새 키·모드·플래그가 없어 잡이 rc 1 로 끝날 수 있다 — `image_version_check` 로 깔린 판을 볼 것.
 
   # 옵션 파일 형식 (요약)
       KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.

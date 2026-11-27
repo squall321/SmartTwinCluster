@@ -1,7 +1,7 @@
 <!-- 생성됨: tools/_gen/generate_smarttwin_tools.py — SmartTwin 기능 ↔ MCP/REST 도구 대응표 -->
 # SmartTwin 기능 커버리지
 
-정본 pyKooCAE `15e5e8f` · 후처리 `/data/SmartTwinPostprocessor/bin` 기준. 기능 131개 → 도구 129개.
+정본 pyKooCAE `721fc9a` · 후처리 `/data/SmartTwinPostprocessor/bin`(VERSION `a42043b`) 기준. 기능 141개 → 도구 139개.
 
 | 제품 | 분류 | 기능 | MCP 도구 (REST: POST /smarttwin-api/v1/tools/<도구>/run) | 요약 |
 |---|---|---|---|---|
@@ -37,6 +37,7 @@
 | KooMeshModifier | k 파일 | IMPORT_MERGE_K | `kmm_import_merge_k` | 다른 .k 파일을 불러와 ID 충돌 없이 현재 모델에 합침 |
 | KooMeshModifier | k 파일 | DYNAIN_TO_INITIAL | `kmm_dynain_to_initial` | 이전 해석 dynain(변형 형상+응력)을 다음 해석 초기 상태로 |
 | KooMeshModifier | 자동화 | SIMULATION_AUTOMATION | `kmm_simulation_automation` | 시나리오 JSON 으로 여러 해석 모델을 일괄 생성 |
+| KooMeshModifier | 낙하·충격 | RIGID_DROP_ENDTIME | `kmm_rigid_drop_endtime` | 강체 낙하 사전 해석 — 질량특성·외곽면(OBJ)·볼록 껍질로 각도별 종료 시간(ENDTIM) 표를 만든다 |
 | KooMeshModifier | 체인 | chain | `kmm_chain` | 여러 모드를 한 옵션 파일에 순서대로 |
 | KooAutomatedModeller | 패키지·부품 | PKG | `kam_pkg` | 적층(Layer) 정의 텍스트로 반도체 패키지 형상(STEP) 또는 LS-DYNA 메시(.k) 생성 |
 | KooAutomatedModeller | 패키지·부품 | CAPACITOR | `kam_capacitor` | MLCC 칩 커패시터(패드·터미널·솔더·유전체 적층) 형상과 메시 생성 |
@@ -133,6 +134,15 @@
 | KooChainRun | 명령 | rerun | `job_rerun` | 실패·미완료 재실행 |
 | KooChainRun | 명령 | stop | `job_stop` | 잡 전부 취소 |
 | KooChainRun | 명령 | reprioritize | `job_reprioritize` | 대기 잡 우선순위 재배치 |
-| KooChainRun | 명령 | harvest | `job_harvest` | 취약 조건 JSON 추출 |
+| KooChainRun | 명령 | harvest | `job_harvest` | 취약 조건 JSON 추출 · 충격 조건 결과를 원래 각도로 (--impact-map → per_angle_risk.csv) |
+| KooChainRun | 명령 | provenance | `job_provenance` | 런 출처 기록 보기(provenance.json — 없으면 지금 파일로 다시 만든다) |
+| KooChainRun | 명령 | manifest | `job_manifest` | 끝난 런 귀환 매니페스트(return_manifest.jsonl) |
+| KooChainRun | 명령 | health | `job_health` | 정상 종료·건강 판정(health.json · health_table.csv) |
+| KooChainRun | 명령 | extract | `job_extract` | 필수 추출만 돌리고 확인(지우지 않음) |
+| KooChainRun | 명령 | d3plot-delete | `job_d3plot_delete` | 관문을 지난 런만 d3plot 삭제 — 끝 코드 0 지움 · 2 보존 · 1 오류 |
+| KooChainRun | 명령 | budget | `job_budget` | 제출 전 디스크 예산 — 끝 코드 0 통과 · 2 축소/삭제 켜기 · 1 거절 |
+| KooChainRun | 명령 | keeper | `job_keeper` | 후처리 지킴이 — 리포트 없는 끝난 런만 deep 배열 잡 하나로 |
+| KooChainRun | 명령 | sites | `job_sites` | IMPACT 자리 표(sites.csv) |
+| KooChainRun | 명령 | gate | `job_gate` | 제출 전 덱 관문 — 거절이면 끝 코드 1 |
 | KooChainRun | 원클릭 | fullangle_drop_simulation | `fullangle_drop_simulation` | 전각도 낙하 원클릭 — 모델 하나로 피보나치 N 방향 낙하 + 자동 후처리 |
 | KooChainRun | 원클릭 | single_drop_simulation | `single_drop_simulation` | 지정 각도(roll/pitch/yaw) 1방향 낙하 원클릭 |

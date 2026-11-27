@@ -24,19 +24,19 @@ description: |
   | `InitialVelocityX/Y/Z` | 실수 리스트 | 0 | 추가 초기 속도 (케이스별). Height 속도와 합산되므로 둘 다 주면 이중 가산 |
   | `Type` | Sphere\|Cylinder | Sphere | 충격추 형상 |
   | `Dimension` | 실수 리스트 | 0.008 | Sphere: 반지름. Cylinder 5값(2단): r,외곽r,앞높이,뒤높이,뒤r / 7값(3단): r,외곽r,앞높이,중간r,중간높이,뒤r,뒤높이 |
-  | `MeshSize` | 실수 | 0.001 | 충격추 요소 크기 |
-  | `DimensionDamper` | 실수 리스트 | - | 댐퍼 치수 (있을 때만 댐퍼 생성) |
-  | `DensityImpactor / YoungsModulusImpactor / PoissonRatioImpactor` | 실수 | 7.8e-9 / 2.07e5 / 0.3 | 충격추 본체(실린더의 뒤 단) 재질 |
+  | `MeshSize` | 실수 | 0.001 (치수/0.001 > 100 이면 치수/8) | 충격추 요소 크기 — 단위계에 맞게 지정 권장 |
+  | `DimensionDamper` | 실수 리스트 | 단위계별 (ton-mm-s 1,1,1 / SI 0.001×3) | 댐퍼 보 [폭, 높이, 길이]. 댐퍼 보는 BoundaryDistance(없으면 StressWaveVelocity×TFinal×DistanceMargin)가 0 이 아닐 때 경계 절점마다 생긴다 |
+  | `DensityImpactor / YoungsModulusImpactor / PoissonRatioImpactor` | 실수 | 단위계별 (ton-mm-s 7.8e-9 / 2.07e5 / 0.3, SI 7800 / 2.07e11 / 0.3) | 충격추 본체(실린더의 뒤 단) 재질. 단위계는 Gravity 키, 없으면 모델 재질 밀도로 판정 (GenerationMode,Part 는 늘 ton-mm-s 값) |
   | `...ImpactorFront / ...ImpactorMid` | 실수 | 본체와 같음 | 실린더 앞 단·중간 단 재질 (Density/YoungsModulus/PoissonRatio 접두) |
   | `MaterialIDImpactor[Front\|Mid]` | 정수 | 0 | 0 이면 새 재질 생성, 아니면 기존 MID 재사용 |
-  | `DensityWall / YoungsModulusWall / PoissonRatioWall` | 실수 | - | 바닥 벽 재질 |
+  | `DensityWall / YoungsModulusWall / PoissonRatioWall` | 실수 | 단위계별 (ton-mm-s 1e-9 / 1e4 / 0.3, SI 1000 / 1e10 / 0.3) | 바닥 벽 재질 (GenerationMode,Part 는 1e-9 / 1e6 / 0.3) |
   | `WallNumX/Y/Z` | 정수 | 10 | 바닥 벽 분할 수 |
-  | `DensityDamper / YoungsModulusDamper / PoissonRatioDamper` | 실수 | - | 댐퍼 재질 |
+  | `DensityDamper / YoungsModulusDamper / PoissonRatioDamper` | 실수 | 단위계별 (ton-mm-s 1e-9 / 1e4 / 0.3, SI 1000 / 1e10 / 0.3) | 댐퍼 보 재질 |
   | `tFinal` | 실수 | 0 | 종료 시간 |
   | `dt` | 실수 | 1e-6 | d3plot 출력 간격 |
   | `DTMIN` | 실수 | 없음 | CONTROL_TERMINATION DTMIN |
   | `OffsetDistance` | 실수 | 1e-9 | 충격추와 표면 초기 간격 |
-  | `GenerationMode` | DampingSpring\|Part | DampingSpring | Part = PartIDs 파트 표면 격자에 자동 배치 |
+  | `GenerationMode` | DampingSpring\|OutsideRigidElement\|OutsideRigidPart\|Part | DampingSpring | OutsideRigidElement·OutsideRigidPart = 충격 지점에서 BoundaryDistance 밖의 요소·파트를 강체로(댐퍼 대신, KMM 이 해석하지 않는 재질의 파트는 강체로 바꾸지 않는다), Part = PartIDs 파트 표면 격자에 자동 배치. 넷 다 *RunDirectoryMode 를 따른다 |
   | `PartIDs` | 정수 리스트 | [] | GenerationMode,Part 대상 파트 |
   | `LocationMode` | NXM 문자열 | 1X1 | 파트 표면 격자 배치 (예: 3X3 → 9 케이스) |
   | `BoundaryDistance / DistanceMargin / StressWaveVelocity` | 실수 | 0 | 부분 강체화 경계 거리 계산용 |
@@ -161,6 +161,8 @@ description: |
   - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
   - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
   - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+  - 이 설명은 카탈로그를 만든 정본 판 기준이다(판은 COVERAGE.md·stmc_specs.json). 헤드·노드 이미지가 그보다 낮으면
+    새 키·모드·플래그가 없어 잡이 rc 1 로 끝날 수 있다 — `image_version_check` 로 깔린 판을 볼 것.
 
   # 옵션 파일 형식 (요약)
       KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.

@@ -1,8 +1,9 @@
 {
  "version": 1,
  "sources": {
-  "pykoocae": "15e5e8f",
-  "post_bin": "/data/SmartTwinPostprocessor/bin"
+  "pykoocae": "721fc9a",
+  "post_bin": "/data/SmartTwinPostprocessor/bin",
+  "post_version": "a42043b"
  },
  "kmm_blocks": {
   "DROP_ATTITUDE": "DropAttitude",
@@ -36,7 +37,8 @@
   "MERGE_K": "MergeK",
   "IMPORT_MERGE_K": "ImportMergeK",
   "DYNAIN_TO_INITIAL": "DynainToInitial",
-  "SIMULATION_AUTOMATION": "SimulationAutomation"
+  "SIMULATION_AUTOMATION": "SimulationAutomation",
+  "RIGID_DROP_ENDTIME": "RigidDropEndtime"
  },
  "tools": {
   "kmm_drop_attitude": {
@@ -198,6 +200,11 @@
    "family": "kmm",
    "mode": "SIMULATION_AUTOMATION",
    "block": "SimulationAutomation"
+  },
+  "kmm_rigid_drop_endtime": {
+   "family": "kmm",
+   "mode": "RIGID_DROP_ENDTIME",
+   "block": "RigidDropEndtime"
   },
   "kmm_chain": {
    "family": "kmm_chain"
@@ -1317,6 +1324,13 @@
   },
   {
    "family": "KooMeshModifier",
+   "category": "낙하·충격",
+   "capability": "RIGID_DROP_ENDTIME",
+   "tool": "kmm_rigid_drop_endtime",
+   "summary": "강체 낙하 사전 해석 — 질량특성·외곽면(OBJ)·볼록 껍질로 각도별 종료 시간(ENDTIM) 표를 만든다"
+  },
+  {
+   "family": "KooMeshModifier",
    "category": "체인",
    "capability": "chain",
    "tool": "kmm_chain",
@@ -1992,7 +2006,70 @@
    "category": "명령",
    "capability": "harvest",
    "tool": "job_harvest",
-   "summary": "취약 조건 JSON 추출"
+   "summary": "취약 조건 JSON 추출 · 충격 조건 결과를 원래 각도로 (--impact-map → per_angle_risk.csv)"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "provenance",
+   "tool": "job_provenance",
+   "summary": "런 출처 기록 보기(provenance.json — 없으면 지금 파일로 다시 만든다)"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "manifest",
+   "tool": "job_manifest",
+   "summary": "끝난 런 귀환 매니페스트(return_manifest.jsonl)"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "health",
+   "tool": "job_health",
+   "summary": "정상 종료·건강 판정(health.json · health_table.csv)"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "extract",
+   "tool": "job_extract",
+   "summary": "필수 추출만 돌리고 확인(지우지 않음)"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "d3plot-delete",
+   "tool": "job_d3plot_delete",
+   "summary": "관문을 지난 런만 d3plot 삭제 — 끝 코드 0 지움 · 2 보존 · 1 오류"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "budget",
+   "tool": "job_budget",
+   "summary": "제출 전 디스크 예산 — 끝 코드 0 통과 · 2 축소/삭제 켜기 · 1 거절"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "keeper",
+   "tool": "job_keeper",
+   "summary": "후처리 지킴이 — 리포트 없는 끝난 런만 deep 배열 잡 하나로"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "sites",
+   "tool": "job_sites",
+   "summary": "IMPACT 자리 표(sites.csv)"
+  },
+  {
+   "family": "KooChainRun",
+   "category": "명령",
+   "capability": "gate",
+   "tool": "job_gate",
+   "summary": "제출 전 덱 관문 — 거절이면 끝 코드 1"
   },
   {
    "family": "KooChainRun",

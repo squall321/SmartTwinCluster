@@ -68,7 +68,27 @@
             "boolean",
             "array"
           ],
-          "description": "정수 리스트 · 기본 [] — 접촉 제거"
+          "description": "정수 리스트 · 기본 [] — 접촉 제거 — 없어진 접촉을 ENTNO 로 가리키는 덱 *DEFORMABLE_TO_RIGID_AUTOMATIC(CODE 2·4)도 짝 스위치와 함께 지운다. KMM 이 해석하지 않는 원문 접촉은 지우지 못하고 ⚠ 로 알린다(그 D2R 도 남는다)"
+        },
+        "*RemoveRigidWallbyID": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "array"
+          ],
+          "description": "정수 리스트 · 기본 [] — 강체벽 제거 — 앞 단계 DROP 이 만든 바닥 벽(DROP 이 dynaintoinitial.txt 에 번호를 적는다). 덱에 그 번호의 벽이 없으면 ⚠"
+        },
+        "*SpecimenModified": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "array"
+          ],
+          "description": "까닭(문자열) · 기본 없음 — 앞 단계 충격(DROP_WEIGHT_IMPACT_TEST)이 시편을 잘라 냈거나 강체로 바꿨다는 표시 — 그 충격이 dynaintoinitial.txt 에 적는다. 있으면 DTI 가 까닭을 알리고 rc 1 로 멈춘다(바뀐 시편은 다음 단계로 이어 갈 수 없다)"
         }
       },
       "additionalProperties": {

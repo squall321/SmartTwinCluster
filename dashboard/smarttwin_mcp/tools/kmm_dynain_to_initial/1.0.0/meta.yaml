@@ -23,8 +23,10 @@ description: |
   | `*DynamicRelaxation` | True/False | False | 새 DR 추가 (Nrcyck/Tol/Fctr/Term 접미 키) |
   | `*MovetoOriginAutomatic` | True/False | False | 모델을 원점으로 |
   | `*MovetoOriginbyNode` | 정수 | [] | 지정 절점 기준 원점 이동 |
-  | `*RemovePartbyID / *RemovePartbyName` | 리스트 | [] | 파트 제거 (바닥판 등) |
-  | `*RemoveContactbyID` | 정수 리스트 | [] | 접촉 제거 |
+  | `*RemovePartbyID / *RemovePartbyName` | 리스트 | [] | 파트 제거 (바닥판 등) — 그 파트를 종·주 면 파트(SSTYP·MSTYP 3)로 쓰는 접촉, 그 파트의 강체 처방 운동·초기 속도 GENERATION(STYP 2)·*SET_PART 번호도 지운다(비게 된 파트 묶음은 지우고, 그 묶음을 쓰는 접촉이 남으면 ⚠) |
+  | `*RemoveContactbyID` | 정수 리스트 | [] | 접촉 제거 — 없어진 접촉을 ENTNO 로 가리키는 덱 *DEFORMABLE_TO_RIGID_AUTOMATIC(CODE 2·4)도 짝 스위치와 함께 지운다. KMM 이 해석하지 않는 원문 접촉은 지우지 못하고 ⚠ 로 알린다(그 D2R 도 남는다) |
+  | `*RemoveRigidWallbyID` | 정수 리스트 | [] | 강체벽 제거 — 앞 단계 DROP 이 만든 바닥 벽(DROP 이 dynaintoinitial.txt 에 번호를 적는다). 덱에 그 번호의 벽이 없으면 ⚠ |
+  | `*SpecimenModified` | 까닭(문자열) | 없음 | 앞 단계 충격(DROP_WEIGHT_IMPACT_TEST)이 시편을 잘라 냈거나 강체로 바꿨다는 표시 — 그 충격이 dynaintoinitial.txt 에 적는다. 있으면 DTI 가 까닭을 알리고 rc 1 로 멈춘다(바뀐 시편은 다음 단계로 이어 갈 수 없다) |
 
   # 사례 — dynain 응력 이어받고 바닥판(파트 23) 제거
   ```text
@@ -42,6 +44,24 @@ description: |
   *End
   ```
 
+  # 사례 — 누적 낙하 다음 단계 — 앞 단계 DROP 이 적는 꼴(바닥판 파트·바닥 접촉·바닥 강체벽 제거)
+  ```text
+  *Inputfile
+  drop_step1.k
+  *Mode
+  DYNAIN_TO_INITIAL,1
+  **DynainToInitial,1
+  *DynainPath,dynain
+  *IncludeStress,True
+  *RemoveDynamicRelaxation,True
+  *MovetoOriginAutomatic,True
+  *RemovePartbyID,900
+  *RemoveContactbyID,900
+  *RemoveRigidWallbyID,1
+  **EndDynainToInitial
+  *End
+  ```
+
   관련 모드: DROP_ATTITUDE
 
   # MCP 로 부르는 법
@@ -55,6 +75,8 @@ description: |
   - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
   - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
   - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+  - 이 설명은 카탈로그를 만든 정본 판 기준이다(판은 COVERAGE.md·stmc_specs.json). 헤드·노드 이미지가 그보다 낮으면
+    새 키·모드·플래그가 없어 잡이 rc 1 로 끝날 수 있다 — `image_version_check` 로 깔린 판을 볼 것.
 
   # 옵션 파일 형식 (요약)
       KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.

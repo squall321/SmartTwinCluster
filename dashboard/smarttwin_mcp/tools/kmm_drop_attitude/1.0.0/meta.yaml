@@ -25,16 +25,18 @@ description: |
   | `Height` (필수) | 실수 리스트 | - | 낙하 높이 → 초기 속도 √(2gh) 가 InitialVelocity 에 더해진다 (모델은 OffsetDistance 간격에 놓임). g 는 Gravity 키, 없으면 모델 재질 밀도로 단위계 판정 (ton-mm-s → 9810, kg-m-s → 9.81) |
   | `Gravity` | 실수 | 모델 재질 밀도로 판정 | 자유낙하 g (모델 단위). 재질 밀도 중앙값 < 1e-7 → 9810, 100~1e5 → 9.81. 그 밖(kg-mm-ms·g-cm-s·g-mm-ms 등)은 WARNING 후 옛 추정 → 반드시 지정 |
   | `InitialVelocityX/Y/Z` (필수) | 실수 리스트 | - | 추가 초기 속도 (각 케이스). Height 속도와 합산 |
-  | `InitialAngularVelocityX/Y/Z` (필수) | 실수 리스트 | - | 초기 각속도 (각 케이스) |
+  | `InitialAngularVelocityX/Y/Z` (필수) | 실수 리스트 | - | 초기 각속도 (각 케이스). *INITIAL_VELOCITY 의 절점 회전 속도(VXR~VZR)뿐이라 솔리드만인 기기는 돌지 않는다 — 기기 강체 회전은 RigidAngularVelocity 로 줄 것 (RigidAngularVelocity 를 쓰면 이 키는 뺀다) |
+  | `RigidAngularVelocityX/Y/Z` | 실수 리스트 | 없음 (강체 회전 없음) | 기기 강체 각속도 (바닥 좌표, rad/덱 시간, 각 케이스 — X·Y·Z 셋 모두 각도 수만큼). 각도마다 *INITIAL_VELOCITY 대신 *INITIAL_VELOCITY_GENERATION 을 쓴다: OMEGA = \|RotMat·ω\|, 축 = 단위(RotMat·ω), 중심 = 쓰는 덱 좌표의 기기 무게중심(RIGID_DROP_ENDTIME 과 같은 질량특성 — SPC 로 묶인 파트·바닥판 제외, 원점 이동 전에 재서 같은 만큼 옮기므로 *PART_INERTIA·*CNRB_INERTIA 질량도 제자리), VX~VZ = 기존과 같은 병진 속도, 기기 절점 셋 전체(STYP 3·IVATN 1)에 v + ω×(x − c). InitialAngularVelocity 와 같이 오거나 덱에 *INITIAL_VELOCITY 가 이미 있으면 종료 코드 1 (R16 Remark 1 — 두 키워드는 한 덱에 못 쓴다). 질량특성을 못 구하면(밀도 없는 파트·바닥판 자동 제외가 기기와 절점 공유·요소 든 미해석 *INCLUDE) 회전 중심이 틀리므로 종료 코드 1 ('[RigidAngularVelocity] CENTRE_FAILED'). 덱에 *_INERTIA 몸체가 있으면 경고(STYP 3 은 그 몸체 속도를 덮지 못한다 — IRIGID 는 STYP 3 에 안 쓰인다). 키 이름 전체가 같아야 한다 — 'RigidAngularVelocity,5' 처럼 비슷한 키는 종료 코드 1 |
   | `OffsetDistance` (필수) | 실수 | - | 바닥판과의 초기 간격 |
   | `Density` (필수) | 실수 | - | 바닥판 밀도 (RigidWall 이면 쓰지 않지만 키는 필요) |
   | `YoungsModulus` (필수) | 실수 | - | 바닥판 탄성계수 |
   | `PoissonRatio` (필수) | 실수 | - | 바닥판 포아송비 |
-  | `tFinal` | 실수 | 0 (필수로 줄 것) | 종료 시간. tFinal 과 dt 가 둘 다 0 이 아니어야 CONTROL/DATABASE 카드를 쓴다 |
+  | `tFinal` | 실수 | 0 (필수로 줄 것) | 종료 시간. tFinal 과 dt 가 둘 다 0 이 아니어야 CONTROL/DATABASE 카드를 쓴다 (EndTimeTable 이 있으면 각도마다 표 값) |
   | `dt` | 실수 | 0 (필수로 줄 것) | d3plot 출력 간격 (키 이름 정확히 dt) |
   | `DTMIN` | 실수 | 없음 | CONTROL_TERMINATION DTMIN — dt 붕괴 시 자동 종료 비율 |
+  | `EndTimeTable` | 경로 | 없음 (모든 각도가 tFinal 하나) | 각도별 종료 시간 표 csv (RIGID_DROP_ENDTIME 의 <base>_endtime.csv). 각도마다 낙하 방향이 0.01° 안으로 같은 줄의 endtim(덱 시간 단위)을 그 각도 덱의 ENDTIM 으로 쓰고 d3plot·INTFOR NPLTC = int(ENDTIM/dt) 를 다시 매긴다 — 한 각도·여러 각도 모두, 맞는 줄이 여럿이면 최대. 표에 없는 각도·잘못된 표·dt 없음은 덱을 쓰지 않고 종료 코드 1. 표 메타 time_unit(s·ms)이 덱 시간 단위(재질 밀도 중앙값 판정)와 다르면 종료 코드 1, 판정이 안 되면 경고만 한다. 표 메타 v0(√(2gh), 덱 단위)가 이 낙하의 √(2gh) 와 상대 1e-3 넘게 다르면(다른 높이·다른 g) 종료 코드 1 'V0_MISMATCH' — 양쪽 높이·g 를 찍는다. v0 가 있는 표에 0 이 아닌 InitialVelocity·각속도가 오면 종료 코드 1 'NOT_PURE_DROP'(표는 정지 낙하). 표 값이 tFinal 보다 길면 '[EndTimeTable] WARNING max ENDTIM=… (x… of tFinal) — raise time limits' 한 줄. 표 reach(첫 접촉점에서 바닥 위 접촉점까지 가장 먼 거리)가 메시 바닥판(Plane·PlaneGraded·PlanewithRoughness)의 충돌점 둘레 반폭보다 길면 각도마다 'WARNING plate reach' 와 요약(판 한 변 = 2·reach 이상 권장, RigidWall 은 무관). 키 이름 전체가 같아야 한다(대소문자 무관) — EndTimeTabel·'EndTimeTable;…'·쉼표 없는 'EndTimeTable /…' 처럼 비슷한 키는 종료 코드 1 '[DROP_ATTITUDE] UNKNOWN_KEY'. 상대 경로는 작업폴더 기준 |
   | `DropSurface` | 형식별 | Plane,0,0,0,10,10,10 | Plane,Lx,Ly,Lz,Nx,Ny,Nz \| PlaneGraded,Lx,Ly,Lz,Nx,Ny,Nz[,외곽층수=5[,비율=1.5]] \| RigidWall,0,0,0,0,0,0 \| PlanewithRoughness,Lx,Ly,Lz,Nx,Ny,Nz,모드,Rmax,SF1[,SF2] |
-  | `DeformableToRigid` | True/False | False | DEFORMABLE_TO_RIGID_AUTOMATIC 쌍 스위치(SWSET 20 code 2: 접촉력 0→강체 / SWSET 10 code 4: 접촉력 비0→변형체). 바닥판 접촉이 S2S 여야 켜진다(매뉴얼 Remark 1) — ConvertGeneralToSingleSurface=False 면 S2S 로 자동 선택 |
+  | `DeformableToRigid` | True/False | False | DEFORMABLE_TO_RIGID_AUTOMATIC 쌍 스위치(SWSET 20 code 2: 접촉력 0→강체 / SWSET 10 code 4: 접촉력 비0→변형체 — 덱 D2R 이 20·10 을 쓰면 비는 번호로 옮긴다). 바닥판 접촉이 S2S 여야 켜진다(매뉴얼 Remark 1) — ConvertGeneralToSingleSurface=False 면 S2S 로 자동 선택 |
   | `D2RTime1/D2RTime2/D2RTime3` | 실수 | 0 / 1e20 / 0 | 전환 검사 시작·종료 시각, 전환 간 최소 간격(TIME3, 0 이면 채터) |
   | `D2RNrbf/D2RNcsf/D2RRwf` | 정수 | 0 | 카드2 NRBF/NCSF/RWF |
   | `D2RDtmax/D2ROffset` | 실수 | 0 | 강체 전환 시 최대 dt / OFFSET |
@@ -55,7 +57,7 @@ description: |
   | `DropContact.InheritGeneral` | True/False | False | 바닥판 접촉 FS~VSF·OptCardA 를 원본 AUTOMATIC_GENERAL 에서 상속 (명시값 > 원본 > 기본값). RobustContact 시 SOFT·DEPTH 는 강제값 |
   | `DropContact.Type` | General/SurfaceToSurface | General (D2R 시 S2S 자동) | ConvertGeneralToSingleSurface=False 경로의 바닥판 접촉 유형. 키는 type/Type 대소문자 무관 |
   | `DropContact.Scope` | Outer/All | Outer | 바닥판 접촉 slave 파트 범위 (Outer = bbox 외곽 10% 자동 선별) |
-  | `TiedOptions.<필드>` | 실수/문자 | - | Tied 접촉 옵션. TiedOptions.ConvertToSegment,True 는 노드셋→세그먼트 변환 |
+  | `TiedOptions.<필드>` | 실수/문자 | - (덱 값) | Tied 접촉 옵션 (RobustContact,True 일 때). 준 칸만 *CONTACT_TIED_SURFACE_TO_SURFACE(_OFFSET)(_ID)·*CONTACT_TIED_SHELL_EDGE_TO_SURFACE_BEAM_OFFSET(_ID) 접촉에 덮어쓰고 안 준 칸은 덱 값 그대로 (SAST→SST·SBST→MST, FS·SOFT·THKOPT 등 카드 칸 이름 — 대문자만 맞고, 안 맞는 키는 경고하고 무시). TiedOptions.ConvertToSegment,True 는 노드셋→세그먼트 변환 |
   | `ControlTimestep.<필드>` | 실수 | - | *CONTROL_TIMESTEP 덮어쓰기 (TSSFAC, DT2MS 등) |
   | `ControlHourglass.<필드>` | 실수 | - | *CONTROL_HOURGLASS 덮어쓰기 (IHQ, QH) |
   | `DynainDynamicRelaxation` | True/False | False | 누적 스텝용 동적 이완(DR) 블록 |
@@ -165,9 +167,77 @@ description: |
   - RigidifySmallDtThreshold·DropContact.DTSTIF 처럼 이름에 dt 가 든 키도 dt 와 섞이지 않는다 (2026-09 수정).
   - ControlTimestep.DT2MS 음수 = 질량 스케일링 목표 dt.
 
+  # 사례 — 각도별 종료 시간 표(EndTimeTable)로 세 자세 — 각도마다 ENDTIM 이 다르다
+  ```text
+  *Inputfile
+  model.k
+  *Mode
+  DROP_ATTITUDE,1
+  **DropAttitude,1
+  EulerRolling,0,35.264,90
+  EulerPitching,0,45,0
+  EulerYawing,0,0,0
+  Gravity,9810
+  Height,1500,1500,1500
+  InitialVelocityX,0,0,0
+  InitialVelocityY,0,0,0
+  InitialVelocityZ,0,0,0
+  InitialAngularVelocityX,0,0,0
+  InitialAngularVelocityY,0,0,0
+  InitialAngularVelocityZ,0,0,0
+  OffsetDistance,0.05
+  Density,7.85e-09
+  YoungsModulus,200000.0
+  PoissonRatio,0.3
+  tFinal,0.005
+  dt,1e-05
+  EndTimeTable,/data/DropCampaign/endtime_presim/0/model_endtime.csv
+  DropSurface,RigidWall,0,0,0,0,0,0
+  **EndDropAttitude
+  *End
+  ```
+  - 표는 RIGID_DROP_ENDTIME(강체 낙하 사전 해석)이 만든 <base>_endtime.csv 다. 각도마다 낙하 방향이 0.01° 안으로 같은 줄의 endtim 이 그 각도 덱의 ENDTIM 이 된다.
+  - d3plot·INTFOR 출력 수 NPLTC = int(ENDTIM/dt) 도 각도마다 다시 매긴다. dt 는 출력 간격 그대로다(dt 가 없으면 종료 코드 1).
+  - 표에 없는 각도나 잘못된 표면 덱을 하나도 쓰지 않고 종료 코드 1 로 멈춘다(조용한 기본값 없음). 로그에 각도마다 '[EndTimeTable] roll=… pitch=… yaw=… ENDTIM=…' 한 줄.
+  - 키가 있으면 tFinal 은 각도마다 표 값으로 바뀐다. DynainDynamicRelaxationTerm 의 기본값(tFinal)은 옵션의 tFinal 그대로다.
+
+  # 사례 — 충격 직전 상태로 시작 — 자세·무게중심 속도·강체 각속도(RigidAngularVelocity), 두 경우
+  ```text
+  *Inputfile
+  model.k
+  *Mode
+  DROP_ATTITUDE,1
+  **DropAttitude,1
+  EulerRolling,12.5,-30
+  EulerPitching,40,15
+  EulerYawing,0,75
+  Gravity,9810
+  Height,0,0
+  InitialVelocityX,350,-120
+  InitialVelocityY,-80,40
+  InitialVelocityZ,-4200,-3900
+  RigidAngularVelocityX,15.2,-40
+  RigidAngularVelocityY,-3.5,22
+  RigidAngularVelocityZ,60,-8.5
+  OffsetDistance,0.05
+  Density,7.85e-09
+  YoungsModulus,200000.0
+  PoissonRatio,0.3
+  tFinal,0.003
+  dt,1e-05
+  DropSurface,RigidWall,0,0,0,0,0,0
+  **EndDropAttitude
+  *End
+  ```
+  - RigidAngularVelocity 는 바닥 좌표 각속도(rad/덱 시간)다. 각도마다 *INITIAL_VELOCITY 대신 *INITIAL_VELOCITY_GENERATION 한 장을 쓴다.
+  - OMEGA = |RotMat·ω|, 축 = 단위(RotMat·ω), 중심 = 쓰는 덱 좌표의 기기 무게중심, VX~VZ = RotMat·(InitialVelocity + 높이 속도). Height 0 이면 InitialVelocity 가 무게중심 속도다.
+  - 기기 절점 셋 전체(STYP 3·IVATN 1)에 v + ω×(x − c) 가 들어가 솔리드·강체 파트·CNRB 절점이 함께 돈다. 로그에 각도마다 '[RigidAngularVelocity] roll=… OMEGA=… axis=…' 한 줄.
+  - InitialAngularVelocity 줄은 쓰지 않는다 — 같이 오면 종료 코드 1.
+
   # 주의
-  - Euler/Height/InitialVelocity/InitialAngularVelocity 10 개 리스트 키와 OffsetDistance·Density·YoungsModulus·PoissonRatio 는 빠지면 KeyError 로 멈춘다.
+  - Euler/Height/InitialVelocity/InitialAngularVelocity 10 개 리스트 키와 OffsetDistance·Density·YoungsModulus·PoissonRatio 는 빠지면 KeyError 로 멈춘다 (RigidAngularVelocity 를 쓰면 InitialAngularVelocity 3개 대신 그 3개).
   - 블록 안 빈 줄에서 블록이 끝난다 — 뒤 키는 무시된다.
+  - 새 키(EndTimeTable·RigidAngularVelocityX/Y/Z)와 비슷하지만 이름이 다른 키는 종료 코드 1 ('[DROP_ATTITUDE] UNKNOWN_KEY') — 예전엔 'EndTimeTable;…/height/…' 이 Height 를 비워 IndexError 로 죽었다. 그 밖의 모르는 키는 예전처럼 무시된다.
   - 오일러 회전 순서 R = Rz·Ry·Rx (롤 → 피치 → 요).
   - 누적 낙하·전각도 DOE 는 KooChainRun 시나리오로 돌리는 편이 낫다 (KooChainRun --help drop).
 
@@ -184,6 +254,8 @@ description: |
   - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
   - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
   - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+  - 이 설명은 카탈로그를 만든 정본 판 기준이다(판은 COVERAGE.md·stmc_specs.json). 헤드·노드 이미지가 그보다 낮으면
+    새 키·모드·플래그가 없어 잡이 rc 1 로 끝날 수 있다 — `image_version_check` 로 깔린 판을 볼 것.
 
   # 옵션 파일 형식 (요약)
       KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.

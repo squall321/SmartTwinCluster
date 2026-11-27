@@ -23,7 +23,7 @@
             "boolean",
             "array"
           ],
-          "description": "경로 · 기본 - — 붙일 .k (ID 는 자동 재번호)"
+          "description": "경로 · 기본 - — 붙일 .k (파트·절점·요소·단면·셋·접촉 ID 는 기준 덱 뒤로 재번호)"
         }
       },
       "additionalProperties": {

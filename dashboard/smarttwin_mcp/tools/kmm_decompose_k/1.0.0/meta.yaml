@@ -27,7 +27,7 @@ description: |
   | `SeparateMaterials` | True/False | False | 그룹별 재료 분리 |
   | `SharedNodesPolicy` | duplicate 등 | duplicate | 그룹 경계 공유 절점 처리 |
   | `EmitGroupSets` | True/False | True | 그룹 SET 출력 |
-  | `ModelIndependentSplit` | True/False | - | controls.k 와 globals.k 분리 |
+  | `ModelIndependentSplit` | True/False | - | controls.k 와 globals.k 분리 — False 면 CONTROL·DATABASE 를 globals.k 에 함께 쓴다 |
   | `GroupBoundaryPolicy` | inline 등 | inline | 그룹 간 요소 처리 |
 
   # 사례 — 하우징·배터리 두 그룹으로 분해
@@ -65,6 +65,8 @@ description: |
   - 제출 응답의 job_id 로 `tool_result` 를 부르면 상태·rc·산출물 목록·로그 꼬리·작은 텍스트 산출물이 온다.
   - 결과 폴더는 /data/single/<사용자>/<job_name>_<job_id>/ — work/(입력·산출물), stmc_result.json, stmc_stdout.log.
   - 계산은 호출자 권한으로 Slurm 잡 하나로 돈다(backend_5010 경유, SIF 안에서 실행). 실제 제출에는 PAT 가 필요하다.
+  - 이 설명은 카탈로그를 만든 정본 판 기준이다(판은 COVERAGE.md·stmc_specs.json). 헤드·노드 이미지가 그보다 낮으면
+    새 키·모드·플래그가 없어 잡이 rc 1 로 끝날 수 있다 — `image_version_check` 로 깔린 판을 볼 것.
 
   # 옵션 파일 형식 (요약)
       KooMeshModifier 는 LS-DYNA .k 모델과 옵션 파일(.txt) 하나를 받아 수정된 .k 를 만든다.
